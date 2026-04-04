@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt,
-    fs::File,
+    fs::{self, File},
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
 };
@@ -314,6 +314,14 @@ pub fn warmup_proof(assets: &BenchAssets) -> Arc<BenchProof> {
         return existing;
     }
 
+    if let Some(existing) = load_persisted_bench_proof(assets.case.name) {
+        cache
+            .lock()
+            .expect("bench proof cache poisoned")
+            .insert(assets.case.name, Arc::clone(&existing));
+        return existing;
+    }
+
     let (output_memtable, proof) = run_prover_once(assets);
     let bench_proof = save_proof(assets.case.name, &proof, output_memtable);
 
@@ -356,10 +364,11 @@ pub fn cache_proof_in_memory_if_absent(
             .len(),
     });
     guard.insert(case_name, Arc::clone(&bench_proof));
+    persist_bench_proof(case_name, &bench_proof);
     bench_proof
 }
 
-pub fn save_proof(_case_name: &str, proof: &TTProof<B>, output_memtable: Arc<MemTable>) -> Arc<BenchProof> {
+pub fn save_proof(case_name: &str, proof: &TTProof<B>, output_memtable: Arc<MemTable>) -> Arc<BenchProof> {
     let snark_proof_bytes = proof
         .as_snark_proof()
         .to_bytes()
@@ -375,13 +384,15 @@ pub fn save_proof(_case_name: &str, proof: &TTProof<B>, output_memtable: Arc<Mem
         .expect("serialize compressed proof for bench size accounting")
         .len();
 
-    Arc::new(BenchProof {
+    let bench_proof = Arc::new(BenchProof {
         proof: proof.clone(),
         output_memtable,
         snark_proof_bytes,
         optimization_hint_bytes,
         compressed_proof_bytes,
-    })
+    });
+    persist_bench_proof(case_name, &bench_proof);
+    bench_proof
 }
 
 pub fn log_proof_size_once(case_name: &'static str, _query: &'static str, proof: &BenchProof) {
@@ -596,6 +607,117 @@ fn block_on_verifier<F: std::future::Future>(future: F) -> F::Output {
         .build()
         .expect("build single-thread verifier runtime")
         .block_on(future)
+}
+
+fn bench_proof_cache_dir() -> PathBuf {
+    PathBuf::from("target").join("bench-proof-cache")
+}
+
+fn bench_proof_cache_paths(case_name: &str) -> (PathBuf, PathBuf) {
+    let base = bench_proof_cache_dir().join(case_name);
+    (
+        base.with_extension("proof"),
+        base.with_extension("result.parquet"),
+    )
+}
+
+fn load_persisted_bench_proof(case_name: &str) -> Option<Arc<BenchProof>> {
+    let (proof_path, result_path) = bench_proof_cache_paths(case_name);
+    if !proof_path.exists() || !result_path.exists() {
+        return None;
+    }
+
+    let proof = TTProof::<B>::load(&proof_path).ok()?;
+    let output_memtable = block_on(load_result_memtable(&result_path)).ok()?;
+
+    Some(Arc::new(BenchProof {
+        snark_proof_bytes: proof.as_snark_proof().to_bytes().ok()?.len(),
+        optimization_hint_bytes: proof.optimization_hints().to_bytes().ok()?.len(),
+        compressed_proof_bytes: proof.to_bytes().ok()?.len(),
+        proof,
+        output_memtable,
+    }))
+}
+
+fn persist_bench_proof(case_name: &str, bench_proof: &BenchProof) {
+    let (proof_path, result_path) = bench_proof_cache_paths(case_name);
+    let Some(parent) = proof_path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    if bench_proof.proof.save(&proof_path).is_err() {
+        return;
+    }
+    let _ = block_on(write_result_parquet(
+        &result_path,
+        Arc::clone(&bench_proof.output_memtable),
+    ));
+}
+
+async fn write_result_parquet(path: &std::path::Path, mem_table: Arc<MemTable>) -> Result<()> {
+    use datafusion::parquet::arrow::ArrowWriter;
+
+    if let Some(parent) = path.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+
+    let ctx = SessionContext::new();
+    let table: Arc<dyn TableProvider> = mem_table;
+    let df = ctx
+        .read_table(table)
+        .context("failed to read bench output memtable")?;
+    let logical_schema = df.schema().inner().clone();
+    let batches = df
+        .collect()
+        .await
+        .context("failed to collect bench output memtable")?;
+    let schema = batches
+        .first()
+        .map(|batch| batch.schema())
+        .unwrap_or(logical_schema);
+
+    let file = File::create(path)
+        .with_context(|| format!("failed to create bench result parquet {}", path.display()))?;
+    let mut writer = ArrowWriter::try_new(file, schema, None)
+        .context("failed to create parquet writer for bench result")?;
+    for batch in &batches {
+        writer
+            .write(batch)
+            .context("failed to write bench result batch to parquet")?;
+    }
+    writer
+        .close()
+        .context("failed to finalize bench result parquet")?;
+    Ok(())
+}
+
+async fn load_result_memtable(path: &std::path::Path) -> Result<Arc<MemTable>> {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .read_parquet(
+            path.to_str()
+                .context("bench result parquet path must be valid UTF-8")?,
+            ParquetReadOptions::default(),
+        )
+        .await
+        .with_context(|| format!("failed to read bench result parquet {}", path.display()))?;
+    let logical_schema = df.schema().as_arrow().clone();
+    let batches = df
+        .collect()
+        .await
+        .with_context(|| format!("failed to collect bench result parquet {}", path.display()))?;
+    let schema = batches
+        .first()
+        .map(|batch| batch.schema())
+        .unwrap_or_else(|| Arc::new(logical_schema));
+    let mem_table = MemTable::try_new(schema, vec![batches])
+        .context("failed to rebuild bench output memtable from result parquet")?;
+    Ok(Arc::new(mem_table))
 }
 
 fn format_bytes(byte_len: usize) -> String {
