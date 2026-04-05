@@ -53,7 +53,10 @@ impl<B: SnarkBackend> TrackingPass<B> {
         }
     }
 
-    pub async fn finish(&self, tracked_ir: &mut crate::verifier::irs::TrackedIr<B>) -> TTResult<()> {
+    pub async fn finish(
+        &self,
+        tracked_ir: &mut crate::verifier::irs::TrackedIr<B>,
+    ) -> TTResult<()> {
         let Some(output_memtable) = self.output_memtable.clone() else {
             return Ok(());
         };
@@ -336,11 +339,10 @@ impl<B: SnarkBackend> TrackingPass<B> {
             .map(|(field_ref, mle)| {
                 let poly_evals = mle.evaluations();
                 let num_vars = mle.num_vars();
-                let oracle =
-                    ark_piop::verifier::structs::oracle::Oracle::new_multivariate(
-                        arith_table.log_size(),
-                        move |point| Ok(eval_mle_at_point(&poly_evals, num_vars, &point)),
-                    );
+                let oracle = ark_piop::verifier::structs::oracle::Oracle::new_multivariate(
+                    arith_table.log_size(),
+                    move |point| Ok(eval_mle_at_point(&poly_evals, num_vars, &point)),
+                );
                 let tracked_oracle = verifier.borrow().track_oracle(oracle);
                 (field_ref.clone(), tracked_oracle)
             })

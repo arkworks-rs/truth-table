@@ -466,11 +466,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             let tie_table = prepend_first_tie_indicator_verifier(tie_table);
             updated_tie_table_owned = Some(tie_table.clone());
             Some(tie_table)
-        } else { input_table.map(|input_table| TrackedTableOracle::new(
-                None,
-                IndexMap::new(),
-                input_table.log_size(),
-            )) };
+        } else {
+            input_table.map(|input_table| {
+                TrackedTableOracle::new(None, IndexMap::new(), input_table.log_size())
+            })
+        };
 
         if let Some(bool_table) = bool_table.as_ref() {
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.

@@ -75,40 +75,41 @@ where
         match payload? {
             ArithPayload::PlanPayload(arith_table) => {
                 if node.name() == "TableScan"
-                    && let Some(schema) = arith_table.schema() {
-                        if let Some(oracle) = self.ctx_oracles.table_oracle_for_schema(&schema) {
-                            // A cached table-scan commitment is only safe to reuse when it lives
-                            // on the same multilinear domain as the current arithmetized table.
-                            if oracle.log_size() == arith_table.log_size() {
-                                debug!(
-                                    node = %node.name(),
-                                    num = %oracle.comitments().len(),
-                                    log_size = oracle.log_size(),
-                                    "commitment loaded"
-                                );
-                                self.total_ctx_loaded
-                                    .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
-                                return Some(CommittedPayload::PlanPayload(
-                                    oracle.clone().with_external_commitment_source(true),
-                                ));
-                            }
-                            panic!(
-                                "TableScan oracle log_size mismatch for schema {:?}: oracle={}, arith={}",
-                                schema,
-                                oracle.log_size(),
-                                arith_table.log_size()
+                    && let Some(schema) = arith_table.schema()
+                {
+                    if let Some(oracle) = self.ctx_oracles.table_oracle_for_schema(&schema) {
+                        // A cached table-scan commitment is only safe to reuse when it lives
+                        // on the same multilinear domain as the current arithmetized table.
+                        if oracle.log_size() == arith_table.log_size() {
+                            debug!(
+                                node = %node.name(),
+                                num = %oracle.comitments().len(),
+                                log_size = oracle.log_size(),
+                                "commitment loaded"
                             );
+                            self.total_ctx_loaded
+                                .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
+                            return Some(CommittedPayload::PlanPayload(
+                                oracle.clone().with_external_commitment_source(true),
+                            ));
                         }
-                        if self.allow_table_scan_commit_without_ctx {
-                            let commited_payloadd =
-                                arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
-                            debug!( node = %node.name(), num=commited_payloadd.comitments().len(), "committed");
-                            self.total_committed
-                                .fetch_add(commited_payloadd.comitments().len(), Ordering::Relaxed);
-                            return Some(CommittedPayload::PlanPayload(commited_payloadd));
-                        }
-                        panic!("Missing ctx_oracle for TableScan schema {:?}", schema);
+                        panic!(
+                            "TableScan oracle log_size mismatch for schema {:?}: oracle={}, arith={}",
+                            schema,
+                            oracle.log_size(),
+                            arith_table.log_size()
+                        );
                     }
+                    if self.allow_table_scan_commit_without_ctx {
+                        let commited_payloadd =
+                            arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
+                        debug!( node = %node.name(), num=commited_payloadd.comitments().len(), "committed");
+                        self.total_committed
+                            .fetch_add(commited_payloadd.comitments().len(), Ordering::Relaxed);
+                        return Some(CommittedPayload::PlanPayload(commited_payloadd));
+                    }
+                    panic!("Missing ctx_oracle for TableScan schema {:?}", schema);
+                }
                 let commited_payloadd = arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
                 debug!( node = %node.name(), num=commited_payloadd.comitments().len(), "committed");
                 self.total_committed

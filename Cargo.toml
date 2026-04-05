@@ -2,13 +2,13 @@
 resolver = "3"
 edition = "2024"
 members = [
-    "col-toolbox",
-    "arithmetic",
-    "tpch-data",
-    "exec",
+    "tt-col-toolbox",
+    "tt-arithmetic",
+    "tt-tpch-data",
+    "tt-exec",
     "tt-core",
-    "proof-planner",
-    "front-end",
+    "tt-proof-planner",
+    "tt-front-end",
 ]
 exclude = ["third-party-bench"]
 
@@ -85,6 +85,6 @@ ark-bn254 = { git = "https://github.com/arkworks-rs/algebra" }
 
 
 [workspace.metadata.cargo-alias]
-test-all = "sh scripts/test.sh"
+test-all = "sh tt-scripts/test.sh"
 [profile.release]
 incremental = true

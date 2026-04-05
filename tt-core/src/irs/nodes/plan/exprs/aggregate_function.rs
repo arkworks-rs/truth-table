@@ -44,22 +44,23 @@ impl<B: SnarkBackend> ExprNode<B> {
     fn output_column_name_in_parent(&self) -> String {
         let parent_plan = self.parent();
         if let crate::irs::nodes::PlanNode::LpBased(lp_node) = parent_plan
-            && let LogicalPlan::Aggregate(aggregate) = lp_node.lp() {
-                let target = Expr::AggregateFunction(self.aggregate_function.clone());
-                for expr in &aggregate.aggr_expr {
-                    match expr {
-                        Expr::Alias(alias) if *alias.expr == target => {
-                            return alias.name.clone();
-                        }
-                        Expr::AggregateFunction(func) if *func == self.aggregate_function => {
-                            return Expr::AggregateFunction(func.clone())
-                                .schema_name()
-                                .to_string();
-                        }
-                        _ => {}
+            && let LogicalPlan::Aggregate(aggregate) = lp_node.lp()
+        {
+            let target = Expr::AggregateFunction(self.aggregate_function.clone());
+            for expr in &aggregate.aggr_expr {
+                match expr {
+                    Expr::Alias(alias) if *alias.expr == target => {
+                        return alias.name.clone();
                     }
+                    Expr::AggregateFunction(func) if *func == self.aggregate_function => {
+                        return Expr::AggregateFunction(func.clone())
+                            .schema_name()
+                            .to_string();
+                    }
+                    _ => {}
                 }
             }
+        }
         self.output_column_name()
     }
     fn dispatch_gadget(aggregate_function: &AggregateFunction) -> Option<Arc<Node<B>>> {
@@ -227,19 +228,19 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             if let Some(lookup_node) = lookup_child_from_aggregate_parent(&parent_node)
                 && let Some(PayloadStructure::GadgetPayload(lookup_payload)) =
                     virtualized_ir.payload_for_node(&lookup_node.id())
-                    && let Some(multiplicities_table) = lookup_payload
-                        .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
-                {
-                    let count_table = count_table_from_multiplicities(
-                        multiplicities_table,
-                        &self.output_column_name_in_parent(),
-                    );
-                    // Emit a virtual table named after the COUNT output column, backed by
-                    // the multiplicity polynomial (plus system columns).
-                    virtualized_ir
-                        .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
-                    return Ok(());
-                }
+                && let Some(multiplicities_table) = lookup_payload
+                    .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+            {
+                let count_table = count_table_from_multiplicities(
+                    multiplicities_table,
+                    &self.output_column_name_in_parent(),
+                );
+                // Emit a virtual table named after the COUNT output column, backed by
+                // the multiplicity polynomial (plus system columns).
+                virtualized_ir
+                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
+                return Ok(());
+            }
             // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
             // a constant-one column aligned with the parent input activator.
             let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
@@ -518,19 +519,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             if let Some(lookup_node) = lookup_child_from_aggregate_parent(&parent_node)
                 && let Some(PayloadStructure::GadgetPayload(lookup_payload)) =
                     virtualized_ir.payload_for_node(&lookup_node.id())
-                    && let Some(multiplicities_table) = lookup_payload
-                        .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
-                {
-                    let count_table = count_table_from_multiplicities_oracle(
-                        multiplicities_table,
-                        &self.output_column_name_in_parent(),
-                    );
-                    // Emit a virtual table named after the COUNT output column, backed by
-                    // the multiplicity oracle (plus system columns).
-                    virtualized_ir
-                        .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
-                    return Ok(());
-                }
+                && let Some(multiplicities_table) = lookup_payload
+                    .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+            {
+                let count_table = count_table_from_multiplicities_oracle(
+                    multiplicities_table,
+                    &self.output_column_name_in_parent(),
+                );
+                // Emit a virtual table named after the COUNT output column, backed by
+                // the multiplicity oracle (plus system columns).
+                virtualized_ir
+                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
+                return Ok(());
+            }
             // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
             // a constant-one oracle aligned with the parent input activator.
             let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(

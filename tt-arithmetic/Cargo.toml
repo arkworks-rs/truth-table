@@ -1,0 +1,35 @@
+[package]
+name = "tt-arithmetic"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["std", "parallel"]
+std = []
+parallel = [
+    "ark-ff/parallel",
+    "ark-serialize/parallel",
+    "ark-piop/parallel",
+]
+
+[dependencies]
+# arkworks dependencies
+ark-ff = { workspace = true }
+ark-piop = { workspace = true }
+ark-serialize = { workspace = true }
+# datafusion dependencies
+datafusion = { workspace = true }
+datafusion-expr = { workspace = true }
+datafusion-common = { workspace = true }
+
+# other dependencies
+thiserror = { workspace = true }
+derivative = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+once_cell = { workspace = true }
+
+[dev-dependencies]
+ark-test-curves = { workspace = true }

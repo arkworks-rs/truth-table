@@ -1398,21 +1398,22 @@ pub fn deserialize_empty_ir<B: SnarkBackend>(bytes: &[u8]) -> TTResult<EmptyIr<B
 
 fn collect_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, out: &mut Vec<JoinModeRepr>) {
     if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref()
-        && matches!(lp_node.lp(), LogicalPlan::Join(_)) {
-            let mode = node
-                .children()
-                .iter()
-                .find_map(|child| {
-                    let Node::Gadget(gadget) = child.as_ref() else {
-                        return None;
-                    };
-                    let any = gadget.as_ref() as &dyn Any;
-                    any.downcast_ref::<gadget_join::GadgetNode<B>>()
-                        .map(|join_gadget| join_gadget.join_mode())
-                })
-                .unwrap_or(gadget_join::JoinMode::MANY_TO_MANY);
-            out.push(JoinModeRepr::from_join_mode(mode));
-        }
+        && matches!(lp_node.lp(), LogicalPlan::Join(_))
+    {
+        let mode = node
+            .children()
+            .iter()
+            .find_map(|child| {
+                let Node::Gadget(gadget) = child.as_ref() else {
+                    return None;
+                };
+                let any = gadget.as_ref() as &dyn Any;
+                any.downcast_ref::<gadget_join::GadgetNode<B>>()
+                    .map(|join_gadget| join_gadget.join_mode())
+            })
+            .unwrap_or(gadget_join::JoinMode::MANY_TO_MANY);
+        out.push(JoinModeRepr::from_join_mode(mode));
+    }
 
     for child in node.children() {
         collect_join_modes(&child, out);
@@ -1421,20 +1422,21 @@ fn collect_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, out: &mut Vec<JoinMo
 
 fn apply_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, modes: &[JoinModeRepr], idx: &mut usize) {
     if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref()
-        && matches!(lp_node.lp(), LogicalPlan::Join(_)) {
-            if let Some(mode) = modes.get(*idx) {
-                for child in node.children() {
-                    let Node::Gadget(gadget) = child.as_ref() else {
-                        continue;
-                    };
-                    let any = gadget.as_ref() as &dyn Any;
-                    if let Some(join_gadget) = any.downcast_ref::<gadget_join::GadgetNode<B>>() {
-                        join_gadget.set_join_mode(mode.to_join_mode());
-                    }
+        && matches!(lp_node.lp(), LogicalPlan::Join(_))
+    {
+        if let Some(mode) = modes.get(*idx) {
+            for child in node.children() {
+                let Node::Gadget(gadget) = child.as_ref() else {
+                    continue;
+                };
+                let any = gadget.as_ref() as &dyn Any;
+                if let Some(join_gadget) = any.downcast_ref::<gadget_join::GadgetNode<B>>() {
+                    join_gadget.set_join_mode(mode.to_join_mode());
                 }
             }
-            *idx += 1;
         }
+        *idx += 1;
+    }
 
     for child in node.children() {
         apply_join_modes(&child, modes, idx);

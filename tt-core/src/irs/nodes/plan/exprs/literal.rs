@@ -1,4 +1,3 @@
-
 use crate::irs::{
     nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,

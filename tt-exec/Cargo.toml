@@ -1,0 +1,63 @@
+[package]
+name = "tt-exec"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# local dependencies
+tt-core = { path = "../tt-core" }
+proof-planner = { package = "tt-proof-planner", path = "../tt-proof-planner" }
+arithmetic = { package = "tt-arithmetic", path = "../tt-arithmetic" }
+tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data" }
+front-end = { package = "tt-front-end", path = "../tt-front-end" }
+
+# arkworks dependencies
+ark-piop = { workspace = true, features = ["test-utils"] }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+ark-test-curves = { workspace = true }
+
+# datafusion dependencies
+datafusion = { workspace = true }
+
+# other dependencies
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+indexmap = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+parquet = { workspace = true }
+[dev-dependencies]
+ark-test-curves = { workspace = true }
+divan = { workspace = true }
+tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data" }
+tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-tree = "0.4"
+chrono = "0.4"
+serde_json = { workspace = true }
+bincode = { workspace = true }
+
+[[bench]]
+name = "benches"
+harness = false
+
+
+[features]
+default = ["std", "parallel"]
+std = []
+parallel = [
+    "std",
+    "ark-ff/parallel",
+    "ark-serialize/parallel",
+    "ark-piop/parallel",
+    "arithmetic/parallel",
+    "tt-core/parallel",
+]
+honest-prover = [
+    "ark-piop/honest-prover",
+    "front-end/honest-prover",
+    "tt-core/honest-prover",
+]
+test-utils = ["tt-core/test-utils"]

@@ -6,9 +6,9 @@ edition = "2024"
 [dependencies]
 
 # local dependencies
-arithmetic = { path = "../arithmetic" }
-col-toolbox = { path = "../col-toolbox" }
-tpch-data = { path = "../tpch-data", optional = true }
+arithmetic = { package = "tt-arithmetic", path = "../tt-arithmetic" }
+col-toolbox = { package = "tt-col-toolbox", path = "../tt-col-toolbox" }
+tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data", optional = true }
 
 # arkworks dependencies
 ark-std = { workspace = true }
@@ -42,7 +42,7 @@ bincode = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 libc = { workspace = true }
-tpch-data = { path = "../tpch-data" }
+tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data" }
 datafusion-functions-aggregate = { workspace = true }
 
 

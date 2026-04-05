@@ -1,0 +1,38 @@
+{
+   "benches": {
+      "tpch": {
+         "tpch_q18_tt": {
+            "prover": {
+               "sample_count": 1,
+               "iter_count": 1,
+               "time": {
+                  "fastest": "1.071 m",
+                  "slowest": "1.071 m",
+                  "median": "1.071 m",
+                  "mean": "1.071 m"
+               }
+            },
+            "verifier_crypto": {
+               "sample_count": 100,
+               "iter_count": 100,
+               "time": {
+                  "fastest": "11.85 ms",
+                  "slowest": "15.28 ms",
+                  "median": "13.17 ms",
+                  "mean": "13.17 ms"
+               }
+            },
+            "verifier_full": {
+               "sample_count": 100,
+               "iter_count": 100,
+               "time": {
+                  "fastest": "24.56 ms",
+                  "slowest": "28 ms",
+                  "median": "26.28 ms",
+                  "mean": "26.35 ms"
+               }
+            }
+         }
+      }
+   }
+}

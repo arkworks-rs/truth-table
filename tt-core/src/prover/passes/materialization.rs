@@ -299,12 +299,9 @@ pub fn inactive_padding_scalar(
             datafusion::arrow::datatypes::DataType::BinaryView => {
                 Ok(ScalarValue::BinaryView(Some(Vec::new())))
             }
-            datafusion::arrow::datatypes::DataType::FixedSizeBinary(size) => {
-                Ok(ScalarValue::FixedSizeBinary(
-                    *size,
-                    Some(vec![0; *size as usize]),
-                ))
-            }
+            datafusion::arrow::datatypes::DataType::FixedSizeBinary(size) => Ok(
+                ScalarValue::FixedSizeBinary(*size, Some(vec![0; *size as usize])),
+            ),
             _ => Err(DataFusionError::NotImplemented(format!(
                 "unsupported inactive padding type: {data_type:?}"
             ))),
@@ -580,9 +577,10 @@ fn projection_expr_for_field(schema: &DFSchema, field: &FieldRef) -> Expr {
         && let Some((qualifier, _)) = schema.iter().find(|(q, f)| {
             f.name() == name
                 && q.as_ref().map(|q| q.to_string()) == Some(qualifier_meta.to_string())
-        }) {
-            return Expr::Column(Column::new(qualifier.cloned(), name));
-        }
+        })
+    {
+        return Expr::Column(Column::new(qualifier.cloned(), name));
+    }
     if let Some((qualifier, _)) = schema.iter().find(|(_, f)| f.name() == name) {
         return Expr::Column(Column::new(qualifier.cloned(), name));
     }

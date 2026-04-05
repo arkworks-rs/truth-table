@@ -158,34 +158,22 @@ fn build_indexed_join_frames_impl(
     let output_left = indexed
         .clone()
         .select(with_helper_col(
-            left_indexed_aliases
-                .iter()
-                .map(col)
-                .collect::<Vec<_>>(),
+            left_indexed_aliases.iter().map(col).collect::<Vec<_>>(),
             "__row_number__",
         ))?
         .sort(vec![col("__row_number__").sort(true, true)])?
         .select(with_activator_only(
-            left_indexed_aliases
-                .iter()
-                .map(col)
-                .collect::<Vec<_>>(),
+            left_indexed_aliases.iter().map(col).collect::<Vec<_>>(),
         ))?;
     let output_right = indexed
         .clone()
         .select(with_helper_col(
-            right_indexed_aliases
-                .iter()
-                .map(col)
-                .collect::<Vec<_>>(),
+            right_indexed_aliases.iter().map(col).collect::<Vec<_>>(),
             "__row_number__",
         ))?
         .sort(vec![col("__row_number__").sort(true, true)])?
         .select(with_activator_only(
-            right_indexed_aliases
-                .iter()
-                .map(col)
-                .collect::<Vec<_>>(),
+            right_indexed_aliases.iter().map(col).collect::<Vec<_>>(),
         ))?;
 
     // Step 3 only needs a valid immediate-parent row id for each output-side

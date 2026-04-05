@@ -388,9 +388,9 @@ fn resolve_column_expr(schema: &DFSchema, column: &Column) -> datafusion_expr::E
         && schema
             .iter()
             .any(|(qualifier, field)| field.name() == name && qualifier.as_ref() == Some(&relation))
-        {
-            return datafusion_expr::Expr::Column(column.clone());
-        }
+    {
+        return datafusion_expr::Expr::Column(column.clone());
+    }
 
     if let Some((qualifier, _)) = schema.iter().find(|(_, field)| field.name() == name) {
         return datafusion_expr::Expr::Column(Column::new(qualifier.cloned(), name));

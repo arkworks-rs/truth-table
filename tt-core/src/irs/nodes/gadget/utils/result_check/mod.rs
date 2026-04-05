@@ -1,23 +1,18 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::{PrimeField, Zero};
-use ark_piop::{
-    SnarkBackend,
-    errors::SnarkError,
-    piop::PIOP,
-};
+use ark_piop::{SnarkBackend, errors::SnarkError, piop::PIOP};
 use indexmap::IndexMap;
 
 use crate::{
+    irs::nodes::gadget::utils::nodup::perm_check::{
+        PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput,
+    },
     irs::{
         nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
         payloads::PayloadStructure,
     },
-    irs::nodes::gadget::utils::nodup::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };

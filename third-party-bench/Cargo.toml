@@ -12,7 +12,7 @@ BLITZAR_BACKEND = "cpu"
 arrow-arith = { path = "patches/arrow-arith-51.0.0" }
 
 [package]
-name = "third-party-bench"
+name = "tt-third-party-bench"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -22,8 +22,8 @@ autobenches = false
 proof-of-sql-benchlib = { path = "../../sxt-proof-of-sql/crates/proof-of-sql-benchlib" }
 proof-of-sql = { path = "../../sxt-proof-of-sql/crates/proof-of-sql" }
 qedb = { path = "../../qedb" }
-tpch-data = { path = "../tpch-data" }
-exec = { path = "../exec" }
+tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data" }
+exec = { package = "tt-exec", path = "../tt-exec" }
 tokio = { version = "1", features = ["rt", "macros"] }
 parquet = { version = "57" }
 tracing = "0.1"

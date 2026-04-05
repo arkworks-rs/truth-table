@@ -1,9 +1,9 @@
 use ark_piop::{SnarkBackend, prover::ArgProver};
+use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::{
     datasource::{MemTable, TableProvider},
     prelude::SessionContext,
 };
-use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion_common::DataFusionError;
 
 use crate::irs::nodes::IsNode;
@@ -24,7 +24,10 @@ use crate::{
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::ArithTableOracle;
 use indexmap::IndexMap;
-use std::{cell::{Cell, RefCell}, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    sync::Arc,
+};
 use tracing::{debug, info};
 /// A tracking pass that tracks the prover's arithmetized tables using commitments.
 ///
@@ -64,8 +67,7 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
         let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
-        let tracked_table =
-            Self::track_arith_table_without_commitment(&arith_table, &self.prover)?;
+        let tracked_table = Self::track_arith_table_without_commitment(&arith_table, &self.prover)?;
         let gadget_id = root
             .children()
             .into_iter()
@@ -84,7 +86,9 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
         );
         tracked_ir.set_payload_for_node(
             gadget_id,
-            Some(crate::irs::payloads::PayloadStructure::GadgetPayload(gadget_payload)),
+            Some(crate::irs::payloads::PayloadStructure::GadgetPayload(
+                gadget_payload,
+            )),
         );
         Ok(())
     }
