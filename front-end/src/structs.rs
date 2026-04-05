@@ -15,7 +15,7 @@ use tracing::debug;
 use tt_core::errors::TTResult;
 use zstd::stream::{decode_all as zstd_decode_all, encode_all as zstd_encode_all};
 
-pub use ark_piop::artifact::Artifact;
+pub use ark_piop::artifact::{Artifact, SizeBreakdown};
 
 /// Zstd compression level used when serializing `TTProof` artifacts.
 ///
@@ -75,109 +75,20 @@ impl<B: SnarkBackend> TTProof<B> {
     pub fn optimization_hints(&self) -> &OptimizationHints {
         &self.optimization_hints
     }
-
-    pub fn snark_proof_size_breakdown_bytes(&self) -> SnarkProofSizeBreakdown
-    where
-        SNARKProof<B>: CanonicalSerialize,
-    {
-        let sc_subproof = self.snark_proof.sc_subproof.serialized_size(Compress::Yes);
-
-        let mv_opening_proof = self
-            .snark_proof
-            .mv_pcs_subproof
-            .opening_proof
-            .serialized_size(Compress::Yes);
-        let mv_commitments = self
-            .snark_proof
-            .mv_pcs_subproof
-            .comitments
-            .serialized_size(Compress::Yes);
-        let mv_query_map = self
-            .snark_proof
-            .mv_pcs_subproof
-            .query_map
-            .serialized_size(Compress::Yes);
-        let mv_pcs_subproof = self
-            .snark_proof
-            .mv_pcs_subproof
-            .serialized_size(Compress::Yes);
-
-        let uv_opening_proof = self
-            .snark_proof
-            .uv_pcs_subproof
-            .opening_proof
-            .serialized_size(Compress::Yes);
-        let uv_commitments = self
-            .snark_proof
-            .uv_pcs_subproof
-            .comitments
-            .serialized_size(Compress::Yes);
-        let uv_query_map = self
-            .snark_proof
-            .uv_pcs_subproof
-            .query_map
-            .serialized_size(Compress::Yes);
-        let uv_pcs_subproof = self
-            .snark_proof
-            .uv_pcs_subproof
-            .serialized_size(Compress::Yes);
-
-        let miscellaneous_field_elements = self
-            .snark_proof
-            .miscellaneous_field_elements
-            .serialized_size(Compress::Yes);
-        let total = self.snark_proof.serialized_size(Compress::Yes);
-
-        SnarkProofSizeBreakdown {
-            sc_subproof,
-            mv_pcs_subproof,
-            mv_pcs_subproof_parts: PCSSubproofSizeBreakdown {
-                opening_proof: mv_opening_proof,
-                commitments: mv_commitments,
-                query_map: mv_query_map,
-                total: mv_pcs_subproof,
-            },
-            uv_pcs_subproof,
-            uv_pcs_subproof_parts: PCSSubproofSizeBreakdown {
-                opening_proof: uv_opening_proof,
-                commitments: uv_commitments,
-                query_map: uv_query_map,
-                total: uv_pcs_subproof,
-            },
-            miscellaneous_field_elements,
-            total,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug)]
-pub struct PCSSubproofSizeBreakdown {
-    pub opening_proof: usize,
-    pub commitments: usize,
-    pub query_map: usize,
-    pub total: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct SnarkProofSizeBreakdown {
-    pub sc_subproof: usize,
-    pub mv_pcs_subproof: usize,
-    pub mv_pcs_subproof_parts: PCSSubproofSizeBreakdown,
-    pub uv_pcs_subproof: usize,
-    pub uv_pcs_subproof_parts: PCSSubproofSizeBreakdown,
-    pub miscellaneous_field_elements: usize,
-    pub total: usize,
 }
 
 impl<B> Artifact for TTVk<B>
 where
     B: SnarkBackend,
 {
+    /// Serialize the wrapped SNARK verifier key as an uncompressed artifact.
     fn to_bytes(&self) -> SnarkResult<Vec<u8>> {
         let mut buffer = Vec::new();
         self.snark_vk.serialize_uncompressed(&mut buffer)?;
         Ok(buffer)
     }
 
+    /// Load the wrapped SNARK verifier key from uncompressed artifact bytes.
     fn from_bytes(bytes: &[u8]) -> SnarkResult<Self> {
         let mut cursor = Cursor::new(bytes);
         Ok(Self {
@@ -191,12 +102,14 @@ where
     B: SnarkBackend,
     SNARKPk<B>: CanonicalSerialize + CanonicalDeserialize,
 {
+    /// Serialize the wrapped SNARK prover key as an uncompressed artifact.
     fn to_bytes(&self) -> SnarkResult<Vec<u8>> {
         let mut buffer = Vec::new();
         self.snark_pk.serialize_uncompressed(&mut buffer)?;
         Ok(buffer)
     }
 
+    /// Load the wrapped SNARK prover key from uncompressed artifact bytes.
     fn from_bytes(bytes: &[u8]) -> SnarkResult<Self> {
         let mut cursor = Cursor::new(bytes);
         Ok(Self {
@@ -210,12 +123,14 @@ where
     B: SnarkBackend,
     SNARKProof<B>: CanonicalSerialize + CanonicalDeserialize,
 {
+    /// Serialize the canonical proof bytes and then zstd-compress the full artifact.
     fn to_bytes(&self) -> SnarkResult<Vec<u8>> {
         let mut raw_bytes = Vec::new();
         self.serialize_compressed(&mut raw_bytes)?;
         zstd_encode_all(Cursor::new(raw_bytes), TTPROOF_ZSTD_LEVEL).map_err(Into::into)
     }
 
+    /// Accept either the current zstd-compressed artifact or legacy raw canonical bytes.
     fn from_bytes(bytes: &[u8]) -> SnarkResult<Self> {
         if let Ok(decoded) = zstd_decode_all(Cursor::new(bytes)) {
             let mut cursor = Cursor::new(decoded.as_slice());
@@ -223,7 +138,9 @@ where
                 Ok(proof) => Ok(proof),
                 Err(_) => {
                     let mut fallback_cursor = Cursor::new(decoded.as_slice());
-                    Ok(Self::deserialize_uncompressed_unchecked(&mut fallback_cursor)?)
+                    Ok(Self::deserialize_uncompressed_unchecked(
+                        &mut fallback_cursor,
+                    )?)
                 }
             };
         }
@@ -233,9 +150,30 @@ where
             Ok(proof) => Ok(proof),
             Err(_) => {
                 let mut fallback_cursor = Cursor::new(bytes);
-                Ok(Self::deserialize_uncompressed_unchecked(&mut fallback_cursor)?)
+                Ok(Self::deserialize_uncompressed_unchecked(
+                    &mut fallback_cursor,
+                )?)
             }
         }
+    }
+
+    /// Split the proof into its verifier hint payload and underlying SNARK proof.
+    fn size_breakdown(&self) -> Option<SizeBreakdown> {
+        let optimization_hints = optimization_hints_payload_bytes(&self.optimization_hints)
+            .map(|bytes| bytes.len())
+            .ok()?;
+        let snark_proof = self.snark_proof.size_breakdown()?;
+
+        Some(SizeBreakdown::node(
+            8 + optimization_hints + snark_proof.size,
+            [
+                (
+                    "optimization_hints",
+                    SizeBreakdown::leaf(optimization_hints),
+                ),
+                ("snark_proof", snark_proof),
+            ],
+        ))
     }
 }
 
@@ -243,10 +181,12 @@ impl<B> TTVk<B>
 where
     B: SnarkBackend,
 {
+    /// Move the wrapped SNARK verifier key out of the front-end wrapper.
     pub fn into_inner(self) -> SNARKVk<B> {
         self.snark_vk
     }
 
+    /// Borrow the wrapped SNARK verifier key.
     pub fn as_inner(&self) -> &SNARKVk<B> {
         &self.snark_vk
     }
@@ -256,15 +196,21 @@ impl<B> TTPk<B>
 where
     B: SnarkBackend,
 {
+    /// Move the wrapped SNARK prover key out of the front-end wrapper.
     pub fn into_inner(self) -> SNARKPk<B> {
         self.snark_pk
     }
 
+    /// Borrow the wrapped SNARK prover key.
     pub fn as_inner(&self) -> &SNARKPk<B> {
         &self.snark_pk
     }
 }
 
+/// Serialize optimization hints into the framed payload embedded inside `TTProof`.
+///
+/// The `TTH1` prefix marks the payload as optimization hints so deserialization
+/// can distinguish it from the legacy slot that used to contain optimized IR bytes.
 fn optimization_hints_payload_bytes(
     optimization_hints: &OptimizationHints,
 ) -> Result<Vec<u8>, SerializationError> {
@@ -294,7 +240,12 @@ where
     }
 }
 
-/// Implementing the canonical serialization for `TTProof`
+/// Canonical serialization for `TTProof`.
+///
+/// The serialized layout is:
+/// 1. little-endian payload length for optimization hints
+/// 2. framed optimization-hint payload bytes
+/// 3. canonical SNARK proof bytes
 impl<B> CanonicalSerialize for TTProof<B>
 where
     B: SnarkBackend,
@@ -326,7 +277,10 @@ where
     }
 }
 
-/// Implementing the canonical deserialization for `TTProof`
+/// Canonical deserialization for `TTProof`.
+///
+/// New proofs decode optimization hints from the framed payload. Older proofs
+/// may still have bytes in that slot that are ignored for backward compatibility.
 impl<B> CanonicalDeserialize for TTProof<B>
 where
     B: SnarkBackend,

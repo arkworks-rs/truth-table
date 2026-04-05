@@ -480,30 +480,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.064 m",
-                  "slowest": "1.064 m",
-                  "median": "1.064 m",
-                  "mean": "1.064 m"
+                  "fastest": "1.065 m",
+                  "slowest": "1.065 m",
+                  "median": "1.065 m",
+                  "mean": "1.065 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "11.88 ms",
-                  "slowest": "14.59 ms",
-                  "median": "13.29 ms",
-                  "mean": "13.25 ms"
+                  "fastest": "11.9 ms",
+                  "slowest": "14.32 ms",
+                  "median": "13.17 ms",
+                  "mean": "13.13 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "25.34 ms",
-                  "slowest": "28.23 ms",
-                  "median": "26.51 ms",
-                  "mean": "26.59 ms"
+                  "fastest": "25.25 ms",
+                  "slowest": "28.1 ms",
+                  "median": "26.36 ms",
+                  "mean": "26.44 ms"
                }
             }
          }

@@ -26,7 +26,7 @@ use exec::{
 use front_end::{
     prover::TTProver,
     shared::TTSharedConfig,
-    structs::{Artifact, TTProof, TTVk},
+    structs::{Artifact, SizeBreakdown, TTProof, TTVk},
     verifier::{TTVerifier, TTVerifierConfig},
 };
 use indexmap::IndexMap;
@@ -269,7 +269,10 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, 
         .len();
     let mv_commitment_count = snark_proof.as_snark_proof().mv_pcs_subproof.comitments.len();
     let uv_commitment_count = snark_proof.as_snark_proof().uv_pcs_subproof.comitments.len();
-    let crypto_breakdown = snark_proof.snark_proof_size_breakdown_bytes();
+    let crypto_breakdown = snark_proof
+        .as_snark_proof()
+        .size_breakdown()
+        .expect("snark proof size breakdown for bench");
     let (result_rows_count, result_schema, result_size_bytes) =
         result_memtable_stats(&output_memtable).expect("compute result memtable stats for bench");
     stats_layer::emit_results_stats(
@@ -284,20 +287,33 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, 
         non_cryptographic_proof_size_bytes,
         cryptographic_proof_size_bytes + non_cryptographic_proof_size_bytes,
         full_compressed_proof_size_bytes,
-        crypto_breakdown.sc_subproof,
-        crypto_breakdown.mv_pcs_subproof,
-        crypto_breakdown.mv_pcs_subproof_parts.opening_proof,
-        crypto_breakdown.mv_pcs_subproof_parts.commitments,
+        breakdown_child_size(&crypto_breakdown, "sc_subproof"),
+        breakdown_child_size(&crypto_breakdown, "mv_pcs_subproof"),
+        breakdown_grandchild_size(&crypto_breakdown, "mv_pcs_subproof", "opening_proof"),
+        breakdown_grandchild_size(&crypto_breakdown, "mv_pcs_subproof", "commitments"),
         mv_commitment_count,
-        crypto_breakdown.mv_pcs_subproof_parts.query_map,
-        crypto_breakdown.uv_pcs_subproof,
-        crypto_breakdown.uv_pcs_subproof_parts.opening_proof,
-        crypto_breakdown.uv_pcs_subproof_parts.commitments,
+        breakdown_grandchild_size(&crypto_breakdown, "mv_pcs_subproof", "query_map"),
+        breakdown_child_size(&crypto_breakdown, "uv_pcs_subproof"),
+        breakdown_grandchild_size(&crypto_breakdown, "uv_pcs_subproof", "opening_proof"),
+        breakdown_grandchild_size(&crypto_breakdown, "uv_pcs_subproof", "commitments"),
         uv_commitment_count,
-        crypto_breakdown.uv_pcs_subproof_parts.query_map,
-        crypto_breakdown.miscellaneous_field_elements,
+        breakdown_grandchild_size(&crypto_breakdown, "uv_pcs_subproof", "query_map"),
+        breakdown_child_size(&crypto_breakdown, "miscellaneous_field_elements"),
     );
     (output_memtable, snark_proof)
+}
+
+fn breakdown_child_size(breakdown: &SizeBreakdown, key: &str) -> usize {
+    breakdown.parts.get(key).map(|part| part.size).unwrap_or(0)
+}
+
+fn breakdown_grandchild_size(breakdown: &SizeBreakdown, key: &str, child_key: &str) -> usize {
+    breakdown
+        .parts
+        .get(key)
+        .and_then(|part| part.parts.get(child_key))
+        .map(|part| part.size)
+        .unwrap_or(0)
 }
 
 fn result_memtable_stats(mem_table: &Arc<MemTable>) -> Result<(usize, String, usize)> {
