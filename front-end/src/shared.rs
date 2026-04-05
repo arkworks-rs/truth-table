@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-use arithmetic::{
-    table::TrackedTable,
-};
 use ark_piop::SnarkBackend;
 use async_trait::async_trait;
 use datafusion::{
@@ -16,17 +13,14 @@ use datafusion::{
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{logical_plan::UserDefinedLogicalNode, LogicalPlan};
 use tt_core::ctx_oracles::CtxOracles;
-use tt_core::errors::TTResult;
 use tt_core::irs::nodes::plan::{
     rematerialize::RematerializeLogicalNode, result_check::ResultCheckLogicalNode,
 };
-use tt_core::{
-    irs::{
-        nodes::IsNode,
-        payloads::PayloadStructure,
-    },
-};
 
+/// Shared front-end configuration used by the prover, verifier, and data owner.
+///
+/// This bundles the DataFusion analyzer/optimizer pipeline together with the
+/// query-planning context and the context oracles needed by truth-table passes.
 pub struct TTSharedConfig<B: SnarkBackend> {
     analyzer: Analyzer,
     optimizer: Optimizer,
@@ -39,6 +33,11 @@ pub struct TTSharedConfig<B: SnarkBackend> {
 
 impl<B: SnarkBackend> TTSharedConfig<B> {
     #[allow(clippy::too_many_arguments)]
+    /// Build a shared configuration from explicit DataFusion components.
+    ///
+    /// The provided session context is wrapped with a custom query planner so
+    /// DataFusion can tolerate our no-op logical extension nodes when a physical
+    /// plan is built for query execution.
     pub fn new(
         analyzer: Analyzer,
         optimizer: Optimizer,
@@ -59,6 +58,7 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         }
     }
 
+    /// Construct the default shared configuration used by front-end components.
     pub fn with_defaults(session_ctx: SessionContext) -> Self {
         Self::new(
             Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
@@ -71,73 +71,64 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         )
     }
 
+    /// Borrow the shared analyzer.
     pub fn analyzer(&self) -> &Analyzer {
         &self.analyzer
     }
+
+    /// Borrow the shared optimizer.
     pub fn optimizer(&self) -> &Optimizer {
         &self.optimizer
     }
+
+    /// Borrow the context oracles visible to the front-end role.
     pub fn ctx_oracles(&self) -> &CtxOracles<B> {
         &self.ctx_oracles
     }
+
+    /// Borrow the DataFusion session context used for planning and execution.
     pub fn session_ctx(&self) -> &SessionContext {
         &self.session_ctx
     }
+
+    /// Borrow the DataFusion config options used during analysis.
     pub fn config_options(&self) -> &ConfigOptions {
         &self.config_options
     }
+
+    /// Borrow the optimizer context used during logical-plan optimization.
     pub fn optimizer_ctx(&self) -> &OptimizerContext {
         &self.optimizer_ctx
     }
+
+    /// Borrow the observer callback that runs after each optimizer rule.
     pub fn observer(&self) -> fn(&LogicalPlan, &dyn OptimizerRule) {
         self.observer
     }
 
+    /// Parse a SQL query into DataFusion's unoptimized logical plan.
     pub async fn query_to_lp(&self, query: &str) -> LogicalPlan {
         let df = self.session_ctx().sql(query).await.unwrap();
         df.into_unoptimized_plan()
     }
 
+    /// Run the configured analyzer pipeline on a logical plan.
     pub async fn analyze_lp(&self, lp: LogicalPlan) -> LogicalPlan {
-        self
-            .analyzer()
+        self.analyzer()
             .execute_and_check(lp, self.config_options(), |_plan_after_rule, _rule| {})
             .unwrap()
     }
 
+    /// Run the configured logical optimizer pipeline on an analyzed plan.
     pub async fn optimize_lp(&self, analyzed_lp: LogicalPlan) -> LogicalPlan {
         self.optimizer()
             .optimize(analyzed_lp, self.optimizer_ctx(), self.observer())
             .unwrap()
     }
-
 }
 
-pub(crate) fn table_scan_payload<B: SnarkBackend>(
-    tracked_ir: &tt_core::prover::irs::TrackedIr<B>,
-) -> TTResult<TrackedTable<B>> {
-    for (node_id, node) in tracked_ir.tree().arena() {
-        if node.name() != "TableScan" {
-            continue;
-        }
-
-        let payload = tracked_ir
-            .payloads()
-            .get(node_id)
-            .and_then(|payload| payload.clone())
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table),
-                _ => None,
-            });
-
-        if let Some(table) = payload {
-            return Ok(table);
-        }
-    }
-
-    Err(DataFusionError::Internal("table scan payload not found".to_string()).into())
-}
-
+/// Install a query planner that treats selected truth-table extension nodes as
+/// physical no-ops so DataFusion can still execute the underlying query.
 fn with_noop_extension_support(session_ctx: SessionContext) -> SessionContext {
     let state = session_ctx
         .into_state_builder()
@@ -146,6 +137,7 @@ fn with_noop_extension_support(session_ctx: SessionContext) -> SessionContext {
     SessionContext::new_with_state(state)
 }
 
+/// Query planner wrapper that injects a custom extension planner into DataFusion.
 #[derive(Debug)]
 struct TTQueryPlanner;
 
@@ -156,6 +148,9 @@ impl QueryPlanner for TTQueryPlanner {
         logical_plan: &LogicalPlan,
         session_state: &SessionState,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+        // The default planner cannot build physical plans for our logical extension
+        // nodes, so we install a no-op extension planner for the specific nodes that
+        // should behave like passthrough wrappers at execution time.
         let planner =
             DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(TTNoOpExtensionPlanner)]);
         planner
@@ -164,6 +159,8 @@ impl QueryPlanner for TTQueryPlanner {
     }
 }
 
+/// Extension planner that turns selected truth-table logical extension nodes into
+/// no-op passthrough execution plans.
 #[derive(Debug)]
 struct TTNoOpExtensionPlanner;
 
@@ -177,6 +174,9 @@ impl ExtensionPlanner for TTNoOpExtensionPlanner {
         physical_inputs: &[Arc<dyn ExecutionPlan>],
         _session_state: &SessionState,
     ) -> DataFusionResult<Option<Arc<dyn ExecutionPlan>>> {
+        // Rematerialize and ResultCheck affect proof construction, but they should
+        // not change the physical query execution path. Treat them as wrappers over
+        // a single input execution plan.
         let is_supported_noop = node.as_any().is::<RematerializeLogicalNode>()
             || node.as_any().is::<ResultCheckLogicalNode>();
         if !is_supported_noop {

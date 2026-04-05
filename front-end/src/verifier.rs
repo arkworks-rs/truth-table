@@ -14,17 +14,13 @@ use tt_core::{
     ctx_oracles::CtxOracles,
     errors::{TTError, TTResult},
     irs::shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
-    irs::tree::Tree,
     verifier::{
-        irs::{
-            GadgetReadyIr as VerifierGadgetReadyIr, VirtualizedIr as VerifierVirtualizedIr,
-        },
+        irs::{GadgetReadyIr as VerifierGadgetReadyIr, VirtualizedIr as VerifierVirtualizedIr},
         passes::{
             gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass,
             gadget_planning::GadgetPlanningPass as VerifierGadgetPlanningPass,
             output_planning::OutputPlanningPass as VerifierOutputPlanningPass,
-            tracking::TrackingPass as VerifierTrackingPass,
-            verify::VerifyPass,
+            tracking::TrackingPass as VerifierTrackingPass, verify::VerifyPass,
             virtualization::VirtualizationPass as VerifierVirtualizationPass,
         },
     },
@@ -38,15 +34,19 @@ pub struct TTVerifierConfig<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> TTVerifierConfig<B> {
+    /// Create the default verifier-side pass factory.
     pub fn new() -> Self {
         Self {
             phantom: std::marker::PhantomData,
         }
     }
 
+    /// Build the verifier output-planning pass.
     pub fn planning_pass(&self) -> VerifierOutputPlanningPass<B> {
         VerifierOutputPlanningPass::new()
     }
+
+    /// Build the verifier gadget-planning pass for a planned IR.
     pub fn gadget_planning_pass(
         &self,
         planned_ir: &OutputPlannedIr<B>,
@@ -54,6 +54,8 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
         VerifierGadgetPlanningPass::new(planned_ir)
     }
 
+    /// Build the verifier tracking pass using the verifier state, context oracles,
+    /// and optional query result table.
     pub fn tracking_pass(
         &self,
         arg_verifier: ArgVerifier<B>,
@@ -81,6 +83,8 @@ pub struct TTVerifier<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> TTVerifier<B> {
+    /// Create a verifier from its pass configuration, shared configuration, and
+    /// inner SNARK verifier.
     pub fn new(
         verifier_config: TTVerifierConfig<B>,
         shared_config: TTSharedConfig<B>,
@@ -93,16 +97,23 @@ impl<B: SnarkBackend> TTVerifier<B> {
         }
     }
 
-    pub fn verifier_config(&self) -> &TTVerifierConfig<B> {
+    /// Borrow the verifier-specific configuration.
+    fn verifier_config(&self) -> &TTVerifierConfig<B> {
         &self.verifier_config
     }
-    pub fn shared_config(&self) -> &TTSharedConfig<B> {
+
+    /// Borrow the configuration shared between the prover and verifier.
+    fn shared_config(&self) -> &TTSharedConfig<B> {
         &self.shared_config
     }
-    pub fn arg_verifier(&self) -> &ArgVerifier<B> {
+
+    /// Borrow the inner SNARK verifier state.
+    fn arg_verifier(&self) -> &ArgVerifier<B> {
         &self.arg_verifier
     }
 
+    /// Verify a proof starting from a precomputed gadget-planned IR and an optional
+    /// prover-supplied output table.
     pub async fn verify_with_gadget_planned_ir(
         &self,
         proof: &TTProof<B>,
@@ -161,6 +172,8 @@ impl<B: SnarkBackend> TTVerifier<B> {
         Ok(())
     }
 
+    /// Verify a proof end-to-end by replaying the verifier LP and IR pipelines and
+    /// normalizing the prover-supplied output table.
     pub async fn verify(
         &self,
         query: &str,
@@ -189,18 +202,25 @@ impl<B: SnarkBackend> TTVerifier<B> {
             .await
     }
 
+    /// Run the verifier logical-plan pipeline, including replaying the optimization
+    /// hints embedded in the proof.
     pub async fn lp_passes(
         &self,
         query: &str,
         proof: &TTProof<B>,
     ) -> TTResult<datafusion_expr::LogicalPlan> {
+        // 1. Build the raw logical plan from the SQL query.
         let initial_lp = self.shared_config().query_to_lp(query).await;
         debug!(
             "verifier initial logical plan:\n{}",
             initial_lp.display_graphviz()
         );
+
+        // 2. Re-run analysis and structural optimization locally on the verifier.
         let analyzed_lp = self.shared_config().analyze_lp(initial_lp).await;
         let analyzed_and_optimized_lp = self.shared_config().optimize_lp(analyzed_lp).await;
+
+        // 3. Replay the prover's data-dependent optimization choices from the proof.
         let analyzed_and_optimized_lp =
             apply_optimization_hints(analyzed_and_optimized_lp, proof.optimization_hints())
                 .map_err(tt_core::errors::TTError::from)?;
@@ -211,22 +231,27 @@ impl<B: SnarkBackend> TTVerifier<B> {
         Ok(analyzed_and_optimized_lp)
     }
 
+    /// Run the verifier IR pipeline up through gadget planning.
     pub async fn ir_passes(
         &self,
         lp: datafusion_expr::LogicalPlan,
     ) -> TTResult<GadgetPlannedIr<B>> {
-        let tree: Tree<B> = Tree::from_logical_plan(&lp);
-        let initial_ir = EmptyIr::<B>::new_empty(tree);
+        // 1. Convert the logical plan into the initial truth-table IR.
+        let initial_ir = EmptyIr::<B>::from_logical_plan(&lp);
         debug!(
             "verifier initial ir:\n{}",
             initial_ir.display_graphviz(true)
         );
+
+        // 2. Apply proof-plan optimizer rewrites before verifier-specific passes.
         let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
         let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
         debug!(
             "verifier optimized initial ir:\n{}",
             optimized_initial_ir.display_graphviz(true)
         );
+
+        // 3. Run output planning and gadget planning to prepare the verifier IR.
         let output_planned_ir = optimized_initial_ir
             .apply_local_pass_sequential(&self.verifier_config().planning_pass());
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(

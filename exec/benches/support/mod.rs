@@ -261,11 +261,8 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, 
         .to_bytes()
         .expect("serialize snark proof for bench size accounting")
         .len();
-    let non_cryptographic_proof_size_bytes = snark_proof
-        .optimization_hints()
-        .to_bytes()
-        .expect("serialize optimization hints for bench size accounting")
-        .len();
+    let non_cryptographic_proof_size_bytes = optimization_hints_size_bytes(&snark_proof)
+        .expect("serialize optimization hints for bench size accounting");
     let full_compressed_proof_size_bytes = snark_proof
         .to_bytes()
         .expect("serialize compressed proof for bench size accounting")
@@ -399,11 +396,8 @@ pub fn cache_proof_in_memory_if_absent(
             .to_bytes()
             .expect("serialize snark proof for bench size accounting")
             .len(),
-        optimization_hint_bytes: proof
-            .optimization_hints()
-            .to_bytes()
-            .expect("serialize optimization hints for bench size accounting")
-            .len(),
+        optimization_hint_bytes: optimization_hints_size_bytes(&proof)
+            .expect("serialize optimization hints for bench size accounting"),
         compressed_proof_bytes: proof
             .to_bytes()
             .expect("serialize compressed proof for bench size accounting")
@@ -420,11 +414,8 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>, output_memtable: Arc<MemT
         .to_bytes()
         .expect("serialize snark proof for bench size accounting")
         .len();
-    let optimization_hint_bytes = proof
-        .optimization_hints()
-        .to_bytes()
-        .expect("serialize optimization hints for bench size accounting")
-        .len();
+    let optimization_hint_bytes = optimization_hints_size_bytes(proof)
+        .expect("serialize optimization hints for bench size accounting");
     let compressed_proof_bytes = proof
         .to_bytes()
         .expect("serialize compressed proof for bench size accounting")
@@ -678,11 +669,15 @@ fn load_persisted_bench_proof(case_name: &str) -> Option<Arc<BenchProof>> {
 
     Some(Arc::new(BenchProof {
         snark_proof_bytes: proof.as_snark_proof().to_bytes().ok()?.len(),
-        optimization_hint_bytes: proof.optimization_hints().to_bytes().ok()?.len(),
+        optimization_hint_bytes: optimization_hints_size_bytes(&proof).ok()?,
         compressed_proof_bytes: proof.to_bytes().ok()?.len(),
         proof,
         output_memtable,
     }))
+}
+
+fn optimization_hints_size_bytes(proof: &TTProof<B>) -> Result<usize, bincode::Error> {
+    bincode::serialize(proof.optimization_hints()).map(|bytes| bytes.len())
 }
 
 fn persist_bench_proof(case_name: &str, bench_proof: &BenchProof) {

@@ -474,6 +474,38 @@
                   "mean": "65.26 ms"
                }
             }
+         },
+         "tpch_q18_tt": {
+            "prover": {
+               "sample_count": 1,
+               "iter_count": 1,
+               "time": {
+                  "fastest": "1.064 m",
+                  "slowest": "1.064 m",
+                  "median": "1.064 m",
+                  "mean": "1.064 m"
+               }
+            },
+            "verifier_crypto": {
+               "sample_count": 100,
+               "iter_count": 100,
+               "time": {
+                  "fastest": "11.88 ms",
+                  "slowest": "14.59 ms",
+                  "median": "13.29 ms",
+                  "mean": "13.25 ms"
+               }
+            },
+            "verifier_full": {
+               "sample_count": 100,
+               "iter_count": 100,
+               "time": {
+                  "fastest": "25.34 ms",
+                  "slowest": "28.23 ms",
+                  "median": "26.51 ms",
+                  "mean": "26.59 ms"
+               }
+            }
          }
       }
    }

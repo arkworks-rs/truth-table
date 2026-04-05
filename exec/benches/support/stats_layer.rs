@@ -216,6 +216,23 @@ impl PendingBenchRecord {
     }
 
     fn merge(&mut self, fields: Map<String, Value>) {
+        let mut fields = fields;
+
+        if let (Some(Value::String(plan_name)), Some(plan_graphviz)) = (
+            fields.remove("plan_name"),
+            fields.remove("plan_graphviz"),
+        ) {
+            self.plans.insert(plan_name, plan_graphviz);
+        }
+
+        if let (Some(Value::String(pass_name)), Some(pass_seconds)) = (
+            fields.remove("prover_time_pass"),
+            fields.remove("prover_time_seconds"),
+        ) {
+            self.prover
+                .insert(format!("prover_time_{pass_name}_s"), pass_seconds);
+        }
+
         for (key, value) in fields {
             match key.as_str() {
                 _ if key.starts_with("claims_") => {

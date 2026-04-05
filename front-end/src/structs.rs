@@ -1,6 +1,7 @@
-use std::{io::Cursor, path::Path};
+use std::io::Cursor;
 
 use ark_piop::{
+    errors::SnarkResult,
     prover::structs::proof::SNARKProof,
     setup::structs::{SNARKPk, SNARKVk},
     SnarkBackend,
@@ -10,35 +11,17 @@ use ark_serialize::{
 };
 use derivative::Derivative;
 use proof_planner::logical_plan_optimizer::OptimizationHints;
-use tracing::{debug, instrument};
+use tracing::debug;
 use tt_core::errors::TTResult;
 use zstd::stream::{decode_all as zstd_decode_all, encode_all as zstd_encode_all};
 
-// Keep the length-prefixed proof framing stable while distinguishing the hint
-// payload from older proofs that stored a serialized optimized IR here.
-const OPTIMIZATION_HINTS_MAGIC: &[u8; 4] = b"TTH1";
-const TTPROOF_ZSTD_LEVEL: i32 = 1;
+pub use ark_piop::artifact::Artifact;
 
-/// An artifact is any piece of data that can be serialized and deserialized, and can be saved to and loaded from disk.
-pub trait Artifact: Sized {
-    /// Serialize the artifact into a vector of bytes.
-    fn to_bytes(&self) -> TTResult<Vec<u8>>;
-    /// Deserialize the artifact from a slice of bytes.
-    fn from_bytes(bytes: &[u8]) -> TTResult<Self>;
-    /// Load the artifact from a file at the given path.
-    #[instrument(level = "debug")]
-    fn load(path: &Path) -> TTResult<Self> {
-        let bytes = std::fs::read(path)?;
-        Self::from_bytes(&bytes)
-    }
-    /// Save the artifact to a file at the given path.
-    #[instrument(level = "debug", skip(self))]
-    fn save(&self, path: &Path) -> TTResult<()> {
-        let bytes = self.to_bytes()?;
-        std::fs::write(path, bytes)?;
-        Ok(())
-    }
-}
+/// Zstd compression level used when serializing `TTProof` artifacts.
+///
+/// Level `1` intentionally favors low prover-side latency while still giving a
+/// strong size reduction on the serialized proof bytes.
+const TTPROOF_ZSTD_LEVEL: i32 = 1;
 
 /// The full truth-table proof that is sent from the prover to the verifier
 #[derive(Derivative)]
@@ -189,13 +172,16 @@ impl<B> Artifact for TTVk<B>
 where
     B: SnarkBackend,
 {
-    fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        canonical_to_vec_uncompressed(&self.snark_vk)
+    fn to_bytes(&self) -> SnarkResult<Vec<u8>> {
+        let mut buffer = Vec::new();
+        self.snark_vk.serialize_uncompressed(&mut buffer)?;
+        Ok(buffer)
     }
 
-    fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
+    fn from_bytes(bytes: &[u8]) -> SnarkResult<Self> {
+        let mut cursor = Cursor::new(bytes);
         Ok(Self {
-            snark_vk: canonical_from_slice_uncompressed(bytes)?,
+            snark_vk: SNARKVk::<B>::deserialize_uncompressed_unchecked(&mut cursor)?,
         })
     }
 }
@@ -205,13 +191,16 @@ where
     B: SnarkBackend,
     SNARKPk<B>: CanonicalSerialize + CanonicalDeserialize,
 {
-    fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        canonical_to_vec_uncompressed(&self.snark_pk)
+    fn to_bytes(&self) -> SnarkResult<Vec<u8>> {
+        let mut buffer = Vec::new();
+        self.snark_pk.serialize_uncompressed(&mut buffer)?;
+        Ok(buffer)
     }
 
-    fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
+    fn from_bytes(bytes: &[u8]) -> SnarkResult<Self> {
+        let mut cursor = Cursor::new(bytes);
         Ok(Self {
-            snark_pk: canonical_from_slice_uncompressed(bytes)?,
+            snark_pk: SNARKPk::<B>::deserialize_uncompressed_unchecked(&mut cursor)?,
         })
     }
 }
@@ -221,57 +210,32 @@ where
     B: SnarkBackend,
     SNARKProof<B>: CanonicalSerialize + CanonicalDeserialize,
 {
-    fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        let raw_bytes = canonical_to_vec_compressed(self)?;
-        zstd_encode_all(Cursor::new(raw_bytes), TTPROOF_ZSTD_LEVEL)
-            .map_err(Into::into)
+    fn to_bytes(&self) -> SnarkResult<Vec<u8>> {
+        let mut raw_bytes = Vec::new();
+        self.serialize_compressed(&mut raw_bytes)?;
+        zstd_encode_all(Cursor::new(raw_bytes), TTPROOF_ZSTD_LEVEL).map_err(Into::into)
     }
 
-    fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
+    fn from_bytes(bytes: &[u8]) -> SnarkResult<Self> {
         if let Ok(decoded) = zstd_decode_all(Cursor::new(bytes)) {
-            return match canonical_from_slice_compressed(&decoded) {
+            let mut cursor = Cursor::new(decoded.as_slice());
+            return match Self::deserialize_compressed_unchecked(&mut cursor) {
                 Ok(proof) => Ok(proof),
-                Err(_) => canonical_from_slice_uncompressed(&decoded),
+                Err(_) => {
+                    let mut fallback_cursor = Cursor::new(decoded.as_slice());
+                    Ok(Self::deserialize_uncompressed_unchecked(&mut fallback_cursor)?)
+                }
             };
         }
 
-        match canonical_from_slice_compressed(bytes) {
+        let mut cursor = Cursor::new(bytes);
+        match Self::deserialize_compressed_unchecked(&mut cursor) {
             Ok(proof) => Ok(proof),
-            Err(_) => canonical_from_slice_uncompressed(bytes),
+            Err(_) => {
+                let mut fallback_cursor = Cursor::new(bytes);
+                Ok(Self::deserialize_uncompressed_unchecked(&mut fallback_cursor)?)
+            }
         }
-    }
-}
-
-impl<B> Artifact for SNARKProof<B>
-where
-    B: SnarkBackend,
-    SNARKProof<B>: CanonicalSerialize + CanonicalDeserialize,
-{
-    fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        canonical_to_vec_compressed(self)
-    }
-
-    fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
-        match canonical_from_slice_compressed(bytes) {
-            Ok(proof) => Ok(proof),
-            Err(_) => canonical_from_slice_uncompressed(bytes),
-        }
-    }
-}
-
-impl Artifact for OptimizationHints {
-    fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        bincode::serialize(self).map_err(|err| {
-            debug!(?err, "OptimizationHints serialize: failed to serialize");
-            SerializationError::InvalidData.into()
-        })
-    }
-
-    fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
-        bincode::deserialize(bytes).map_err(|err| {
-            debug!(?err, "OptimizationHints deserialize: failed to deserialize");
-            SerializationError::InvalidData.into()
-        })
     }
 }
 
@@ -301,24 +265,6 @@ where
     }
 }
 
-fn canonical_to_vec_uncompressed<T: CanonicalSerialize>(value: &T) -> TTResult<Vec<u8>> {
-    let mut buffer = Vec::new();
-    value.serialize_uncompressed(&mut buffer)?;
-    Ok(buffer)
-}
-
-#[instrument(level = "debug", skip_all)]
-fn canonical_from_slice_uncompressed<T: CanonicalDeserialize>(bytes: &[u8]) -> TTResult<T> {
-    let mut cursor = Cursor::new(bytes);
-    Ok(T::deserialize_uncompressed_unchecked(&mut cursor)?)
-}
-
-fn canonical_to_vec_compressed<T: CanonicalSerialize>(value: &T) -> TTResult<Vec<u8>> {
-    let mut buffer = Vec::new();
-    value.serialize_compressed(&mut buffer)?;
-    Ok(buffer)
-}
-
 fn optimization_hints_payload_bytes(
     optimization_hints: &OptimizationHints,
 ) -> Result<Vec<u8>, SerializationError> {
@@ -332,18 +278,13 @@ fn optimization_hints_payload_bytes(
         );
         SerializationError::InvalidData
     })?;
-    let mut bytes = Vec::with_capacity(OPTIMIZATION_HINTS_MAGIC.len() + payload.len());
-    bytes.extend_from_slice(OPTIMIZATION_HINTS_MAGIC);
+    let mut bytes = Vec::with_capacity(b"TTH1".len() + payload.len());
+    bytes.extend_from_slice(b"TTH1");
     bytes.extend_from_slice(&payload);
     Ok(bytes)
 }
 
-#[instrument(level = "debug", skip_all)]
-fn canonical_from_slice_compressed<T: CanonicalDeserialize>(bytes: &[u8]) -> TTResult<T> {
-    let mut cursor = Cursor::new(bytes);
-    Ok(T::deserialize_compressed_unchecked(&mut cursor)?)
-}
-
+/// Implementing the Valid trait for `TTProof` to allow for validation checks during deserialization if needed.
 impl<B> Valid for TTProof<B>
 where
     B: SnarkBackend,
@@ -353,6 +294,7 @@ where
     }
 }
 
+/// Implementing the canonical serialization for `TTProof`
 impl<B> CanonicalSerialize for TTProof<B>
 where
     B: SnarkBackend,
@@ -384,6 +326,7 @@ where
     }
 }
 
+/// Implementing the canonical deserialization for `TTProof`
 impl<B> CanonicalDeserialize for TTProof<B>
 where
     B: SnarkBackend,
@@ -403,8 +346,8 @@ where
         }
         let optimization_hints = if plan_len == 0 {
             OptimizationHints::default()
-        } else if plan_bytes.starts_with(OPTIMIZATION_HINTS_MAGIC) {
-            bincode::deserialize::<OptimizationHints>(&plan_bytes[OPTIMIZATION_HINTS_MAGIC.len()..])
+        } else if plan_bytes.starts_with(b"TTH1") {
+            bincode::deserialize::<OptimizationHints>(&plan_bytes[b"TTH1".len()..])
                 .map_err(|_| SerializationError::InvalidData)?
         } else {
             // Legacy proofs stored optimized IR bytes in this slot. We keep the

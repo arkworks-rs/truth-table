@@ -1,32 +1,29 @@
-use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
-use ark_piop::{
-    prover::ArgProver,
-    setup::structs::SNARKPk,
-    verifier::ArgVerifier,
-    SnarkBackend,
-};
+use arithmetic::{table::TrackedTable, table_oracle::{ArithTableOracle, TrackedTableOracle}};
+use ark_piop::{prover::ArgProver, setup::structs::SNARKPk, verifier::ArgVerifier, SnarkBackend};
+use datafusion_common::DataFusionError;
 use proof_planner::{
     logical_plan_optimizer::{apply_optimization_hints, collect_data_dependent_hints},
-    proof_plan_optimizer::{ProofPlanOptimizer, rules as proof_plan_rules},
+    proof_plan_optimizer::{rules as proof_plan_rules, ProofPlanOptimizer},
 };
 use tracing::debug;
+use tt_core::errors::TTResult;
 #[cfg(feature = "honest-prover")]
 use tt_core::prover::passes::honest_prover::HonestProverPass;
-use tt_core::errors::TTResult;
 use tt_core::{
-    irs::{shared_ir::EmptyIr, tree::Tree},
+    irs::shared_ir::EmptyIr,
+    irs::{nodes::IsNode, payloads::PayloadStructure},
     prover::{
+        irs::TrackedIr,
         irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
         passes::{
-            gadget_initialization::GadgetInitializationPass,
-            proving::ProvingPass,
+            gadget_initialization::GadgetInitializationPass, proving::ProvingPass,
             virtualization::VirtualizationPass,
         },
     },
 };
 
 use crate::{
-    shared::{TTSharedConfig, table_scan_payload},
+    shared::TTSharedConfig,
     structs::TTProof,
 };
 
@@ -36,6 +33,7 @@ pub struct TTDataOwnerConfig<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> TTDataOwnerConfig<B> {
+    /// Create the default data-owner configuration.
     pub fn new() -> Self {
         Self {
             phantom: std::marker::PhantomData,
@@ -58,6 +56,7 @@ pub struct TTDataOwner<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> TTDataOwner<B> {
+    /// Create a data owner from its configuration, shared configuration, and proving key.
     pub fn new(
         data_owner_config: TTDataOwnerConfig<B>,
         shared_config: TTSharedConfig<B>,
@@ -70,34 +69,73 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         }
     }
 
-    pub fn data_owner_config(&self) -> &TTDataOwnerConfig<B> {
+    /// Borrow the data-owner specific configuration.
+    fn data_owner_config(&self) -> &TTDataOwnerConfig<B> {
         &self.data_owner_config
     }
 
-    pub fn shared_config(&self) -> &TTSharedConfig<B> {
+    /// Borrow the configuration shared between the prover-side roles and the verifier.
+    fn shared_config(&self) -> &TTSharedConfig<B> {
         &self.shared_config
     }
 
-    pub fn snark_pk(&self) -> &SNARKPk<B> {
+    /// Borrow the SNARK proving key used to commit table scans.
+    fn snark_pk(&self) -> &SNARKPk<B> {
         &self.snark_pk
     }
 
+    /// Extract the tracked `TableScan` payload that will be turned into a serializable oracle.
+    fn table_scan_payload(&self, tracked_ir: &TrackedIr<B>) -> TTResult<TrackedTable<B>> {
+        for (node_id, node) in tracked_ir.tree().arena() {
+            if node.name() != "TableScan" {
+                continue;
+            }
+
+            let payload = tracked_ir
+                .payloads()
+                .get(node_id)
+                .and_then(|payload| payload.clone())
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table),
+                    _ => None,
+                });
+
+            if let Some(table) = payload {
+                return Ok(table);
+            }
+        }
+
+        Err(DataFusionError::Internal("table scan payload not found".to_string()).into())
+    }
+
+    /// Commit the tracked table-scan output of a query into a serializable oracle artifact.
     pub async fn commit(&self, query: &str) -> TTResult<ArithTableOracle<B>> {
+        let _ = self.data_owner_config();
+
+        // 1. Build, analyze, and structurally optimize the logical plan.
         let initial_lp = self.shared_config().query_to_lp(query).await;
         debug!("Initial Logical plan{}", initial_lp.display_graphviz());
         let analyzed_lp = self.shared_config().analyze_lp(initial_lp).await;
         let analyzed_and_optimized_lp = self.shared_config().optimize_lp(analyzed_lp).await;
-        let optimization_hints =
-            collect_data_dependent_hints(self.shared_config().session_ctx(), &analyzed_and_optimized_lp)?;
+
+        // 2. Collect and apply data-dependent optimizer hints so the committed oracle
+        // matches the same plan shape used by proving and verification.
+        let optimization_hints = collect_data_dependent_hints(
+            self.shared_config().session_ctx(),
+            &analyzed_and_optimized_lp,
+        )?;
         let analyzed_and_optimized_lp =
             apply_optimization_hints(analyzed_and_optimized_lp, &optimization_hints)?;
         debug!(
             "optimized and analyzed logical plan:\n{}",
             analyzed_and_optimized_lp.display_graphviz()
         );
-        let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
-        let initial_ir = EmptyIr::<B>::new_empty(tree);
+
+        // 3. Convert the optimized logical plan into the initial truth-table IR.
+        let initial_ir = EmptyIr::<B>::from_logical_plan(&analyzed_and_optimized_lp);
         debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
+
+        // 4. Run the prover-side IR passes up through tracking to expose the table scan.
         let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
         let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
         debug!(
@@ -123,7 +161,10 @@ impl<B: SnarkBackend> TTDataOwner<B> {
             &tt_core::prover::passes::materialization::MaterializationPass::new(),
         );
         drop(gadget_planned_ir);
-        debug!("materialized ir:\n{}", materialized_ir.display_graphviz(true));
+        debug!(
+            "materialized ir:\n{}",
+            materialized_ir.display_graphviz(true)
+        );
         let arithmetized_ir = materialized_ir.apply_local_pass_parallel(
             &tt_core::prover::passes::arithmetization::ArithmetizationPass::new(),
         );
@@ -151,7 +192,9 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         drop(arithmetized_ir);
         drop(committed_ir);
         debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
-        let table_scan = table_scan_payload(&tracked_ir)?;
+        let table_scan = self.table_scan_payload(&tracked_ir)?;
+
+        // 5. Finish the proving pipeline so we can derive a proof-backed tracked-table oracle.
         let virtualization_pass = VirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
         debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
@@ -164,7 +207,10 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
         drop(virtualized_ir);
-        debug!("gadget ready ir:\n{}", gadget_ready_ir.display_graphviz(true));
+        debug!(
+            "gadget ready ir:\n{}",
+            gadget_ready_ir.display_graphviz(true)
+        );
         let proving_ir_view = ProverGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),
@@ -188,6 +234,7 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         let arg_proof = arg_prover.build_proof().unwrap();
         let tt_proof = TTProof::new(arg_proof, optimization_hints)?;
 
+        // 6. Convert the tracked table into a serializable oracle using verifier-side state.
         let mut verifier = ArgVerifier::new_from_vk(self.snark_pk().vk.clone());
         verifier.set_proof(tt_proof.snark_proof());
 
