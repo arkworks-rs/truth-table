@@ -16,3 +16,15 @@ python scripts/plot_tpch.py
 ```
 
 Optional: if you use pyenv, this repo includes `.python-version` to pin Python.
+
+Streamlit dashboard for bench JSONL:
+```bash
+cd /home/alrshir/truth-table/results
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r dashboard_requirements.txt
+streamlit run bench_dashboard.py
+```
+
+By default the dashboard reads:
+`/home/alrshir/truth-table/exec/target/bench_stats.jsonl`

@@ -386,10 +386,10 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "51.17 s",
-                  "slowest": "51.17 s",
-                  "median": "51.17 s",
-                  "mean": "51.17 s"
+                  "fastest": "51.07 s",
+                  "slowest": "51.07 s",
+                  "median": "51.07 s",
+                  "mean": "51.07 s"
                }
             },
             "verifier_core": {
@@ -406,10 +406,10 @@
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "45.72 ms",
-                  "slowest": "53.21 ms",
-                  "median": "49.14 ms",
-                  "mean": "49.23 ms"
+                  "fastest": "45.97 ms",
+                  "slowest": "51.91 ms",
+                  "median": "49.32 ms",
+                  "mean": "49.37 ms"
                }
             },
             "verifier_preprocess": {
@@ -426,10 +426,10 @@
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "18.85 ms",
-                  "slowest": "21.72 ms",
-                  "median": "19.5 ms",
-                  "mean": "19.61 ms"
+                  "fastest": "18.39 ms",
+                  "slowest": "21.75 ms",
+                  "median": "19.61 ms",
+                  "mean": "19.7 ms"
                }
             },
             "verifier_non_crypto": {
@@ -440,6 +440,38 @@
                   "slowest": "27.65 ms",
                   "median": "25.04 ms",
                   "mean": "25.21 ms"
+               }
+            }
+         },
+         "tpch_q19_tt": {
+            "prover": {
+               "sample_count": 1,
+               "iter_count": 1,
+               "time": {
+                  "fastest": "2.36 m",
+                  "slowest": "2.36 m",
+                  "median": "2.36 m",
+                  "mean": "2.36 m"
+               }
+            },
+            "verifier_crypto": {
+               "sample_count": 100,
+               "iter_count": 100,
+               "time": {
+                  "fastest": "31.74 ms",
+                  "slowest": "37.04 ms",
+                  "median": "32.65 ms",
+                  "mean": "32.73 ms"
+               }
+            },
+            "verifier_full": {
+               "sample_count": 100,
+               "iter_count": 100,
+               "time": {
+                  "fastest": "62.85 ms",
+                  "slowest": "68.56 ms",
+                  "median": "65.12 ms",
+                  "mean": "65.26 ms"
                }
             }
          }

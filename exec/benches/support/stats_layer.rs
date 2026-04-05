@@ -188,7 +188,10 @@ struct PendingBenchRecord {
     timestamp_utc: String,
     query: String,
     claims: Map<String, Value>,
+    plans: Map<String, Value>,
+    results: Map<String, Value>,
     prover: Map<String, Value>,
+    snark_prover: Map<String, Value>,
     proof_size_fields: Map<String, Value>,
     proof_size_crypto_breakdown: Map<String, Value>,
     proof_size_non_crypto_breakdown: Map<String, Value>,
@@ -201,7 +204,10 @@ impl PendingBenchRecord {
             timestamp_utc: now_utc_rfc3339_ms(),
             query,
             claims: Map::new(),
+            plans: Map::new(),
+            results: Map::new(),
             prover: Map::new(),
+            snark_prover: Map::new(),
             proof_size_fields: Map::new(),
             proof_size_crypto_breakdown: Map::new(),
             proof_size_non_crypto_breakdown: Map::new(),
@@ -215,8 +221,19 @@ impl PendingBenchRecord {
                 _ if key.starts_with("claims_") => {
                     self.claims.insert(key, value);
                 }
-                "proof_mv_commitments" | "proof_uv_commitments" => {
+                _ if key.starts_with("plan_") => {
+                    let normalized = key.strip_prefix("plan_").unwrap_or(&key).to_string();
+                    self.plans.insert(normalized, value);
+                }
+                "results_rows_count" | "results_schema" | "results_size_bytes" => {
+                    let normalized = key.strip_prefix("results_").unwrap_or(&key).to_string();
+                    self.results.insert(normalized, value);
+                }
+                _ if key.starts_with("prover_time_") => {
                     self.prover.insert(key, value);
+                }
+                _ if key.starts_with("snark_prover_") => {
+                    self.snark_prover.insert(key, value);
                 }
                 "cryptographic_proof_size_bytes"
                 | "non_cryptographic_proof_size_bytes"
@@ -226,7 +243,15 @@ impl PendingBenchRecord {
                 }
                 "crypto_breakdown_sc_subproof"
                 | "crypto_breakdown_mv_pcs_subproof"
+                | "crypto_breakdown_mv_pcs_subproof_opening_proof"
+                | "crypto_breakdown_mv_pcs_subproof_commitments"
+                | "crypto_breakdown_mv_pcs_subproof_commitments_count"
+                | "crypto_breakdown_mv_pcs_subproof_query_map"
                 | "crypto_breakdown_uv_pcs_subproof"
+                | "crypto_breakdown_uv_pcs_subproof_opening_proof"
+                | "crypto_breakdown_uv_pcs_subproof_commitments"
+                | "crypto_breakdown_uv_pcs_subproof_commitments_count"
+                | "crypto_breakdown_uv_pcs_subproof_query_map"
                 | "crypto_breakdown_miscellaneous_field_elements" => {
                     let normalized = key
                         .strip_prefix("crypto_breakdown_")
@@ -250,8 +275,26 @@ impl PendingBenchRecord {
         if !self.claims.is_empty() {
             root.insert("claims".to_string(), build_nested_claims(self.claims));
         }
+        if !self.plans.is_empty() {
+            root.insert("plans".to_string(), Value::Object(self.plans));
+        }
+        if !self.results.is_empty() {
+            root.insert(
+                "results".to_string(),
+                json!({
+                    "Rows Count": self.results.get("rows_count").cloned().unwrap_or(Value::Null),
+                    "Schema": self.results.get("schema").cloned().unwrap_or(Value::Null),
+                    "Size": self.results.get("size_bytes").cloned().unwrap_or(Value::Null)
+                }),
+            );
+        }
         if !self.prover.is_empty() {
-            root.insert("prover".to_string(), Value::Object(self.prover));
+            let mut prover = Map::new();
+            prover.insert("time".to_string(), Value::Object(self.prover));
+            root.insert("prover".to_string(), Value::Object(prover));
+        }
+        if !self.snark_prover.is_empty() {
+            root.insert("snark prover".to_string(), build_snark_prover(self.snark_prover));
         }
         if !self.proof_size_fields.is_empty() {
             let full_size = self
@@ -284,7 +327,7 @@ impl PendingBenchRecord {
                     },
                     "crypto": {
                         "size": crypto_size,
-                        "breakdown": self.proof_size_crypto_breakdown
+                        "breakdown": build_crypto_breakdown(self.proof_size_crypto_breakdown)
                     },
                     "non_crypto": {
                         "size": non_crypto_size,
@@ -300,6 +343,26 @@ impl PendingBenchRecord {
     }
 }
 
+fn build_snark_prover(fields: Map<String, Value>) -> Value {
+    json!({
+        "piop": {
+            "time": fields.get("snark_prover_piop_time_s").cloned().unwrap_or(Value::Null),
+            "breakdown": {
+                "nozerocheck batching time": fields.get("snark_prover_piop_nozerocheck_batching_time_s").cloned().unwrap_or(Value::Null),
+                "1st batch zerocheck time": fields.get("snark_prover_piop_first_batch_zerocheck_time_s").cloned().unwrap_or(Value::Null),
+                "1st zerocheck to sumcheck time": fields.get("snark_prover_piop_first_zerocheck_to_sumcheck_time_s").cloned().unwrap_or(Value::Null),
+                "1st batch sumcheck time": fields.get("snark_prover_piop_first_batch_sumcheck_time_s").cloned().unwrap_or(Value::Null),
+                "reduce sumcheck time": fields.get("snark_prover_piop_reduce_sumcheck_time_s").cloned().unwrap_or(Value::Null),
+                "2nd batch zerocheck time": fields.get("snark_prover_piop_second_batch_zerocheck_time_s").cloned().unwrap_or(Value::Null),
+                "2nd zerocheck to sumcheck time": fields.get("snark_prover_piop_second_zerocheck_to_sumcheck_time_s").cloned().unwrap_or(Value::Null),
+                "sumcheck time": fields.get("snark_prover_piop_sumcheck_time_s").cloned().unwrap_or(Value::Null)
+            }
+        },
+        "mv pcs": fields.get("snark_prover_mv_pcs_time_s").cloned().unwrap_or(Value::Null),
+        "uv pcs": fields.get("snark_prover_uv_pcs_time_s").cloned().unwrap_or(Value::Null)
+    })
+}
+
 fn build_nested_claims(claims: Map<String, Value>) -> Value {
     json!({
         "before-degree-reduction": {
@@ -309,9 +372,53 @@ fn build_nested_claims(claims: Map<String, Value>) -> Value {
             "after-sum-batching": build_claim_stage(&claims, "claims_before_degree_reduction_after_sum_batching")
         },
         "after-degree-reduction": {
+            "initial": build_claim_stage(&claims, "claims_after_degree_reduction_initial"),
             "after-zero-batching": build_claim_stage(&claims, "claims_after_degree_reduction_after_zero_batching"),
             "after-sum-batching": build_claim_stage(&claims, "claims_after_degree_reduction_after_sum_batching")
         }
+    })
+}
+
+fn build_crypto_breakdown(fields: Map<String, Value>) -> Value {
+    let sc_subproof = fields.get("sc_subproof").cloned().unwrap_or(Value::Null);
+    let miscellaneous_field_elements = fields
+        .get("miscellaneous_field_elements")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let mv_size = fields
+        .get("mv_pcs_subproof")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let uv_size = fields
+        .get("uv_pcs_subproof")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    json!({
+        "sc_subproof": sc_subproof,
+        "mv_pcs_subproof": {
+            "size": mv_size,
+            "breakdown": {
+                "opening_proof": fields.get("mv_pcs_subproof_opening_proof").cloned().unwrap_or(Value::Null),
+                "commitments": {
+                    "size": fields.get("mv_pcs_subproof_commitments").cloned().unwrap_or(Value::Null),
+                    "count": fields.get("mv_pcs_subproof_commitments_count").cloned().unwrap_or(Value::Null)
+                },
+                "query_map": fields.get("mv_pcs_subproof_query_map").cloned().unwrap_or(Value::Null)
+            }
+        },
+        "uv_pcs_subproof": {
+            "size": uv_size,
+            "breakdown": {
+                "opening_proof": fields.get("uv_pcs_subproof_opening_proof").cloned().unwrap_or(Value::Null),
+                "commitments": {
+                    "size": fields.get("uv_pcs_subproof_commitments").cloned().unwrap_or(Value::Null),
+                    "count": fields.get("uv_pcs_subproof_commitments_count").cloned().unwrap_or(Value::Null)
+                },
+                "query_map": fields.get("uv_pcs_subproof_query_map").cloned().unwrap_or(Value::Null)
+            }
+        },
+        "miscellaneous_field_elements": miscellaneous_field_elements
     })
 }
 
@@ -396,15 +503,6 @@ pub fn default_jsonl_path() -> &'static Path {
     Path::new(BENCH_STATS_JSONL_PATH)
 }
 
-pub fn emit_proof_commitment_counts(mv_commitments: usize, uv_commitments: usize) {
-    tracing::info!(
-        target: BENCH_STATS_TARGET,
-        proof_mv_commitments = mv_commitments,
-        proof_uv_commitments = uv_commitments,
-        "proof_commitments"
-    );
-}
-
 pub fn emit_proof_size_bytes(
     query: &str,
     cryptographic_proof_size_bytes: usize,
@@ -413,7 +511,15 @@ pub fn emit_proof_size_bytes(
     full_compressed_proof_size_bytes: usize,
     crypto_breakdown_sc_subproof: usize,
     crypto_breakdown_mv_pcs_subproof: usize,
+    crypto_breakdown_mv_pcs_subproof_opening_proof: usize,
+    crypto_breakdown_mv_pcs_subproof_commitments: usize,
+    crypto_breakdown_mv_pcs_subproof_commitments_count: usize,
+    crypto_breakdown_mv_pcs_subproof_query_map: usize,
     crypto_breakdown_uv_pcs_subproof: usize,
+    crypto_breakdown_uv_pcs_subproof_opening_proof: usize,
+    crypto_breakdown_uv_pcs_subproof_commitments: usize,
+    crypto_breakdown_uv_pcs_subproof_commitments_count: usize,
+    crypto_breakdown_uv_pcs_subproof_query_map: usize,
     crypto_breakdown_miscellaneous_field_elements: usize,
 ) {
     tracing::info!(
@@ -425,8 +531,27 @@ pub fn emit_proof_size_bytes(
         full_compressed_proof_size_bytes,
         crypto_breakdown_sc_subproof,
         crypto_breakdown_mv_pcs_subproof,
+        crypto_breakdown_mv_pcs_subproof_opening_proof,
+        crypto_breakdown_mv_pcs_subproof_commitments,
+        crypto_breakdown_mv_pcs_subproof_commitments_count,
+        crypto_breakdown_mv_pcs_subproof_query_map,
         crypto_breakdown_uv_pcs_subproof,
+        crypto_breakdown_uv_pcs_subproof_opening_proof,
+        crypto_breakdown_uv_pcs_subproof_commitments,
+        crypto_breakdown_uv_pcs_subproof_commitments_count,
+        crypto_breakdown_uv_pcs_subproof_query_map,
         crypto_breakdown_miscellaneous_field_elements,
         "proof_sizes"
+    );
+}
+
+pub fn emit_results_stats(query: &str, rows_count: usize, schema: &str, size_bytes: usize) {
+    tracing::info!(
+        target: BENCH_STATS_TARGET,
+        query,
+        results_rows_count = rows_count,
+        results_schema = schema,
+        results_size_bytes = size_bytes,
+        "results"
     );
 }

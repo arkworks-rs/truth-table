@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
+    arrow::ipc::writer::StreamWriter,
     config::ConfigOptions,
     datasource::{MemTable, TableProvider},
     optimizer::{Analyzer, Optimizer, OptimizerContext},
@@ -255,18 +256,6 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, 
             .entered();
     let (output_memtable, snark_proof) =
         block_on(iteration.prover.prove(&iteration.query)).expect("prove for bench");
-    stats_layer::emit_proof_commitment_counts(
-        snark_proof
-            .as_snark_proof()
-            .mv_pcs_subproof
-            .comitments
-            .len(),
-        snark_proof
-            .as_snark_proof()
-            .uv_pcs_subproof
-            .comitments
-            .len(),
-    );
     let cryptographic_proof_size_bytes = snark_proof
         .as_snark_proof()
         .to_bytes()
@@ -281,7 +270,17 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, 
         .to_bytes()
         .expect("serialize compressed proof for bench size accounting")
         .len();
+    let mv_commitment_count = snark_proof.as_snark_proof().mv_pcs_subproof.comitments.len();
+    let uv_commitment_count = snark_proof.as_snark_proof().uv_pcs_subproof.comitments.len();
     let crypto_breakdown = snark_proof.snark_proof_size_breakdown_bytes();
+    let (result_rows_count, result_schema, result_size_bytes) =
+        result_memtable_stats(&output_memtable).expect("compute result memtable stats for bench");
+    stats_layer::emit_results_stats(
+        &iteration.query,
+        result_rows_count,
+        &result_schema,
+        result_size_bytes,
+    );
     stats_layer::emit_proof_size_bytes(
         &iteration.query,
         cryptographic_proof_size_bytes,
@@ -290,10 +289,47 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, 
         full_compressed_proof_size_bytes,
         crypto_breakdown.sc_subproof,
         crypto_breakdown.mv_pcs_subproof,
+        crypto_breakdown.mv_pcs_subproof_parts.opening_proof,
+        crypto_breakdown.mv_pcs_subproof_parts.commitments,
+        mv_commitment_count,
+        crypto_breakdown.mv_pcs_subproof_parts.query_map,
         crypto_breakdown.uv_pcs_subproof,
+        crypto_breakdown.uv_pcs_subproof_parts.opening_proof,
+        crypto_breakdown.uv_pcs_subproof_parts.commitments,
+        uv_commitment_count,
+        crypto_breakdown.uv_pcs_subproof_parts.query_map,
         crypto_breakdown.miscellaneous_field_elements,
     );
     (output_memtable, snark_proof)
+}
+
+fn result_memtable_stats(mem_table: &Arc<MemTable>) -> Result<(usize, String, usize)> {
+    let ctx = SessionContext::new();
+    let batches = block_on(async {
+        let table: Arc<dyn TableProvider> = mem_table.clone();
+        let df = ctx.read_table(table)?;
+        df.collect().await
+    })?;
+
+    let rows_count = batches.iter().map(|batch| batch.num_rows()).sum();
+    let schema = mem_table
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| format!("{}: {}", field.name(), field.data_type()))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut serialized = Vec::new();
+    {
+        let mut writer = StreamWriter::try_new(&mut serialized, &mem_table.schema())?;
+        for batch in &batches {
+            writer.write(batch)?;
+        }
+        writer.finish()?;
+    }
+
+    Ok((rows_count, schema, serialized.len()))
 }
 
 pub fn ensure_proof(assets: &BenchAssets) -> Arc<BenchProof> {
