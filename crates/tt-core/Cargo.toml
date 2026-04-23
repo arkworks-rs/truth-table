@@ -1,0 +1,70 @@
+[package]
+name = "tt-core"
+description = "Core IR, prover-side passes, and verifier-side passes of the truth-table verifiable query engine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+# local dependencies
+arithmetic = { package = "tt-arithmetic", path = "../tt-arithmetic" }
+col-toolbox = { package = "tt-col-toolbox", path = "../tt-col-toolbox" }
+tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data", optional = true }
+
+# arkworks dependencies
+ark-std = { workspace = true }
+ark-ff = { workspace = true }
+ark-poly = { workspace = true }
+ark-piop = { workspace = true, features = ["test-utils"] }
+ark-serialize = { workspace = true }
+ark-test-curves = { workspace = true }
+
+# datafusion dependencies
+datafusion = { workspace = true }
+datafusion-functions-window = { workspace = true }
+datafusion-functions-aggregate = { workspace = true }
+datafusion-expr = { workspace = true }
+datafusion-common = { workspace = true }
+
+# other dependencies
+thiserror = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+rayon = { workspace = true, optional = true }
+tracing = { workspace = true }
+indexmap = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-schema = { workspace = true }
+derivative = { workspace = true }
+either = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+[dev-dependencies]
+divan = { workspace = true }
+libc = { workspace = true }
+tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data" }
+datafusion-functions-aggregate = { workspace = true }
+
+
+[features]
+default = ["std", "parallel"]
+std = []
+parallel = [
+    "std",
+    "rayon",
+    "ark-ff/parallel",
+    "ark-serialize/parallel",
+    "ark-piop/parallel",
+    "arithmetic/parallel",
+    "ark-std/parallel",
+]
+honest-prover = ["ark-piop/honest-prover", "col-toolbox/honest-prover"]
+test-utils = ["tpch-data"]

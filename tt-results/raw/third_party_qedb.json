@@ -1,0 +1,78 @@
+{
+  "bench": "qedb",
+  "config": {
+    "num_threads": 1,
+    "table_pows": [
+      16,
+      17,
+      18,
+      19
+    ]
+  },
+  "results": [
+    {
+      "pow": 16,
+      "table_size": 65536,
+      "query": "filter",
+      "prove_ms": 6682,
+      "verify_ms": 184,
+      "proof_bytes": 2489
+    },
+    {
+      "pow": 16,
+      "table_size": 65536,
+      "query": "aggregate_count",
+      "prove_ms": 9723,
+      "verify_ms": 49,
+      "proof_bytes": 492
+    },
+    {
+      "pow": 17,
+      "table_size": 131072,
+      "query": "filter",
+      "prove_ms": 12213,
+      "verify_ms": 360,
+      "proof_bytes": 2489
+    },
+    {
+      "pow": 17,
+      "table_size": 131072,
+      "query": "aggregate_count",
+      "prove_ms": 17801,
+      "verify_ms": 99,
+      "proof_bytes": 492
+    },
+    {
+      "pow": 18,
+      "table_size": 262144,
+      "query": "filter",
+      "prove_ms": 23908,
+      "verify_ms": 745,
+      "proof_bytes": 2489
+    },
+    {
+      "pow": 18,
+      "table_size": 262144,
+      "query": "aggregate_count",
+      "prove_ms": 34629,
+      "verify_ms": 201,
+      "proof_bytes": 492
+    },
+    {
+      "pow": 19,
+      "table_size": 524288,
+      "query": "filter",
+      "prove_ms": 45745,
+      "verify_ms": 1579,
+      "proof_bytes": 2489
+    },
+    {
+      "pow": 19,
+      "table_size": 524288,
+      "query": "aggregate_count",
+      "prove_ms": 65771,
+      "verify_ms": 424,
+      "proof_bytes": 492
+    }
+  ]
+}

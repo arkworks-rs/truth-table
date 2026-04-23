@@ -1,0 +1,89 @@
+name: CI
+
+# Two CI paths:
+#
+# 1. Strict path — runs the full ark-piop-style suite on PRs targeting main.
+#    This is the gate that should pass before a PR is merged.
+# 2. Fast path — runs lightweight checks on pushes to any non-main branch so
+#    feature-branch work gets quick feedback without paying the full suite cost.
+#
+# Direct pushes to main are intentionally skipped: main advances via merged
+# PRs, and those already exercised the strict path during review.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # Strict path: PRs to main.
+  # ────────────────────────────────────────────────────────────────────────
+
+  fmt:
+    if: github.event_name == 'pull_request'
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    if: github.event_name == 'pull_request'
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    if: github.event_name == 'pull_request'
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v2
+      - run: just test
+
+  bench:
+    if: github.event_name == 'pull_request'
+    name: Bench compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo bench --workspace --no-run
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Fast path: feature-branch pushes.
+  # ────────────────────────────────────────────────────────────────────────
+
+  fast:
+    if: github.event_name == 'push'
+    name: Fast checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo check --workspace
+      # Lint production targets only on fast path; all-targets sweep is in
+      # the strict path so feature branches still iterate quickly.
+      - run: cargo clippy --workspace --all-features -- -D warnings
+      - run: cargo test --workspace --lib

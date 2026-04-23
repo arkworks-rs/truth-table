@@ -1,0 +1,50 @@
+[package]
+name = "tt-front-end"
+description = "Front-end API for the three truth-table roles: data owner, prover, and verifier. Start here to integrate truth-table into an application."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+# local dependencies
+tt-core = { path = "../tt-core" }
+arithmetic = { package = "tt-arithmetic", path = "../tt-arithmetic" }
+tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data" }
+proof-planner = { package = "tt-proof-planner", path = "../tt-proof-planner" }
+
+# arkworks dependencies
+ark-ff = { workspace = true }
+ark-piop = { workspace = true }
+ark-serialize = { workspace = true }
+
+# datafusion dependencies
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-expr = { workspace = true }
+datafusion-proto = { workspace = true }
+prost = { workspace = true }
+
+# other dependencies
+async-trait = { workspace = true }
+tokio = { workspace = true }
+indexmap = { workspace = true }
+tracing = { workspace = true }
+bincode = { workspace = true }
+serde = { workspace = true }
+derivative = { workspace = true }
+zstd = { workspace = true }
+
+[features]
+honest-prover = ["tt-core/honest-prover"]
+
+[dev-dependencies]
+ark-test-curves = { workspace = true }
+datafusion-functions-aggregate = { workspace = true }
+ark-piop = { workspace = true, features = ["test-utils"] }

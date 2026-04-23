@@ -1,0 +1,9 @@
+[submodule "third_party/poneglyphdb"]
+	path = third_party/poneglyphdb
+	url = https://github.com/tuzijun111/halo2-TPCH
+[submodule "third_party/proof-of-sql"]
+	path = third_party/proof-of-sql
+	url = https://github.com/spaceandtimefdn/sxt-proof-of-sql
+[submodule "third_party/zksql"]
+	path = third_party/zksql
+	url = https://github.com/vaultdb/zksql

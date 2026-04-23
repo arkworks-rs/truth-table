@@ -1,0 +1,22 @@
+warning: /home/alrshir/truth-table/Cargo.toml: unused manifest key: workspace.edition
+warning: unused import: `errors::SnarkResult`
+  --> crates/tt-arithmetic/src/table.rs:12:5
+   |
+12 |     errors::SnarkResult,
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `tt-arithmetic` (lib) generated 1 warning (run `cargo fix --lib -p tt-arithmetic` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 0.10s
+     Running benches/benches.rs (target/release/deps/benches-4193c83c119e7428)
+Timer precision: 10 ns
+benches                   fastest       │ slowest       │ median        │ mean          │ samples │ iters
+╰─ tpch                                 │               │               │               │         │
+   ╰─ tpch_q20_tt                       │               │               │               │         │
+      ├─ prover           proof size (tpch_q20_tt) core=40.97 KiB (41949 bytes) opt-hints=44 B (44 bytes) full=41.01 KiB (41993 bytes) full-compressed=29.20 KiB (29898 bytes) num_threads=1
+1.186 m       │ 1.186 m       │ 1.186 m       │ 1.186 m       │ 1       │ 1
+      ├─ verifier_crypto  13.96 ms      │ 18.14 ms      │ 15.7 ms       │ 15.64 ms      │ 100     │ 100
+      ╰─ verifier_full    30.56 ms      │ 34.24 ms      │ 32.03 ms      │ 32.18 ms      │ 100     │ 100
+
+/home/alrshir/truth-table/tt-results/raw/benches.json

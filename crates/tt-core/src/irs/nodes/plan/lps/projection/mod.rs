@@ -1,0 +1,416 @@
+use std::sync::{Arc, Weak};
+
+use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
+use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::Schema;
+use datafusion_expr::{LogicalPlan, Projection};
+use indexmap::IndexMap;
+
+use crate::irs::{
+    nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
+    payloads::PayloadStructure,
+    tree::Tree,
+};
+
+pub(super) mod hints;
+
+pub struct LpNode<B>
+where
+    B: SnarkBackend,
+{
+    projection: Projection,
+    input: Arc<Node<B>>,
+    exprs: Vec<Arc<Node<B>>>,
+}
+
+impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
+    fn name(&self) -> String {
+        "Projection".to_string()
+    }
+
+    fn display(&self) -> String {
+        let exprs = if self.exprs.is_empty() {
+            "none".to_string()
+        } else {
+            self.exprs
+                .iter()
+                .map(|node| node.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        format!("Projection\nInput: {}, exprs: {}", self.input.name(), exprs)
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
+    ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn children(&self) -> Vec<Arc<Node<B>>> {
+        let mut out = Vec::with_capacity(1 + self.exprs.len());
+        out.push(self.input.clone());
+        out.extend(self.exprs.iter().cloned());
+        out
+    }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // DataFusion may insert identity projections (exprs is empty). In that case,
+        // the projection is a pure pass-through, so we forward the input payload.
+        if self.exprs.is_empty() {
+            let input_id = self.input.id();
+            let input_table = match virtualized_ir.payload_for_node(&input_id) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                _ => panic!("Projection input missing tracked table payload"),
+            };
+            virtualized_ir
+                .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(input_table)));
+            return Ok(());
+        }
+
+        // Collect the tracked tables produced by each projection expression.
+        let mut output_cols: IndexMap<_, _> = IndexMap::new();
+        let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
+        let mut row_id: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
+        let mut log_size: Option<usize> = None;
+
+        for expr_node in &self.exprs {
+            let expr_id = expr_node.id();
+            let expr_table = match virtualized_ir.payload_for_node(&expr_id) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                _ => panic!("Projection expression missing tracked table payload"),
+            };
+
+            // Keep the first activator we see; all expression nodes share the same one.
+            if activator.is_none() {
+                let activator_field = expr_table
+                    .tracked_polys()
+                    .keys()
+                    .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                    .cloned()
+                    .expect("expression table should carry an activator column");
+                let activator_poly = expr_table
+                    .activator_tracked_poly()
+                    .expect("expression table should carry an activator polynomial");
+                activator = Some((activator_field, activator_poly));
+            }
+            if row_id.is_none() {
+                let row_id_field = expr_table
+                    .tracked_polys()
+                    .keys()
+                    .find(|field| field.name() == ROW_ID_COL_NAME)
+                    .cloned();
+                if let Some(field) = row_id_field {
+                    let row_id_poly = expr_table
+                        .tracked_polys()
+                        .get(&field)
+                        .expect("row id field should be in tracked polys")
+                        .clone();
+                    row_id = Some((field, row_id_poly));
+                }
+            }
+
+            let expr_log_size = expr_table.log_size();
+            if let Some(ls) = log_size {
+                debug_assert_eq!(ls, expr_log_size);
+            } else {
+                log_size = Some(expr_log_size);
+            }
+
+            // Each expression contributes its data columns (excluding activator) to the projection output.
+            let tracked_polys = expr_table.tracked_polys();
+            for idx in expr_table.data_tracked_polys_indices() {
+                let (field, poly) = tracked_polys
+                    .get_index(idx)
+                    .expect("expression column index should be in bounds");
+                output_cols.insert(field.clone(), poly.clone());
+            }
+        }
+
+        // Append system columns in a stable order: row_id then activator.
+        if let Some((field, poly)) = row_id {
+            output_cols.insert(field, poly);
+        }
+        if let Some((field, poly)) = activator {
+            output_cols.insert(field, poly);
+        } else {
+            panic!("Projection expected at least one activator column from its expressions");
+        }
+
+        // Build the output schema in projection order + activator.
+        let schema = Schema::new(
+            output_cols
+                .keys()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>(),
+        );
+        let log_size = log_size.unwrap_or(0);
+        let projected_table =
+            arithmetic::table::TrackedTable::new(Some(schema), output_cols, log_size);
+        debug_assert!(
+            projected_table
+                .tracked_polys_iter()
+                .all(|(_, poly)| poly.log_size() == projected_table.log_size()),
+            "Projection output contains mixed log-size columns (prover)"
+        );
+        virtualized_ir
+            .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+}
+
+impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
+    fn gadget(&self) -> Option<Node<B>> {
+        None
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        // Evaluate the projection against the virtual/physical data produced by the
+        // child node, then keep the result virtual (no eager materialization).
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
+        };
+
+        let projected = hints::build_output_dataframe(input_hint_df.data_frame(), &self.projection);
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("projection output sort should succeed");
+        crate::irs::nodes::hints::HintDF::new_virtual(projected)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        // Keep verifier output traversal independent from prover traversal.
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
+        };
+        if self.exprs.is_empty() {
+            return input_hint_df.as_virtual_view();
+        }
+
+        let projected = hints::build_output_dataframe_for_verifier(
+            input_hint_df.data_frame(),
+            &self.projection,
+        );
+        crate::irs::nodes::hints::HintDF::new_virtual(projected)
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // Mirror the prover behavior: identity projections pass through the input payload.
+        if self.exprs.is_empty() {
+            let input_id = self.input.id();
+            let input_table = match virtualized_ir.payload_for_node(&input_id) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                _ => panic!("Projection input missing tracked oracle payload"),
+            };
+            virtualized_ir
+                .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(input_table)));
+            return Ok(());
+        }
+
+        // Mirror the prover behavior: stitch together the projection outputs from the
+        // tracked oracles produced by each expression node.
+        let mut output_cols: IndexMap<_, _> = IndexMap::new();
+        let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
+        let mut row_id: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
+        let mut log_size: Option<usize> = None;
+
+        for expr_node in &self.exprs {
+            let expr_id = expr_node.id();
+            let expr_table = match virtualized_ir.payload_for_node(&expr_id) {
+                Some(PayloadStructure::PlanPayload(table)) => table,
+                _ => panic!("Projection expression missing tracked oracle payload"),
+            };
+
+            if activator.is_none() {
+                let activator_field = expr_table
+                    .tracked_oracles()
+                    .keys()
+                    .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                    .cloned()
+                    .expect("expression table should carry an activator column");
+                let activator_oracle = expr_table
+                    .tracked_oracles()
+                    .get(&activator_field)
+                    .expect("activator oracle should exist")
+                    .clone();
+                activator = Some((activator_field, activator_oracle));
+            }
+
+            if row_id.is_none() {
+                let row_id_field = expr_table
+                    .tracked_oracles()
+                    .keys()
+                    .find(|field| field.name() == ROW_ID_COL_NAME)
+                    .cloned();
+                if let Some(field) = row_id_field {
+                    let row_id_oracle = expr_table
+                        .tracked_oracles()
+                        .get(&field)
+                        .expect("row id oracle should exist")
+                        .clone();
+                    row_id = Some((field, row_id_oracle));
+                }
+            }
+
+            let expr_log_size = expr_table.log_size();
+            if let Some(ls) = log_size {
+                debug_assert_eq!(ls, expr_log_size);
+            } else {
+                log_size = Some(expr_log_size);
+            }
+
+            for idx in expr_table.data_tracked_oracles_indices() {
+                let col = expr_table.tracked_col_oracle_by_ind(idx);
+                let field = col
+                    .field_ref()
+                    .expect("projection expression data column should have a field");
+                output_cols.insert(field, col.data_tracked_oracle());
+            }
+        }
+
+        // Append system columns in a stable order: row_id then activator.
+        if let Some((field, oracle)) = row_id {
+            output_cols.insert(field, oracle);
+        }
+        if let Some((field, oracle)) = activator {
+            output_cols.insert(field, oracle);
+        } else {
+            panic!("Projection expected at least one activator column from its expressions");
+        }
+
+        let schema = Schema::new(
+            output_cols
+                .keys()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>(),
+        );
+        let log_size = log_size.unwrap_or(0);
+        let projected_table = TrackedTableOracle::new(Some(schema), output_cols, log_size);
+        debug_assert!(
+            projected_table
+                .tracked_oracles_iter()
+                .all(|(_, oracle)| oracle.log_size() == projected_table.log_size()),
+            "Projection output contains mixed log-size columns (verifier)"
+        );
+        virtualized_ir
+            .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
+        Ok(())
+    }
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+}
+
+impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
+    fn from_lp(plan: datafusion_expr::LogicalPlan, self_ref: Weak<Node<B>>) -> Self
+    where
+        Self: Sized,
+    {
+        let projection = match plan {
+            LogicalPlan::Projection(p) => p,
+            _ => panic!("expected projection logical plan"),
+        };
+        let filtered_exprs: Vec<_> = projection
+            .expr
+            .iter()
+            .filter(|expr| match expr {
+                datafusion_expr::Expr::Column(col) => {
+                    col.name != ROW_ID_COL_NAME && col.name != ACTIVATOR_COL_NAME
+                }
+                _ => true,
+            })
+            .cloned()
+            .collect();
+        let projection = if filtered_exprs.len() == projection.expr.len() {
+            projection
+        } else {
+            Projection::try_new(filtered_exprs, projection.input.clone())
+                .expect("filtered projection should be valid")
+        };
+
+        // Recurse into the input subtree and fetch the logical plan that feeds this
+        // projection.
+        let input = Tree::<B>::from_logical_plan(&projection.input)
+            .root()
+            .clone();
+        // Build expression proof plans for the projection expressions (excluding the
+        // retained activator).
+        let exprs = projection
+            .expr
+            .iter()
+            .map(|expr| {
+                Tree::<B>::from_expr(expr, Some(self_ref.clone()), vec![Arc::downgrade(&input)])
+                    .root()
+                    .clone()
+            })
+            .collect();
+
+        Self {
+            projection,
+            input,
+            exprs,
+        }
+    }
+
+    fn lp(&self) -> LogicalPlan {
+        LogicalPlan::Projection(self.projection.clone())
+    }
+}

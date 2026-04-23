@@ -1,0 +1,244 @@
+{
+  "bench": "sxt_proof_of_sql",
+  "config": {
+    "num_threads": 1,
+    "blitzar_backend": "cpu",
+    "iterations": 1,
+    "table_pows": [
+      16,
+      17,
+      18,
+      19
+    ]
+  },
+  "results": [
+    {
+      "pow": 16,
+      "table_size": 65536,
+      "scheme": "HyperKZG",
+      "query": "Join",
+      "prove_ms": 8323,
+      "verify_ms": 22,
+      "proof_bytes": 11648,
+      "iteration": 0,
+      "num_query_results": 32768,
+      "parquet_paths": [
+        "artifact/size_16/Join/bench_table_16.parquet",
+        "artifact/size_16/Join/bench_table_2_16.parquet"
+      ]
+    },
+    {
+      "pow": 16,
+      "table_size": 65536,
+      "scheme": "HyperKZG",
+      "query": "Limit Offset",
+      "prove_ms": 6913,
+      "verify_ms": 4,
+      "proof_bytes": 5504,
+      "iteration": 0,
+      "num_query_results": 10,
+      "parquet_paths": [
+        "artifact/size_16/Limit_Offset/bench_table_16.parquet"
+      ]
+    },
+    {
+      "pow": 16,
+      "table_size": 65536,
+      "scheme": "HyperKZG",
+      "query": "filter",
+      "prove_ms": 9429,
+      "verify_ms": 3,
+      "proof_bytes": 6040,
+      "iteration": 0,
+      "num_query_results": 0,
+      "parquet_paths": [
+        "artifact/size_16/filter/bench_table_16.parquet"
+      ]
+    },
+    {
+      "pow": 16,
+      "table_size": 65536,
+      "scheme": "HyperKZG",
+      "query": "aggregate_count",
+      "prove_ms": 5531,
+      "verify_ms": 2,
+      "proof_bytes": 5176,
+      "iteration": 0,
+      "num_query_results": 1,
+      "parquet_paths": [
+        "artifact/size_16/aggregate_count/bench_table_16.parquet"
+      ]
+    },
+    {
+      "pow": 17,
+      "table_size": 131072,
+      "scheme": "HyperKZG",
+      "query": "Join",
+      "prove_ms": 17213,
+      "verify_ms": 40,
+      "proof_bytes": 12224,
+      "iteration": 0,
+      "num_query_results": 65536,
+      "parquet_paths": [
+        "artifact/size_17/Join/bench_table_17.parquet",
+        "artifact/size_17/Join/bench_table_2_17.parquet"
+      ]
+    },
+    {
+      "pow": 17,
+      "table_size": 131072,
+      "scheme": "HyperKZG",
+      "query": "Limit Offset",
+      "prove_ms": 14208,
+      "verify_ms": 2,
+      "proof_bytes": 5792,
+      "iteration": 0,
+      "num_query_results": 10,
+      "parquet_paths": [
+        "artifact/size_17/Limit_Offset/bench_table_17.parquet"
+      ]
+    },
+    {
+      "pow": 17,
+      "table_size": 131072,
+      "scheme": "HyperKZG",
+      "query": "filter",
+      "prove_ms": 19466,
+      "verify_ms": 2,
+      "proof_bytes": 6328,
+      "iteration": 0,
+      "num_query_results": 0,
+      "parquet_paths": [
+        "artifact/size_17/filter/bench_table_17.parquet"
+      ]
+    },
+    {
+      "pow": 17,
+      "table_size": 131072,
+      "scheme": "HyperKZG",
+      "query": "aggregate_count",
+      "prove_ms": 11363,
+      "verify_ms": 2,
+      "proof_bytes": 5464,
+      "iteration": 0,
+      "num_query_results": 1,
+      "parquet_paths": [
+        "artifact/size_17/aggregate_count/bench_table_17.parquet"
+      ]
+    },
+    {
+      "pow": 18,
+      "table_size": 262144,
+      "scheme": "HyperKZG",
+      "query": "Join",
+      "prove_ms": 35877,
+      "verify_ms": 71,
+      "proof_bytes": 12800,
+      "iteration": 0,
+      "num_query_results": 131072,
+      "parquet_paths": [
+        "artifact/size_18/Join/bench_table_18.parquet",
+        "artifact/size_18/Join/bench_table_2_18.parquet"
+      ]
+    },
+    {
+      "pow": 18,
+      "table_size": 262144,
+      "scheme": "HyperKZG",
+      "query": "Limit Offset",
+      "prove_ms": 29367,
+      "verify_ms": 3,
+      "proof_bytes": 6080,
+      "iteration": 0,
+      "num_query_results": 10,
+      "parquet_paths": [
+        "artifact/size_18/Limit_Offset/bench_table_18.parquet"
+      ]
+    },
+    {
+      "pow": 18,
+      "table_size": 262144,
+      "scheme": "HyperKZG",
+      "query": "filter",
+      "prove_ms": 40227,
+      "verify_ms": 2,
+      "proof_bytes": 6616,
+      "iteration": 0,
+      "num_query_results": 0,
+      "parquet_paths": [
+        "artifact/size_18/filter/bench_table_18.parquet"
+      ]
+    },
+    {
+      "pow": 18,
+      "table_size": 262144,
+      "scheme": "HyperKZG",
+      "query": "aggregate_count",
+      "prove_ms": 23478,
+      "verify_ms": 2,
+      "proof_bytes": 5752,
+      "iteration": 0,
+      "num_query_results": 1,
+      "parquet_paths": [
+        "artifact/size_18/aggregate_count/bench_table_18.parquet"
+      ]
+    },
+    {
+      "pow": 19,
+      "table_size": 524288,
+      "scheme": "HyperKZG",
+      "query": "Join",
+      "prove_ms": 75537,
+      "verify_ms": 139,
+      "proof_bytes": 13376,
+      "iteration": 0,
+      "num_query_results": 262144,
+      "parquet_paths": [
+        "artifact/size_19/Join/bench_table_19.parquet",
+        "artifact/size_19/Join/bench_table_2_19.parquet"
+      ]
+    },
+    {
+      "pow": 19,
+      "table_size": 524288,
+      "scheme": "HyperKZG",
+      "query": "Limit Offset",
+      "prove_ms": 60572,
+      "verify_ms": 2,
+      "proof_bytes": 6368,
+      "iteration": 0,
+      "num_query_results": 10,
+      "parquet_paths": [
+        "artifact/size_19/Limit_Offset/bench_table_19.parquet"
+      ]
+    },
+    {
+      "pow": 19,
+      "table_size": 524288,
+      "scheme": "HyperKZG",
+      "query": "filter",
+      "prove_ms": 83124,
+      "verify_ms": 2,
+      "proof_bytes": 6904,
+      "iteration": 0,
+      "num_query_results": 0,
+      "parquet_paths": [
+        "artifact/size_19/filter/bench_table_19.parquet"
+      ]
+    },
+    {
+      "pow": 19,
+      "table_size": 524288,
+      "scheme": "HyperKZG",
+      "query": "aggregate_count",
+      "prove_ms": 48521,
+      "verify_ms": 2,
+      "proof_bytes": 6040,
+      "iteration": 0,
+      "num_query_results": 1,
+      "parquet_paths": [
+        "artifact/size_19/aggregate_count/bench_table_19.parquet"
+      ]
+    }
+  ]
+}

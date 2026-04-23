@@ -1,0 +1,26 @@
+[package]
+name = "tt-tpch-data"
+description = "TPC-H Parquet data generation, padding, and preprocessing for truth-table benchmarks and tests."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+arithmetic = { package = "tt-arithmetic", path = "../tt-arithmetic" }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
+arrow = { workspace = true }
+parquet = { workspace = true }
+duckdb = { workspace = true }
+datafusion = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+chrono = "0.4"
+serde = { workspace = true }
+serde_json = { workspace = true }

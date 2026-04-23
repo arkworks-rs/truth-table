@@ -1,0 +1,26 @@
+warning: /home/alrshir/truth-table/Cargo.toml: unused manifest key: workspace.edition
+warning: unused import: `errors::SnarkResult`
+  --> crates/tt-arithmetic/src/table.rs:12:5
+   |
+12 |     errors::SnarkResult,
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `tt-arithmetic` (lib) generated 1 warning (run `cargo fix --lib -p tt-arithmetic` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 0.10s
+     Running benches/benches.rs (target/release/deps/benches-4193c83c119e7428)
+Timer precision: 10 ns
+benches                   fastest       │ slowest       │ median        │ mean          │ samples │ iters
+╰─ tpch                                 │               │               │               │         │
+   ╰─ tpch_q17_tt                       │               │               │               │         │
+      ├─ prover           proof size (tpch_q17_tt) core=19.78 KiB (20252 bytes) opt-hints=68 B (68 bytes) full=19.84 KiB (20320 bytes) full-compressed=14.08 KiB (14418 bytes) num_threads=1
+8.221 s       │ 8.221 s       │ 8.221 s       │ 8.221 s       │ 1       │ 1
+      ├─ verifier_crypto  
+thread 'main' (3574027) panicked at crates/tt-exec/benches/support/mod.rs:539:10:
+verify for bench: DataFusion(Internal("verifier verify_pass failed before cryptographic verification: VerifierError(VerifierCheckFailed(\"verify pass failed in gadget ResultCheck under parent ResultCheck: VerifierError(VerifierCheckFailed(\\\"ResultCheck failed during final verifier checks: VerifierError(VerifierCheckFailed(\\\\\\\"LHS and RHS have different sums LHS: 0, RHS: 5324127077985694870887674818909418390606468174757636703967960101520762593276\\\\\\\"))\\\"))\"))"))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'main' (3574027) panicked at /home/alrshir/.cargo/git/checkouts/divan-5df25a65c63e86f3/54d2574/src/benchmark/mod.rs:755:21:
+Divan benchmarking thread 0 panicked
+error: bench failed, to rerun pass `-p tt-exec --bench benches`

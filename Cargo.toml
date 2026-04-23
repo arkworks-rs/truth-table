@@ -1,0 +1,112 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/tt-col-toolbox",
+    "crates/tt-arithmetic",
+    "crates/tt-tpch-data",
+    "crates/tt-exec",
+    "crates/tt-core",
+    "crates/tt-proof-planner",
+    "crates/tt-front-end",
+]
+exclude = ["third-party-bench"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/alireza-shirzad/truth-table"
+homepage = "https://github.com/alireza-shirzad/truth-table"
+authors = ["Alireza Shirzad <alr.shirzad@gmail.com>"]
+
+# Deny warnings workspace-wide so regressions fail CI. Individual crates can opt out
+# via `[lints]` if there's a good reason.
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+# Uncomment to tighten further:
+# pedantic = { level = "warn", priority = -1 }
+
+# Add dependencies here
+
+[workspace.dependencies]
+
+# Arkworks dependencies
+ark-serialize = { version = "0.5.0", default-features = false, features = [
+    "derive",
+] }
+ark-std = { version = "0.5.0" }
+ark-ff = { version = "0.5.0" }
+ark-ec = { version = "0.5.0" }
+ark-poly = { version = "0.5.0" }
+ark-piop = "0.1.0"
+ark-test-curves = { version = "0.5.0", features = ["bls12_381_curve"] }
+# Other dependencies
+anyhow = "1"
+arrow = { version = "57", default-features = false }
+arrow-cast = "57"
+arrow-schema = { version = "57" }
+async-trait = "0.1"
+clap = { version = "4", features = ["derive", "env"] }
+datafusion = { version = "46.0.1", default-features = false, features = [
+    "serde",
+    "parquet",
+] }
+datafusion-common = { version = "46.0.1" }
+datafusion-expr = { version = "46.0.1" }
+datafusion-proto = { version = "46.0.1" }
+datafusion-functions-aggregate = "46.0.1"
+datafusion-functions-window = "46.0.1"
+derivative = { version = "2", features = ["use_core"] }
+divan = { git = "https://github.com/alireza-shirzad/divan.git" }
+duckdb = { version = "1.3.2", default-features = false, features = ["bundled"] }
+either = "1.8.0"
+once_cell = "1.19"
+futures = "0.3"
+indexmap = { version = "2.2", features = ["rayon"] }
+itertools = "0.14"
+libc = "0.2"
+log = "0.4"
+merlin = { version = "3.0.0", default-features = false }
+num-bigint = "0.4"
+parquet = { version = "57", features = ["arrow"], default-features = false }
+prost = "0.12"
+rand_chacha = { version = "0.9.0", default-features = false }
+rayon = { version = "1.5.2", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+tempfile = "3"
+thiserror = "2.0.11"
+tokio = { version = "^1.41.0", features = ["rt", "macros", "rt-multi-thread"] }
+tpchgen = "2.0.1"
+tpchgen-arrow = "2.0.1"
+tracing = { version = "0.1.37" }
+tracing-subscriber = { version = "0.3" }
+zstd = "0.13"
+
+[workspace.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "../docs-header.html"]
+
+# Git-pinned arkworks patches. We depend on fixes that land on master ahead
+# of the next arkworks release. Because `cargo publish` rejects crates whose
+# dependency graph contains any git source, this block currently blocks
+# publishing tt-* crates to crates.io — together with the `divan` git pin in
+# `[workspace.dependencies]` above. GitHub installs (`cargo install --git` or
+# `[dependencies] tt-* = { git = "..." }`) continue to work. See the
+# "Publishing" section of CONTRIBUTING.md for the unblock plan.
+[patch.crates-io]
+ark-std = { git = "https://github.com/arkworks-rs/std" }
+ark-ff = { git = "https://github.com/arkworks-rs/algebra" }
+ark-ec = { git = "https://github.com/arkworks-rs/algebra" }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
+ark-test-curves = { git = "https://github.com/arkworks-rs/algebra" }
+ark-bn254 = { git = "https://github.com/arkworks-rs/algebra" }
+
+
+[workspace.metadata.cargo-alias]
+test-all = "sh tt-scripts/test.sh"
+[profile.release]
+incremental = true

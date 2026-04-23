@@ -1,0 +1,45 @@
+Q,threads,System,table log size,prover time (s),verifier time (ms),proof size (KB)
+Filter,1,TT,16,1.318,9,6.312
+Aggregate,1,TT,16,0.121,8,4.929
+Join,1,TT,16,5.557,16,10.555
+Join PK/FK,1,TT,16,0.464,13,5.092
+Limit,1,TT,16,0.659,7,6.053
+Filter,1,QEDB,16,6.682,184,2.431
+Aggregate,1,QEDB,16,9.723,49,0.48
+Filter,1,PoSQL,16,9.429,3,5.898
+Aggregate,1,PoSQL,16,5.531,2,5.055
+Join,1,PoSQL,16,8.323,22,11.375
+Limit,1,PoSQL,16,6.913,4,5.375
+Filter,1,TT,17,2.504,9,6.627
+Aggregate,1,TT,17,0.241,8,5.197
+Join,1,TT,17,8.241,21,10.567
+Join PK/FK,1,TT,17,0.854,18,5.413
+Limit,1,TT,17,1.243,8,6.367
+Filter,1,QEDB,17,12.213,360,2.431
+Aggregate,1,QEDB,17,17.801,99,0.48
+Filter,1,PoSQL,17,19.466,2,6.18
+Aggregate,1,PoSQL,17,11.363,2,5.336
+Join,1,PoSQL,17,17.213,40,11.938
+Limit,1,PoSQL,17,14.208,2,5.656
+Filter,1,TT,18,4.839,9,6.973
+Aggregate,1,TT,18,0.482,8,5.455
+Join,1,TT,18,15.446,32,10.927
+Join PK/FK,1,TT,18,1.63,29,5.72
+Limit,1,TT,18,2.37,8,6.724
+Filter,1,QEDB,18,23.908,745,2.431
+Aggregate,1,QEDB,18,34.629,201,0.48
+Filter,1,PoSQL,18,40.227,2,6.461
+Aggregate,1,PoSQL,18,23.478,2,5.617
+Join,1,PoSQL,18,35.877,71,12.5
+Limit,1,PoSQL,18,29.367,3,5.938
+Filter,1,TT,19,9.148,9,7.334
+Aggregate,1,TT,19,0.984,9,5.785
+Join,1,TT,19,29.677,52,11.348
+Join PK/FK,1,TT,19,3.127,50,6.024
+Limit,1,TT,19,4.452,9,7.103
+Filter,1,QEDB,19,45.745,1579,2.431
+Aggregate,1,QEDB,19,65.771,424,0.48
+Filter,1,PoSQL,19,83.124,2,6.742
+Aggregate,1,PoSQL,19,48.521,2,5.898
+Join,1,PoSQL,19,75.537,139,13.062
+Limit,1,PoSQL,19,60.572,2,6.219

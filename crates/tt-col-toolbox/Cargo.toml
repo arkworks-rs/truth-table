@@ -1,0 +1,53 @@
+[package]
+name = "tt-col-toolbox"
+description = "PIOPs and sub-arguments over database columns — inclusion, uniqueness, no-zero, and related properties consumed by truth-table gadgets."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# local dependencies
+arithmetic = { package = "tt-arithmetic", path = "../tt-arithmetic" }
+
+# arkworks dependencies
+ark-piop = { workspace = true }
+ark-std = { workspace = true }
+ark-ff = { workspace = true }
+ark-poly = { workspace = true }
+
+# datafusion dependencies
+datafusion = { workspace = true }
+
+# other dependencies
+num-bigint = { workspace = true }
+derivative = { workspace = true }
+rayon = { workspace = true, optional = true }
+indexmap = { workspace = true }
+either = { workspace = true }
+tracing = { workspace = true }
+[dev-dependencies]
+ark-ec = { workspace = true }
+ark-test-curves = { workspace = true }
+ark-piop = { workspace = true, features = ["test-utils"] }
+
+
+[features]
+default = ["std", "parallel"]
+std = ["ark-piop/std", "ark-ff/std", "ark-poly/std", "ark-std/std"]
+print-trace = ["ark-std/print-trace"]
+parallel = [
+    "std",
+    "ark-piop/parallel",
+    "ark-ff/parallel",
+    "ark-poly/parallel",
+    "ark-std/parallel",
+    "rayon",
+]
+
+honest-prover = ["ark-piop/honest-prover"]
