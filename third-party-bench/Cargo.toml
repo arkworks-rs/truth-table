@@ -10,6 +10,7 @@ BLITZAR_BACKEND = "cpu"
 
 [patch.crates-io]
 arrow-arith = { path = "patches/arrow-arith-51.0.0" }
+ark-piop = { path = "../../ark-piop" }
 
 [package]
 name = "tt-third-party-bench"
@@ -24,6 +25,8 @@ proof-of-sql = { path = "../../sxt-proof-of-sql/crates/proof-of-sql" }
 qedb = { path = "../../qedb" }
 tpch-data = { package = "tt-tpch-data", path = "../crates/tt-tpch-data" }
 exec = { package = "tt-exec", path = "../crates/tt-exec" }
+front-end = { package = "tt-front-end", path = "../crates/tt-front-end" }
+ark-piop = "0.1.0"
 tokio = { version = "1", features = ["rt", "macros"] }
 parquet = { version = "57" }
 tracing = "0.1"
@@ -32,6 +35,8 @@ tracing-tree = "0.3"
 arrow = { version = "57" }
 chrono = "0.4"
 serde_json = "1"
+bincode = "1.3"
+zstd = "0.13"
 
 [[bench]]
 name = "sxt_proof_of_sql"

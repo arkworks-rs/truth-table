@@ -7,9 +7,9 @@
 [![CI](https://github.com/alireza-shirzad/truth-table/actions/workflows/ci.yml/badge.svg)](https://github.com/alireza-shirzad/truth-table/actions/workflows/ci.yml)
 [![License: PolyForm NC 1.0.0](https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-informational.svg)](LICENSE)
 
-TruthTable is a verifiable query engine for server-hosted databases. Instead of asking clients to either trust a database
+TruthTable is a verifiable query engine for committed databases. Instead of asking clients to either trust a database
 server blindly or re-execute queries locally, TruthTable lets a server return a
-SQL query result together with a succinct proof that the result was computed
+SQL query result together with a succinct cryptographic proof that the result was computed
 correctly with respect to a committed database snapshot.
 
 TruthTable is built as a wrapper around the [DataFusion](https://github.com/apache/datafusion) query engine. In
@@ -119,19 +119,6 @@ cargo run --release -p tt-exec --bin tt -- \
   --result-path artifacts/proof.result.parquet \
   --vk-path artifacts/tt_vk_16.vk
 ```
-
-# Repository layout
-
-The workspace is organized by role rather than by algorithm:
-
-- `crates/tt-front-end/` — user-facing prover / verifier / data-owner API. Start here if you are integrating TruthTable into an application.
-- `crates/tt-core/` — the intermediate representation (IR), plan and gadget nodes, and the prover / verifier pass pipeline that operate on it.
-- `crates/tt-proof-planner/` — DataFusion optimizer rules that rewrite logical plans into shapes the prover can handle efficiently.
-- `crates/tt-arithmetic/`, `crates/tt-col-toolbox/` — lower-level arithmetization primitives used by the gadgets.
-- `crates/tt-tpch-data/` — TPC-H data generation and preprocessing.
-- `crates/tt-exec/` — the `tt` CLI binary used in the example above, plus internal benches.
-- `third-party-bench/` — comparison harness against `qedb` and `sxt-proof-of-sql`.
-- `tt-results/` — tidy CSVs and matplotlib scripts that produce the figures in the paper.
 
 # License
 

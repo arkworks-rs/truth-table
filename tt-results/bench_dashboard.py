@@ -12,6 +12,10 @@ import streamlit.components.v1 as components
 
 
 DEFAULT_JSONL_PATH = Path(__file__).resolve().parent / "raw" / "bench_stats.jsonl"
+# Where the sumcheck-degree default lives. Newer ark-piop exposes it as a
+# `SharedArgConfig::default()` field in `types/mod.rs`; older versions had a
+# top-level `SUMCHECK_TERM_DEGREE_LIMIT` const in `lib.rs`. We try both.
+ARK_PIOP_TYPES_PATH = Path(__file__).resolve().parents[2] / "ark-piop" / "src" / "types" / "mod.rs"
 ARK_PIOP_LIB_PATH = Path(__file__).resolve().parents[2] / "ark-piop" / "src" / "lib.rs"
 
 
@@ -46,14 +50,26 @@ def load_jsonl(path: str) -> list[dict[str, Any]]:
 
 
 def sumcheck_term_degree_limit_label() -> str:
+    import re
+
+    # Newer ark-piop: field default in `SharedArgConfig::default()` impl.
+    #   sumcheck_term_degree_limit: 6,
     try:
-        source = ARK_PIOP_LIB_PATH.read_text(encoding="utf-8")
+        source = ARK_PIOP_TYPES_PATH.read_text(encoding="utf-8")
+    except OSError:
+        source = ""
+    match = re.search(r"sumcheck_term_degree_limit\s*:\s*([0-9]+)", source)
+    if match:
+        return match.group(1)
+
+    # Legacy ark-piop: top-level const in lib.rs.
+    #   pub const SUMCHECK_TERM_DEGREE_LIMIT: usize = 6;
+    try:
+        legacy = ARK_PIOP_LIB_PATH.read_text(encoding="utf-8")
     except OSError:
         return "unknown"
-
-    marker = "SUMCHECK_TERM_DEGREE_LIMIT"
-    for line in source.splitlines():
-        if marker not in line or "=" not in line:
+    for line in legacy.splitlines():
+        if "SUMCHECK_TERM_DEGREE_LIMIT" not in line or "=" not in line:
             continue
         value = line.split("=", 1)[1].strip().rstrip(";")
         if value:
@@ -348,6 +364,63 @@ def render_claims_section(claims: dict[str, Any]) -> None:
     render_stage_histograms("Initial", after.get("initial", {}))
     render_stage_histograms("After ZeroChecker", after.get("after-zero-batching", {}))
     render_stage_histograms("After SumChecker", after.get("after-sum-batching", {}))
+
+    render_lookup_claims_section(claims.get("lookups"))
+
+
+def render_lookup_claims_section(lookups: Any) -> None:
+    if not isinstance(lookups, dict):
+        return
+
+    def _to_int(val: Any) -> int | None:
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+
+    count = _to_int(lookups.get("count"))
+    supersets_count = _to_int(lookups.get("supersets_count"))
+
+    raw = lookups.get("subset_counts_per_superset")
+    subset_counts: list[int] = []
+    if isinstance(raw, list):
+        subset_counts = [int(x) for x in raw if _to_int(x) is not None]
+    elif isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                subset_counts = [int(x) for x in parsed if _to_int(x) is not None]
+        except (json.JSONDecodeError, ValueError):
+            subset_counts = []
+
+    if (count or 0) == 0 and not subset_counts:
+        return
+
+    st.markdown("#### Lookup Claims")
+    col1, col2 = st.columns(2)
+    col1.metric("Total lookup claims", str(count) if count is not None else "n/a")
+    col2.metric(
+        "Distinct supersets",
+        str(supersets_count) if supersets_count is not None else "n/a",
+    )
+
+    if subset_counts:
+        # Group: how many supersets share each subset count?
+        # E.g. {50: 2, 20: 1, 10: 1, 3: 1, 1: 54}
+        grouped = Counter(subset_counts)
+        rows = [
+            {"# supersets": num_supersets, "# subsets per superset": subset_count}
+            for subset_count, num_supersets in sorted(
+                grouped.items(), key=lambda kv: (-kv[0],)
+            )
+        ]
+        st.markdown(
+            "Each row says *N supersets each have M subset polynomials looked up "
+            "into them*."
+        )
+        st.table(rows)
 
 
 def render_results_section(results: dict[str, Any]) -> None:

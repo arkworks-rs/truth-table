@@ -6,30 +6,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.083 m",
-                  "slowest": "1.083 m",
-                  "median": "1.083 m",
-                  "mean": "1.083 m"
+                  "fastest": "1.063 m",
+                  "slowest": "1.063 m",
+                  "median": "1.063 m",
+                  "mean": "1.063 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "8.847 ms",
-                  "slowest": "10.54 ms",
-                  "median": "9.312 ms",
-                  "mean": "9.374 ms"
+                  "fastest": "8.853 ms",
+                  "slowest": "11.07 ms",
+                  "median": "9.284 ms",
+                  "mean": "9.343 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "17.85 ms",
-                  "slowest": "20.19 ms",
-                  "median": "18.64 ms",
-                  "mean": "18.66 ms"
+                  "fastest": "17.95 ms",
+                  "slowest": "20.33 ms",
+                  "median": "18.63 ms",
+                  "mean": "18.71 ms"
                }
             }
          },
@@ -38,30 +38,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "21.44 s",
-                  "slowest": "21.44 s",
-                  "median": "21.44 s",
-                  "mean": "21.44 s"
+                  "fastest": "21.72 s",
+                  "slowest": "21.72 s",
+                  "median": "21.72 s",
+                  "mean": "21.72 s"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "16.48 ms",
-                  "slowest": "20.19 ms",
-                  "median": "18.3 ms",
-                  "mean": "18.3 ms"
+                  "fastest": "16.12 ms",
+                  "slowest": "19.73 ms",
+                  "median": "17.9 ms",
+                  "mean": "17.96 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "42.23 ms",
-                  "slowest": "47.64 ms",
-                  "median": "45.32 ms",
-                  "mean": "45.39 ms"
+                  "fastest": "41.88 ms",
+                  "slowest": "47.8 ms",
+                  "median": "45.41 ms",
+                  "mean": "45.47 ms"
                }
             }
          },
@@ -80,20 +80,20 @@
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "12.1 ms",
-                  "slowest": "14.2 ms",
-                  "median": "12.65 ms",
-                  "mean": "12.66 ms"
+                  "fastest": "12.08 ms",
+                  "slowest": "14.32 ms",
+                  "median": "12.62 ms",
+                  "mean": "12.74 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "23.3 ms",
-                  "slowest": "27.37 ms",
-                  "median": "25.75 ms",
-                  "mean": "25.48 ms"
+                  "fastest": "23.62 ms",
+                  "slowest": "27.79 ms",
+                  "median": "25.93 ms",
+                  "mean": "25.67 ms"
                }
             }
          },
@@ -102,10 +102,10 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.151 m",
-                  "slowest": "1.151 m",
-                  "median": "1.151 m",
-                  "mean": "1.151 m"
+                  "fastest": "1.15 m",
+                  "slowest": "1.15 m",
+                  "median": "1.15 m",
+                  "mean": "1.15 m"
                }
             },
             "verifier_crypto": {
@@ -113,19 +113,19 @@
                "iter_count": 100,
                "time": {
                   "fastest": "9.975 ms",
-                  "slowest": "11.54 ms",
-                  "median": "10.69 ms",
-                  "mean": "10.67 ms"
+                  "slowest": "11.96 ms",
+                  "median": "10.59 ms",
+                  "mean": "10.65 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "16.76 ms",
-                  "slowest": "19.52 ms",
-                  "median": "18.04 ms",
-                  "mean": "18.02 ms"
+                  "fastest": "16.87 ms",
+                  "slowest": "19.86 ms",
+                  "median": "18.17 ms",
+                  "mean": "18.22 ms"
                }
             }
          },
@@ -134,30 +134,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.277 m",
-                  "slowest": "1.277 m",
-                  "median": "1.277 m",
-                  "mean": "1.277 m"
+                  "fastest": "1.28 m",
+                  "slowest": "1.28 m",
+                  "median": "1.28 m",
+                  "mean": "1.28 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "13.07 ms",
-                  "slowest": "18.26 ms",
-                  "median": "13.87 ms",
-                  "mean": "13.99 ms"
+                  "fastest": "13.12 ms",
+                  "slowest": "15.53 ms",
+                  "median": "14.15 ms",
+                  "mean": "14.22 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "30.63 ms",
-                  "slowest": "33.96 ms",
-                  "median": "32.01 ms",
-                  "mean": "32.02 ms"
+                  "fastest": "29.97 ms",
+                  "slowest": "33.82 ms",
+                  "median": "32.42 ms",
+                  "mean": "32.38 ms"
                }
             }
          },
@@ -166,30 +166,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "54.02 s",
-                  "slowest": "54.02 s",
-                  "median": "54.02 s",
-                  "mean": "54.02 s"
+                  "fastest": "54.03 s",
+                  "slowest": "54.03 s",
+                  "median": "54.03 s",
+                  "mean": "54.03 s"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "8.426 ms",
-                  "slowest": "9.777 ms",
-                  "median": "8.831 ms",
-                  "mean": "8.79 ms"
+                  "fastest": "8.365 ms",
+                  "slowest": "10.43 ms",
+                  "median": "9.014 ms",
+                  "mean": "9.058 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "12.28 ms",
-                  "slowest": "14.61 ms",
-                  "median": "13.3 ms",
-                  "mean": "13.33 ms"
+                  "fastest": "12.38 ms",
+                  "slowest": "14.13 ms",
+                  "median": "13.09 ms",
+                  "mean": "13.16 ms"
                }
             }
          },
@@ -198,30 +198,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.745 m",
-                  "slowest": "1.745 m",
-                  "median": "1.745 m",
-                  "mean": "1.745 m"
+                  "fastest": "1.748 m",
+                  "slowest": "1.748 m",
+                  "median": "1.748 m",
+                  "mean": "1.748 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "15.38 ms",
-                  "slowest": "21.04 ms",
-                  "median": "16.26 ms",
-                  "mean": "16.39 ms"
+                  "fastest": "15.52 ms",
+                  "slowest": "21.41 ms",
+                  "median": "16.03 ms",
+                  "mean": "16.13 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "41.84 ms",
-                  "slowest": "46.33 ms",
-                  "median": "44.91 ms",
-                  "mean": "44.42 ms"
+                  "fastest": "40.73 ms",
+                  "slowest": "47.41 ms",
+                  "median": "45.36 ms",
+                  "mean": "44.96 ms"
                }
             }
          },
@@ -230,30 +230,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.76 m",
-                  "slowest": "1.76 m",
-                  "median": "1.76 m",
-                  "mean": "1.76 m"
+                  "fastest": "1.772 m",
+                  "slowest": "1.772 m",
+                  "median": "1.772 m",
+                  "mean": "1.772 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "18.98 ms",
-                  "slowest": "24.65 ms",
-                  "median": "21.11 ms",
-                  "mean": "21.47 ms"
+                  "fastest": "19.2 ms",
+                  "slowest": "24.63 ms",
+                  "median": "21.53 ms",
+                  "mean": "21.42 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "48.15 ms",
-                  "slowest": "53.55 ms",
-                  "median": "51.74 ms",
-                  "mean": "51.82 ms"
+                  "fastest": "48.44 ms",
+                  "slowest": "54.48 ms",
+                  "median": "52.16 ms",
+                  "mean": "52.23 ms"
                }
             }
          },
@@ -262,30 +262,10 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "2.25 m",
-                  "slowest": "2.25 m",
-                  "median": "2.25 m",
-                  "mean": "2.25 m"
-               }
-            },
-            "verifier_crypto": {
-               "sample_count": 100,
-               "iter_count": 100,
-               "time": {
-                  "fastest": "11.14 ms",
-                  "slowest": "15.11 ms",
-                  "median": "11.94 ms",
-                  "mean": "11.81 ms"
-               }
-            },
-            "verifier_full": {
-               "sample_count": 100,
-               "iter_count": 100,
-               "time": {
-                  "fastest": "27.21 ms",
-                  "slowest": "31.3 ms",
-                  "median": "29.47 ms",
-                  "mean": "29.38 ms"
+                  "fastest": "2.234 m",
+                  "slowest": "2.234 m",
+                  "median": "2.234 m",
+                  "mean": "2.234 m"
                }
             }
          },
@@ -294,30 +274,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "2.579 m",
-                  "slowest": "2.579 m",
-                  "median": "2.579 m",
-                  "mean": "2.579 m"
+                  "fastest": "2.59 m",
+                  "slowest": "2.59 m",
+                  "median": "2.59 m",
+                  "mean": "2.59 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "21.19 ms",
-                  "slowest": "23.85 ms",
-                  "median": "22.44 ms",
-                  "mean": "22.52 ms"
+                  "fastest": "21.22 ms",
+                  "slowest": "24.08 ms",
+                  "median": "22.18 ms",
+                  "mean": "22.26 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "35.52 ms",
-                  "slowest": "39.22 ms",
-                  "median": "37.33 ms",
-                  "mean": "37.43 ms"
+                  "fastest": "36.14 ms",
+                  "slowest": "40.37 ms",
+                  "median": "37.23 ms",
+                  "mean": "37.39 ms"
                }
             }
          },
@@ -326,30 +306,10 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.316 m",
-                  "slowest": "1.316 m",
-                  "median": "1.316 m",
-                  "mean": "1.316 m"
-               }
-            },
-            "verifier_crypto": {
-               "sample_count": 100,
-               "iter_count": 100,
-               "time": {
-                  "fastest": "9.154 ms",
-                  "slowest": "11.05 ms",
-                  "median": "10 ms",
-                  "mean": "10.06 ms"
-               }
-            },
-            "verifier_full": {
-               "sample_count": 100,
-               "iter_count": 100,
-               "time": {
-                  "fastest": "17.64 ms",
-                  "slowest": "20.58 ms",
-                  "median": "19.05 ms",
-                  "mean": "19.15 ms"
+                  "fastest": "1.287 m",
+                  "slowest": "1.287 m",
+                  "median": "1.287 m",
+                  "mean": "1.287 m"
                }
             }
          },
@@ -358,30 +318,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "33.57 s",
-                  "slowest": "33.57 s",
-                  "median": "33.57 s",
-                  "mean": "33.57 s"
+                  "fastest": "33.59 s",
+                  "slowest": "33.59 s",
+                  "median": "33.59 s",
+                  "mean": "33.59 s"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "8.54 ms",
-                  "slowest": "10.14 ms",
-                  "median": "9.067 ms",
-                  "mean": "9.134 ms"
+                  "fastest": "8.485 ms",
+                  "slowest": "10.83 ms",
+                  "median": "9.124 ms",
+                  "mean": "9.176 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "14.54 ms",
-                  "slowest": "17.28 ms",
-                  "median": "15.3 ms",
-                  "mean": "15.45 ms"
+                  "fastest": "14.31 ms",
+                  "slowest": "17.04 ms",
+                  "median": "15.07 ms",
+                  "mean": "15.17 ms"
                }
             }
          },
@@ -390,30 +350,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.699 m",
-                  "slowest": "1.699 m",
-                  "median": "1.699 m",
-                  "mean": "1.699 m"
+                  "fastest": "1.71 m",
+                  "slowest": "1.71 m",
+                  "median": "1.71 m",
+                  "mean": "1.71 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "12.01 ms",
-                  "slowest": "15.47 ms",
-                  "median": "13.08 ms",
-                  "mean": "13.1 ms"
+                  "fastest": "12.08 ms",
+                  "slowest": "14.99 ms",
+                  "median": "13.14 ms",
+                  "mean": "13.17 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "27.29 ms",
-                  "slowest": "30.02 ms",
-                  "median": "28.18 ms",
-                  "mean": "28.26 ms"
+                  "fastest": "26.47 ms",
+                  "slowest": "29.99 ms",
+                  "median": "27.82 ms",
+                  "mean": "27.94 ms"
                }
             }
          },
@@ -422,30 +382,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.043 m",
-                  "slowest": "1.043 m",
-                  "median": "1.043 m",
-                  "mean": "1.043 m"
+                  "fastest": "1.048 m",
+                  "slowest": "1.048 m",
+                  "median": "1.048 m",
+                  "mean": "1.048 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "10.3 ms",
-                  "slowest": "12.15 ms",
-                  "median": "10.84 ms",
-                  "mean": "10.83 ms"
+                  "fastest": "10.27 ms",
+                  "slowest": "12.55 ms",
+                  "median": "10.97 ms",
+                  "mean": "11 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "20.91 ms",
-                  "slowest": "23.05 ms",
-                  "median": "21.91 ms",
-                  "mean": "21.89 ms"
+                  "fastest": "21.36 ms",
+                  "slowest": "23.9 ms",
+                  "median": "22.06 ms",
+                  "mean": "22.28 ms"
                }
             }
          },
@@ -454,30 +414,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.821 m",
-                  "slowest": "1.821 m",
-                  "median": "1.821 m",
-                  "mean": "1.821 m"
+                  "fastest": "1.838 m",
+                  "slowest": "1.838 m",
+                  "median": "1.838 m",
+                  "mean": "1.838 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "13.03 ms",
-                  "slowest": "14.63 ms",
-                  "median": "13.91 ms",
-                  "mean": "13.76 ms"
+                  "fastest": "13.04 ms",
+                  "slowest": "15.01 ms",
+                  "median": "13.65 ms",
+                  "mean": "13.68 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "25.24 ms",
-                  "slowest": "29.57 ms",
-                  "median": "27.28 ms",
-                  "mean": "27.24 ms"
+                  "fastest": "24.7 ms",
+                  "slowest": "28.72 ms",
+                  "median": "27.27 ms",
+                  "mean": "27.17 ms"
                }
             }
          },
@@ -486,30 +446,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "2.869 m",
-                  "slowest": "2.869 m",
-                  "median": "2.869 m",
-                  "mean": "2.869 m"
+                  "fastest": "2.899 m",
+                  "slowest": "2.899 m",
+                  "median": "2.899 m",
+                  "mean": "2.899 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "19.35 ms",
-                  "slowest": "25.23 ms",
-                  "median": "22.88 ms",
-                  "mean": "22.04 ms"
+                  "fastest": "19.75 ms",
+                  "slowest": "26.02 ms",
+                  "median": "22.68 ms",
+                  "mean": "22.3 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "51.82 ms",
-                  "slowest": "58 ms",
-                  "median": "55.36 ms",
-                  "mean": "55.44 ms"
+                  "fastest": "52.61 ms",
+                  "slowest": "59.6 ms",
+                  "median": "55.88 ms",
+                  "mean": "55.9 ms"
                }
             }
          },
@@ -518,30 +478,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.961 m",
-                  "slowest": "1.961 m",
-                  "median": "1.961 m",
-                  "mean": "1.961 m"
+                  "fastest": "1.973 m",
+                  "slowest": "1.973 m",
+                  "median": "1.973 m",
+                  "mean": "1.973 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "14.02 ms",
-                  "slowest": "16.74 ms",
-                  "median": "15.56 ms",
-                  "mean": "15.46 ms"
+                  "fastest": "14.08 ms",
+                  "slowest": "16.69 ms",
+                  "median": "15.12 ms",
+                  "mean": "15.19 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "29.74 ms",
-                  "slowest": "33.68 ms",
-                  "median": "32.35 ms",
-                  "mean": "32.42 ms"
+                  "fastest": "30.69 ms",
+                  "slowest": "36.74 ms",
+                  "median": "32.66 ms",
+                  "mean": "32.66 ms"
                }
             }
          },
@@ -550,30 +510,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "51.24 s",
-                  "slowest": "51.24 s",
-                  "median": "51.24 s",
-                  "mean": "51.24 s"
+                  "fastest": "49.91 s",
+                  "slowest": "49.91 s",
+                  "median": "49.91 s",
+                  "mean": "49.91 s"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "8.127 ms",
-                  "slowest": "10.55 ms",
-                  "median": "8.951 ms",
-                  "mean": "8.865 ms"
+                  "fastest": "8.107 ms",
+                  "slowest": "9.968 ms",
+                  "median": "8.847 ms",
+                  "mean": "8.834 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "14.91 ms",
-                  "slowest": "16.36 ms",
-                  "median": "15.31 ms",
-                  "mean": "15.42 ms"
+                  "fastest": "14.9 ms",
+                  "slowest": "17.53 ms",
+                  "median": "15.91 ms",
+                  "mean": "15.88 ms"
                }
             }
          },
@@ -582,30 +542,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.053 m",
-                  "slowest": "1.053 m",
-                  "median": "1.053 m",
-                  "mean": "1.053 m"
+                  "fastest": "1.058 m",
+                  "slowest": "1.058 m",
+                  "median": "1.058 m",
+                  "mean": "1.058 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "11.95 ms",
-                  "slowest": "14.93 ms",
-                  "median": "12.97 ms",
-                  "mean": "12.89 ms"
+                  "fastest": "12.07 ms",
+                  "slowest": "14.02 ms",
+                  "median": "13.04 ms",
+                  "mean": "13.04 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "22.82 ms",
-                  "slowest": "26.15 ms",
-                  "median": "24.46 ms",
-                  "mean": "24.32 ms"
+                  "fastest": "22.85 ms",
+                  "slowest": "26.65 ms",
+                  "median": "24.3 ms",
+                  "mean": "24.42 ms"
                }
             }
          },
@@ -614,30 +574,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.169 m",
-                  "slowest": "1.169 m",
-                  "median": "1.169 m",
-                  "mean": "1.169 m"
+                  "fastest": "1.179 m",
+                  "slowest": "1.179 m",
+                  "median": "1.179 m",
+                  "mean": "1.179 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "13 ms",
-                  "slowest": "15.69 ms",
-                  "median": "13.58 ms",
-                  "mean": "13.68 ms"
+                  "fastest": "12.97 ms",
+                  "slowest": "15.52 ms",
+                  "median": "13.7 ms",
+                  "mean": "13.84 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "28.58 ms",
-                  "slowest": "33.33 ms",
-                  "median": "31.91 ms",
-                  "mean": "31.94 ms"
+                  "fastest": "28.4 ms",
+                  "slowest": "33.34 ms",
+                  "median": "31.76 ms",
+                  "mean": "31.79 ms"
                }
             }
          },
@@ -646,30 +606,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.559 m",
-                  "slowest": "1.559 m",
-                  "median": "1.559 m",
-                  "mean": "1.559 m"
+                  "fastest": "1.577 m",
+                  "slowest": "1.577 m",
+                  "median": "1.577 m",
+                  "mean": "1.577 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "18.51 ms",
-                  "slowest": "23.76 ms",
-                  "median": "21.41 ms",
-                  "mean": "20.82 ms"
+                  "fastest": "18.64 ms",
+                  "slowest": "23.71 ms",
+                  "median": "20.95 ms",
+                  "mean": "20.54 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "48.51 ms",
-                  "slowest": "52.47 ms",
-                  "median": "51.15 ms",
-                  "mean": "51.18 ms"
+                  "fastest": "47.99 ms",
+                  "slowest": "54.14 ms",
+                  "median": "52.19 ms",
+                  "mean": "52.07 ms"
                }
             }
          },
@@ -678,30 +638,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "52.41 s",
-                  "slowest": "52.41 s",
-                  "median": "52.41 s",
-                  "mean": "52.41 s"
+                  "fastest": "52.52 s",
+                  "slowest": "52.52 s",
+                  "median": "52.52 s",
+                  "mean": "52.52 s"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "11.28 ms",
-                  "slowest": "15.24 ms",
-                  "median": "11.73 ms",
-                  "mean": "11.75 ms"
+                  "fastest": "11.39 ms",
+                  "slowest": "15.44 ms",
+                  "median": "12.12 ms",
+                  "mean": "12.29 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "27.19 ms",
-                  "slowest": "31.03 ms",
-                  "median": "29.81 ms",
-                  "mean": "29.51 ms"
+                  "fastest": "28.12 ms",
+                  "slowest": "31.25 ms",
+                  "median": "29.88 ms",
+                  "mean": "29.82 ms"
                }
             }
          },
@@ -710,30 +670,30 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "1.533 m",
-                  "slowest": "1.533 m",
-                  "median": "1.533 m",
-                  "mean": "1.533 m"
+                  "fastest": "1.505 m",
+                  "slowest": "1.505 m",
+                  "median": "1.505 m",
+                  "mean": "1.505 m"
                }
             },
             "verifier_crypto": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "16.95 ms",
-                  "slowest": "18.18 ms",
-                  "median": "17.39 ms",
-                  "mean": "17.48 ms"
+                  "fastest": "40.02 ms",
+                  "slowest": "43.39 ms",
+                  "median": "41.15 ms",
+                  "mean": "41.23 ms"
                }
             },
             "verifier_full": {
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "22.93 ms",
-                  "slowest": "25.37 ms",
-                  "median": "24.17 ms",
-                  "mean": "24.2 ms"
+                  "fastest": "47.25 ms",
+                  "slowest": "51.74 ms",
+                  "median": "48.41 ms",
+                  "mean": "48.64 ms"
                }
             }
          }

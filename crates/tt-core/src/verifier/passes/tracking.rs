@@ -1,5 +1,5 @@
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
-use ark_ff::Field;
+use ark_ff::{Field, Zero};
 use ark_piop::{SnarkBackend, types::CommitmentBinding, verifier::ArgVerifier};
 use datafusion::{
     arrow::datatypes::{FieldRef, Schema},
@@ -340,7 +340,16 @@ impl<B: SnarkBackend> TrackingPass<B> {
                 let num_vars = mle.num_vars();
                 let oracle = ark_piop::verifier::structs::oracle::Oracle::new_multivariate(
                     arith_table.log_size(),
-                    move |point| Ok(eval_mle_at_point(&poly_evals, num_vars, &point)),
+                    move |point| {
+                        // Fast path: hypercube points (every coord is 0 or 1)
+                        // become a direct array lookup — O(num_vars) instead of
+                        // O(2^num_vars). result_check's verifier extracts res˜
+                        // by querying at hypercube points, so this matters.
+                        if let Some(idx) = hypercube_index(&point, num_vars) {
+                            return Ok(poly_evals.get(idx).copied().unwrap_or_else(B::F::zero));
+                        }
+                        Ok(eval_mle_at_point(&poly_evals, num_vars, &point))
+                    },
                 );
                 let tracked_oracle = verifier.borrow().track_base_oracle(oracle);
                 (field_ref.clone(), tracked_oracle)
@@ -352,6 +361,26 @@ impl<B: SnarkBackend> TrackingPass<B> {
             arith_table.log_size(),
         )
     }
+}
+
+/// If every coordinate of `point` is exactly 0 or 1, return the integer index
+/// it represents (little-endian bit order); otherwise `None`. Used to short-
+/// circuit MLE evaluation at hypercube points to a direct array lookup.
+fn hypercube_index<F: Field + Copy>(point: &[F], num_vars: usize) -> Option<usize> {
+    let zero = F::zero();
+    let one = F::one();
+    let mut idx = 0usize;
+    for i in 0..num_vars {
+        let xi = point.get(i).copied().unwrap_or(zero);
+        if xi == zero {
+            // bit is 0
+        } else if xi == one {
+            idx |= 1 << i;
+        } else {
+            return None;
+        }
+    }
+    Some(idx)
 }
 
 fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point: &[F]) -> F {

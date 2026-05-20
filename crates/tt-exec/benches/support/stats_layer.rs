@@ -407,7 +407,22 @@ fn build_nested_claims(claims: Map<String, Value>) -> Value {
             "initial": build_claim_stage(&claims, "claims_after_degree_reduction_initial"),
             "after-zero-batching": build_claim_stage(&claims, "claims_after_degree_reduction_after_zero_batching"),
             "after-sum-batching": build_claim_stage(&claims, "claims_after_degree_reduction_after_sum_batching")
-        }
+        },
+        "lookups": build_lookup_section(&claims)
+    })
+}
+
+fn build_lookup_section(claims: &Map<String, Value>) -> Value {
+    json!({
+        "count": claims.get("claims_lookup_count").cloned().unwrap_or(Value::Null),
+        "supersets_count": claims
+            .get("claims_lookup_supersets_count")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "subset_counts_per_superset": claims
+            .get("claims_lookup_subset_counts_per_superset")
+            .cloned()
+            .unwrap_or(Value::Null)
     })
 }
 

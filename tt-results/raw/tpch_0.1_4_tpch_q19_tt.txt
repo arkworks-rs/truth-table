@@ -1,22 +1,12 @@
-warning: /home/alrshir/truth-table/Cargo.toml: unused manifest key: workspace.edition
-warning: unused import: `errors::SnarkResult`
-  --> crates/tt-arithmetic/src/table.rs:12:5
-   |
-12 |     errors::SnarkResult,
-   |     ^^^^^^^^^^^^^^^^^^^
-   |
-   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
-
-warning: `tt-arithmetic` (lib) generated 1 warning (run `cargo fix --lib -p tt-arithmetic` to apply 1 suggestion)
-    Finished `bench` profile [optimized] target(s) in 0.11s
-     Running benches/benches.rs (target/release/deps/benches-4193c83c119e7428)
+    Finished `bench` profile [optimized] target(s) in 0.10s
+     Running benches/benches.rs (target/release/deps/benches-19c97c9901be7410)
 Timer precision: 10 ns
 benches                   fastest       │ slowest       │ median        │ mean          │ samples │ iters
 ╰─ tpch                                 │               │               │               │         │
    ╰─ tpch_q19_tt                       │               │               │               │         │
-      ├─ prover           proof size (tpch_q19_tt) core=40.41 KiB (41378 bytes) opt-hints=36 B (36 bytes) full=40.44 KiB (41414 bytes) full-compressed=28.08 KiB (28757 bytes) num_threads=4
-2.109 m       │ 2.109 m       │ 2.109 m       │ 2.109 m       │ 1       │ 1
-      ├─ verifier_crypto  19.21 ms      │ 24.41 ms      │ 19.65 ms      │ 19.71 ms      │ 100     │ 100
-      ╰─ verifier_full    48.43 ms      │ 53.61 ms      │ 51.96 ms      │ 51.92 ms      │ 100     │ 100
+      ├─ prover           proof size (tpch_q19_tt) core=40.37 KiB (41340 bytes) opt-hints=36 B (36 bytes) full=40.41 KiB (41376 bytes) full-compressed=27.98 KiB (28655 bytes) num_threads=4
+2.123 m       │ 2.123 m       │ 2.123 m       │ 2.123 m       │ 1       │ 1
+      ├─ verifier_crypto  18.91 ms      │ 25.22 ms      │ 19.42 ms      │ 19.5 ms       │ 100     │ 100
+      ╰─ verifier_full    48.89 ms      │ 54.37 ms      │ 52.47 ms      │ 52.47 ms      │ 100     │ 100
 
 /home/alrshir/truth-table/tt-results/raw/benches.json

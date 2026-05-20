@@ -1,22 +1,16 @@
-warning: /home/alrshir/truth-table/Cargo.toml: unused manifest key: workspace.edition
-warning: unused import: `errors::SnarkResult`
-  --> crates/tt-arithmetic/src/table.rs:12:5
-   |
-12 |     errors::SnarkResult,
-   |     ^^^^^^^^^^^^^^^^^^^
-   |
-   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
-
-warning: `tt-arithmetic` (lib) generated 1 warning (run `cargo fix --lib -p tt-arithmetic` to apply 1 suggestion)
     Finished `bench` profile [optimized] target(s) in 0.10s
-     Running benches/benches.rs (target/release/deps/benches-4193c83c119e7428)
+     Running benches/benches.rs (target/release/deps/benches-19c97c9901be7410)
 Timer precision: 10 ns
 benches                   fastest       │ slowest       │ median        │ mean          │ samples │ iters
 ╰─ tpch                                 │               │               │               │         │
    ╰─ tpch_q12_tt                       │               │               │               │         │
-      ├─ prover           proof size (tpch_q12_tt) core=20.45 KiB (20942 bytes) opt-hints=44 B (44 bytes) full=20.49 KiB (20986 bytes) full-compressed=15.68 KiB (16056 bytes) num_threads=4
-53.33 s       │ 53.33 s       │ 53.33 s       │ 53.33 s       │ 1       │ 1
-      ├─ verifier_crypto  6.261 ms      │ 7.419 ms      │ 6.688 ms      │ 6.706 ms      │ 100     │ 100
-      ╰─ verifier_full    15.11 ms      │ 17.54 ms      │ 15.51 ms      │ 15.59 ms      │ 100     │ 100
+      ├─ prover           proof size (tpch_q12_tt) core=20.22 KiB (20709 bytes) opt-hints=44 B (44 bytes) full=20.27 KiB (20753 bytes) full-compressed=15.59 KiB (15960 bytes) num_threads=4
+52.43 s       │ 52.43 s       │ 52.43 s       │ 52.43 s       │ 1       │ 1
+      ├─ verifier_crypto  
+thread 'main' (1039597) panicked at crates/tt-exec/benches/support/mod.rs:539:10:
+verify for bench: DataFusion(Internal("verifier verify_pass failed before cryptographic verification: VerifierError(VerifierCheckFailed(\"verify pass failed in gadget Lookup under parent Support: VerifierError(VerifierCheckFailed(\\\"LHS and RHS have different sums LHS: 20231257287087579154256475526646783726948235472994971025038624333260528977826, RHS: 12289795020342601539779884216770372098984848104994236126940861259931314854461\\\"))\"))"))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
-/home/alrshir/truth-table/tt-results/raw/benches.json
+thread 'main' (1039597) panicked at /home/alrshir/.cargo/git/checkouts/divan-5df25a65c63e86f3/54d2574/src/benchmark/mod.rs:755:21:
+Divan benchmarking thread 0 panicked
+error: bench failed, to rerun pass `-p tt-exec --bench benches`

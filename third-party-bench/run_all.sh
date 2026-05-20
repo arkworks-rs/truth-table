@@ -25,7 +25,7 @@ BENCHES=(sxt_proof_of_sql qedb truth_table)
 # Pin every bench to 1 rayon thread so reported prover/verifier numbers match
 # the `num_threads: 1` stamp the parser writes into the JSON. Without this,
 # rayon defaults to all cores and the "threads=1" column in micro.csv lies.
-NUM_THREADS=1
+NUM_THREADS=16
 
 # The Join and Join_PK_FK parquets now share a deterministic PK/FK row shape
 # written by sxt's bench. Wipe stale artifacts so downstream truth_table runs

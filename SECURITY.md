@@ -10,7 +10,7 @@ If you believe you have found a security issue in TruthTable — for example a s
 
 Instead, email:
 
-- Alireza Shirzad — alr.shirzad@gmail.com
+- Alireza Shirzad — alrshir@seas.upenn.edu
 
 Include:
 

@@ -1,22 +1,16 @@
-warning: /home/alrshir/truth-table/Cargo.toml: unused manifest key: workspace.edition
-warning: unused import: `errors::SnarkResult`
-  --> crates/tt-arithmetic/src/table.rs:12:5
-   |
-12 |     errors::SnarkResult,
-   |     ^^^^^^^^^^^^^^^^^^^
-   |
-   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
-
-warning: `tt-arithmetic` (lib) generated 1 warning (run `cargo fix --lib -p tt-arithmetic` to apply 1 suggestion)
     Finished `bench` profile [optimized] target(s) in 0.10s
-     Running benches/benches.rs (target/release/deps/benches-4193c83c119e7428)
+     Running benches/benches.rs (target/release/deps/benches-19c97c9901be7410)
 Timer precision: 10 ns
 benches                   fastest       │ slowest       │ median        │ mean          │ samples │ iters
 ╰─ tpch                                 │               │               │               │         │
    ╰─ tpch_q9_tt                        │               │               │               │         │
-      ├─ prover           proof size (tpch_q9_tt) core=30.01 KiB (30734 bytes) opt-hints=44 B (44 bytes) full=30.06 KiB (30778 bytes) full-compressed=21.57 KiB (22083 bytes) num_threads=1
-2.25 m        │ 2.25 m        │ 2.25 m        │ 2.25 m        │ 1       │ 1
-      ├─ verifier_crypto  11.14 ms      │ 15.11 ms      │ 11.94 ms      │ 11.81 ms      │ 100     │ 100
-      ╰─ verifier_full    27.21 ms      │ 31.3 ms       │ 29.47 ms      │ 29.38 ms      │ 100     │ 100
+      ├─ prover           proof size (tpch_q9_tt) core=35.32 KiB (36170 bytes) opt-hints=44 B (44 bytes) full=35.37 KiB (36214 bytes) full-compressed=21.79 KiB (22308 bytes) num_threads=1
+2.234 m       │ 2.234 m       │ 2.234 m       │ 2.234 m       │ 1       │ 1
+      ├─ verifier_crypto  
+thread 'main' (985041) panicked at crates/tt-exec/benches/support/mod.rs:539:10:
+verify for bench: DataFusion(Internal("verifier verify_pass failed before cryptographic verification: VerifierError(VerifierCheckFailed(\"verify pass failed in gadget Keyed-Sumcheck under parent Sum Aggregate Function: VerifierError(VerifierCheckFailed(\\\"LHS and RHS have different sums LHS: 1355350882844627099189719536696632118989066357077340874573890185738167180163, RHS: 14984066450316738674533698293397468444395117932397229587521587809476274649585\\\"))\"))"))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
-/home/alrshir/truth-table/tt-results/raw/benches.json
+thread 'main' (985041) panicked at /home/alrshir/.cargo/git/checkouts/divan-5df25a65c63e86f3/54d2574/src/benchmark/mod.rs:755:21:
+Divan benchmarking thread 0 panicked
+error: bench failed, to rerun pass `-p tt-exec --bench benches`

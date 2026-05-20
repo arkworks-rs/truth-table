@@ -17,7 +17,7 @@ edition = "2024"
 license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
 repository = "https://github.com/alireza-shirzad/truth-table"
 homepage = "https://github.com/alireza-shirzad/truth-table"
-authors = ["Alireza Shirzad <alr.shirzad@gmail.com>"]
+authors = ["Alireza Shirzad <alrshir@seas.upenn.edu>"]
 
 # Deny warnings workspace-wide so regressions fail CI. Individual crates can opt out
 # via `[lints]` if there's a good reason.
@@ -104,6 +104,7 @@ ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
 ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
 ark-test-curves = { git = "https://github.com/arkworks-rs/algebra" }
 ark-bn254 = { git = "https://github.com/arkworks-rs/algebra" }
+ark-piop = { path = "../ark-piop" }
 
 
 [workspace.metadata.cargo-alias]

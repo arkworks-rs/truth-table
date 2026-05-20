@@ -27,6 +27,126 @@ use std::sync::OnceLock;
 #[path = "../../crates/tt-exec/benches/support/stats_layer.rs"]
 mod stats_layer;
 
+mod proof_stats {
+    use std::path::Path;
+
+    use ark_piop::{DefaultSnarkBackend, types::artifact::SizeBreakdown};
+    use front_end::structs::{Artifact, TTProof};
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+    type B = DefaultSnarkBackend;
+
+    /// Read the proof and result parquet from disk and emit the same
+    /// `proof_size`/`results` tracing fields the TPC-H bench harness emits.
+    /// Without this the third-party JSONL is missing those keys and the
+    /// dashboard's Proof Size / Results tabs show "n/a".
+    pub fn emit_proof_and_result_stats(query: &str, proof_path: &Path, result_path: &Path) {
+        let snark_proof = match <TTProof<B> as Artifact>::load(proof_path) {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!(
+                    "proof_stats: failed to load proof at {}: {err:?}",
+                    proof_path.display()
+                );
+                return;
+            }
+        };
+
+        let crypto = snark_proof
+            .as_snark_proof()
+            .to_bytes()
+            .expect("serialize crypto proof");
+        let cryptographic = crypto.len();
+        let non_cryptographic = bincode::serialize(snark_proof.optimization_hints())
+            .expect("serialize optimization hints")
+            .len();
+        let full_compressed = snark_proof
+            .to_bytes()
+            .expect("serialize compressed proof")
+            .len();
+        let crypto_compressed = zstd::encode_all(std::io::Cursor::new(&crypto), 1)
+            .expect("zstd compress crypto proof")
+            .len();
+        let mv_count = snark_proof
+            .as_snark_proof()
+            .mv_pcs_subproof
+            .unique_comitments
+            .len();
+        let uv_count = snark_proof
+            .as_snark_proof()
+            .uv_pcs_subproof
+            .unique_comitments
+            .len();
+        let breakdown = snark_proof
+            .as_snark_proof()
+            .size_breakdown()
+            .expect("size_breakdown");
+
+        super::stats_layer::emit_proof_size_bytes(
+            query,
+            cryptographic,
+            non_cryptographic,
+            cryptographic + non_cryptographic,
+            full_compressed,
+            child(&breakdown, "sc_subproof"),
+            child(&breakdown, "mv_pcs_subproof"),
+            grand(&breakdown, "mv_pcs_subproof", "opening_proof"),
+            grand(&breakdown, "mv_pcs_subproof", "commitments"),
+            mv_count,
+            grand(&breakdown, "mv_pcs_subproof", "query_map"),
+            child(&breakdown, "uv_pcs_subproof"),
+            grand(&breakdown, "uv_pcs_subproof", "opening_proof"),
+            grand(&breakdown, "uv_pcs_subproof", "commitments"),
+            uv_count,
+            grand(&breakdown, "uv_pcs_subproof", "query_map"),
+            child(&breakdown, "miscellaneous_field_elements"),
+            effective_num_threads(),
+            crypto_compressed,
+        );
+
+        if let Ok(file) = std::fs::File::open(result_path)
+            && let Ok(builder) = ParquetRecordBatchReaderBuilder::try_new(file)
+        {
+            let metadata = builder.metadata();
+            let rows = metadata.file_metadata().num_rows() as usize;
+            let schema_str = builder
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| format!("{}: {}", f.name(), f.data_type()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let size = std::fs::metadata(result_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
+            super::stats_layer::emit_results_stats(query, rows, &schema_str, size);
+        }
+    }
+
+    fn child(b: &SizeBreakdown, key: &str) -> usize {
+        b.parts.get(key).map(|p| p.size).unwrap_or(0)
+    }
+
+    fn grand(b: &SizeBreakdown, key: &str, child_key: &str) -> usize {
+        b.parts
+            .get(key)
+            .and_then(|p| p.parts.get(child_key))
+            .map(|c| c.size)
+            .unwrap_or(0)
+    }
+
+    fn effective_num_threads() -> usize {
+        std::env::var("RAYON_NUM_THREADS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1)
+            })
+    }
+}
+
 // Paths for input/output artifacts.
 const PARQUET_DIR: &str = "artifact";
 const PARQUET_SUBDIR_PREFIX: &str = "size_";
@@ -39,7 +159,7 @@ const PK_FILENAME_PREFIX: &str = "tt_pk_";
 const VK_FILENAME_PREFIX: &str = "tt_vk_";
 
 // Table sizes as powers of two.
-const TABLE_POWS: &[u32] = &[16, 17, 18, 19];
+const TABLE_POWS: &[u32] = &[19];
 
 struct QuerySpec {
     name: &'static str,
@@ -49,31 +169,31 @@ struct QuerySpec {
 
 // Query strings (SQL). `{table}` will be replaced with the parquet file stem.
 const QUERIES: &[QuerySpec] = &[
-    QuerySpec {
-        name: "filter",
-        dir: "filter",
-        sql: "SELECT a, b, c, d FROM {table} WHERE a = 1 AND b = 2",
-    },
-    QuerySpec {
-        name: "aggregate_count",
-        dir: "aggregate_count",
-        sql: "SELECT count(b) FROM {table}",
-    },
-    QuerySpec {
-        name: "join",
-        dir: "Join",
-        sql: "SELECT {table1}.a AS a1, {table2}.a AS a2 FROM {table1}, {table2} WHERE {table1}.a = {table2}.a",
-    },
+    // QuerySpec {
+    //     name: "filter",
+    //     dir: "filter",
+    //     sql: "SELECT a, b, c, d FROM {table} WHERE a = 1 AND b = 2",
+    // },
+    // QuerySpec {
+    //     name: "aggregate_count",
+    //     dir: "aggregate_count",
+    //     sql: "SELECT count(b) FROM {table}",
+    // },
+    // QuerySpec {
+    //     name: "join",
+    //     dir: "Join",
+    //     sql: "SELECT {table1}.a AS a1, {table2}.a AS a2 FROM {table1}, {table2} WHERE {table1}.a = {table2}.a",
+    // },
     QuerySpec {
         name: "join_pk_fk",
         dir: "Join_PK_FK",
         sql: "SELECT {table1}.a AS a1, {table2}.a_fk AS a2 FROM {table1}, {table2} WHERE {table1}.a = {table2}.a_fk",
     },
-    QuerySpec {
-        name: "limit_offset",
-        dir: "Limit_Offset",
-        sql: "SELECT \"column\" FROM {table} LIMIT 10",
-    },
+    // QuerySpec {
+    //     name: "limit_offset",
+    //     dir: "Limit_Offset",
+    //     sql: "SELECT \"column\" FROM {table} LIMIT 10",
+    // },
 ];
 
 fn ensure_dir(path: &Path) {
@@ -392,6 +512,11 @@ fn main() {
                 .unwrap_or(0);
             println!("prove_ms: {}", prove_ms);
             println!("proof_bytes: {}", proof_size);
+            proof_stats::emit_proof_and_result_stats(
+                &query_sql,
+                &prove_outputs.proof_path,
+                &prove_outputs.result_path,
+            );
 
             let start = Instant::now();
             let runner = VerifyBuilder::new()
