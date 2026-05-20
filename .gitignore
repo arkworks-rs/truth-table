@@ -14,10 +14,13 @@ venv/
 *.pi
 *.oracle
 
-# Stray debug/trace dumps at repo root. tt-results/raw/ has the tracked bench logs.
+# Stray debug/trace dumps at repo root.
 /*.log
 /*.trace.log
 /debug
+
+# Raw benchmark output (regenerable from `./crates/tt-exec/benches/tpch/run_all.sh`).
+/tt-results/raw/
 
 ## Images (binaries)
 images/output/*.png

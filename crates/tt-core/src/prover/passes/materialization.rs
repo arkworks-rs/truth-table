@@ -179,11 +179,18 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
         return None;
     }
 
+    // Sort BEFORE projection so __row_id__ is still in the schema for the sort.
+    // Otherwise the projection drops __row_id__ first and the sort becomes a no-op,
+    // leaving the materialized batches in whatever order DataFusion's executor
+    // happens to produce. Downstream nodes (e.g., partial-join merge) assume that
+    // row i of the materialized table corresponds to row i of the FK input's
+    // TrackedTable; that assumption depends on the materialized rows being in
+    // __row_id__ order.
+    let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
+        .expect("materialization row-id sort should succeed");
     let df = df
         .select(projection)
         .expect("materialization projection should succeed");
-    let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
-        .expect("materialization row-id sort should succeed");
 
     let batches = collect_blocking(df.clone()).expect("dataframe collection should succeed");
 
