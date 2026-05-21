@@ -22,7 +22,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use halo2_experiments::poneglyph_bench::{
+use poneglyph::poneglyph_bench::{
     run_q1, run_q18, run_q3, run_q5, run_q8, run_q9, BenchResult,
 };
 use serde::Serialize;

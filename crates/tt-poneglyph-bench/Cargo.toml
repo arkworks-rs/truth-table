@@ -10,7 +10,7 @@ authors.workspace = true
 # heavy halo2 deps (halo2_proofs, halo2curves, …) only compile when explicitly
 # requested via `cargo run -p tt-poneglyph-bench`.
 [lints.rust]
-# halo2-experiments has lots of upstream warnings; don't fail our build on them.
+# The upstream PoneglyphDB crate has lots of warnings; don't fail our build on them.
 warnings = "warn"
 
 [dependencies]
@@ -19,7 +19,9 @@ clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-halo2-experiments = { git = "https://github.com/alireza-shirzad/PoneglyphDB", rev = "df35409f16a0053d6fac69350053198e6ecc715d" }
+# Aliased to `poneglyph` on the consumer side — the upstream crate name is still
+# `halo2-experiments` in PoneglyphDB's own Cargo.toml.
+poneglyph = { package = "halo2-experiments", git = "https://github.com/alireza-shirzad/PoneglyphDB", branch = "main" }
 
 [[bin]]
 name = "tt-poneglyph-bench"
