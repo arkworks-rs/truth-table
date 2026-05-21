@@ -1,3 +1,17 @@
+"""Plot the micro-benchmark comparison (TruthTable / PoSQL / QEDB) on the
+shared Filter / Aggregate / Join / Join PK/FK / Limit operators.
+
+Reads tidy/micro.csv.
+
+Outputs:
+  figures/micro_prover_time.pdf
+  figures/micro_verifier_time.pdf
+  figures/micro_proof_size.pdf
+
+Usage:
+  python3 tt-results/scripts/plot_micro.py
+"""
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -23,7 +37,7 @@ figures_dir = base_dir / "figures"
 figures_dir.mkdir(parents=True, exist_ok=True)
 
 
-def normalize_q(name: str) -> str:
+def normalize_q(name):
     q = str(name).strip().lower()
     if q == "limit offset":
         return "limit"
@@ -32,9 +46,8 @@ def normalize_q(name: str) -> str:
     return q
 
 
-# Load CSV and normalize column names (handles UTF-8 BOM in header).
 df = pd.read_csv(data_path)
-df.columns = [c.strip().lstrip("\ufeff") for c in df.columns]
+df.columns = [c.strip().lstrip("﻿") for c in df.columns]
 df = df[(df["Q"] != "Q") & (df["System"] != "System")].copy()
 df["table log size"] = pd.to_numeric(df["table log size"], errors="coerce")
 df["threads"] = pd.to_numeric(df["threads"], errors="coerce")
@@ -45,8 +58,7 @@ df["q_norm"] = df["Q"].apply(normalize_q)
 df["system_norm"] = df["System"].str.strip().str.lower()
 
 # Fix to table log size 19. Pick the thread count present in the CSV (all rows
-# share the same NUM_THREADS from run_all.sh), so the plot follows whatever
-# the bench was configured to use instead of silently dropping everything.
+# share the same NUM_THREADS from run_micro.sh).
 available_threads = sorted(df["threads"].dropna().unique())
 if not available_threads:
     raise RuntimeError(f"no rows with a threads value in {data_path}")
@@ -98,7 +110,7 @@ hatches = {
 legend_specs = [("tt", "TT"), ("posql", "PoSQL"), ("qedb", "QEDB")]
 
 
-def pick_value(q_name: str, system: str, value_col: str) -> float:
+def pick_value(q_name, system, value_col):
     lookup_system = "tt" if system == "tt_join_pk_fk" else system
     row = df[(df["q_norm"] == q_name) & (df["system_norm"] == lookup_system)]
     if row.empty:
@@ -106,7 +118,7 @@ def pick_value(q_name: str, system: str, value_col: str) -> float:
     return float(row[value_col].iloc[0])
 
 
-def plot_metric(value_col: str, ylabel: str, output_name: str) -> None:
+def plot_metric(value_col, ylabel, output_name):
     fig, ax = plt.subplots(figsize=(10, 5.2))
 
     legend_handles = [

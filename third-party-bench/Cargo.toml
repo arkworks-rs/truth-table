@@ -10,7 +10,7 @@ BLITZAR_BACKEND = "cpu"
 
 [patch.crates-io]
 arrow-arith = { path = "patches/arrow-arith-51.0.0" }
-ark-piop = { path = "../../ark-piop" }
+ark-piop = { git = "https://github.com/alireza-shirzad/ark-piop", rev = "9865c0bd52d4f203ec2317fc9671b25b979fe82f" }
 
 [package]
 name = "tt-third-party-bench"
@@ -20,9 +20,9 @@ publish = false
 autobenches = false
 
 [dependencies]
-proof-of-sql-benchlib = { path = "../../sxt-proof-of-sql/crates/proof-of-sql-benchlib" }
-proof-of-sql = { path = "../../sxt-proof-of-sql/crates/proof-of-sql" }
-qedb = { path = "../../qedb" }
+proof-of-sql-benchlib = { git = "https://github.com/Pratyush/sxt-proof-of-sql", rev = "38c2fda8de9bf5af860f73444612c6fc9206f016" }
+proof-of-sql = { git = "https://github.com/Pratyush/sxt-proof-of-sql", rev = "38c2fda8de9bf5af860f73444612c6fc9206f016" }
+qedb = { git = "https://github.com/alireza-shirzad/qedb", rev = "4b52595ee05c32aa027c42da5ca1dcf3ce7d9548" }
 tpch-data = { package = "tt-tpch-data", path = "../crates/tt-tpch-data" }
 exec = { package = "tt-exec", path = "../crates/tt-exec" }
 front-end = { package = "tt-front-end", path = "../crates/tt-front-end" }

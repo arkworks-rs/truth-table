@@ -1,0 +1,26 @@
+[package]
+name = "tt-poneglyph-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# Standalone bench driver — kept out of the workspace's default build so the
+# heavy halo2 deps (halo2_proofs, halo2curves, …) only compile when explicitly
+# requested via `cargo run -p tt-poneglyph-bench`.
+[lints.rust]
+# halo2-experiments has lots of upstream warnings; don't fail our build on them.
+warnings = "warn"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+halo2-experiments = { git = "https://github.com/alireza-shirzad/PoneglyphDB", rev = "df35409f16a0053d6fac69350053198e6ecc715d" }
+
+[[bin]]
+name = "tt-poneglyph-bench"
+path = "src/main.rs"

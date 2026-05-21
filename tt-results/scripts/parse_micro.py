@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Rebuild micro-benchmark rows in tidy/micro.csv from the third-party bench JSONs.
+Rebuild tidy/micro.csv from the per-bench JSONs produced by run_micro.sh.
 
 Reads (any subset that exists):
   raw/third_party_sxt_proof_of_sql.json  → System=PoSQL
   raw/third_party_qedb.json              → System=QEDB
   raw/third_party_truth_table.json       → System=TT
 
-For each JSON that exists, every row in tidy/micro.csv for that System is
-removed and replaced with fresh rows from the JSON. Systems whose JSON is
-missing are left untouched.
+Writes:
+  tidy/micro.csv
 
-Query-name mapping (JSON → CSV Q column):
+For each JSON that exists, every row in micro.csv for that System is replaced.
+Systems whose JSON is missing are left untouched.
+
+Query-name mapping (JSON → CSV Q):
   filter / Filter              → Filter
   aggregate_count / Aggregate  → Aggregate
   join / Join                  → Join
@@ -24,7 +26,7 @@ Units:
   proof size (KB)     = proof_bytes / 1024
 
 Usage:
-  python3 tt-results/update_micro_csv.py
+  python3 tt-results/scripts/parse_micro.py
 """
 
 import csv
@@ -33,8 +35,8 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-RAW_DIR = SCRIPT_DIR / "raw"
-CSV_PATH = SCRIPT_DIR / "tidy" / "micro.csv"
+RAW_DIR = SCRIPT_DIR.parent / "raw"
+CSV_PATH = SCRIPT_DIR.parent / "tidy" / "micro.csv"
 
 DEFAULT_HEADER = [
     "Q",
@@ -46,14 +48,12 @@ DEFAULT_HEADER = [
     "proof size (KB)",
 ]
 
-# JSON bench name → (CSV System label, raw-file name)
 BENCH_SOURCES = [
     ("sxt_proof_of_sql", "PoSQL", "third_party_sxt_proof_of_sql.json"),
     ("qedb", "QEDB", "third_party_qedb.json"),
     ("truth_table", "TT", "third_party_truth_table.json"),
 ]
 
-# Normalise the query names each bench emits into the CSV's Q column.
 QUERY_NAME_MAP = {
     "filter": "Filter",
     "Filter": "Filter",
@@ -67,13 +67,11 @@ QUERY_NAME_MAP = {
     "Limit Offset": "Limit",
 }
 
-# Stable CSV ordering inside each (System, threads, pow) group.
 Q_ORDER = ["Filter", "Aggregate", "Join", "Join PK/FK", "Limit"]
 SYSTEM_ORDER = {"TT": 0, "QEDB": 1, "PoSQL": 2}
 
 
 def fmt(value, decimals=3):
-    """Render a float the way the existing CSV does (trim trailing zeros)."""
     if value is None:
         return ""
     s = f"{value:.{decimals}f}"
@@ -82,7 +80,7 @@ def fmt(value, decimals=3):
     return s
 
 
-def rows_from_json(json_path: Path, system_label: str) -> list[list[str]]:
+def rows_from_json(json_path, system_label):
     data = json.loads(json_path.read_text())
     threads = str(data.get("config", {}).get("num_threads", ""))
     rows = []
@@ -125,12 +123,9 @@ def sort_key(row):
 
 
 def main():
-    # ── Read current CSV and keep rows for systems we're NOT refreshing.
     header = None
-    carried_rows: list[list[str]] = []
-    refreshed_systems: set[str] = set()
-
-    # Decide upfront which systems we're refreshing (where the JSON exists).
+    carried_rows = []
+    refreshed_systems = set()
     refresh_plan = []
     for bench_name, system_label, filename in BENCH_SOURCES:
         path = RAW_DIR / filename
@@ -146,11 +141,11 @@ def main():
         with open(CSV_PATH) as f:
             reader = csv.reader(f)
             header = next(reader)
-            if header and header[0].startswith("\ufeff"):
-                header[0] = header[0].lstrip("\ufeff")
+            if header and header[0].startswith("﻿"):
+                header[0] = header[0].lstrip("﻿")
             for row in reader:
                 if len(row) >= 3 and row[2] in refreshed_systems:
-                    continue  # drop — will be replaced
+                    continue
                 if not row:
                     continue
                 carried_rows.append(row)
@@ -158,8 +153,7 @@ def main():
     if header is None:
         header = list(DEFAULT_HEADER)
 
-    # ── Collect fresh rows from each JSON.
-    fresh_rows: list[list[str]] = []
+    fresh_rows = []
     for bench_name, system_label, path in refresh_plan:
         rows = rows_from_json(path, system_label)
         print(f"{system_label}: {len(rows)} rows from {path.name}")
@@ -168,6 +162,7 @@ def main():
     all_rows = carried_rows + fresh_rows
     all_rows.sort(key=sort_key)
 
+    CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(CSV_PATH, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(header)

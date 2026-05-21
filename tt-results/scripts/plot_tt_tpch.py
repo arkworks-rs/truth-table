@@ -1,3 +1,15 @@
+"""Plot prover / verifier / proof-size figures for TruthTable on the
+regular TPC-H queries (System=tt rows of tidy/tpch.csv).
+
+Outputs:
+  figures/tpch_tt_prover.pdf
+  figures/tpch_tt_verifier.pdf
+  figures/tpch_tt_proof_size.pdf
+
+Usage:
+  python3 tt-results/scripts/plot_tt_tpch.py
+"""
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -17,12 +29,12 @@ plt.rcParams.update(
     }
 )
 
-# Scale factor to plot. 0.05 and 0.1 are the only scale factors with 4-thread
-# prover numbers populated for every query.
+# Scale factor to plot. 0.05 and 0.1 are the only SFs with 4-thread numbers
+# for every query.
 SCALE_FACTOR = 0.1
 
-# Full TPC-H query range. Queries with no `tt` row in the CSV are rendered as a
-# red cross at the bar position instead of a bar.
+# Full TPC-H query range. Queries with no `tt` row are rendered as a red cross
+# at the bar position instead of a bar.
 QUERY_IDS = list(range(1, 23))
 
 base_dir = Path(__file__).resolve().parent.parent
@@ -50,34 +62,34 @@ df = df[(df["System"] == "tt") & (df["scale-factor"] == SCALE_FACTOR)].copy()
 query_labels = [f"Q{q}" for q in QUERY_IDS]
 
 
-def lookup(q_num: int, col: str) -> float:
+def lookup(q_num, col):
     row = df[df["Q"] == f"q{q_num}"]
     if row.empty:
         return float("nan")
     return float(row[col].iloc[0])
 
 
-def values(col: str) -> list[float]:
+def values(col):
     return [lookup(q, col) for q in QUERY_IDS]
 
 
-def _style_axes(ax) -> None:
+def _style_axes(ax):
     ax.set_xlabel("TPC-H Query")
     ax.tick_params(axis="x", pad=8)
     ax.tick_params(axis="y", pad=8)
     ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
 
 
-def _missing_indices() -> list[int]:
+def _missing_indices():
     return [i for i, q in enumerate(QUERY_IDS) if df[df["Q"] == f"q{q}"].empty]
 
 
-def _mark_missing(ax, x_positions) -> None:
+def _mark_missing(ax, x_positions):
     idx = _missing_indices()
     if not idx:
         return
     xs = [x_positions[i] for i in idx]
-    trans = ax.get_xaxis_transform()  # x in data coords, y in axes coords
+    trans = ax.get_xaxis_transform()
     ax.scatter(
         xs,
         [0.02] * len(xs),
@@ -92,7 +104,7 @@ def _mark_missing(ax, x_positions) -> None:
     )
 
 
-def plot_prover() -> None:
+def plot_prover():
     one_thread = values("prover time 1thread (s)")
     four_thread = values("prover time 4threads (s)")
 
@@ -105,8 +117,8 @@ def plot_prover() -> None:
     colors = plt.get_cmap("tab10").colors
     light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 
-    one_color_idx = 0  # blue
-    four_color_idx = 2  # green — clearly distinct from the 1-thread blue
+    one_color_idx = 0
+    four_color_idx = 2
 
     ax.bar(
         x,
@@ -149,7 +161,6 @@ def plot_prover() -> None:
     ax.set_ylabel("Prover Time (s)")
     _style_axes(ax)
     _mark_missing(ax, x + bar_width / 2)
-    # Headroom above the tallest bar/max-line so the legend doesn't crowd them.
     ymax = max(one_max, four_max)
     ax.set_ylim(0, ymax * 1.18)
     ax.legend(
@@ -168,7 +179,7 @@ def plot_prover() -> None:
     plt.close(fig)
 
 
-def plot_verifier() -> None:
+def plot_verifier():
     core = values("core verifier time (ms)")
     preprocessed = values("preprocessed veritifier time (ms)")
 
@@ -249,7 +260,7 @@ def plot_verifier() -> None:
     plt.close(fig)
 
 
-def plot_proof_size() -> None:
+def plot_proof_size():
     sizes = values("total proof size (KB)")
 
     bar_width = 0.55

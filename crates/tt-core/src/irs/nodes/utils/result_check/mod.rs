@@ -15,7 +15,6 @@ use ark_piop::{
     verifier::ArgVerifier,
     verifier::structs::oracle::TrackedOracle,
 };
-use ark_poly::evaluations::multivariate::multilinear::SparseMultilinearExtension;
 use indexmap::IndexMap;
 
 use crate::{
@@ -29,7 +28,6 @@ use crate::{
 
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
-const SRC_KEY: &str = "result_check_src";
 
 pub struct GadgetNode<B: SnarkBackend>(std::marker::PhantomData<B>);
 
@@ -222,16 +220,16 @@ fn prove_result_check<B: SnarkBackend>(
     // collapse and gaps surface as a non-zero zerocheck.
     let src = compute_src_by_row_matching::<B>(t_table, r_table)?;
 
-    // Send src to the verifier.
-    let src_field: Vec<B::F> = src.iter().map(|&i| B::F::from(i as u64)).collect();
-    prover.add_miscellaneous_field_vector(SRC_KEY.to_string(), src_field)?;
-
-    // Build R.a's MLE in t_table's hypercube.
+    // Build R.a's MLE in t_table's hypercube and commit it. The verifier
+    // receives only the commitment (O(1) bytes) and queries R.a at sumcheck
+    // challenges via PCS openings — we never put the full src/R.a evaluations
+    // in the proof, so proof size is independent of the result row count.
     let mut r_a_evals = vec![B::F::zero(); n_t];
     for &idx in &src {
         r_a_evals[idx] = B::F::one();
     }
-    let r_a_tracked = prover.track_mat_mv_poly(MLE::from_evaluations_vec(mu_t, r_a_evals));
+    let r_a_tracked = prover
+        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(mu_t, r_a_evals))?;
 
     // For each data column shared by t_table and r_table, build R.dj's MLE in
     // t_table's hypercube by scattering r_table's contiguous data values to the
@@ -263,8 +261,9 @@ fn prove_result_check<B: SnarkBackend>(
         for (i, &idx) in src.iter().enumerate() {
             r_d_evals[idx] = r_evals[i];
         }
-        r_d_tracked
-            .push(prover.track_mat_mv_poly(MLE::from_evaluations_vec(mu_t, r_d_evals)));
+        r_d_tracked.push(
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(mu_t, r_d_evals))?,
+        );
     }
 
     // Fingerprint challenges shared between fp_T and fp_R folds.
@@ -394,86 +393,30 @@ fn compute_src_by_row_matching<B: SnarkBackend>(
 fn verify_result_check<B: SnarkBackend>(
     verifier: &mut ArgVerifier<B>,
     t_table: &TrackedTableOracle<B>,
-    r_table: &TrackedTableOracle<B>,
+    _r_table: &TrackedTableOracle<B>,
 ) -> SnarkResult<()> {
     let t_act = t_table
         .activator_tracked_poly()
         .expect("ResultCheck t_table activator missing");
-    let mu_t = t_table.log_size();
-    let n_t = 1usize << mu_t;
 
-    // Receive src from the prover.
-    let src_field = verifier.miscellaneous_field_vector(SRC_KEY)?;
-    let src: Vec<usize> = src_field
-        .iter()
-        .map(|f| field_to_usize::<B::F>(f))
-        .collect();
+    // Pull R.a's commitment off the transcript in the same order the prover
+    // committed it (R.a first, then one R.dj per data column). The verifier
+    // never sees src or R.a's evaluations directly — only the commitments
+    // and the PCS openings forced by the zerocheck claims below.
+    let r_a_tracked = verifier.track_next_mv_com()?;
 
-    // Validate src indices and build R.a as a sparse MLE: 1 at each src
-    // position, 0 elsewhere on t_table's hypercube.
-    let mut r_a_sparse_evals: Vec<(usize, B::F)> = Vec::with_capacity(src.len());
-    for &idx in &src {
-        if idx >= n_t {
-            return Err(SnarkError::VerifierError(
-                ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
-                    "ResultCheck src index {} out of bounds for t_table size 2^{}",
-                    idx, mu_t
-                )),
-            ));
-        }
-        r_a_sparse_evals.push((idx, B::F::one()));
-    }
-    let r_a_tracked = track_sparse_oracle(
-        verifier,
-        mu_t,
-        SparseMultilinearExtension::from_evaluations(mu_t, &r_a_sparse_evals),
-    );
-
-    // For each shared data column, extract res˜ from r_table by querying its
-    // tracked oracle at hypercube points and build R.dj as a sparse MLE in
-    // t_table's hypercube (one nonzero entry per active row).
     let data_indices = t_table.data_tracked_oracles_indices();
     let n_data = data_indices.len();
-    let mu_r = r_table.log_size();
     let mut t_data_oracles: Vec<TrackedOracle<B>> = Vec::with_capacity(n_data);
     let mut r_d_tracked: Vec<TrackedOracle<B>> = Vec::with_capacity(n_data);
     for &t_idx in &data_indices {
-        let (field_ref, t_oracle) = t_table
+        let (_, t_oracle) = t_table
             .tracked_oracles_iter()
             .nth(t_idx)
             .map(|(f, o)| (f.clone(), o.clone()))
             .expect("ResultCheck t_table column index out of bounds");
         t_data_oracles.push(t_oracle);
-
-        let r_oracle = r_table
-            .tracked_oracles_iter()
-            .find_map(|(f, o)| (f.name() == field_ref.name()).then_some(o.clone()))
-            .unwrap_or_else(|| {
-                panic!(
-                    "ResultCheck r_table missing column {} matching t_table",
-                    field_ref.name()
-                )
-            });
-        let r_id = r_oracle.id();
-
-        let mut r_d_sparse_evals: Vec<(usize, B::F)> = Vec::with_capacity(src.len());
-        for (i, &idx) in src.iter().enumerate() {
-            let mut bin_point = vec![B::F::zero(); mu_r];
-            for k in 0..mu_r {
-                if (i >> k) & 1 == 1 {
-                    bin_point[k] = B::F::one();
-                }
-            }
-            let val = verifier.query_mv(r_id, bin_point)?;
-            if !val.is_zero() {
-                r_d_sparse_evals.push((idx, val));
-            }
-        }
-        r_d_tracked.push(track_sparse_oracle(
-            verifier,
-            mu_t,
-            SparseMultilinearExtension::from_evaluations(mu_t, &r_d_sparse_evals),
-        ));
+        r_d_tracked.push(verifier.track_next_mv_com()?);
     }
 
     // Mirror the prover's fingerprint challenges.
@@ -524,42 +467,6 @@ fn fold_oracles<B: SnarkBackend>(
         folded += &oracle.mul_scalar_oracle(chall);
     }
     folded
-}
-
-fn track_sparse_oracle<B: SnarkBackend>(
-    verifier: &ArgVerifier<B>,
-    nv: usize,
-    sparse: SparseMultilinearExtension<B::F>,
-) -> TrackedOracle<B> {
-    use ark_piop::verifier::structs::oracle::Oracle;
-    use ark_poly::Polynomial;
-
-    let sparse = Arc::new(sparse);
-    let oracle_poly = sparse.clone();
-    let oracle = Oracle::new_multivariate(nv, move |mut point: Vec<B::F>| {
-        if point.len() > nv {
-            point.truncate(nv);
-        } else if point.len() < nv {
-            point.resize(nv, B::F::zero());
-        }
-        Ok(oracle_poly.evaluate(&point))
-    });
-    verifier.track_base_oracle(oracle)
-}
-
-fn field_to_usize<F: PrimeField>(value: &F) -> usize {
-    let bigint = value.into_bigint();
-    let limbs = bigint.as_ref();
-    let mut acc: u128 = 0;
-    for (i, limb) in limbs.iter().enumerate() {
-        if i >= 2 {
-            // We never expect indices larger than 2^128; treat extra limbs as zero.
-            assert!(*limb == 0, "ResultCheck src index too large for usize");
-            continue;
-        }
-        acc |= (*limb as u128) << (64 * i);
-    }
-    usize::try_from(acc).expect("ResultCheck src index does not fit in usize")
 }
 
 fn active_positions<F: PrimeField>(evals: &[F]) -> Vec<usize> {

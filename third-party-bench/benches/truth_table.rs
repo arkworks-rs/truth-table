@@ -158,8 +158,10 @@ const PROOF_FILENAME: &str = "bench.proof";
 const PK_FILENAME_PREFIX: &str = "tt_pk_";
 const VK_FILENAME_PREFIX: &str = "tt_vk_";
 
-// Table sizes as powers of two.
-const TABLE_POWS: &[u32] = &[19];
+// Table sizes as powers of two. Keep in sync with the matching arrays in
+// `sxt_proof_of_sql.rs` and `qedb.rs` so all three systems sweep the same
+// (query, size) grid.
+const TABLE_POWS: &[u32] = &[16, 17, 18, 19];
 
 struct QuerySpec {
     name: &'static str,
@@ -168,32 +170,34 @@ struct QuerySpec {
 }
 
 // Query strings (SQL). `{table}` will be replaced with the parquet file stem.
+// Keep this list in sync with the matching `QUERIES` slice in
+// `sxt_proof_of_sql.rs` and `qedb.rs`.
 const QUERIES: &[QuerySpec] = &[
-    // QuerySpec {
-    //     name: "filter",
-    //     dir: "filter",
-    //     sql: "SELECT a, b, c, d FROM {table} WHERE a = 1 AND b = 2",
-    // },
-    // QuerySpec {
-    //     name: "aggregate_count",
-    //     dir: "aggregate_count",
-    //     sql: "SELECT count(b) FROM {table}",
-    // },
-    // QuerySpec {
-    //     name: "join",
-    //     dir: "Join",
-    //     sql: "SELECT {table1}.a AS a1, {table2}.a AS a2 FROM {table1}, {table2} WHERE {table1}.a = {table2}.a",
-    // },
+    QuerySpec {
+        name: "filter",
+        dir: "filter",
+        sql: "SELECT a, b, c, d FROM {table} WHERE a = 1 AND b = 2",
+    },
+    QuerySpec {
+        name: "aggregate_count",
+        dir: "aggregate_count",
+        sql: "SELECT count(b) FROM {table}",
+    },
+    QuerySpec {
+        name: "join",
+        dir: "Join",
+        sql: "SELECT {table1}.a AS a1, {table2}.a AS a2 FROM {table1}, {table2} WHERE {table1}.a = {table2}.a",
+    },
     QuerySpec {
         name: "join_pk_fk",
         dir: "Join_PK_FK",
         sql: "SELECT {table1}.a AS a1, {table2}.a_fk AS a2 FROM {table1}, {table2} WHERE {table1}.a = {table2}.a_fk",
     },
-    // QuerySpec {
-    //     name: "limit_offset",
-    //     dir: "Limit_Offset",
-    //     sql: "SELECT \"column\" FROM {table} LIMIT 10",
-    // },
+    QuerySpec {
+        name: "limit_offset",
+        dir: "Limit_Offset",
+        sql: "SELECT \"column\" FROM {table} LIMIT 10",
+    },
 ];
 
 fn ensure_dir(path: &Path) {

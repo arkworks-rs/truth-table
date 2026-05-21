@@ -8,6 +8,20 @@ members = [
     "crates/tt-core",
     "crates/tt-proof-planner",
     "crates/tt-front-end",
+    "crates/tt-poneglyph-bench",
+]
+# tt-poneglyph-bench pulls a heavy halo2 dep tree from the PoneglyphDB fork.
+# Keep it out of `cargo build`/`cargo test` at the workspace root; build it
+# explicitly via `cargo build -p tt-poneglyph-bench` when generating Poneglyph
+# numbers.
+default-members = [
+    "crates/tt-col-toolbox",
+    "crates/tt-arithmetic",
+    "crates/tt-tpch-data",
+    "crates/tt-exec",
+    "crates/tt-core",
+    "crates/tt-proof-planner",
+    "crates/tt-front-end",
 ]
 exclude = ["third-party-bench"]
 

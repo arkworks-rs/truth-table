@@ -17,26 +17,22 @@ sxt bench and read by the other two.
 
 ## Prerequisites
 
-The three systems are **sibling checkouts**, not submodules. Clone them next to
-this repo:
-
-```
-<parent>/
-├── truth-table/            ← you are here
-├── sxt-proof-of-sql/
-└── qedb/
-```
-
-`Cargo.toml` references them by relative path:
+The three comparison systems are pulled as **git dependencies** pinned by
+commit SHA in `Cargo.toml`:
 
 ```toml
-proof-of-sql-benchlib = { path = "../../sxt-proof-of-sql/crates/proof-of-sql-benchlib" }
-proof-of-sql          = { path = "../../sxt-proof-of-sql/crates/proof-of-sql" }
-qedb                  = { path = "../../qedb" }
+[patch.crates-io]
+ark-piop              = { git = "https://github.com/alireza-shirzad/ark-piop", rev = "…" }
+
+[dependencies]
+proof-of-sql-benchlib = { git = "https://github.com/Pratyush/sxt-proof-of-sql", rev = "…" }
+proof-of-sql          = { git = "https://github.com/Pratyush/sxt-proof-of-sql", rev = "…" }
+qedb                  = { git = "https://github.com/alireza-shirzad/qedb", rev = "…" }
 ```
 
-Missing either sibling repo will fail the build with a `path dependency not found`
-error — clone them first.
+No sibling checkouts are needed — cargo fetches and caches the three repos
+under `~/.cargo/git/`. To bump any of them, update the `rev = …` in
+[Cargo.toml](Cargo.toml) and run `cargo update -p <crate>`.
 
 The harness also applies a local `arrow-arith` patch (`patches/arrow-arith-51.0.0`)
 via `[patch.crates-io]`; this is for an sxt-proof-of-sql compatibility fix, not
@@ -50,13 +46,19 @@ pip install -r ../tt-results/requirements.txt
 
 ## Running the full sweep
 
-From the repo root:
+The micro-benchmark suite is wired into the unified pipeline under
+[tt-results/scripts/](../tt-results/scripts/). From the repo root:
 
 ```bash
-./third-party-bench/run_all.sh
+./tt-results/scripts/run_micro.sh        # cargo bench + parse to per-bench JSON
+python3 tt-results/scripts/parse_micro.py  # JSONs → tt-results/tidy/micro.csv
+python3 tt-results/scripts/plot_micro.py   # micro.csv → figures/micro_*.pdf
 ```
 
-The script does four things:
+Or run everything (micro + TT TPC-H + Poneglyph comparison) end-to-end with
+`./bench_all.sh`.
+
+What `run_micro.sh` does:
 
 1. Wipes `artifact/Join/` and `artifact/Join_PK_FK/` so stale join parquets
    don't leak across runs (other sizes are reused — they're independent of the
@@ -66,18 +68,16 @@ The script does four things:
    and tees the log to `tt-results/raw/third_party_<bench>.log`.
 3. Parses each log into `tt-results/raw/third_party_<bench>.json` via
    [`parse_bench_output.py`](parse_bench_output.py).
-4. Regenerates `tt-results/tidy/micro.csv` and the
-   `tt-results/figures/micro_*.pdf` plots.
 
-Failures in one bench don't abort the others — `run_all.sh` runs with
-`set -uo pipefail` (no `-e`) deliberately.
+Failures in one bench don't abort the others.
 
 ## Thread pinning
 
-`NUM_THREADS` at the top of `run_all.sh` (default `1`) is propagated as both
-`RAYON_NUM_THREADS` (consumed by Rayon) and `TT_BENCH_NUM_THREADS` (stamped
-into the JSON output by the parser). The two must match — otherwise the
-`num_threads` column in `micro.csv` lies about what was actually measured.
+`NUM_THREADS` at the top of `tt-results/scripts/run_micro.sh` (default `1`) is
+propagated as both `RAYON_NUM_THREADS` (consumed by Rayon) and
+`TT_BENCH_NUM_THREADS` (stamped into the JSON output by the parser). The two
+must match — otherwise the `num_threads` column in `micro.csv` lies about
+what was actually measured.
 
 The paper numbers were taken with `NUM_THREADS=1`. To re-measure at a
 different thread count, edit the variable and rerun.
@@ -111,13 +111,16 @@ per size on the next run).
 
 ## Troubleshooting
 
-- **`path dependency … not found`**: you don't have `sxt-proof-of-sql` or
-  `qedb` cloned beside `truth-table`. See [Prerequisites](#prerequisites).
+- **`failed to load source for dependency … from git`**: network or auth
+  problem reaching one of the pinned forks. Verify the URLs/rev in
+  [Cargo.toml](Cargo.toml) and that you can reach github.com. To work from a
+  local checkout instead, edit Cargo.toml to use `path = "../../<repo>"` and
+  delete `Cargo.lock`.
 - **`micro.csv` shows `num_threads=<wrong>`**: `RAYON_NUM_THREADS` was set
-  outside the script. Always drive via `run_all.sh` so both env vars stay in
-  lockstep.
+  outside the script. Always drive via `run_micro.sh` so both env vars stay
+  in lockstep.
 - **Plots look empty or stale**: rerun just the reporting steps —
-  `python3 tt-results/update_micro_csv.py && python3 tt-results/tt-scripts/plot_micro.py`.
+  `python3 tt-results/scripts/parse_micro.py && python3 tt-results/scripts/plot_micro.py`.
   The benches don't need to rerun.
 - **Only one bench failed**: its log is at
   `tt-results/raw/third_party_<bench>.log`. The others' JSON is still good and

@@ -120,6 +120,95 @@ cargo run --release -p tt-exec --bin tt -- \
   --vk-path artifacts/tt_vk_16.vk
 ```
 
+# Benchmarking
+
+The repository ships a unified benchmark pipeline that produces every figure
+in the paper. It's organized as three suites × three stages:
+
+|              | run (and dump)        | parse (to CSV)        | plot               |
+|--------------|-----------------------|-----------------------|--------------------|
+| TT TPC-H     | `run_tt_tpch.sh`      | `parse_tt_tpch.py`    | `plot_tt_tpch.py`  |
+| PGN compare  | `run_pgn.sh`          | `parse_pgn.py`        | `plot_pgn.py`      |
+| Micro        | `run_micro.sh`        | `parse_micro.py`      | `plot_micro.py`    |
+
+All scripts live in [tt-results/scripts/](tt-results/scripts/). Each row is
+independent — you can re-plot from existing CSVs, or re-parse from existing
+raw outputs, without re-running benchmarks.
+
+## What each suite measures
+
+- **TT TPC-H** — TruthTable proving the regular TPC-H queries (the `_tt` bench
+  variants) across the full SF / thread matrix: SF=0.01/0.02/0.04 at 1 thread,
+  SF=0.05/0.1 at 1 and 4 threads.
+- **PGN compare** — head-to-head between two systems on Poneglyph-style queries:
+  TruthTable on the `_pgn` variants AND PoneglyphDB on its KZG circuits, both
+  single-threaded at matching dataset sizes (TPC-H SF=0.01/0.02/0.04 ↔
+  PoneglyphDB k=16/17/18).
+- **Micro** — TruthTable vs sxt-proof-of-sql vs QEDB on the shared
+  Filter / Aggregate / Join / Join_PK_FK / Limit micro-benchmarks. Requires
+  the three pinned forks fetched via the `third-party-bench/` git deps; see
+  [third-party-bench/README.md](third-party-bench/README.md).
+
+## End-to-end (one command)
+
+```bash
+./bench_all.sh
+```
+
+runs all three suites, rebuilds all three CSVs in `tt-results/tidy/`, and
+renders every figure in `tt-results/figures/`. Stage-level helpers are also
+available:
+
+```bash
+./tt-results/scripts/run_all.sh      # only run + dump
+./tt-results/scripts/parse_all.sh    # only rebuild CSVs from existing raw files
+./tt-results/scripts/plot_all.sh     # only render figures from existing CSVs
+```
+
+## Running a single suite
+
+```bash
+# TT TPC-H
+./tt-results/scripts/run_tt_tpch.sh
+python3 tt-results/scripts/parse_tt_tpch.py
+python3 tt-results/scripts/plot_tt_tpch.py
+
+# Poneglyph comparison
+./tt-results/scripts/run_pgn.sh
+python3 tt-results/scripts/parse_pgn.py
+python3 tt-results/scripts/plot_pgn.py
+
+# Micro
+./tt-results/scripts/run_micro.sh
+python3 tt-results/scripts/parse_micro.py
+python3 tt-results/scripts/plot_micro.py
+```
+
+## Outputs
+
+| Suite       | Raw (`tt-results/raw/`)                                                | CSV (`tt-results/tidy/`) | Figures (`tt-results/figures/`) |
+|-------------|------------------------------------------------------------------------|--------------------------|----------------------------------|
+| TT TPC-H    | `benches_tt_*.json`, `bench_stats_tt_*.jsonl`                          | `tpch.csv`               | `tpch_tt_*.pdf`                  |
+| PGN compare | `benches_pgn_*.json`, `bench_stats_pgn_*.jsonl`, `poneglyph_q*_k*.log` | `tpch_pgn.csv`           | `tpch_pgn_*.pdf`                 |
+| Micro       | `third_party_*.log`, `third_party_*.json`                              | `micro.csv`              | `micro_*.pdf`                    |
+
+The CSVs are the single source of truth that the plot scripts read from —
+inspect them directly to sanity-check numbers before publishing figures.
+
+## Plot prerequisites
+
+The plot scripts need Python 3.12 with `matplotlib`, `numpy`, `pandas`:
+
+```bash
+cd tt-results
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+See [tt-results/readme.md](tt-results/readme.md) for more detail on the
+plotting setup and the Streamlit bench dashboard.
+
 # License
 
 TruthTable is released under the [PolyForm Noncommercial 1.0.0](LICENSE) license: free for academic, research, personal, and nonprofit use; commercial use requires a separate license. See the LICENSE file for the full terms and a contact address for commercial licensing enquiries.

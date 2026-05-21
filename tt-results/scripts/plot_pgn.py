@@ -1,3 +1,18 @@
+"""Plot the Poneglyph comparison: TruthTable (on `_pgn` query variants) vs
+PoneglyphDB, side-by-side per query.
+
+Reads tidy/tpch_pgn.csv. Both systems use Q=q{N} in that CSV; System
+distinguishes which prover produced the row.
+
+Outputs:
+  figures/tpch_pgn_prover.pdf
+  figures/tpch_pgn_verifier.pdf
+  figures/tpch_pgn_proof_size.pdf
+
+Usage:
+  python3 tt-results/scripts/plot_pgn.py
+"""
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -16,14 +31,16 @@ plt.rcParams.update(
     }
 )
 
+# Scale factor at which both systems have numbers (largest dataset both ran).
+SCALE_FACTOR = 0.04
+
 base_dir = Path(__file__).resolve().parent.parent
-data_path = base_dir / "tidy" / "tpch.csv"
+data_path = base_dir / "tidy" / "tpch_pgn.csv"
 figures_dir = base_dir / "figures"
 figures_dir.mkdir(parents=True, exist_ok=True)
 
-# Load CSV and normalize column names (handles UTF-8 BOM in header).
 df = pd.read_csv(data_path)
-df.columns = [c.strip().lstrip("\ufeff") for c in df.columns]
+df.columns = [c.strip().lstrip("﻿") for c in df.columns]
 df["Q"] = df["Q"].str.strip().str.lower()
 df["System"] = df["System"].str.strip().str.lower()
 df["scale-factor"] = pd.to_numeric(df["scale-factor"], errors="coerce")
@@ -36,44 +53,46 @@ for col in [
 ]:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Only plot scale factor 0.04.
-df = df[df["scale-factor"] == 0.04].copy()
+df = df[df["scale-factor"] == SCALE_FACTOR].copy()
 
-# Queries to show, in order.
 query_ids = [1, 3, 5, 8, 9, 18]
 query_labels = [f"Q{q}" for q in query_ids]
 
+# (display label, System value in CSV). Both look up by Q=q{N}; the System
+# column is what differentiates the two bars in each group.
 series_specs = [
-    ("TT simplified", "tt", lambda q: f"q{q}_p"),
-    ("Poneglyph simplified", "poneglyph", lambda q: f"q{q}"),
+    ("TT simplified", "tt"),
+    ("Poneglyph simplified", "poneglyph"),
 ]
 
 
-def metric_column(system: str, value_key: str) -> str:
+def metric_column(system, value_key):
     if value_key == "prover":
         return "prover time 1thread (s)"
     if value_key == "verifier":
+        # TT reports a crypto-only verifier time; Poneglyph only reports total.
         return "total verifier time (ms)" if system == "poneglyph" else "core verifier time (ms)"
     if value_key == "proof_size":
+        # Poneglyph proofs aren't split into crypto/non-crypto; use total.
         return "total proof size (KB)" if system == "poneglyph" else "proof size core(KB)"
     raise ValueError(f"Unknown metric key: {value_key}")
 
 
-def pick_value(q_name: str, system: str, value_key: str) -> float:
-    row = df[(df["Q"] == q_name) & (df["System"] == system)]
+def pick_value(q_num, system, value_key):
+    row = df[(df["Q"] == f"q{q_num}") & (df["System"] == system)]
     if row.empty:
         return np.nan
     return float(row[metric_column(system, value_key)].iloc[0])
 
 
-def build_series(value_key: str) -> list[list[float]]:
+def build_series(value_key):
     return [
-        [pick_value(q_name_fn(q), system, value_key) for q in query_ids]
-        for _, system, q_name_fn in series_specs
+        [pick_value(q, system, value_key) for q in query_ids]
+        for _, system in series_specs
     ]
 
 
-def plot_metric(value_key: str, ylabel: str, output_name: str) -> None:
+def plot_metric(value_key, ylabel, output_name):
     series = build_series(value_key)
 
     group_gap = 0.18
@@ -88,7 +107,7 @@ def plot_metric(value_key: str, ylabel: str, output_name: str) -> None:
     legend_handles = []
     legend_labels = []
 
-    for i, ((label, _, _), heights) in enumerate(zip(series_specs, series)):
+    for i, ((label, _), heights) in enumerate(zip(series_specs, series)):
         ax.bar(
             x + i * bar_width,
             heights,
@@ -135,6 +154,6 @@ def plot_metric(value_key: str, ylabel: str, output_name: str) -> None:
     plt.close(fig)
 
 
-plot_metric("prover", "Prover Time (s)", "tpch_prover.pdf")
-plot_metric("verifier", "Verifier Time (ms)", "tpch_verifier.pdf")
-plot_metric("proof_size", "Proof Size (KB)", "tpch_proof_size.pdf")
+plot_metric("prover", "Prover Time (s)", "tpch_pgn_prover.pdf")
+plot_metric("verifier", "Verifier Time (ms)", "tpch_pgn_verifier.pdf")
+plot_metric("proof_size", "Proof Size (KB)", "tpch_pgn_proof_size.pdf")
