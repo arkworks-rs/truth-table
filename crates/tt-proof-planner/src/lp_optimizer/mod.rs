@@ -25,10 +25,7 @@ mod merge_filters;
 mod merge_limits;
 mod normalize_sort_fetch;
 mod normalize_table_scan;
-mod rematerialize;
-pub use rematerialize::{
-    OptimizationHint, OptimizationHints, apply_optimization_hints, collect_data_dependent_hints,
-};
+
 // pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
 //     let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![
 //         Arc::new(ExtractEquijoinPredicate),

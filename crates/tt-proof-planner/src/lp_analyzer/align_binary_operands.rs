@@ -213,7 +213,7 @@ mod tests {
         logical_plan::builder::table_scan,
     };
 
-    use crate::logical_plan_analyzer::{analyze_logical_plan, rules};
+    use crate::lp_analyzer::{analyze_logical_plan, rules};
 
     fn projection_expr(plan: &LogicalPlan) -> &Expr {
         match plan {

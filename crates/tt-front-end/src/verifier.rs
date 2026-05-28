@@ -4,10 +4,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 use datafusion_common::DataFusionError;
-use proof_planner::{
-    logical_plan_optimizer::apply_optimization_hints,
-    proof_plan_optimizer::{ProofPlanOptimizer, rules as proof_plan_rules},
-};
+use proof_planner::data_dependent_lp_optimizer::apply_optimization_hints;
 use std::sync::Arc;
 use tracing::debug;
 use tt_core::{
@@ -244,8 +241,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         );
 
         // 2. Apply proof-plan optimizer rewrites before verifier-specific passes.
-        let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
-        let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
+        let optimized_initial_ir = self.shared_config().pp_optimizer().optimize(initial_ir);
         debug!(
             "verifier optimized initial ir:\n{}",
             optimized_initial_ir.display_graphviz(true)

@@ -114,7 +114,7 @@ mod tests {
     use tt_core::irs::nodes::plan::result_check;
 
     use super::*;
-    use crate::logical_plan_optimizer::rules;
+    use crate::lp_optimizer::rules;
 
     #[test]
     fn optimizer_wraps_root_with_result_check() -> Result<()> {

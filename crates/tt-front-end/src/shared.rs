@@ -12,6 +12,11 @@ use datafusion::{
 };
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{LogicalPlan, logical_plan::UserDefinedLogicalNode};
+use proof_planner::data_dependent_lp_optimizer::{DataDependentOptimizer, rules as data_dependent_rules};
+use proof_planner::data_dependent_pp_optimizer::{
+    DataDependentProofPlanOptimizer, rules as data_dependent_pp_rules,
+};
+use proof_planner::pp_optimizer::{ProofPlanOptimizer, rules as pp_rules};
 use tt_core::ctx_oracles::CtxOracles;
 use tt_core::irs::nodes::plan::{
     rematerialize::RematerializeLogicalNode, result_check::ResultCheckLogicalNode,
@@ -24,6 +29,9 @@ use tt_core::irs::nodes::plan::{
 pub struct TTSharedConfig<B: SnarkBackend> {
     analyzer: Analyzer,
     optimizer: Optimizer,
+    pp_optimizer: ProofPlanOptimizer<B>,
+    data_dependent_optimizer: DataDependentOptimizer,
+    data_dependent_pp_optimizer: DataDependentProofPlanOptimizer<B>,
     ctx_oracles: CtxOracles<B>,
     session_ctx: SessionContext,
     config_options: ConfigOptions,
@@ -41,6 +49,9 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
     pub fn new(
         analyzer: Analyzer,
         optimizer: Optimizer,
+        pp_optimizer: ProofPlanOptimizer<B>,
+        data_dependent_optimizer: DataDependentOptimizer,
+        data_dependent_pp_optimizer: DataDependentProofPlanOptimizer<B>,
         ctx_oracles: CtxOracles<B>,
         session_ctx: SessionContext,
         config_options: ConfigOptions,
@@ -50,6 +61,9 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         Self {
             analyzer,
             optimizer,
+            pp_optimizer,
+            data_dependent_optimizer,
+            data_dependent_pp_optimizer,
             ctx_oracles,
             session_ctx: with_noop_extension_support(session_ctx),
             config_options,
@@ -61,8 +75,11 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
     /// Construct the default shared configuration used by front-end components.
     pub fn with_defaults(session_ctx: SessionContext) -> Self {
         Self::new(
-            Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-            Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(&session_ctx)),
+            Analyzer::with_rules(proof_planner::lp_analyzer::rules()),
+            Optimizer::with_rules(proof_planner::lp_optimizer::rules(&session_ctx)),
+            ProofPlanOptimizer::new(pp_rules()),
+            DataDependentOptimizer::with_rules(data_dependent_rules()),
+            DataDependentProofPlanOptimizer::with_rules(data_dependent_pp_rules()),
             CtxOracles::default(),
             session_ctx,
             ConfigOptions::new(),
@@ -79,6 +96,24 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
     /// Borrow the shared optimizer.
     pub fn optimizer(&self) -> &Optimizer {
         &self.optimizer
+    }
+
+    /// Borrow the shared proof-plan optimizer.
+    pub fn pp_optimizer(&self) -> &ProofPlanOptimizer<B> {
+        &self.pp_optimizer
+    }
+
+    /// Borrow the shared data-dependent optimizer (produces hints the prover
+    /// ships with the proof for the verifier to replay).
+    pub fn data_dependent_optimizer(&self) -> &DataDependentOptimizer {
+        &self.data_dependent_optimizer
+    }
+
+    /// Borrow the shared data-dependent proof-plan optimizer. Currently
+    /// holds an empty rule list — wired in for future data-dependent IR
+    /// optimizations.
+    pub fn data_dependent_pp_optimizer(&self) -> &DataDependentProofPlanOptimizer<B> {
+        &self.data_dependent_pp_optimizer
     }
 
     /// Borrow the context oracles visible to the front-end role.

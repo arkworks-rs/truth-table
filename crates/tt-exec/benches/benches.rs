@@ -8,6 +8,7 @@ mod order_by;
 mod prover;
 mod support;
 mod tpch;
+mod tpch_optall;
 
 use std::{fs, io};
 

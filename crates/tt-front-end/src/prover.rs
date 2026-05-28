@@ -5,12 +5,7 @@ use datafusion::{dataframe::DataFrame, datasource::MemTable};
 use datafusion_common::tree_node::Transformed;
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
-use proof_planner::{
-    logical_plan_optimizer::{
-        OptimizationHints, apply_optimization_hints, collect_data_dependent_hints,
-    },
-    proof_plan_optimizer::{ProofPlanOptimizer, rules as proof_plan_rules},
-};
+use proof_planner::data_dependent_lp_optimizer::{OptimizationHints, apply_optimization_hints};
 use std::time::Instant;
 use tracing::{debug, info};
 #[cfg(feature = "honest-prover")]
@@ -212,10 +207,10 @@ impl<B: SnarkBackend> TTProver<B> {
         );
 
         // 4. Collect the data-dependent optimization hints that must travel in the proof.
-        let optimization_hints = collect_data_dependent_hints(
-            self.shared_config().session_ctx(),
-            &structural_optimized_lp,
-        )?;
+        let optimization_hints = self
+            .shared_config()
+            .data_dependent_optimizer()
+            .collect_hints(self.shared_config().session_ctx(), &structural_optimized_lp)?;
 
         // 5. Materialize those hints into the final logical plan that the prover uses.
         let data_dependent_optimized_lp =
@@ -233,8 +228,7 @@ impl<B: SnarkBackend> TTProver<B> {
         debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         self.emit_ir_graphviz("initial_ir", initial_ir.display_graphviz(true));
         // 1. Proof plan optimization passes
-        let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
-        let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
+        let optimized_initial_ir = self.shared_config().pp_optimizer().optimize(initial_ir);
         debug!(
             "optimized initial ir:\n{}",
             optimized_initial_ir.display_graphviz(true)

@@ -2,14 +2,19 @@
 //!
 //! This crate sits between DataFusion and `tt-core`. It contains:
 //!
-//! - [`logical_plan_analyzer`] — analyzer rules that run before optimization,
+//! - [`lp_analyzer`] — analyzer rules that run before optimization,
 //!   normalizing the logical plan into a shape the rest of the pipeline expects.
-//! - [`logical_plan_optimizer`] — optimizer rules and the
-//!   [`logical_plan_optimizer::OptimizationHints`] struct, which captures the
-//!   data-dependent optimizer decisions that must travel with the proof so the
-//!   verifier can reproduce the same plan.
-//! - [`proof_plan_optimizer`] — rewrite rules that operate on the truth-table
-//!   IR after it has been built from the optimized logical plan.
+//! - [`lp_optimizer`] — structural optimizer rules that rewrite the logical
+//!   plan into a shape the truth-table IR can consume.
+//! - [`data_dependent_lp_optimizer`] — data-dependent optimizer rules whose
+//!   decisions depend on runtime row counts. The prover runs them and emits
+//!   [`data_dependent_lp_optimizer::OptimizationHints`] that travel with the
+//!   proof so the verifier can reproduce the same plan shape.
+//! - [`pp_optimizer`] — proof-plan rewrite rules that operate on the
+//!   truth-table IR after it has been built from the optimized logical plan.
+//! - [`data_dependent_pp_optimizer`] — data-dependent proof-plan rules whose
+//!   decisions depend on runtime IR state. Parallel to
+//!   [`data_dependent_lp_optimizer`] but operates on `InitialIr<B>`.
 //!
 //! The public [`ProofPlanner`] type is a placeholder for a future unified entry
 //! point; today the prover and verifier call the individual rule sets directly.
@@ -20,9 +25,11 @@ use datafusion_expr::LogicalPlan;
 use tracing::instrument;
 use tt_core::irs::shared_ir::InitialIr;
 
-pub mod logical_plan_analyzer;
-pub mod logical_plan_optimizer;
-pub mod proof_plan_optimizer;
+pub mod data_dependent_lp_optimizer;
+pub mod data_dependent_pp_optimizer;
+pub mod lp_analyzer;
+pub mod lp_optimizer;
+pub mod pp_optimizer;
 
 pub struct ProofPlanner<B: SnarkBackend> {
     _marker: std::marker::PhantomData<B>,

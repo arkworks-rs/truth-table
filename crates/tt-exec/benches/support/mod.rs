@@ -24,6 +24,8 @@ use front_end::{
     structs::{Artifact, SizeBreakdown, TTProof, TTVk},
     verifier::{TTVerifier, TTVerifierConfig},
 };
+use proof_planner::data_dependent_lp_optimizer::DataDependentOptimizationRule;
+use proof_planner::pp_optimizer::{ProofPlanOptimizer, ProofPlanOptimizerRule};
 use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
@@ -215,6 +217,32 @@ pub fn prepare_prover_iteration(assets: &BenchAssets) -> ProverBenchIteration {
         .with_parquet_paths(assets.parquet_paths.clone())
         .with_oracle_paths(assets.oracle_paths.clone())
         .with_pk_path(assets.pk_path.clone())
+        .build()
+        .expect("prepare prover runner for bench");
+
+    let prover = block_on(runner.build_tt_prover()).expect("build prover for bench");
+
+    ProverBenchIteration {
+        prover,
+        query: assets.case.query.to_string(),
+    }
+}
+
+/// Same as `prepare_prover_iteration`, but with explicit data-dependent and
+/// pp_optimizer rule lists — used by ablation benchmarks that disable
+/// specific rules.
+pub fn prepare_prover_iteration_with_rules(
+    assets: &BenchAssets,
+    data_dependent_rules: Vec<Arc<dyn DataDependentOptimizationRule>>,
+    pp_rules: Vec<Arc<dyn ProofPlanOptimizerRule<B>>>,
+) -> ProverBenchIteration {
+    let runner = ProveBuilder::new()
+        .with_query(assets.case.query.to_string())
+        .with_parquet_paths(assets.parquet_paths.clone())
+        .with_oracle_paths(assets.oracle_paths.clone())
+        .with_pk_path(assets.pk_path.clone())
+        .with_data_dependent_rules(data_dependent_rules)
+        .with_pp_rules(pp_rules)
         .build()
         .expect("prepare prover runner for bench");
 
@@ -492,8 +520,24 @@ pub fn build_verifier_full_state_from_proof(
     assets: &BenchAssets,
     bench_proof: &BenchProof,
 ) -> VerifierFullBenchState {
+    build_verifier_full_state_from_proof_with_pp_rules(
+        assets,
+        bench_proof,
+        proof_planner::pp_optimizer::rules(),
+    )
+}
+
+/// Same as `build_verifier_full_state_from_proof`, but uses a caller-supplied
+/// pp_optimizer rule list. Used by ablation benchmarks that disable specific
+/// rules — the verifier must filter the same rules as the prover, otherwise
+/// the two sides will derive different join modes and verification fails.
+pub fn build_verifier_full_state_from_proof_with_pp_rules(
+    assets: &BenchAssets,
+    bench_proof: &BenchProof,
+    pp_rules: Vec<Arc<dyn ProofPlanOptimizerRule<B>>>,
+) -> VerifierFullBenchState {
     // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
-    let verifier = build_verifier(assets);
+    let verifier = build_verifier(assets, pp_rules);
     build_verifier_full_state_from_proof_impl(
         verifier,
         assets.case.query,
@@ -583,7 +627,10 @@ pub fn run_preprocess_once(state: &VerifierFullBenchState) {
         .expect("preprocessed output lock poisoned") = Some(output_memtable);
 }
 
-fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
+fn build_verifier(
+    assets: &BenchAssets,
+    pp_rules: Vec<Arc<dyn ProofPlanOptimizerRule<B>>>,
+) -> TTVerifier<B> {
     // Mirror the CLI verifier setup so bench verification matches production.
     let ctx = SessionContext::new_with_config(SessionConfig::new().with_target_partitions(1));
     for parquet_path in &assets.parquet_paths {
@@ -613,7 +660,7 @@ fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
     let tt_vk = TTVk::<B>::load(&assets.vk_path).expect("load verifying key for bench");
     let arg_verifier = ArgVerifier::new_from_vk(tt_vk.into_inner());
 
-    let shared_config = build_shared_config(ctx, ctx_oracles);
+    let shared_config = build_shared_config(ctx, ctx_oracles, pp_rules);
     TTVerifier::new(TTVerifierConfig::default(), shared_config, arg_verifier)
 }
 
@@ -651,11 +698,19 @@ fn ctx_oracles_from_oracles(
 fn build_shared_config(
     session_ctx: SessionContext,
     ctx_oracles: CtxOracles<B>,
+    pp_rules: Vec<Arc<dyn ProofPlanOptimizerRule<B>>>,
 ) -> TTSharedConfig<B> {
     // Use the same planner/optimizer wiring as production verification.
     TTSharedConfig::new(
-        Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(&session_ctx)),
+        Analyzer::with_rules(proof_planner::lp_analyzer::rules()),
+        Optimizer::with_rules(proof_planner::lp_optimizer::rules(&session_ctx)),
+        ProofPlanOptimizer::new(pp_rules),
+        proof_planner::data_dependent_lp_optimizer::DataDependentOptimizer::with_rules(
+            proof_planner::data_dependent_lp_optimizer::rules(),
+        ),
+        proof_planner::data_dependent_pp_optimizer::DataDependentProofPlanOptimizer::with_rules(
+            proof_planner::data_dependent_pp_optimizer::rules(),
+        ),
         ctx_oracles,
         session_ctx,
         ConfigOptions::new(),

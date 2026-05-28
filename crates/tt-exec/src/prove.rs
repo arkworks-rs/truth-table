@@ -18,6 +18,10 @@ use front_end::{
     shared::TTSharedConfig,
     structs::{TTPk, TTProof},
 };
+use proof_planner::data_dependent_lp_optimizer::{
+    DataDependentOptimizationRule, DataDependentOptimizer, rules as data_dependent_rules,
+};
+use proof_planner::pp_optimizer::{ProofPlanOptimizer, ProofPlanOptimizerRule, rules as pp_rules};
 use indexmap::IndexMap;
 use std::{
     fs::{self, File},
@@ -51,6 +55,14 @@ pub struct ProveBuilder {
     pk_path: Option<PathBuf>,
     /// Output path for the generated proof.
     output_path: Option<PathBuf>,
+    /// Optional override for the data-dependent rule list. When `None`, the
+    /// default `data_dependent_rules()` set is used. Ablation benchmarks pass
+    /// a filtered list here to disable specific rules.
+    data_dependent_rules: Option<Vec<Arc<dyn DataDependentOptimizationRule>>>,
+    /// Optional override for the proof-plan optimizer rule list. When `None`,
+    /// the default `pp_rules()` set is used. Ablation benchmarks pass a
+    /// filtered list here to disable specific rules (e.g., PK-FK).
+    pp_rules: Option<Vec<Arc<dyn ProofPlanOptimizerRule<B>>>>,
 }
 
 impl Default for ProveBuilder {
@@ -67,6 +79,8 @@ impl ProveBuilder {
             oracle_paths: None,
             pk_path: None,
             output_path: None,
+            data_dependent_rules: None,
+            pp_rules: None,
         }
     }
 
@@ -100,6 +114,24 @@ impl ProveBuilder {
 
     pub fn with_output_path(mut self, path: Option<PathBuf>) -> Self {
         self.output_path = path;
+        self
+    }
+
+    /// Override the data-dependent optimizer rule list. Primarily used by
+    /// ablation benchmarks that want to disable rematerialize (or future
+    /// data-dependent rules) without rebuilding the production rule set.
+    pub fn with_data_dependent_rules(
+        mut self,
+        rules: Vec<Arc<dyn DataDependentOptimizationRule>>,
+    ) -> Self {
+        self.data_dependent_rules = Some(rules);
+        self
+    }
+
+    /// Override the proof-plan optimizer rule list. Used by ablation
+    /// benchmarks (e.g., to disable PK-FK specialization).
+    pub fn with_pp_rules(mut self, rules: Vec<Arc<dyn ProofPlanOptimizerRule<B>>>) -> Self {
+        self.pp_rules = Some(rules);
         self
     }
 
@@ -141,6 +173,8 @@ impl ProveBuilder {
             pk_path,
             output_path,
             result_output_path,
+            data_dependent_rules: self.data_dependent_rules,
+            pp_rules: self.pp_rules,
         })
     }
 }
@@ -159,6 +193,10 @@ pub struct ProveRunner {
     output_path: PathBuf,
     /// Output path for the prover-produced result parquet.
     result_output_path: PathBuf,
+    /// Optional override for the data-dependent rule list.
+    data_dependent_rules: Option<Vec<Arc<dyn DataDependentOptimizationRule>>>,
+    /// Optional override for the proof-plan optimizer rule list.
+    pp_rules: Option<Vec<Arc<dyn ProofPlanOptimizerRule<B>>>>,
 }
 
 impl ProveRunner {
@@ -260,9 +298,19 @@ impl ProveRunner {
 
     fn build_shared_config(&self, session_ctx: SessionContext) -> Result<TTSharedConfig<B>> {
         let ctx_oracles = self.ctx_oracles_from_paths()?;
+        let data_dependent_rules = self
+            .data_dependent_rules
+            .clone()
+            .unwrap_or_else(data_dependent_rules);
+        let pp_rules = self.pp_rules.clone().unwrap_or_else(pp_rules);
         Ok(TTSharedConfig::new(
-            Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-            Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(&session_ctx)),
+            Analyzer::with_rules(proof_planner::lp_analyzer::rules()),
+            Optimizer::with_rules(proof_planner::lp_optimizer::rules(&session_ctx)),
+            ProofPlanOptimizer::new(pp_rules),
+            DataDependentOptimizer::with_rules(data_dependent_rules),
+            proof_planner::data_dependent_pp_optimizer::DataDependentProofPlanOptimizer::with_rules(
+                proof_planner::data_dependent_pp_optimizer::rules(),
+            ),
             ctx_oracles,
             session_ctx,
             ConfigOptions::new(),

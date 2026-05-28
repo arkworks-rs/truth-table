@@ -4,10 +4,7 @@ use arithmetic::{
 };
 use ark_piop::{SnarkBackend, prover::ArgProver, setup::structs::SNARKPk, verifier::ArgVerifier};
 use datafusion_common::DataFusionError;
-use proof_planner::{
-    logical_plan_optimizer::{apply_optimization_hints, collect_data_dependent_hints},
-    proof_plan_optimizer::{ProofPlanOptimizer, rules as proof_plan_rules},
-};
+use proof_planner::data_dependent_lp_optimizer::apply_optimization_hints;
 use tracing::debug;
 use tt_core::errors::TTResult;
 #[cfg(feature = "honest-prover")]
@@ -120,10 +117,10 @@ impl<B: SnarkBackend> TTDataOwner<B> {
 
         // 2. Collect and apply data-dependent optimizer hints so the committed oracle
         // matches the same plan shape used by proving and verification.
-        let optimization_hints = collect_data_dependent_hints(
-            self.shared_config().session_ctx(),
-            &analyzed_and_optimized_lp,
-        )?;
+        let optimization_hints = self
+            .shared_config()
+            .data_dependent_optimizer()
+            .collect_hints(self.shared_config().session_ctx(), &analyzed_and_optimized_lp)?;
         let analyzed_and_optimized_lp =
             apply_optimization_hints(analyzed_and_optimized_lp, &optimization_hints)?;
         debug!(
@@ -136,8 +133,7 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
 
         // 4. Run the prover-side IR passes up through tracking to expose the table scan.
-        let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
-        let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
+        let optimized_initial_ir = self.shared_config().pp_optimizer().optimize(initial_ir);
         debug!(
             "optimized initial ir:\n{}",
             optimized_initial_ir.display_graphviz(true)

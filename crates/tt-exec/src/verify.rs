@@ -232,8 +232,15 @@ fn build_shared_config(
     ctx_oracles: CtxOracles<B>,
 ) -> TTSharedConfig<B> {
     TTSharedConfig::new(
-        Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(&session_ctx)),
+        Analyzer::with_rules(proof_planner::lp_analyzer::rules()),
+        Optimizer::with_rules(proof_planner::lp_optimizer::rules(&session_ctx)),
+        proof_planner::pp_optimizer::ProofPlanOptimizer::new(proof_planner::pp_optimizer::rules()),
+        proof_planner::data_dependent_lp_optimizer::DataDependentOptimizer::with_rules(
+            proof_planner::data_dependent_lp_optimizer::rules(),
+        ),
+        proof_planner::data_dependent_pp_optimizer::DataDependentProofPlanOptimizer::with_rules(
+            proof_planner::data_dependent_pp_optimizer::rules(),
+        ),
         ctx_oracles,
         session_ctx,
         ConfigOptions::new(),

@@ -1,6 +1,7 @@
 use std::{
+    any::Any,
     collections::BTreeSet,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex, RwLock, Weak},
 };
 
 use crate::irs::{
@@ -37,7 +38,11 @@ where
     gadget: Arc<Node<B>>,
     join: Join,
     // Single source of truth for join optimization/materialization mode.
-    join_mode: modes::JoinMode,
+    //
+    // Interior-mutable so the PK-FK specialization pp_optimizer rule can
+    // upgrade it after ingestion. The rule also propagates the new mode to
+    // the inner gadget via `set_join_mode` so both stay in sync.
+    join_mode: RwLock<modes::JoinMode>,
     // Cached from `output()` so full-materialized add_virtual_witness can rebuild
     // a contiguous activator deterministically on prover and verifier.
     full_materialized_active_rows: Mutex<Option<usize>>,
@@ -50,6 +55,25 @@ impl<B: SnarkBackend> LpNode<B> {
 
     fn join_mode(&self) -> modes::JoinMode {
         self.join_mode
+            .read()
+            .map(|guard| *guard)
+            .unwrap_or(modes::JoinMode::MANY_TO_MANY)
+    }
+
+    /// Update this join's mode. Propagates to the inner gadget so plan-side
+    /// materialization policy and gadget-side protocol selection stay in
+    /// sync. Used by the `PkFkSpecialization` pp_optimizer rule after
+    /// ingestion.
+    pub fn set_join_mode(&self, mode: modes::JoinMode) {
+        if let Ok(mut guard) = self.join_mode.write() {
+            *guard = mode;
+        }
+        if let Node::Gadget(gadget) = self.gadget.as_ref() {
+            let any = gadget.as_ref() as &dyn Any;
+            if let Some(join_gadget) = any.downcast_ref::<gadget::GadgetNode<B>>() {
+                join_gadget.set_join_mode(mode);
+            }
+        }
     }
 
     fn should_fully_materialize(&self) -> bool {
@@ -1148,8 +1172,12 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         } else {
             panic!("Expected Join LogicalPlan");
         };
-        // Decide mode at LP ingestion time so both plan and gadget are always synchronized.
-        let join_mode = modes::decide_join_mode(&join);
+        // Default to the conservative MANY_TO_MANY mode at ingestion. The
+        // `PkFkSpecialization` pp_optimizer rule walks the IR after this and
+        // upgrades joins whose PK/FK metadata supports a specialized
+        // protocol. Removing the rule (e.g., in an ablation benchmark) keeps
+        // every join at MANY_TO_MANY.
+        let join_mode = modes::JoinMode::MANY_TO_MANY;
         let left = Tree::<B>::from_logical_plan(&join.left).root().clone();
         let right = Tree::<B>::from_logical_plan(&join.right).root().clone();
         let join_scope_node = self_ref.clone();
@@ -1202,7 +1230,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             filter,
             gadget,
             join,
-            join_mode,
+            join_mode: RwLock::new(join_mode),
             full_materialized_active_rows: Mutex::new(None),
         }
     }

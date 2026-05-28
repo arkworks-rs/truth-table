@@ -111,7 +111,7 @@ mod tests {
     use datafusion_common::tree_node::TreeNode;
     use datafusion_expr::{Expr, LogicalPlan, logical_plan::builder::table_scan};
 
-    use crate::logical_plan_optimizer::rules;
+    use crate::lp_optimizer::rules;
 
     fn count_limits(plan: &LogicalPlan) -> usize {
         let mut n = 0;

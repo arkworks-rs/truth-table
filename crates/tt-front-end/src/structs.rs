@@ -10,7 +10,7 @@ use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid,
 };
 use derivative::Derivative;
-use proof_planner::logical_plan_optimizer::OptimizationHints;
+use proof_planner::data_dependent_lp_optimizer::OptimizationHints;
 use tracing::debug;
 use tt_core::errors::TTResult;
 use zstd::stream::{decode_all as zstd_decode_all, encode_all as zstd_encode_all};
