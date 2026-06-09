@@ -118,7 +118,7 @@ ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
 ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
 ark-test-curves = { git = "https://github.com/arkworks-rs/algebra" }
 ark-bn254 = { git = "https://github.com/arkworks-rs/algebra" }
-ark-piop = { path = "../ark-piop" }
+ark-piop = { git = "https://github.com/alireza-shirzad/ark-piop", branch = "master" }
 
 
 [workspace.metadata.cargo-alias]
