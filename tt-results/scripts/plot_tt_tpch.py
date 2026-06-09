@@ -20,11 +20,11 @@ from matplotlib.patches import Patch
 plt.style.use("seaborn-v0_8-whitegrid")
 plt.rcParams.update(
     {
-        "font.size": 21,
-        "axes.labelsize": 22,
-        "xtick.labelsize": 18,
-        "ytick.labelsize": 20,
-        "legend.fontsize": 19,
+        "font.size": 38,
+        "axes.labelsize": 38,
+        "xtick.labelsize": 38,
+        "ytick.labelsize": 38,
+        "legend.fontsize": 38,
         "hatch.linewidth": 0.6,
     }
 )

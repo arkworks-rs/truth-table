@@ -3,10 +3,9 @@ shared Filter / Aggregate / Join / Join PK/FK / Limit operators.
 
 Reads tidy/micro.csv.
 
-Outputs:
-  figures/micro_prover_time.pdf
-  figures/micro_verifier_time.pdf
-  figures/micro_proof_size.pdf
+Output:
+  figures/micro_combined.pdf — single PDF with prover time, verifier time,
+                                and proof size side-by-side, sharing one legend.
 
 Usage:
   python3 tt-results/scripts/plot_micro.py
@@ -20,13 +19,15 @@ import pandas as pd
 from matplotlib.ticker import FuncFormatter, LogLocator
 
 plt.style.use("seaborn-v0_8-whitegrid")
+# Match the font sizes used in plot_tt_tpch_combined.py so all plots share
+# a consistent visual scale.
 plt.rcParams.update(
     {
-        "font.size": 21,
-        "axes.labelsize": 22,
-        "xtick.labelsize": 20,
-        "ytick.labelsize": 20,
-        "legend.fontsize": 20,
+        "font.size": 38,
+        "axes.labelsize": 38,
+        "xtick.labelsize": 38,
+        "ytick.labelsize": 38,
+        "legend.fontsize": 38,
         "hatch.linewidth": 0.6,
     }
 )
@@ -118,23 +119,7 @@ def pick_value(q_name, system, value_col):
     return float(row[value_col].iloc[0])
 
 
-def plot_metric(value_col, ylabel, output_name):
-    fig, ax = plt.subplots(figsize=(10, 5.2))
-
-    legend_handles = [
-        plt.Rectangle(
-            (0, 0),
-            1,
-            1,
-            facecolor=palette[system]["face"],
-            edgecolor=palette[system]["edge"],
-            hatch=hatches[system],
-            linewidth=0.8,
-        )
-        for system, _ in legend_specs
-    ]
-    legend_labels = [label for _, label in legend_specs]
-
+def draw_panel(ax, value_col, ylabel):
     group_gap = 0.22
     bar_width = 0.16
     group_centers = []
@@ -163,7 +148,7 @@ def plot_metric(value_col, ylabel, output_name):
                     "* PK/FK",
                     ha="center",
                     va="bottom",
-                    fontsize=13,
+                    fontsize=38,
                     rotation=90,
                 )
 
@@ -172,7 +157,6 @@ def plot_metric(value_col, ylabel, output_name):
         group_start += group_width + group_gap
 
     ax.set_xticks(group_centers, [spec["label"] for spec in groups])
-    ax.set_xlabel("SQL Operator")
     ax.set_ylabel(ylabel)
     ax.set_yscale("log")
     ax.yaxis.set_major_locator(LogLocator(base=10))
@@ -180,23 +164,48 @@ def plot_metric(value_col, ylabel, output_name):
     ax.tick_params(axis="x", pad=10)
     ax.tick_params(axis="y", pad=10)
     ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
-    ax.legend(
-        handles=legend_handles,
-        labels=legend_labels,
-        ncol=3,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 1.32),
-        handlelength=2.2,
-        handleheight=1.4,
-        borderpad=0.6,
-        columnspacing=1.6,
+
+
+# Width chosen so each subplot's aspect ratio matches the original single-panel
+# figsize (10, 5.2 → 1.92:1). With height 8, each subplot wants ~15.4 wide, so
+# total width ≈ 46.
+fig, axes = plt.subplots(1, 3, figsize=(46, 8))
+panels = [
+    ("prover time (s)", "Prover Time (s)"),
+    ("verifier time (ms)", "Verifier Time (ms)"),
+    ("proof size (KB)", "Proof Size (KB)"),
+]
+for ax, (col, ylabel) in zip(axes, panels):
+    draw_panel(ax, col, ylabel)
+
+# Single shared legend, centered below all three panels.
+legend_handles = [
+    plt.Rectangle(
+        (0, 0),
+        1,
+        1,
+        facecolor=palette[system]["face"],
+        edgecolor=palette[system]["edge"],
+        hatch=hatches[system],
+        linewidth=0.8,
     )
+    for system, _ in legend_specs
+]
+legend_labels = [label for _, label in legend_specs]
 
-    fig.tight_layout()
-    fig.savefig(figures_dir / output_name)
-    plt.close(fig)
+fig.legend(
+    handles=legend_handles,
+    labels=legend_labels,
+    ncol=3,
+    loc="lower center",
+    bbox_to_anchor=(0.5, -0.02),
+    handlelength=2.2,
+    handleheight=1.4,
+    borderpad=0.6,
+    columnspacing=1.6,
+)
 
-
-plot_metric("prover time (s)", "Prover Time (s)", "micro_prover_time.pdf")
-plot_metric("proof size (KB)", "Proof Size (KB)", "micro_proof_size.pdf")
-plot_metric("verifier time (ms)", "Verifier Time (ms)", "micro_verifier_time.pdf")
+# Reserve room at the bottom for the figure-level legend.
+fig.tight_layout(rect=[0, 0.10, 1, 1])
+fig.savefig(figures_dir / "micro_combined.pdf", bbox_inches="tight")
+plt.close(fig)
