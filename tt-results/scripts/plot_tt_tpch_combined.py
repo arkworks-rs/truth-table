@@ -219,7 +219,11 @@ def draw_commit(ax):
                 ha="left", va="center", fontsize=38, zorder=5)
 
 
-fig, axes = plt.subplots(2, 2, figsize=(36, 16))
+# figsize_width matches plot_pgn.py / plot_micro.py (46), and figsize_height
+# = 2 × the others' per-subplot height (2×8=16). With 2 rows this gives the
+# same per-subplot display height as the 1-row PDFs when viewed at equal
+# screen width, so subplots no longer appear taller in the combined figure.
+fig, axes = plt.subplots(2, 2, figsize=(46, 16))
 # Layout: commit + verifier on top, prover + proof size on bottom.
 draw_commit(axes[0, 0])
 draw_verifier(axes[0, 1])

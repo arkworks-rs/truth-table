@@ -30,7 +30,9 @@ PARSER="$TPB_DIR/parse_bench_output.py"
 
 mkdir -p "$RESULTS_DIR"
 
-BENCHES=(sxt_proof_of_sql qedb truth_table)
+# Note: truth_table is now run TWICE, once per SNARK backend, via
+# run_bench_variant below. Keep this list for the "single-shot" benches only.
+BENCHES=(sxt_proof_of_sql qedb)
 NUM_THREADS=1       # threads for the measured pass
 WARMUP_THREADS=16   # threads for the unmeasured QEDB warmup (see below)
 
@@ -95,6 +97,40 @@ run_bench() {
         || echo "  !! parser failed for $bench"
 }
 
+# Variant of run_bench that activates a cargo feature and tags the output
+# files with a suffix, so the same bench can be run with different SNARK
+# backends (BN254 vs BLS12-381) without overwriting each other. Empty
+# `feature` means "default features" (BN254 for truth_table).
+run_bench_variant() {
+    local bench="$1"
+    local suffix="$2"   # "" for default, e.g. "_bls12_381" for BLS variant
+    local feature="$3"  # "" for default, e.g. "bls12-381" for BLS variant
+
+    local log="$RESULTS_DIR/third_party_${bench}${suffix}.log"
+    local feature_args=()
+    if [[ -n "$feature" ]]; then
+        feature_args=(--features "$feature")
+    fi
+
+    echo ""
+    echo "=============================================="
+    echo "  cargo bench --bench $bench ${feature_args[*]:-(default features)}  (threads=$NUM_THREADS)"
+    echo "=============================================="
+
+    (
+        cd "$TPB_DIR"
+        RAYON_NUM_THREADS="$NUM_THREADS" \
+            cargo bench --bench "$bench" "${feature_args[@]}" 2>&1
+    ) | tee "$log"
+
+    echo ""
+    echo "  → log: $log"
+
+    TT_BENCH_NUM_THREADS="$NUM_THREADS" \
+        python3 "$PARSER" "$bench" "$log" "$RESULTS_DIR/third_party_${bench}${suffix}.json" \
+        || echo "  !! parser failed for $bench${suffix}"
+}
+
 echo "=== micro comparison sweep ==="
 echo "Benches: ${BENCHES[*]}"
 echo "Warmup threads: $WARMUP_THREADS (QEDB only, output discarded)"
@@ -106,6 +142,12 @@ warmup_qedb
 for b in "${BENCHES[@]}"; do
     run_bench "$b"
 done
+
+# TruthTable: one pass per SNARK backend. BN254 is the default; the
+# `bls12-381` feature swaps the type alias in tt-exec. Each pass writes to a
+# distinct JSON so parse_micro.py can carry both into the same micro.csv.
+run_bench_variant truth_table ""             ""
+run_bench_variant truth_table "_bls12_381"   "bls12-381"
 
 echo ""
 echo "=== micro sweep complete ==="

@@ -10,7 +10,7 @@ BLITZAR_BACKEND = "cpu"
 
 [patch.crates-io]
 arrow-arith = { path = "patches/arrow-arith-51.0.0" }
-ark-piop = { git = "https://github.com/alireza-shirzad/ark-piop", branch = "master" }
+ark-piop = { path = "../../ark-piop" }
 
 [package]
 name = "tt-third-party-bench"
@@ -49,3 +49,9 @@ harness = false
 [[bench]]
 name = "qedb"
 harness = false
+
+[features]
+default = []
+# Swap the TruthTable benches' SNARK backend from BN254 to BLS12-381 by
+# forwarding to tt-exec's bls12-381 feature.
+bls12-381 = ["exec/bls12-381"]

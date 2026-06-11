@@ -9,7 +9,7 @@ use std::{
 mod stats_layer;
 
 use anyhow::{Context, Result};
-use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
+use ark_piop::verifier::ArgVerifier;
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     arrow::ipc::writer::StreamWriter,
@@ -31,6 +31,7 @@ use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
 use tt_core::irs::shared_ir::GadgetPlannedIr;
 use tt_exec::{
+    backend::BenchBackend,
     paths::workspace_artifacts_dir,
     prove::ProveBuilder,
     setup::DEFAULT_BENCH_LOG_SIZE,
@@ -39,7 +40,7 @@ use tt_exec::{
 
 pub use stats_layer::emit_benchmark_stats_row;
 
-pub type B = DefaultSnarkBackend;
+pub type B = BenchBackend;
 
 #[derive(Clone, Copy, Debug)]
 pub struct BenchCase {

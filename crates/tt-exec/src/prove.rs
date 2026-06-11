@@ -4,7 +4,8 @@ use crate::{
 };
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
-use ark_piop::{DefaultSnarkBackend, prover::ArgProver};
+use ark_piop::prover::ArgProver;
+use crate::backend::BenchBackend;
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
@@ -36,7 +37,7 @@ use tt_core::{
     prover::passes::materialization::configure_constraint_metadata_from_parquet_paths,
 };
 
-type B = DefaultSnarkBackend;
+type B = BenchBackend;
 
 pub struct ProveOutputs {
     pub proof_path: PathBuf,

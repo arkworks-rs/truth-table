@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
-use ark_piop::DefaultSnarkBackend;
 use ark_piop::test_utils::init_subscriber;
+use crate::backend::{BACKEND_NAME, BenchBackend};
 use ark_serialize::CanonicalDeserialize;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;
@@ -19,7 +19,7 @@ use crate::{
 };
 use tpch_data::{bench_data_path, test_data_path};
 
-type B = DefaultSnarkBackend;
+type B = BenchBackend;
 
 /// Executes an end-to-end proving and verification pipeline for the provided
 /// query by delegating to the CLI runners defined in `prove` and `verify`.
@@ -86,7 +86,9 @@ pub fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
 }
 
 pub async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
-    let parquet_oracle = parquet_path.with_extension("oracle");
+    // Namespace by curve: oracle files contain commitments specific to the active
+    // backend, so BN254 and BLS12-381 runs cannot share `.oracle` artifacts.
+    let parquet_oracle = parquet_path.with_extension(format!("{BACKEND_NAME}.oracle"));
     if parquet_oracle.exists() && oracle_matches_parquet(&parquet_oracle, parquet_path)? {
         return Ok(parquet_oracle);
     }

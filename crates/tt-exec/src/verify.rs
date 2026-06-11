@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
-use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
+use ark_piop::verifier::ArgVerifier;
+use crate::backend::BenchBackend;
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
@@ -22,7 +23,7 @@ use std::{
 };
 use tt_core::ctx_oracles::CtxOracles;
 
-type B = DefaultSnarkBackend;
+type B = BenchBackend;
 
 pub struct VerifyBuilder {
     query: Option<String>,

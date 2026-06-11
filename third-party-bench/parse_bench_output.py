@@ -152,6 +152,12 @@ def parse_truth_table(text: str) -> dict:
     m = re.search(r"^table_sizes:\s*\[([^\]]*)\]", text, re.M)
     if m:
         config["table_pows"] = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
+    # `curve: <name>` is emitted once at the top of the bench by the
+    # `tt-exec::backend::BACKEND_NAME` constant. Default to "bn254" if the
+    # bench predates the tag (older logs).
+    m = re.search(r"^curve:\s*(\S+)\s*$", text, re.M)
+    curve = m.group(1) if m else "bn254"
+    config["curve"] = curve
 
     chunks = re.split(r"^-{5,}\s*$", text, flags=re.M)
     results = []
@@ -169,6 +175,7 @@ def parse_truth_table(text: str) -> dict:
             "query": head.group(2),
             "parquet_rows": int(head.group(3)),
             "log_size": int(head.group(4)),
+            "curve": curve,
         }
 
         # Single-value fields: setup, prove, proof size, verify.

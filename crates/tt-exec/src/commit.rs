@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use arithmetic::{ROW_ID_COL_NAME, table_oracle::ArithTableOracle};
-use ark_piop::DefaultSnarkBackend;
 use ark_serialize::CanonicalSerialize;
+use crate::backend::BenchBackend;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use front_end::{
     data_owner::{TTDataOwner, TTDataOwnerConfig},
@@ -17,7 +17,7 @@ use tt_core::prover::passes::materialization::configure_constraint_metadata_from
 
 use front_end::structs::{Artifact, TTPk};
 
-type B = DefaultSnarkBackend;
+type B = BenchBackend;
 
 pub struct CommitBuilder {
     parquet_path: Option<PathBuf>,

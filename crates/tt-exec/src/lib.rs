@@ -13,6 +13,7 @@
 //! four stages together — used by the crate's integration tests and by the
 //! `quickstart` example.
 
+pub mod backend;
 pub mod cmd;
 pub mod commit;
 pub mod paths;

@@ -6,7 +6,8 @@ use std::{
 
 use crate::paths::workspace_artifacts_dir;
 use anyhow::{Context, Result, anyhow};
-use ark_piop::{DefaultSnarkBackend, setup::KeyGenerator};
+use ark_piop::setup::KeyGenerator;
+use crate::backend::{BACKEND_NAME, BenchBackend};
 use ark_serialize::CanonicalSerialize;
 
 pub const DEFAULT_TEST_LOG_SIZE: usize = 19;
@@ -104,7 +105,21 @@ impl SetupRunner {
     }
 
     pub fn run(&self) -> Result<()> {
-        let keygen = KeyGenerator::<DefaultSnarkBackend>::new().with_num_mv_vars(self.log_size);
+        // KeyGenerator's default srs_path is `../artifacts/srs`, which is
+        // shared across curves. The SRS file format is curve-specific (group
+        // elements of the active pairing), so two backends writing to
+        // `mv_<log>.srs` will silently clobber each other and the second
+        // run will panic at deserialize time. Push it into a per-curve
+        // subdir so BN254 and BLS12-381 keep separate caches.
+        let srs_path = std::env::current_dir()
+            .map_err(|e| anyhow!("could not read cwd: {e}"))?
+            .join("..")
+            .join("artifacts")
+            .join("srs")
+            .join(BACKEND_NAME);
+        let keygen = KeyGenerator::<BenchBackend>::new()
+            .with_num_mv_vars(self.log_size)
+            .with_srs_path(srs_path);
 
         let (pk, vk) = keygen
             .gen_keys()
@@ -137,11 +152,11 @@ fn parse_log_size(label: Option<String>) -> Result<usize> {
 }
 
 pub fn default_pk_filename(log_size: usize) -> String {
-    format!("{DEFAULT_PK_FILE}_{log_size}.pk")
+    format!("{DEFAULT_PK_FILE}_{log_size}_{BACKEND_NAME}.pk")
 }
 
 pub fn default_vk_filename(log_size: usize) -> String {
-    format!("{DEFAULT_VK_FILE}_{log_size}.vk")
+    format!("{DEFAULT_VK_FILE}_{log_size}_{BACKEND_NAME}.vk")
 }
 
 fn write_key<T: CanonicalSerialize>(value: &T, path: &Path) -> Result<()> {

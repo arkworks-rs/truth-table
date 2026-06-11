@@ -30,11 +30,12 @@ mod stats_layer;
 mod proof_stats {
     use std::path::Path;
 
-    use ark_piop::{DefaultSnarkBackend, types::artifact::SizeBreakdown};
+    use ark_piop::types::artifact::SizeBreakdown;
+    use exec::backend::BenchBackend;
     use front_end::structs::{Artifact, TTProof};
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
-    type B = DefaultSnarkBackend;
+    type B = BenchBackend;
 
     /// Read the proof and result parquet from disk and emit the same
     /// `proof_size`/`results` tracing fields the TPC-H bench harness emits.
@@ -154,7 +155,6 @@ const PARQUET_FILE_PREFIX: &str = "bench_table_";
 const JOIN_TABLE_PREFIX_A: &str = "bench_table";
 const JOIN_TABLE_PREFIX_B: &str = "bench_table_2";
 const ORACLE_DIR: &str = "artifact";
-const PROOF_FILENAME: &str = "bench.proof";
 const PK_FILENAME_PREFIX: &str = "tt_pk_";
 const VK_FILENAME_PREFIX: &str = "tt_vk_";
 
@@ -368,6 +368,7 @@ fn main() {
     init_bench_tracing();
     let bench_root = Path::new(env!("CARGO_MANIFEST_DIR"));
 
+    println!("curve: {}", exec::backend::BACKEND_NAME);
     println!("table_sizes: {:?}", TABLE_POWS);
 
     for &pow in TABLE_POWS {
@@ -388,7 +389,7 @@ fn main() {
                 .join(ORACLE_DIR)
                 .join(format!("{PARQUET_SUBDIR_PREFIX}{pow}"))
                 .join(query.dir)
-                .join(PROOF_FILENAME);
+                .join(format!("bench_{}.proof", exec::backend::BACKEND_NAME));
 
             if !parquet_path.exists() {
                 panic!(
@@ -417,11 +418,17 @@ fn main() {
             let pk_path = bench_root
                 .join(PARQUET_DIR)
                 .join(format!("{PARQUET_SUBDIR_PREFIX}{pow}"))
-                .join(format!("{PK_FILENAME_PREFIX}{log_size}.pk"));
+                .join(format!(
+                    "{PK_FILENAME_PREFIX}{log_size}_{}.pk",
+                    exec::backend::BACKEND_NAME
+                ));
             let vk_path = bench_root
                 .join(PARQUET_DIR)
                 .join(format!("{PARQUET_SUBDIR_PREFIX}{pow}"))
-                .join(format!("{VK_FILENAME_PREFIX}{log_size}.vk"));
+                .join(format!(
+                    "{VK_FILENAME_PREFIX}{log_size}_{}.vk",
+                    exec::backend::BACKEND_NAME
+                ));
 
             println!(
                 "pow: {pow} query: {} parquet_rows: {total_rows} log_size: {log_size}",

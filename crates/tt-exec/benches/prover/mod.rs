@@ -1,12 +1,12 @@
 use std::{fmt, future::Future, path::PathBuf, sync::OnceLock};
 
 use crate::support::emit_benchmark_stats_row;
-use ark_piop::DefaultSnarkBackend;
 use divan::black_box;
 use front_end::prover::TTProver;
 use tokio::runtime::Runtime;
 use tpch_data::{bench_data_path, query_spec};
 use tt_exec::{
+    backend::BenchBackend,
     prove::ProveBuilder,
     setup::DEFAULT_BENCH_LOG_SIZE,
     test_utils::{resolve_key_paths, resolve_oracle_path_blocking},
@@ -48,7 +48,7 @@ struct ProverBenchInputs {
 }
 
 struct ProverBenchIteration {
-    prover: TTProver<DefaultSnarkBackend>,
+    prover: TTProver<BenchBackend>,
     query: &'static str,
 }
 

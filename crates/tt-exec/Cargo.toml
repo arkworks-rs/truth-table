@@ -20,7 +20,7 @@ tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data" }
 front-end = { package = "tt-front-end", path = "../tt-front-end" }
 
 # arkworks dependencies
-ark-piop = { workspace = true, features = ["test-utils"] }
+ark-piop = { workspace = true, features = ["test-utils", "test-utils-bls12-381"] }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
 ark-test-curves = { workspace = true }
@@ -70,3 +70,6 @@ honest-prover = [
     "tt-core/honest-prover",
 ]
 test-utils = ["tt-core/test-utils"]
+# Swap the proving backend from BN254 (default) to BLS12-381. Used by the
+# micro benchmark to produce a TT@BLS12-381 column for parity with QEDB.
+bls12-381 = []
