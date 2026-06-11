@@ -1,7 +1,7 @@
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use ark_std::One;
@@ -143,7 +143,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
             .fields()
             .iter()
             .map(|field| {
-                let materialize = field.name() != ACTIVATOR_COL_NAME;
+                // __row_id__ stays virtual: oracle files strip it via
+                // `SELECT * EXCEPT (__row_id__)`, so it never reaches the
+                // verifier's TableSource schema.
+                let materialize =
+                    field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME;
                 (field.clone(), materialize)
             })
             .collect::<IndexMap<_, _>>();
@@ -169,7 +173,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .fields()
             .iter()
             .map(|field| {
-                let materialize = field.name() != ACTIVATOR_COL_NAME;
+                let materialize =
+                    field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME;
                 (field.clone(), materialize)
             })
             .collect::<IndexMap<_, _>>();

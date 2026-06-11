@@ -37,7 +37,7 @@ impl DataDependentOptimizationRule for RematerializeRule {
     ) -> DataFusionResult<Vec<OptimizationHint>> {
         let mut hints = Vec::new();
         let mut path = Vec::new();
-        collect_rematerialize_hints(session_state, plan, false, &mut path, &mut hints)?;
+        collect_rematerialize_hints(session_state, plan, false, false, &mut path, &mut hints)?;
         Ok(hints)
     }
 }
@@ -46,19 +46,22 @@ fn collect_rematerialize_hints(
     session_state: &SessionState,
     plan: &LogicalPlan,
     parent_is_result_check: bool,
+    join_ancestor: bool,
     path: &mut Vec<usize>,
     hints: &mut Vec<OptimizationHint>,
 ) -> DataFusionResult<()> {
-    if !parent_is_result_check && should_rematerialize(session_state, plan)? {
+    if !parent_is_result_check
+        && !join_ancestor
+        && should_rematerialize(session_state, plan)?
+    {
         hints.push(OptimizationHint::Rematerialize {
             target_path: path.clone(),
         });
-        // Fall through — keep descending. Each eligible Filter / Aggregate /
-        // Join along a branch contributes its own hypercube shrink to the
-        // operations stacked above it.
+        return Ok(());
     }
 
     let child_parent_is_result_check = is_result_check_plan(plan);
+    let child_join_ancestor = join_ancestor || matches!(plan, LogicalPlan::Join(_));
 
     for (idx, input) in plan.inputs().into_iter().enumerate() {
         path.push(idx);
@@ -66,6 +69,7 @@ fn collect_rematerialize_hints(
             session_state,
             input,
             child_parent_is_result_check,
+            child_join_ancestor,
             path,
             hints,
         )?;
