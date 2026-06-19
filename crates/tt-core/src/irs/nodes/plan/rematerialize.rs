@@ -7,10 +7,11 @@ use ark_piop::SnarkBackend;
 use ark_std::One;
 
 use datafusion::arrow::datatypes::Schema;
+use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
-use datafusion_common::{DFSchemaRef, DataFusionError};
+use datafusion_common::{Column, DFSchemaRef, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{
-    Expr, LogicalPlan, col, lit,
+    Expr, ExprFunctionExt, LogicalPlan, col, lit,
     logical_plan::{Extension, UserDefinedLogicalNode},
 };
 use indexmap::IndexMap;
@@ -388,21 +389,55 @@ pub fn wrap_logical_plan(input: LogicalPlan) -> LogicalPlan {
 }
 
 fn build_output_dataframe(input: DataFrame) -> DataFrame {
-    // input
     let has_activator = input
         .schema()
         .fields()
         .iter()
         .any(|field| field.name() == ACTIVATOR_COL_NAME);
-    if !has_activator {
-        return crate::irs::nodes::hints::sort_by_row_id_if_present(input)
-            .expect("rematerialize output sort should succeed");
-    }
-    let filtered = input
-        .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
-        .expect("rematerialize activator filter should succeed");
-    crate::irs::nodes::hints::sort_by_row_id_if_present(filtered)
-        .expect("rematerialize output sort should succeed")
+    let filtered = if has_activator {
+        input
+            .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
+            .expect("rematerialize activator filter should succeed")
+    } else {
+        input
+    };
+    let sorted = crate::irs::nodes::hints::sort_by_row_id_if_present(filtered)
+        .expect("rematerialize output sort should succeed");
+    reassign_row_id_to_natural_indices(sorted)
+        .expect("rematerialize row_id reassignment should succeed")
+}
+
+fn reassign_row_id_to_natural_indices(df: DataFrame) -> DataFusionResult<DataFrame> {
+    let row_id_expr = df.schema().iter().find_map(|(qualifier, field)| {
+        (field.name() == ROW_ID_COL_NAME)
+            .then(|| Expr::Column(Column::new(qualifier.cloned(), field.name())))
+    });
+    let Some(row_id_expr) = row_id_expr else {
+        return Ok(df);
+    };
+    let row_number_expr = row_number()
+        .partition_by(Vec::new())
+        .order_by(vec![row_id_expr.sort(true, true)])
+        .build()?
+        .alias("__row_number__");
+    let mut projection: Vec<Expr> = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            (field.name() != ROW_ID_COL_NAME)
+                .then(|| Expr::Column(Column::new(qualifier.cloned(), field.name())))
+        })
+        .collect();
+    projection.push(row_number_expr);
+    let with_row_number = df.select(projection)?;
+    let mut final_exprs: Vec<Expr> = with_row_number
+        .schema()
+        .fields()
+        .iter()
+        .filter_map(|field| (field.name() != "__row_number__").then_some(col(field.name())))
+        .collect();
+    final_exprs.push((col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME));
+    with_row_number.select(final_exprs)
 }
 
 fn remat_contig_key<B: SnarkBackend>(

@@ -11,11 +11,9 @@ use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
 
 /// Data-dependent rule that wraps Filter / Aggregate nodes in a
 /// `RematerializeLogicalNode` whenever the node's output row count fits in
-/// a strictly smaller power-of-two hypercube than its input (so the operative
-/// hypercube can be halved). Join is intentionally not wrapped — the join's
-/// IR node already produces an output table sized to its actual rows. Limit
-/// is excluded because wrapping it triggers prover-side `FalseClaim` panics
-/// on queries with explicit `LIMIT` (Q3, Q10).
+/// a strictly smaller power-of-two hypercube than its input. Limit is
+/// excluded because wrapping it triggers prover-side `FalseClaim` panics on
+/// queries with explicit `LIMIT` (Q3, Q10).
 #[derive(Debug, Default)]
 pub struct RematerializeRule;
 
@@ -37,7 +35,7 @@ impl DataDependentOptimizationRule for RematerializeRule {
     ) -> DataFusionResult<Vec<OptimizationHint>> {
         let mut hints = Vec::new();
         let mut path = Vec::new();
-        collect_rematerialize_hints(session_state, plan, false, false, &mut path, &mut hints)?;
+        collect_rematerialize_hints(session_state, plan, false, &mut path, &mut hints)?;
         Ok(hints)
     }
 }
@@ -46,14 +44,10 @@ fn collect_rematerialize_hints(
     session_state: &SessionState,
     plan: &LogicalPlan,
     parent_is_result_check: bool,
-    join_ancestor: bool,
     path: &mut Vec<usize>,
     hints: &mut Vec<OptimizationHint>,
 ) -> DataFusionResult<()> {
-    if !parent_is_result_check
-        && !join_ancestor
-        && should_rematerialize(session_state, plan)?
-    {
+    if !parent_is_result_check && should_rematerialize(session_state, plan)? {
         hints.push(OptimizationHint::Rematerialize {
             target_path: path.clone(),
         });
@@ -61,7 +55,6 @@ fn collect_rematerialize_hints(
     }
 
     let child_parent_is_result_check = is_result_check_plan(plan);
-    let child_join_ancestor = join_ancestor || matches!(plan, LogicalPlan::Join(_));
 
     for (idx, input) in plan.inputs().into_iter().enumerate() {
         path.push(idx);
@@ -69,7 +62,6 @@ fn collect_rematerialize_hints(
             session_state,
             input,
             child_parent_is_result_check,
-            child_join_ancestor,
             path,
             hints,
         )?;
@@ -173,15 +165,9 @@ fn ensure_rematerialize_target(plan: &LogicalPlan, path: &[usize]) -> DataFusion
 }
 
 fn supports_rematerialize(plan: &LogicalPlan) -> bool {
-    // Joins are excluded: the join's IR node already produces an output table
-    // sized to its actual output rows, so wrapping it in Rematerialize adds
-    // prover work for no downstream shrink.
-    //
-    // Limit is also temporarily excluded: wrapping a Limit in Rematerialize
-    // triggers `HonestProverError(FalseClaim)` on queries with explicit LIMIT
-    // (Q3, Q10) and a Join sub-gadget sumcheck failure on Q20 (via the
-    // DataFusion-synthesized Limit from its IN-subquery rewrite). Needs an
-    // IR-side investigation before re-enabling.
+    // Limit is excluded: wrapping a Limit in Rematerialize triggers
+    // `HonestProverError(FalseClaim)` on queries with explicit LIMIT (Q3, Q10).
+    // Needs an IR-side investigation before re-enabling.
     matches!(plan, LogicalPlan::Filter(_) | LogicalPlan::Aggregate(_))
 }
 
@@ -206,13 +192,6 @@ fn should_rematerialize(
         return Ok(false);
     }
 
-    // Predicate: fire iff `next_pow2(output) < next_pow2(input)`.
-    // Equivalent to "the output fits in a strictly smaller power-of-two
-    // hypercube than the input." The stricter `2 * output < input` form is
-    // mathematically tighter, but exposes a soundness bug on Q20 (verifier
-    // sumcheck mismatch in a Join sub-gadget) — see `tpch_optall` sweep
-    // notes. The `next_pow2` form has been empirically stable across all
-    // 17 TPC-H _tt queries at SF=0.1.
     let hypercube_halves =
         |input_plan: &LogicalPlan, op_plan: &LogicalPlan| -> DataFusionResult<bool> {
             let input_active = row_count(session_state, input_plan)?;
@@ -231,7 +210,6 @@ fn should_rematerialize(
             aggregate.input.as_ref(),
             &LogicalPlan::Aggregate(aggregate.clone()),
         ),
-        LogicalPlan::Limit(_) | LogicalPlan::Join(_) => Ok(false),
         _ => Ok(false),
     }
 }
