@@ -12,7 +12,9 @@ use datafusion::{
 };
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{LogicalPlan, logical_plan::UserDefinedLogicalNode};
-use proof_planner::data_dependent_lp_optimizer::{DataDependentOptimizer, rules as data_dependent_rules};
+use proof_planner::data_dependent_lp_optimizer::{
+    DataDependentOptimizer, rules as data_dependent_rules,
+};
 use proof_planner::data_dependent_pp_optimizer::{
     DataDependentProofPlanOptimizer, rules as data_dependent_pp_rules,
 };

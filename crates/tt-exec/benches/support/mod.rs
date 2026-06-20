@@ -24,9 +24,9 @@ use front_end::{
     structs::{Artifact, SizeBreakdown, TTProof, TTVk},
     verifier::{TTVerifier, TTVerifierConfig},
 };
+use indexmap::IndexMap;
 use proof_planner::data_dependent_lp_optimizer::DataDependentOptimizationRule;
 use proof_planner::pp_optimizer::{ProofPlanOptimizer, ProofPlanOptimizerRule};
-use indexmap::IndexMap;
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
 use tt_core::irs::shared_ir::GadgetPlannedIr;

@@ -4,10 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::backend::{BACKEND_NAME, BenchBackend};
 use crate::paths::workspace_artifacts_dir;
 use anyhow::{Context, Result, anyhow};
 use ark_piop::setup::KeyGenerator;
-use crate::backend::{BACKEND_NAME, BenchBackend};
 use ark_serialize::CanonicalSerialize;
 
 pub const DEFAULT_TEST_LOG_SIZE: usize = 19;

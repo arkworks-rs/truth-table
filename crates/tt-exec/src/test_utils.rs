@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use crate::backend::{BACKEND_NAME, BenchBackend};
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::test_utils::init_subscriber;
-use crate::backend::{BACKEND_NAME, BenchBackend};
 use ark_serialize::CanonicalDeserialize;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;

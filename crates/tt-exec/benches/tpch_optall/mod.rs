@@ -88,11 +88,7 @@ macro_rules! define_optall_case_benches {
                     name: $name,
                     query: spec.sql,
                     tables: spec.tables,
-                    benchmark_suite: Some(concat!(
-                        "TPC-H Q",
-                        stringify!($query_num),
-                        " (optall)"
-                    )),
+                    benchmark_suite: Some(concat!("TPC-H Q", stringify!($query_num), " (optall)")),
                 }
             }
 
@@ -149,43 +145,162 @@ macro_rules! optall_query {
     ($q:literal,
      $off_m:ident, $pkof_m:ident, $pkfo_m:ident,
      $off_n:literal, $pkof_n:literal, $pkfo_n:literal) => {
-        define_optall_case_benches!($off_m,  $off_n,  $q, OptConfig::AllOff);
+        define_optall_case_benches!($off_m, $off_n, $q, OptConfig::AllOff);
         define_optall_case_benches!($pkof_m, $pkof_n, $q, OptConfig::PkFkOnRematOff);
         define_optall_case_benches!($pkfo_m, $pkfo_n, $q, OptConfig::PkFkOffRematOn);
     };
 }
 
-optall_query!( 1, q1_all_off,  q1_pkfk_on_remat_off,  q1_pkfk_off_remat_on,
-              "tpch_q1_tt_all_off",  "tpch_q1_tt_pkfk_on_remat_off",  "tpch_q1_tt_pkfk_off_remat_on");
-optall_query!( 2, q2_all_off,  q2_pkfk_on_remat_off,  q2_pkfk_off_remat_on,
-              "tpch_q2_tt_all_off",  "tpch_q2_tt_pkfk_on_remat_off",  "tpch_q2_tt_pkfk_off_remat_on");
-optall_query!( 3, q3_all_off,  q3_pkfk_on_remat_off,  q3_pkfk_off_remat_on,
-              "tpch_q3_tt_all_off",  "tpch_q3_tt_pkfk_on_remat_off",  "tpch_q3_tt_pkfk_off_remat_on");
-optall_query!( 4, q4_all_off,  q4_pkfk_on_remat_off,  q4_pkfk_off_remat_on,
-              "tpch_q4_tt_all_off",  "tpch_q4_tt_pkfk_on_remat_off",  "tpch_q4_tt_pkfk_off_remat_on");
-optall_query!( 5, q5_all_off,  q5_pkfk_on_remat_off,  q5_pkfk_off_remat_on,
-              "tpch_q5_tt_all_off",  "tpch_q5_tt_pkfk_on_remat_off",  "tpch_q5_tt_pkfk_off_remat_on");
-optall_query!( 6, q6_all_off,  q6_pkfk_on_remat_off,  q6_pkfk_off_remat_on,
-              "tpch_q6_tt_all_off",  "tpch_q6_tt_pkfk_on_remat_off",  "tpch_q6_tt_pkfk_off_remat_on");
-optall_query!( 7, q7_all_off,  q7_pkfk_on_remat_off,  q7_pkfk_off_remat_on,
-              "tpch_q7_tt_all_off",  "tpch_q7_tt_pkfk_on_remat_off",  "tpch_q7_tt_pkfk_off_remat_on");
-optall_query!( 8, q8_all_off,  q8_pkfk_on_remat_off,  q8_pkfk_off_remat_on,
-              "tpch_q8_tt_all_off",  "tpch_q8_tt_pkfk_on_remat_off",  "tpch_q8_tt_pkfk_off_remat_on");
-optall_query!( 9, q9_all_off,  q9_pkfk_on_remat_off,  q9_pkfk_off_remat_on,
-              "tpch_q9_tt_all_off",  "tpch_q9_tt_pkfk_on_remat_off",  "tpch_q9_tt_pkfk_off_remat_on");
-optall_query!(10, q10_all_off, q10_pkfk_on_remat_off, q10_pkfk_off_remat_on,
-              "tpch_q10_tt_all_off", "tpch_q10_tt_pkfk_on_remat_off", "tpch_q10_tt_pkfk_off_remat_on");
-optall_query!(12, q12_all_off, q12_pkfk_on_remat_off, q12_pkfk_off_remat_on,
-              "tpch_q12_tt_all_off", "tpch_q12_tt_pkfk_on_remat_off", "tpch_q12_tt_pkfk_off_remat_on");
-optall_query!(14, q14_all_off, q14_pkfk_on_remat_off, q14_pkfk_off_remat_on,
-              "tpch_q14_tt_all_off", "tpch_q14_tt_pkfk_on_remat_off", "tpch_q14_tt_pkfk_off_remat_on");
-optall_query!(15, q15_all_off, q15_pkfk_on_remat_off, q15_pkfk_off_remat_on,
-              "tpch_q15_tt_all_off", "tpch_q15_tt_pkfk_on_remat_off", "tpch_q15_tt_pkfk_off_remat_on");
-optall_query!(17, q17_all_off, q17_pkfk_on_remat_off, q17_pkfk_off_remat_on,
-              "tpch_q17_tt_all_off", "tpch_q17_tt_pkfk_on_remat_off", "tpch_q17_tt_pkfk_off_remat_on");
-optall_query!(18, q18_all_off, q18_pkfk_on_remat_off, q18_pkfk_off_remat_on,
-              "tpch_q18_tt_all_off", "tpch_q18_tt_pkfk_on_remat_off", "tpch_q18_tt_pkfk_off_remat_on");
-optall_query!(19, q19_all_off, q19_pkfk_on_remat_off, q19_pkfk_off_remat_on,
-              "tpch_q19_tt_all_off", "tpch_q19_tt_pkfk_on_remat_off", "tpch_q19_tt_pkfk_off_remat_on");
-optall_query!(20, q20_all_off, q20_pkfk_on_remat_off, q20_pkfk_off_remat_on,
-              "tpch_q20_tt_all_off", "tpch_q20_tt_pkfk_on_remat_off", "tpch_q20_tt_pkfk_off_remat_on");
+optall_query!(
+    1,
+    q1_all_off,
+    q1_pkfk_on_remat_off,
+    q1_pkfk_off_remat_on,
+    "tpch_q1_tt_all_off",
+    "tpch_q1_tt_pkfk_on_remat_off",
+    "tpch_q1_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    2,
+    q2_all_off,
+    q2_pkfk_on_remat_off,
+    q2_pkfk_off_remat_on,
+    "tpch_q2_tt_all_off",
+    "tpch_q2_tt_pkfk_on_remat_off",
+    "tpch_q2_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    3,
+    q3_all_off,
+    q3_pkfk_on_remat_off,
+    q3_pkfk_off_remat_on,
+    "tpch_q3_tt_all_off",
+    "tpch_q3_tt_pkfk_on_remat_off",
+    "tpch_q3_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    4,
+    q4_all_off,
+    q4_pkfk_on_remat_off,
+    q4_pkfk_off_remat_on,
+    "tpch_q4_tt_all_off",
+    "tpch_q4_tt_pkfk_on_remat_off",
+    "tpch_q4_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    5,
+    q5_all_off,
+    q5_pkfk_on_remat_off,
+    q5_pkfk_off_remat_on,
+    "tpch_q5_tt_all_off",
+    "tpch_q5_tt_pkfk_on_remat_off",
+    "tpch_q5_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    6,
+    q6_all_off,
+    q6_pkfk_on_remat_off,
+    q6_pkfk_off_remat_on,
+    "tpch_q6_tt_all_off",
+    "tpch_q6_tt_pkfk_on_remat_off",
+    "tpch_q6_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    7,
+    q7_all_off,
+    q7_pkfk_on_remat_off,
+    q7_pkfk_off_remat_on,
+    "tpch_q7_tt_all_off",
+    "tpch_q7_tt_pkfk_on_remat_off",
+    "tpch_q7_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    8,
+    q8_all_off,
+    q8_pkfk_on_remat_off,
+    q8_pkfk_off_remat_on,
+    "tpch_q8_tt_all_off",
+    "tpch_q8_tt_pkfk_on_remat_off",
+    "tpch_q8_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    9,
+    q9_all_off,
+    q9_pkfk_on_remat_off,
+    q9_pkfk_off_remat_on,
+    "tpch_q9_tt_all_off",
+    "tpch_q9_tt_pkfk_on_remat_off",
+    "tpch_q9_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    10,
+    q10_all_off,
+    q10_pkfk_on_remat_off,
+    q10_pkfk_off_remat_on,
+    "tpch_q10_tt_all_off",
+    "tpch_q10_tt_pkfk_on_remat_off",
+    "tpch_q10_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    12,
+    q12_all_off,
+    q12_pkfk_on_remat_off,
+    q12_pkfk_off_remat_on,
+    "tpch_q12_tt_all_off",
+    "tpch_q12_tt_pkfk_on_remat_off",
+    "tpch_q12_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    14,
+    q14_all_off,
+    q14_pkfk_on_remat_off,
+    q14_pkfk_off_remat_on,
+    "tpch_q14_tt_all_off",
+    "tpch_q14_tt_pkfk_on_remat_off",
+    "tpch_q14_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    15,
+    q15_all_off,
+    q15_pkfk_on_remat_off,
+    q15_pkfk_off_remat_on,
+    "tpch_q15_tt_all_off",
+    "tpch_q15_tt_pkfk_on_remat_off",
+    "tpch_q15_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    17,
+    q17_all_off,
+    q17_pkfk_on_remat_off,
+    q17_pkfk_off_remat_on,
+    "tpch_q17_tt_all_off",
+    "tpch_q17_tt_pkfk_on_remat_off",
+    "tpch_q17_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    18,
+    q18_all_off,
+    q18_pkfk_on_remat_off,
+    q18_pkfk_off_remat_on,
+    "tpch_q18_tt_all_off",
+    "tpch_q18_tt_pkfk_on_remat_off",
+    "tpch_q18_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    19,
+    q19_all_off,
+    q19_pkfk_on_remat_off,
+    q19_pkfk_off_remat_on,
+    "tpch_q19_tt_all_off",
+    "tpch_q19_tt_pkfk_on_remat_off",
+    "tpch_q19_tt_pkfk_off_remat_on"
+);
+optall_query!(
+    20,
+    q20_all_off,
+    q20_pkfk_on_remat_off,
+    q20_pkfk_off_remat_on,
+    "tpch_q20_tt_all_off",
+    "tpch_q20_tt_pkfk_on_remat_off",
+    "tpch_q20_tt_pkfk_off_remat_on"
+);

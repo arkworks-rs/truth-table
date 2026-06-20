@@ -603,45 +603,44 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             }
             _ => panic!("AggregateFunction payload missing"),
         };
-        let (orig_rlc, super_rlc) = if let Some(supp_node) =
-            supp_child_from_aggregate_parent(&parent_node)
-        {
-            let supp_payload = virtualized_ir
-                .payload_for_node(&supp_node.id())
-                .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
-            let supp_payload = match supp_payload {
-                PayloadStructure::GadgetPayload(map) => map,
-                _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
-            };
-            let orig_rlc = supp_payload
-                .get(crate::irs::nodes::utils::supp::ORIG_RLC_LABEL)
-                .cloned()
-                .unwrap_or_else(|| {
-                    panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction")
-                });
-            let super_rlc = supp_payload
-                .get(crate::irs::nodes::utils::supp::SUPER_RLC_LABEL)
-                .cloned()
-                .unwrap_or_else(|| {
-                    panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
-                });
-            (orig_rlc, super_rlc)
-        } else if self.aggregate_function.func.name() == "sum" {
-            // For SUM, the input selector must come from the input table,
-            // while the output selector comes from the output table.
-            let input_table = self
-                .args
-                .first()
-                .and_then(
-                    |arg_node| match virtualized_ir.payload_for_node(&arg_node.id()) {
-                        Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-                        _ => None,
-                    },
-                )
-                .unwrap_or_else(|| {
-                    panic!("Sum AggregateFunction expects an input oracle table payload")
-                });
-            (
+        let (orig_rlc, super_rlc) =
+            if let Some(supp_node) = supp_child_from_aggregate_parent(&parent_node) {
+                let supp_payload = virtualized_ir
+                    .payload_for_node(&supp_node.id())
+                    .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
+                let supp_payload = match supp_payload {
+                    PayloadStructure::GadgetPayload(map) => map,
+                    _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
+                };
+                let orig_rlc = supp_payload
+                    .get(crate::irs::nodes::utils::supp::ORIG_RLC_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction")
+                    });
+                let super_rlc = supp_payload
+                    .get(crate::irs::nodes::utils::supp::SUPER_RLC_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
+                    });
+                (orig_rlc, super_rlc)
+            } else if self.aggregate_function.func.name() == "sum" {
+                // For SUM, the input selector must come from the input table,
+                // while the output selector comes from the output table.
+                let input_table = self
+                    .args
+                    .first()
+                    .and_then(
+                        |arg_node| match virtualized_ir.payload_for_node(&arg_node.id()) {
+                            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+                            _ => None,
+                        },
+                    )
+                    .unwrap_or_else(|| {
+                        panic!("Sum AggregateFunction expects an input oracle table payload")
+                    });
+                (
                 constant_one_table_oracle::<B>(
                     &input_table,
                     crate::irs::nodes::plan::exprs::aggregate_function::gadget::INPUT_RLC_LABEL,
@@ -651,8 +650,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                     crate::irs::nodes::plan::exprs::aggregate_function::gadget::OUTPUT_RLC_LABEL,
                 ),
             )
-        } else {
-            (
+            } else {
+                (
                 constant_one_table_oracle::<B>(
                     &aggr_expr_table,
                     crate::irs::nodes::plan::exprs::aggregate_function::gadget::INPUT_RLC_LABEL,
@@ -662,7 +661,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                     crate::irs::nodes::plan::exprs::aggregate_function::gadget::OUTPUT_RLC_LABEL,
                 ),
             )
-        };
+            };
 
         if let Some(gadget) = &self.gadget {
             let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget.id()) {

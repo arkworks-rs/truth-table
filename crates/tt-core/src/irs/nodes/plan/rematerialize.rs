@@ -11,7 +11,7 @@ use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, DFSchemaRef, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{
-    Expr, ExprFunctionExt, LogicalPlan, col, lit,
+    BinaryExpr, Expr, ExprFunctionExt, LogicalPlan, Operator, col, lit,
     logical_plan::{Extension, UserDefinedLogicalNode},
 };
 use indexmap::IndexMap;
@@ -415,29 +415,25 @@ fn reassign_row_id_to_natural_indices(df: DataFrame) -> DataFusionResult<DataFra
     let Some(row_id_expr) = row_id_expr else {
         return Ok(df);
     };
-    let row_number_expr = row_number()
-        .partition_by(Vec::new())
-        .order_by(vec![row_id_expr.sort(true, true)])
-        .build()?
-        .alias("__row_number__");
+    let row_number_minus_one = Expr::BinaryExpr(BinaryExpr::new(
+        Box::new(
+            row_number()
+                .partition_by(Vec::new())
+                .order_by(vec![row_id_expr.sort(true, true)])
+                .build()?,
+        ),
+        Operator::Minus,
+        Box::new(lit(1_i64)),
+    ))
+    .alias(ROW_ID_COL_NAME);
     let mut projection: Vec<Expr> = df
         .schema()
         .iter()
-        .filter_map(|(qualifier, field)| {
-            (field.name() != ROW_ID_COL_NAME)
-                .then(|| Expr::Column(Column::new(qualifier.cloned(), field.name())))
-        })
+        .filter(|(_, field)| field.name() != ROW_ID_COL_NAME)
+        .map(|(qualifier, field)| Expr::Column(Column::new(qualifier.cloned(), field.name())))
         .collect();
-    projection.push(row_number_expr);
-    let with_row_number = df.select(projection)?;
-    let mut final_exprs: Vec<Expr> = with_row_number
-        .schema()
-        .fields()
-        .iter()
-        .filter_map(|field| (field.name() != "__row_number__").then_some(col(field.name())))
-        .collect();
-    final_exprs.push((col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME));
-    with_row_number.select(final_exprs)
+    projection.push(row_number_minus_one);
+    df.select(projection)
 }
 
 fn remat_contig_key<B: SnarkBackend>(

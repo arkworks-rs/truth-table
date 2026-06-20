@@ -120,7 +120,10 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         let optimization_hints = self
             .shared_config()
             .data_dependent_optimizer()
-            .collect_hints(self.shared_config().session_ctx(), &analyzed_and_optimized_lp)?;
+            .collect_hints(
+                self.shared_config().session_ctx(),
+                &analyzed_and_optimized_lp,
+            )?;
         let analyzed_and_optimized_lp =
             apply_optimization_hints(analyzed_and_optimized_lp, &optimization_hints)?;
         debug!(

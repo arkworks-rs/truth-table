@@ -1,7 +1,7 @@
+use crate::backend::BenchBackend;
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::verifier::ArgVerifier;
-use crate::backend::BenchBackend;
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,

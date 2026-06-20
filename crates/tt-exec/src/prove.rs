@@ -1,3 +1,4 @@
+use crate::backend::BenchBackend;
 use crate::{
     paths::workspace_artifacts_dir,
     setup::{DEFAULT_LOG_SIZE, default_pk_filename},
@@ -5,7 +6,6 @@ use crate::{
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::prover::ArgProver;
-use crate::backend::BenchBackend;
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
@@ -19,11 +19,11 @@ use front_end::{
     shared::TTSharedConfig,
     structs::{TTPk, TTProof},
 };
+use indexmap::IndexMap;
 use proof_planner::data_dependent_lp_optimizer::{
     DataDependentOptimizationRule, DataDependentOptimizer, rules as data_dependent_rules,
 };
 use proof_planner::pp_optimizer::{ProofPlanOptimizer, ProofPlanOptimizerRule, rules as pp_rules};
-use indexmap::IndexMap;
 use std::{
     fs::{self, File},
     io::{BufReader, BufWriter, Write},

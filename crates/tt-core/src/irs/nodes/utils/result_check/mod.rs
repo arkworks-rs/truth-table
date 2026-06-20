@@ -1,10 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use arithmetic::{
-    ACTIVATOR_COL_NAME,
-    table::TrackedTable,
-    table_oracle::TrackedTableOracle,
-};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::{One, PrimeField, Zero};
 use ark_piop::{
     SnarkBackend,
@@ -228,8 +224,8 @@ fn prove_result_check<B: SnarkBackend>(
     for &idx in &src {
         r_a_evals[idx] = B::F::one();
     }
-    let r_a_tracked = prover
-        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(mu_t, r_a_evals))?;
+    let r_a_tracked =
+        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(mu_t, r_a_evals))?;
 
     // For each data column shared by t_table and r_table, build R.dj's MLE in
     // t_table's hypercube by scattering r_table's contiguous data values to the
@@ -442,10 +438,7 @@ fn verify_result_check<B: SnarkBackend>(
     Ok(())
 }
 
-fn fold_polys<B: SnarkBackend>(
-    polys: &[TrackedPoly<B>],
-    challenges: &[B::F],
-) -> TrackedPoly<B> {
+fn fold_polys<B: SnarkBackend>(polys: &[TrackedPoly<B>], challenges: &[B::F]) -> TrackedPoly<B> {
     debug_assert!(!polys.is_empty(), "fold_polys requires at least one poly");
     let mut folded = polys[0].mul_scalar_poly(challenges[0]);
     for (poly, &chall) in polys.iter().zip(challenges.iter()).skip(1) {

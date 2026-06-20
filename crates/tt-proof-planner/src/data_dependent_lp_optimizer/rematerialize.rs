@@ -224,4 +224,3 @@ fn next_power_of_two_strict(value: usize) -> usize {
         value.next_power_of_two()
     }
 }
-

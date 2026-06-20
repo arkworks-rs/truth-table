@@ -4,10 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::backend::BenchBackend;
 use anyhow::{Context, Result, anyhow};
 use arithmetic::{ROW_ID_COL_NAME, table_oracle::ArithTableOracle};
 use ark_serialize::CanonicalSerialize;
-use crate::backend::BenchBackend;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use front_end::{
     data_owner::{TTDataOwner, TTDataOwnerConfig},

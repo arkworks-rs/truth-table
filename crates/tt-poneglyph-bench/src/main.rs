@@ -22,9 +22,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use poneglyph::poneglyph_bench::{
-    run_q1, run_q18, run_q3, run_q5, run_q8, run_q9, BenchResult,
-};
+use poneglyph::poneglyph_bench::{BenchResult, run_q1, run_q3, run_q5, run_q8, run_q9, run_q18};
 use serde::Serialize;
 
 #[derive(Parser)]
