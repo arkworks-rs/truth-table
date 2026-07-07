@@ -1,0 +1,42 @@
+---
+title: TruthTable
+description: A verifiable query engine that produces succinct cryptographic proofs that SQL query results are correct.
+template: splash
+hero:
+  tagline: A verifiable query engine — prove that SQL query results are correct, with succinct cryptographic proofs and full TPC-H support.
+  actions:
+    - text: Get Started
+      link: /guides/introduction/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/arkworks-rs/truth-table
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why TruthTable?
+
+TruthTable lets an untrusted party execute a SQL query over a committed dataset
+and return the result **together with a proof** that the result is correct — no
+need to trust the operator or re-run the query yourself.
+
+<CardGrid stagger>
+	<Card title="Verifiable results" icon="approve-check">
+		Every query result comes with a succinct proof that a verifier can check
+		in a fraction of the time it takes to run the query.
+	</Card>
+	<Card title="Complete TPC-H support" icon="list-format">
+		The engine handles the full TPC-H benchmark — joins, aggregates, sorts,
+		and nested subqueries — not just a hand-picked subset.
+	</Card>
+	<Card title="Built on arkworks" icon="setting">
+		Implemented in Rust on top of the arkworks ecosystem for
+		SNARK-friendly arithmetic and commitments.
+	</Card>
+	<Card title="Open source" icon="github">
+		Developed in the open at
+		[arkworks-rs/truth-table](https://github.com/arkworks-rs/truth-table).
+	</Card>
+</CardGrid>
