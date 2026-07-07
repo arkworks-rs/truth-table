@@ -91,38 +91,54 @@ pub fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) ->
     let log_vars = total_rows.trailing_zeros() as usize;
     let num_total_cols = schema_ref.fields().len();
 
-    let encoded_columns: Vec<Vec<(FieldRef, Vec<F>)>> = (0..num_total_cols)
-        .map(|col_idx| {
-            let base_field = schema_ref.fields()[col_idx].clone();
-            let encoded = arithmetic::encoding::encode_arrow_array_to_field::<F>(
-                combined_batch.column(col_idx),
-            )
-            .expect("arrow encoding should succeed");
-            let mut segmented = Vec::with_capacity(encoded.len());
-            for (segment_idx, values) in encoded.into_iter().enumerate() {
-                let field_ref = if segment_idx == 0 {
-                    base_field.clone()
-                } else {
-                    let mut field = Field::new(
-                        format!("{}__enc{}", base_field.name(), segment_idx),
-                        base_field.data_type().clone(),
-                        base_field.is_nullable(),
-                    );
-                    if !base_field.metadata().is_empty() {
-                        // Keep qualifiers on encoded segments so metadata-based matching still works.
-                        field = field.with_metadata(base_field.metadata().clone());
-                    }
-                    Arc::new(field)
-                };
-                segmented.push((field_ref, values));
+    // Row-domain segments per source column. Side-domain segments are split
+    // out into `side_segments_by_col` below and assembled into ArithSideCol
+    // entries after row encoding completes. Side segments carry raw bytes
+    // (not field elements) so the in-memory side-col storage stays 32×
+    // smaller than the field-element form.
+    let mut row_segments_by_col: Vec<Vec<(FieldRef, Vec<F>)>> = Vec::with_capacity(num_total_cols);
+    let mut side_segments_by_col: Vec<
+        Vec<(FieldRef, Vec<u8>, usize /* active_len */)>,
+    > = Vec::with_capacity(num_total_cols);
+
+    for col_idx in 0..num_total_cols {
+        let base_field = schema_ref.fields()[col_idx].clone();
+        let encoded = arithmetic::encoding::encode_arrow_array_to_field::<F>(
+            combined_batch.column(col_idx),
+        )
+        .expect("arrow encoding should succeed");
+
+        let mut row_for_col: Vec<(FieldRef, Vec<F>)> = Vec::new();
+        let mut side_for_col: Vec<(FieldRef, Vec<u8>, usize)> = Vec::new();
+        for segment in encoded {
+            let field_ref = if segment.suffix.is_empty() {
+                base_field.clone()
+            } else {
+                let mut field = Field::new(
+                    format!("{}{}", base_field.name(), segment.suffix),
+                    base_field.data_type().clone(),
+                    base_field.is_nullable(),
+                );
+                if !base_field.metadata().is_empty() {
+                    // Keep qualifiers on encoded segments so metadata-based matching still works.
+                    field = field.with_metadata(base_field.metadata().clone());
+                }
+                Arc::new(field)
+            };
+            match segment.side {
+                None => row_for_col.push((field_ref, segment.values)),
+                Some(info) => {
+                    side_for_col.push((field_ref, info.bytes, info.active_len));
+                }
             }
-            segmented
-        })
-        .collect();
+        }
+        row_segments_by_col.push(row_for_col);
+        side_segments_by_col.push(side_for_col);
+    }
 
     let mut flattened_fields: Vec<FieldRef> = Vec::new();
     let mut flattened_values: Vec<(FieldRef, Vec<F>)> = Vec::new();
-    for column_group in encoded_columns {
+    for column_group in row_segments_by_col {
         for (field_ref, values) in column_group {
             flattened_fields.push(field_ref.clone());
             flattened_values.push((field_ref, values));
@@ -143,5 +159,31 @@ pub fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) ->
         .collect();
     let schema = Some(Schema::new(schema_fields));
 
-    ArithTable::new(schema, tracked_polys, log_vars)
+    // Build side-column entries from raw bytes. ArithSideCol stores the
+    // pow2-padded byte buffer plus `active_len`; commit/track passes
+    // materialize transient `MLE<F>` views (for both data and the
+    // contiguous-one activator) only at the moment of MSM / proof-binding.
+    let mut side_cols: IndexMap<FieldRef, arithmetic::table::ArithSideCol> = IndexMap::new();
+    for column_group in side_segments_by_col {
+        for (field_ref, bytes, active_len) in column_group {
+            let side_size = bytes.len();
+            assert!(
+                side_size.is_power_of_two(),
+                "side segment must be pow2-padded by encoder (field={}, len={})",
+                field_ref.name(),
+                side_size
+            );
+            let side_log_size = side_size.trailing_zeros() as usize;
+            side_cols.insert(
+                field_ref,
+                arithmetic::table::ArithSideCol {
+                    data: bytes,
+                    log_size: side_log_size,
+                    active_len,
+                },
+            );
+        }
+    }
+
+    ArithTable::new_with_side_cols(schema, tracked_polys, log_vars, side_cols)
 }

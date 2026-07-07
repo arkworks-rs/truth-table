@@ -5,11 +5,44 @@ use std::sync::{
 };
 
 use arithmetic::table_oracle::ArithTableOracle;
-use ark_piop::{SnarkBackend, arithmetic::mat_poly::digest::mle_digest, pcs::PCS};
+use ark_ff::PrimeField;
+use ark_piop::{
+    SnarkBackend,
+    arithmetic::{mat_poly::digest::mle_digest, mat_poly::mle::MLE},
+    pcs::PCS,
+};
 use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 use tracing::{debug, info};
+
+/// Lift the byte buffer of a side-col data poly into a transient
+/// `MLE<F>`. Caller is expected to drop the returned Arc as soon as the
+/// MSM / proof-binding consuming it returns, so the F-form never persists
+/// past the operation that needs it.
+fn materialize_side_data_mle<F: PrimeField>(
+    bytes: &[u8],
+    log_size: usize,
+) -> Arc<MLE<F>> {
+    debug_assert_eq!(bytes.len(), 1usize << log_size);
+    let evals: Vec<F> = bytes.iter().map(|&b| F::from(b as u64)).collect();
+    Arc::new(MLE::from_evaluations_vec(log_size, evals))
+}
+
+/// Build the contiguous-one activator MLE for a side col from its
+/// `active_len`. Same drop-promptly contract as `materialize_side_data_mle`.
+fn materialize_side_activator_mle<F: PrimeField>(
+    log_size: usize,
+    active_len: usize,
+) -> Arc<MLE<F>> {
+    let size = 1usize << log_size;
+    debug_assert!(active_len <= size);
+    let mut evals = vec![F::zero(); size];
+    for slot in evals.iter_mut().take(active_len) {
+        *slot = F::one();
+    }
+    Arc::new(MLE::from_evaluations_vec(log_size, evals))
+}
 
 use crate::ctx_oracles::CtxOracles;
 use crate::irs::ir::LocalPass;
@@ -100,9 +133,21 @@ where
                             );
                             self.total_ctx_loaded
                                 .fetch_add(oracle.commitments().len(), Ordering::Relaxed);
-                            return Some(CommittedPayload::PlanPayload(
-                                oracle.clone().with_external_commitment_source(true),
-                            ));
+                            // The cached ctx oracle was built before side
+                            // segments existed and only carries row-domain
+                            // commitments. If the freshly arithmetized table
+                            // has side columns (e.g. `__chars`), commit them
+                            // here so the proof carries those commitments.
+                            let cached =
+                                oracle.clone().with_external_commitment_source(true);
+                            let merged = merge_cached_oracle_with_side_commitments::<B>(
+                                cached,
+                                arith_table,
+                                &self.mv_pcs_param,
+                                &self.commitment_cache,
+                                &self.total_committed,
+                            );
+                            return Some(CommittedPayload::PlanPayload(merged));
                         }
                         panic!(
                             "TableScan oracle log_size mismatch for schema {:?}: oracle={}, arith={}",
@@ -117,18 +162,33 @@ where
                             &self.mv_pcs_param,
                             &self.commitment_cache,
                         );
-                        debug!( node = %node.name(), num=commited_payloadd.commitments().len(), "committed");
+                        let main_count = commited_payloadd.commitments().len();
+                        let side_count = commited_payloadd.side_commitments().len() * 2;
+                        debug!(
+                            node = %node.name(),
+                            num = main_count,
+                            side = side_count,
+                            "committed"
+                        );
                         self.total_committed
-                            .fetch_add(commited_payloadd.commitments().len(), Ordering::Relaxed);
+                            .fetch_add(main_count + side_count, Ordering::Relaxed);
                         return Some(CommittedPayload::PlanPayload(commited_payloadd));
                     }
                     panic!("Missing ctx_oracle for TableScan schema {:?}", schema);
                 }
                 let commited_payloadd =
                     arith_to_oracle::<B>(arith_table, &self.mv_pcs_param, &self.commitment_cache);
-                debug!( node = %node.name(), num=commited_payloadd.commitments().len(), "committed");
+                let main_count = commited_payloadd.commitments().len();
+                // Each side col contributes 2 commitments (data + activator).
+                let side_count = commited_payloadd.side_commitments().len() * 2;
+                debug!(
+                    node = %node.name(),
+                    num = main_count,
+                    side = side_count,
+                    "committed"
+                );
                 self.total_committed
-                    .fetch_add(commited_payloadd.commitments().len(), Ordering::Relaxed);
+                    .fetch_add(main_count + side_count, Ordering::Relaxed);
 
                 Some(CommittedPayload::PlanPayload(commited_payloadd))
             }
@@ -141,7 +201,8 @@ where
                         &self.mv_pcs_param,
                         &self.commitment_cache,
                     );
-                    num_committed += commitment_payload.commitments().len();
+                    num_committed += commitment_payload.commitments().len()
+                        + commitment_payload.side_commitments().len() * 2;
                     out.insert(key.clone(), commitment_payload);
                 }
                 debug!( node = %node.name(), num=num_committed, "committed");
@@ -160,6 +221,76 @@ where
     fn name(&self) -> &'static str {
         "Prover Commitment"
     }
+}
+
+/// Merge fresh side-domain commitments into a cached row-domain oracle.
+/// Used by the TableScan fast-path so cached ctx oracles (which predate side
+/// segments) still acquire the per-column `__chars` data + activator
+/// commitments produced by the current arithmetized table.
+fn merge_cached_oracle_with_side_commitments<B: SnarkBackend>(
+    cached: ArithTableOracle<B>,
+    arith_table: &arithmetic::table::ArithTable<B::F>,
+    mv_pcs_param: &Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
+    cache: &CommitmentCache<B>,
+    total_committed: &AtomicUsize,
+) -> ArithTableOracle<B> {
+    if arith_table.side_cols().is_empty() {
+        return cached;
+    }
+    let commit = |mle_arc: Arc<MLE<B::F>>,
+                  field_name: &str|
+     -> <B::MvPCS as PCS<B::F>>::Commitment {
+        let digest = mle_digest(mle_arc.as_ref());
+        if let Some(cached) = cache.lock().unwrap().get(&digest) {
+            return cached.clone();
+        }
+        match B::MvPCS::commit(Arc::clone(mv_pcs_param), &mle_arc) {
+            Ok(comm) => {
+                cache.lock().unwrap().insert(digest, comm.clone());
+                comm
+            }
+            Err(err) => panic!(
+                "failed to commit side polynomial '{}' (log_size={}, len={}): {:?}",
+                field_name,
+                mle_arc.num_vars(),
+                mle_arc.evaluations().len(),
+                err
+            ),
+        }
+    };
+    let mut side_commitments: IndexMap<
+        datafusion::arrow::datatypes::FieldRef,
+        arithmetic::table_oracle::ArithSideColOracle<B>,
+    > = IndexMap::with_capacity(arith_table.side_cols().len());
+    for (field_ref, side) in arith_table.side_cols() {
+        // Materialize transient MLE views from raw bytes / active_len.
+        // Each Arc is dropped immediately after the commit call returns,
+        // so the field-element form never persists past the MSM.
+        let data_mle = materialize_side_data_mle::<B::F>(&side.data, side.log_size);
+        let data_comm = commit(data_mle, field_ref.name());
+        let act_mle =
+            materialize_side_activator_mle::<B::F>(side.log_size, side.active_len);
+        let act_comm = commit(act_mle, field_ref.name());
+        side_commitments.insert(
+            field_ref.clone(),
+            arithmetic::table_oracle::ArithSideColOracle {
+                data: data_comm,
+                activator: act_comm,
+                log_size: side.log_size,
+                active_len: side.active_len,
+            },
+        );
+    }
+    total_committed.fetch_add(side_commitments.len() * 2, Ordering::Relaxed);
+
+    // ArithTableOracle has no mutable side_commitments setter — rebuild it
+    // with the merged commitments.
+    ArithTableOracle::new_with_side_commitments(
+        cached.schema(),
+        cached.commitments().clone(),
+        cached.log_size(),
+        side_commitments,
+    )
 }
 
 fn arith_to_oracle<B: SnarkBackend>(
@@ -220,8 +351,57 @@ fn arith_to_oracle<B: SnarkBackend>(
         }
     }
 
+    // Commit side-domain (data, activator) pairs. Each is its own MLE on its
+    // own multilinear domain, so commits are computed independently.
+    let mut side_commitments: IndexMap<
+        datafusion::arrow::datatypes::FieldRef,
+        arithmetic::table_oracle::ArithSideColOracle<B>,
+    > = IndexMap::with_capacity(arith_table.side_cols().len());
+    let commit_with_cache = |mle_arc: Arc<MLE<B::F>>,
+                             field_name: &str|
+     -> <B::MvPCS as PCS<B::F>>::Commitment {
+        let digest = mle_digest(mle_arc.as_ref());
+        if let Some(cached) = cache.lock().unwrap().get(&digest) {
+            return cached.clone();
+        }
+        match B::MvPCS::commit(Arc::clone(mv_pcs_param), &mle_arc) {
+            Ok(comm) => {
+                cache.lock().unwrap().insert(digest, comm.clone());
+                comm
+            }
+            Err(err) => panic!(
+                "failed to commit side polynomial '{}' (log_size={}, len={}): {:?}",
+                field_name,
+                mle_arc.num_vars(),
+                mle_arc.evaluations().len(),
+                err
+            ),
+        }
+    };
+    for (field_ref, side) in arith_table.side_cols() {
+        let data_mle = materialize_side_data_mle::<B::F>(&side.data, side.log_size);
+        let data_comm = commit_with_cache(data_mle, field_ref.name());
+        let act_mle =
+            materialize_side_activator_mle::<B::F>(side.log_size, side.active_len);
+        let act_comm = commit_with_cache(act_mle, field_ref.name());
+        side_commitments.insert(
+            field_ref.clone(),
+            arithmetic::table_oracle::ArithSideColOracle {
+                data: data_comm,
+                activator: act_comm,
+                log_size: side.log_size,
+                active_len: side.active_len,
+            },
+        );
+    }
+
     let schema = enrich_schema_with_constraint_summary(arith_table.schema());
-    ArithTableOracle::new(schema, commitments, arith_table.log_size())
+    ArithTableOracle::new_with_side_commitments(
+        schema,
+        commitments,
+        arith_table.log_size(),
+        side_commitments,
+    )
 }
 
 fn enrich_schema_with_constraint_summary(schema: Option<Schema>) -> Option<Schema> {

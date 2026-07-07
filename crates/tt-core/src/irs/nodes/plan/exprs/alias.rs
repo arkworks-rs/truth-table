@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use arithmetic::encoding::is_segment_of;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
@@ -64,17 +65,36 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
 
         let mut tracked_polys = IndexMap::new();
         let mut schema_fields = Vec::new();
-        let mut alias_applied = false;
+        let mut primary_base: Option<String> = None;
 
         for (field, poly) in expr_table.tracked_polys_iter() {
-            // Apply alias to the first non-system column, preserving qualifier metadata.
-            let new_field = if !alias_applied
+            // Apply alias to the first non-system column, preserving qualifier
+            // metadata. Re-base any auxiliary segments of that same primary
+            // (e.g. `n_name__length`) under the alias too, so the alias output
+            // keeps the multi-segment shape intact and downstream merges don't
+            // collide when two aliases reference different sources with the
+            // same original column name (e.g. self-joined `n_name`).
+            let new_field = if primary_base.is_none()
                 && field.name() != ACTIVATOR_COL_NAME
                 && field.name() != ROW_ID_COL_NAME
             {
-                alias_applied = true;
+                primary_base = Some(field.name().to_string());
                 let mut updated = Field::new(
                     alias_name.clone(),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                );
+                if !field.metadata().is_empty() {
+                    updated = updated.with_metadata(field.metadata().clone());
+                }
+                Arc::new(updated)
+            } else if let Some(base) = primary_base.as_deref()
+                && field.name() != base
+                && is_segment_of(field.name(), base)
+            {
+                let suffix = &field.name()[base.len()..];
+                let mut updated = Field::new(
+                    format!("{}{}", alias_name, suffix),
                     field.data_type().clone(),
                     field.is_nullable(),
                 );
@@ -217,17 +237,33 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 Some(PayloadStructure::PlanPayload(table)) => {
                     let mut tracked_oracles = IndexMap::new();
                     let mut schema_fields = Vec::new();
-                    let mut alias_applied = false;
+                    let mut primary_base: Option<String> = None;
 
                     for (field, oracle) in table.tracked_oracles_iter() {
-                        // Apply alias to the first non-system column, preserving qualifier metadata.
-                        let new_field = if !alias_applied
+                        // Mirror prover: rename primary AND auxiliary segments
+                        // under the alias so multi-segment columns survive
+                        // aliasing without naming collisions.
+                        let new_field = if primary_base.is_none()
                             && field.name() != ACTIVATOR_COL_NAME
                             && field.name() != ROW_ID_COL_NAME
                         {
-                            alias_applied = true;
+                            primary_base = Some(field.name().to_string());
                             let mut updated = Field::new(
                                 alias_name.clone(),
+                                field.data_type().clone(),
+                                field.is_nullable(),
+                            );
+                            if !field.metadata().is_empty() {
+                                updated = updated.with_metadata(field.metadata().clone());
+                            }
+                            Arc::new(updated)
+                        } else if let Some(base) = primary_base.as_deref()
+                            && field.name() != base
+                            && is_segment_of(field.name(), base)
+                        {
+                            let suffix = &field.name()[base.len()..];
+                            let mut updated = Field::new(
+                                format!("{}{}", alias_name, suffix),
                                 field.data_type().clone(),
                                 field.is_nullable(),
                             );

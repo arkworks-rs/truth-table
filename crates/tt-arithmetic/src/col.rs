@@ -12,7 +12,7 @@ use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::common::Column;
 use datafusion_expr::Expr;
 use derivative::Derivative;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use once_cell::sync::Lazy;
 
 pub const ACTIVATOR_COL_NAME: &str = "__activator__";
@@ -25,110 +25,174 @@ pub static ACTIVATOR_EXPR: Lazy<Expr> =
     Lazy::new(|| Expr::Column(Column::from_name(ACTIVATOR_COL_NAME)));
 pub static ROW_ID_EXPR: Lazy<Expr> = Lazy::new(|| Expr::Column(Column::from_name(ROW_ID_COL_NAME)));
 
+/// The conventional id used for a single-segment column or for the "primary"
+/// segment of a multi-segment column.
+pub const PRIMARY_SEGMENT_ID: &str = "";
+
 pub fn is_system_column(name: &str) -> bool {
     name == ACTIVATOR_COL_NAME || name == ROW_ID_COL_NAME
 }
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
-/// An abstraction of tracked arithmetized column in dbSNARK
-/// a tracked arithmetized column is represented by two polynomials: A data
-/// tracked polynomial, an activator tracked polynomial If the activator
-/// tracked polynomial is None, all the rows are active, and an optional
-/// FieldRef
-pub struct TrackedCol<B: SnarkBackend> {
-    /// A tracked polynomial representing the column values
-    data_tracked_poly: TrackedPoly<B>,
-
-    /// A tracked (supposedly) polynomial representing the activator of the
-    /// column If None, all the rows are active
-    /// If some, only the rows where the activator polynomial is one are active
-    activator_tracked_poly: Option<TrackedPoly<B>>,
-
-    /// The field reference of the column in the original schema, if any
-    field_ref: Option<FieldRef>,
+/// An abstraction of a tracked arithmetized column in dbSNARK.
+///
+/// Most columns are `SingleSegment` (one data polynomial + an optional
+/// activator). String-like columns (and any future multi-aspect encoding)
+/// expand into `MultiSegment`, which carries multiple data polynomials
+/// that all describe the same logical column (e.g. hash + length). Each
+/// data polynomial belongs to an activator group; segments in the same
+/// group share an activator polynomial, segments in different groups
+/// have independent activators.
+pub enum TrackedCol<B: SnarkBackend> {
+    SingleSegment {
+        data_tracked_poly: TrackedPoly<B>,
+        activator_tracked_poly: Option<TrackedPoly<B>>,
+        field_ref: Option<FieldRef>,
+    },
+    MultiSegment {
+        /// All data polynomials in this column.
+        data_tracked_polys: Vec<TrackedPoly<B>>,
+        /// Distinct activator groups within this column. Length = number of
+        /// activator groups (often 1; can be > 1 when segments come from
+        /// different filter contexts).
+        activator_tracked_polys: Vec<Option<TrackedPoly<B>>>,
+        /// `segment_id → (data_idx, activator_idx)`. Multiple segments
+        /// sharing the same activator share the same `activator_idx`.
+        /// The primary segment uses `PRIMARY_SEGMENT_ID` ("").
+        segment_map: IndexMap<String, (usize, usize)>,
+        field_ref: Option<FieldRef>,
+    },
 }
 
 impl<B: SnarkBackend> core::fmt::Debug for TrackedCol<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TrackedCol")
-            .field("log_size", &self.log_size())
-            .field("has_activator", &self.activator_tracked_poly.is_some())
-            .field("field_ref", &self.field_ref)
-            .finish()
+        match self {
+            Self::SingleSegment {
+                data_tracked_poly,
+                activator_tracked_poly,
+                field_ref,
+            } => f
+                .debug_struct("TrackedCol::SingleSegment")
+                .field("log_size", &data_tracked_poly.log_size())
+                .field("has_activator", &activator_tracked_poly.is_some())
+                .field("field_ref", field_ref)
+                .finish(),
+            Self::MultiSegment {
+                data_tracked_polys,
+                activator_tracked_polys,
+                segment_map,
+                field_ref,
+            } => f
+                .debug_struct("TrackedCol::MultiSegment")
+                .field("num_segments", &data_tracked_polys.len())
+                .field("num_activator_groups", &activator_tracked_polys.len())
+                .field("segments", &segment_map.keys().collect::<Vec<_>>())
+                .field("field_ref", field_ref)
+                .finish(),
+        }
     }
 }
 
 impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let field_name = self
-            .field_ref
-            .as_ref()
+            .field_ref()
             .map(|field| field.name().to_string())
             .unwrap_or_else(|| "<unnamed>".to_string());
 
-        let data_evals = self.data_tracked_poly.evaluations();
-        let data_repr = if data_evals.is_empty() {
-            "[]".to_string()
-        } else if data_evals.len() <= 2 {
-            format!(
-                "[{}]",
-                data_evals
-                    .iter()
-                    .map(|v| format!("{:?}", v))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        } else {
-            format!(
-                "{:?} ... {:?}",
-                data_evals.first().unwrap(),
-                data_evals.last().unwrap()
-            )
-        };
-
-        let activator_repr = match &self.activator_tracked_poly {
-            Some(poly) => {
-                let evals = poly.evaluations();
-                if evals.len() <= 10 {
-                    format!(
-                        "[{}]",
-                        evals
-                            .iter()
-                            .map(|v| format!("{:?}", v))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                } else {
-                    let mut values = Vec::with_capacity(11);
-                    values.extend(evals.iter().take(5).map(|val| format!("{:?}", val)));
-                    values.push("...".to_string());
-                    values.extend(
-                        evals
-                            .iter()
-                            .rev()
-                            .take(5)
-                            .collect::<Vec<_>>()
-                            .into_iter()
-                            .rev()
-                            .map(|val| format!("{:?}", val)),
-                    );
-                    format!("[{}]", values.join(", "))
-                }
+        let data_repr = |poly: &TrackedPoly<B>| -> String {
+            let evals = poly.evaluations();
+            if evals.is_empty() {
+                "[]".to_string()
+            } else if evals.len() <= 2 {
+                format!(
+                    "[{}]",
+                    evals
+                        .iter()
+                        .map(|v| format!("{:?}", v))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            } else {
+                format!(
+                    "{:?} ... {:?}",
+                    evals.first().unwrap(),
+                    evals.last().unwrap()
+                )
             }
-            None => "none".to_string(),
+        };
+        let activator_repr = |poly: &Option<TrackedPoly<B>>| -> String {
+            match poly {
+                Some(activator) => {
+                    let evals = activator.evaluations();
+                    if evals.len() <= 10 {
+                        format!(
+                            "[{}]",
+                            evals
+                                .iter()
+                                .map(|v| format!("{:?}", v))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    } else {
+                        let mut values = Vec::with_capacity(11);
+                        values.extend(evals.iter().take(5).map(|val| format!("{:?}", val)));
+                        values.push("...".to_string());
+                        values.extend(
+                            evals
+                                .iter()
+                                .rev()
+                                .take(5)
+                                .collect::<Vec<_>>()
+                                .into_iter()
+                                .rev()
+                                .map(|val| format!("{:?}", val)),
+                        );
+                        format!("[{}]", values.join(", "))
+                    }
+                }
+                None => "none".to_string(),
+            }
         };
 
-        write!(
-            f,
-            "{}: data={}, activator={}",
-            field_name, data_repr, activator_repr
-        )
+        match self {
+            Self::SingleSegment {
+                data_tracked_poly,
+                activator_tracked_poly,
+                ..
+            } => write!(
+                f,
+                "{}: data={}, activator={}",
+                field_name,
+                data_repr(data_tracked_poly),
+                activator_repr(activator_tracked_poly),
+            ),
+            Self::MultiSegment {
+                data_tracked_polys,
+                activator_tracked_polys,
+                segment_map,
+                ..
+            } => {
+                writeln!(f, "{} (multi-segment):", field_name)?;
+                for (sid, (data_idx, activator_idx)) in segment_map.iter() {
+                    let label = if sid.is_empty() { "<primary>" } else { sid };
+                    writeln!(
+                        f,
+                        "  {}: data={}, activator={}",
+                        label,
+                        data_repr(&data_tracked_polys[*data_idx]),
+                        activator_repr(&activator_tracked_polys[*activator_idx]),
+                    )?;
+                }
+                Ok(())
+            }
+        }
     }
 }
 
 impl<B: SnarkBackend> TrackedCol<B> {
-    /// Creates a new tracked column
+    /// Constructs a single-segment tracked column.
     pub fn new(
         data_tracked_poly: TrackedPoly<B>,
         activator_tracked_poly: Option<TrackedPoly<B>>,
@@ -138,9 +202,48 @@ impl<B: SnarkBackend> TrackedCol<B> {
         {
             Self::check_new_args(&data_tracked_poly, &activator_tracked_poly, &field_ref);
         }
-        Self {
+        Self::SingleSegment {
             data_tracked_poly,
             activator_tracked_poly,
+            field_ref,
+        }
+    }
+
+    /// Constructs a multi-segment tracked column from named segments. Each
+    /// segment is `(segment_id, data_poly, activator_poly)`; segments that
+    /// supply the same activator (compared by identity via `Option<&TrackedPoly>`
+    /// equality on the underlying tracker) share an activator group.
+    pub fn new_multi(
+        segments: Vec<(String, TrackedPoly<B>, Option<TrackedPoly<B>>)>,
+        field_ref: Option<FieldRef>,
+    ) -> Self {
+        assert!(
+            !segments.is_empty(),
+            "MultiSegment column requires at least one segment"
+        );
+        let mut data_tracked_polys: Vec<TrackedPoly<B>> = Vec::with_capacity(segments.len());
+        let mut activator_tracked_polys: Vec<Option<TrackedPoly<B>>> = Vec::new();
+        let mut segment_map: IndexMap<String, (usize, usize)> =
+            IndexMap::with_capacity(segments.len());
+        for (sid, data_poly, activator_poly) in segments {
+            let activator_idx = match activator_tracked_polys
+                .iter()
+                .position(|existing| activators_equal(existing.as_ref(), activator_poly.as_ref()))
+            {
+                Some(idx) => idx,
+                None => {
+                    activator_tracked_polys.push(activator_poly.clone());
+                    activator_tracked_polys.len() - 1
+                }
+            };
+            let data_idx = data_tracked_polys.len();
+            data_tracked_polys.push(data_poly);
+            segment_map.insert(sid, (data_idx, activator_idx));
+        }
+        Self::MultiSegment {
+            data_tracked_polys,
+            activator_tracked_polys,
+            segment_map,
             field_ref,
         }
     }
@@ -158,73 +261,190 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Returns the log size of the tracked polynomials
+    /// Returns the log size of the tracked polynomials. All segments in a
+    /// multi-segment column share the same log size by construction.
     pub fn log_size(&self) -> usize {
-        self.data_tracked_poly.log_size()
-    }
-
-    /// Returns the data tracked polynomial of the column
-    pub fn data_tracked_poly(&self) -> TrackedPoly<B> {
-        self.data_tracked_poly.clone()
-    }
-
-    /// Returns the activator tracked polynomial of the column
-    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
-        self.activator_tracked_poly.clone()
-    }
-    /// Returns the field reference of the tracked column in the original
-    /// schema, if any
-    pub fn field_ref(&self) -> Option<FieldRef> {
-        self.field_ref.clone()
-    }
-
-    /// Returns a reference to the tracker of the tracked column
-    pub fn tracker_ref(&self) -> ArgProver<B> {
-        // We have the guarantee at construction that activator tracked also agrees
-        ArgProver::new_from_tracker_rc(self.data_tracked_poly.tracker())
-    }
-
-    /// Returns the effective tracked polynomial of the column, which is the
-    /// product of the activator and the column polynomial
-    /// Note that the non-activated elements are zeroed out, hence
-    /// indistinguishable from the actual zero elements
-    pub fn activated_data_tracked_poly(&self) -> TrackedPoly<B> {
-        match &self.activator_tracked_poly {
-            Some(activator) => &self.data_tracked_poly * activator,
-            None => self.data_tracked_poly.clone(),
+        match self {
+            Self::SingleSegment {
+                data_tracked_poly, ..
+            } => data_tracked_poly.log_size(),
+            Self::MultiSegment {
+                data_tracked_polys, ..
+            } => data_tracked_polys[0].log_size(),
         }
     }
 
-    /// Returns an iterator over the activated data elements
-    /// Useful for testing and debugging
+    /// Returns the primary data polynomial — the unique poly for a single-
+    /// segment column, or the poly registered under `PRIMARY_SEGMENT_ID` for
+    /// a multi-segment column.
+    pub fn data_tracked_poly(&self) -> TrackedPoly<B> {
+        match self {
+            Self::SingleSegment {
+                data_tracked_poly, ..
+            } => data_tracked_poly.clone(),
+            Self::MultiSegment {
+                data_tracked_polys,
+                segment_map,
+                ..
+            } => {
+                let (data_idx, _) = segment_map
+                    .get(PRIMARY_SEGMENT_ID)
+                    .or_else(|| segment_map.values().next())
+                    .expect("multi-segment column must contain at least one segment");
+                data_tracked_polys[*data_idx].clone()
+            }
+        }
+    }
+
+    /// Returns the activator polynomial paired with the primary data segment.
+    /// Single-segment columns return their sole activator. Multi-segment
+    /// columns return the activator from the primary segment's group.
+    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
+        match self {
+            Self::SingleSegment {
+                activator_tracked_poly,
+                ..
+            } => activator_tracked_poly.clone(),
+            Self::MultiSegment {
+                activator_tracked_polys,
+                segment_map,
+                ..
+            } => {
+                let (_, activator_idx) = segment_map
+                    .get(PRIMARY_SEGMENT_ID)
+                    .or_else(|| segment_map.values().next())
+                    .expect("multi-segment column must contain at least one segment");
+                activator_tracked_polys[*activator_idx].clone()
+            }
+        }
+    }
+
+    /// Returns the field reference of the column, if any.
+    pub fn field_ref(&self) -> Option<FieldRef> {
+        match self {
+            Self::SingleSegment { field_ref, .. } | Self::MultiSegment { field_ref, .. } => {
+                field_ref.clone()
+            }
+        }
+    }
+
+    /// Number of data polynomials (segments) in this column. Always >= 1.
+    pub fn num_segments(&self) -> usize {
+        match self {
+            Self::SingleSegment { .. } => 1,
+            Self::MultiSegment {
+                data_tracked_polys, ..
+            } => data_tracked_polys.len(),
+        }
+    }
+
+    /// Iterate `(segment_id, data_poly, activator_poly)` over every segment
+    /// in this column, in insertion order.
+    pub fn segments_iter(
+        &self,
+    ) -> Box<dyn Iterator<Item = (&str, &TrackedPoly<B>, Option<&TrackedPoly<B>>)> + '_> {
+        match self {
+            Self::SingleSegment {
+                data_tracked_poly,
+                activator_tracked_poly,
+                ..
+            } => Box::new(std::iter::once((
+                PRIMARY_SEGMENT_ID,
+                data_tracked_poly,
+                activator_tracked_poly.as_ref(),
+            ))),
+            Self::MultiSegment {
+                data_tracked_polys,
+                activator_tracked_polys,
+                segment_map,
+                ..
+            } => Box::new(segment_map.iter().map(move |(sid, (data_idx, act_idx))| {
+                (
+                    sid.as_str(),
+                    &data_tracked_polys[*data_idx],
+                    activator_tracked_polys[*act_idx].as_ref(),
+                )
+            })),
+        }
+    }
+
+    /// Look up a specific segment by id. Returns the segment's data and
+    /// activator polys.
+    pub fn segment(&self, segment_id: &str) -> Option<(TrackedPoly<B>, Option<TrackedPoly<B>>)> {
+        match self {
+            Self::SingleSegment {
+                data_tracked_poly,
+                activator_tracked_poly,
+                ..
+            } => {
+                if segment_id == PRIMARY_SEGMENT_ID {
+                    Some((data_tracked_poly.clone(), activator_tracked_poly.clone()))
+                } else {
+                    None
+                }
+            }
+            Self::MultiSegment {
+                data_tracked_polys,
+                activator_tracked_polys,
+                segment_map,
+                ..
+            } => segment_map.get(segment_id).map(|(data_idx, act_idx)| {
+                (
+                    data_tracked_polys[*data_idx].clone(),
+                    activator_tracked_polys[*act_idx].clone(),
+                )
+            }),
+        }
+    }
+
+    /// Returns a reference to the tracker shared by all polys in this column.
+    pub fn tracker_ref(&self) -> ArgProver<B> {
+        let poly = match self {
+            Self::SingleSegment {
+                data_tracked_poly, ..
+            } => data_tracked_poly,
+            Self::MultiSegment {
+                data_tracked_polys, ..
+            } => &data_tracked_polys[0],
+        };
+        ArgProver::new_from_tracker_rc(poly.tracker())
+    }
+
+    /// Returns the effective primary tracked polynomial: data * activator
+    /// (when an activator exists), otherwise just the data poly.
+    pub fn activated_data_tracked_poly(&self) -> TrackedPoly<B> {
+        match self.activator_tracked_poly() {
+            Some(activator) => &self.data_tracked_poly() * &activator,
+            None => self.data_tracked_poly(),
+        }
+    }
+
+    /// Returns a vec of the active-row primary data values.
     pub fn effective_iter(&self) -> impl IntoIterator<Item = B::F> + use<B> {
-        match &self.activator_tracked_poly {
-            Some(activator) => self
-                .data_tracked_poly
+        let data = self.data_tracked_poly();
+        match self.activator_tracked_poly() {
+            Some(activator) => data
                 .evaluations()
                 .into_iter()
                 .zip(activator.evaluations())
                 .filter(|(_, activator)| *activator != B::F::zero())
                 .map(|(data, _)| data)
                 .collect::<Vec<B::F>>(),
-            None => self.data_tracked_poly.evaluations(),
+            None => data.evaluations(),
         }
     }
 
-    /// Returns a hashset of the activated data elements
-    /// Useful for testing and debugging
+    /// Returns a hashset of the activated primary data elements (for tests).
     pub fn effective_hashset(&self) -> IndexSet<B::F> {
         self.effective_iter()
             .into_iter()
             .collect::<IndexSet<B::F>>()
     }
 
-    /// Pretty-print the tracked column, optionally showing the activator
-    /// column.
+    /// Pretty-print the tracked column (primary segment only, for brevity).
     pub fn pretty_string(&self) -> String {
         let base_name = self
-            .field_ref
-            .as_ref()
+            .field_ref()
             .map(|field| {
                 let name = field.name();
                 if name.is_empty() {
@@ -235,22 +455,24 @@ impl<B: SnarkBackend> TrackedCol<B> {
             })
             .unwrap_or_else(|| "-".to_string());
 
+        let data = self.data_tracked_poly();
+        let activator = self.activator_tracked_poly();
+
         let mut headers = Vec::with_capacity(3);
         let mut columns: Vec<Vec<String>> = Vec::with_capacity(3);
 
         headers.push(base_name.clone());
         columns.push(
-            self.data_tracked_poly
-                .evaluations()
+            data.evaluations()
                 .into_iter()
                 .map(|val| abbreviate_field_value(&format!("{}", val)))
                 .collect(),
         );
 
-        if let Some(activator) = &self.activator_tracked_poly {
+        if let Some(activator_poly) = &activator {
             headers.push(format!("{base_name} (activator)"));
             columns.push(
-                activator
+                activator_poly
                     .evaluations()
                     .into_iter()
                     .map(|val| abbreviate_field_value(&format!("{}", val)))
@@ -299,14 +521,47 @@ impl<B: SnarkBackend> TrackedCol<B> {
 
 impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
     fn deep_clone(&self, new_prover: ArgProver<B>) -> Self {
-        Self {
-            data_tracked_poly: self.data_tracked_poly.deep_clone(new_prover.clone()),
-            activator_tracked_poly: self
-                .activator_tracked_poly
-                .as_ref()
-                .map(|activator| activator.deep_clone(new_prover)),
-            field_ref: self.field_ref.clone(),
+        match self {
+            Self::SingleSegment {
+                data_tracked_poly,
+                activator_tracked_poly,
+                field_ref,
+            } => Self::SingleSegment {
+                data_tracked_poly: data_tracked_poly.deep_clone(new_prover.clone()),
+                activator_tracked_poly: activator_tracked_poly
+                    .as_ref()
+                    .map(|activator| activator.deep_clone(new_prover)),
+                field_ref: field_ref.clone(),
+            },
+            Self::MultiSegment {
+                data_tracked_polys,
+                activator_tracked_polys,
+                segment_map,
+                field_ref,
+            } => Self::MultiSegment {
+                data_tracked_polys: data_tracked_polys
+                    .iter()
+                    .map(|poly| poly.deep_clone(new_prover.clone()))
+                    .collect(),
+                activator_tracked_polys: activator_tracked_polys
+                    .iter()
+                    .map(|opt| opt.as_ref().map(|act| act.deep_clone(new_prover.clone())))
+                    .collect(),
+                segment_map: segment_map.clone(),
+                field_ref: field_ref.clone(),
+            },
         }
+    }
+}
+
+fn activators_equal<B: SnarkBackend>(
+    lhs: Option<&TrackedPoly<B>>,
+    rhs: Option<&TrackedPoly<B>>,
+) -> bool {
+    match (lhs, rhs) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a == b,
+        _ => false,
     }
 }
 

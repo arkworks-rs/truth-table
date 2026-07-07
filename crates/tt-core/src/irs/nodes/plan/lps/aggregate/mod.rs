@@ -1,7 +1,8 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use arithmetic::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle,
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, encoding::is_segment_of, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ff::One;
 use ark_piop::SnarkBackend;
@@ -321,10 +322,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             // Keep aggregate outputs materialized by this node. Only group-by
             // columns are sourced virtually from input; other input columns
             // must not leak into the aggregate output when there are no groups.
-            if aggregate_output_names.contains(field.name()) {
+            if aggregate_output_names
+                .iter()
+                .any(|base| is_segment_of(field.name(), base))
+            {
                 continue;
             }
-            if !group_output_names.contains(field.name()) {
+            if !group_output_names
+                .iter()
+                .any(|base| is_segment_of(field.name(), base))
+            {
                 continue;
             }
             if let Some(existing_field) = merged_polys
@@ -649,10 +656,16 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             // Keep aggregate outputs materialized by this node. Only group-by
             // columns are sourced virtually from input; other input columns
             // must not leak into the aggregate output when there are no groups.
-            if aggregate_output_names.contains(field.name()) {
+            if aggregate_output_names
+                .iter()
+                .any(|base| is_segment_of(field.name(), base))
+            {
                 continue;
             }
-            if !group_output_names.contains(field.name()) {
+            if !group_output_names
+                .iter()
+                .any(|base| is_segment_of(field.name(), base))
+            {
                 continue;
             }
             if let Some(existing_field) = merged_oracles
@@ -808,10 +821,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 let Expr::Column(col) = expr else {
                     panic!("Aggregate group expressions must be column references");
                 };
-                let input_idx = find_tracked_oracle_index_by_column(input_table, col);
-                let output_idx = find_tracked_oracle_index_by_column(output_table, col);
-                input_group_indices.push(input_idx);
-                output_group_indices.push(output_idx);
+                // Mirror prover: include all arithmetized segments of a group-by
+                // column so the verifier-side subtable shape matches the
+                // lex-sorted side.
+                let input_idxs =
+                    find_tracked_oracle_indices_by_column_with_segments(input_table, col);
+                let output_idxs =
+                    find_tracked_oracle_indices_by_column_with_segments(output_table, col);
+                input_group_indices.extend(input_idxs);
+                output_group_indices.extend(output_idxs);
             }
             if let Some(input_idx) =
                 find_tracked_oracle_index_by_name_optional(input_table, ACTIVATOR_COL_NAME)
@@ -1015,10 +1033,14 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
         let Expr::Column(col) = expr else {
             panic!("Aggregate group expressions must be column references");
         };
-        let input_idx = find_tracked_index_by_column(input_table, col);
-        let output_idx = find_tracked_index_by_column(output_table, col);
-        input_group_indices.push(input_idx);
-        output_group_indices.push(output_idx);
+        // Include all arithmetized segments of this group-by column (e.g. hash
+        // and __length for strings); otherwise the virtual subtable here ends
+        // up with fewer tracked polys than the lex-sorted side, which is
+        // built via real materialization+arithmetization.
+        let input_idxs = find_tracked_indices_by_column_with_segments(input_table, col);
+        let output_idxs = find_tracked_indices_by_column_with_segments(output_table, col);
+        input_group_indices.extend(input_idxs);
+        output_group_indices.extend(output_idxs);
     }
     if let Some(input_idx) = find_tracked_index_by_name_optional(input_table, ACTIVATOR_COL_NAME)
         && !input_group_indices.contains(&input_idx)
@@ -1158,6 +1180,21 @@ fn find_tracked_index_by_column<B: SnarkBackend>(table: &TrackedTable<B>, col: &
     )
 }
 
+/// Returns the indices of every arithmetized segment (primary + auxiliary
+/// segments like `__length` for strings) tied to a single logical column.
+/// Used when building virtual subtables that must mirror the segment shape
+/// of materialized counterparts (e.g. NoDup/perm payloads).
+fn find_tracked_indices_by_column_with_segments<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    col: &Column,
+) -> Vec<usize> {
+    find_tracked_indices_with_segments(
+        table.tracked_polys().iter(),
+        &col.name,
+        col.relation.as_ref().map(|q| q.to_string()).as_deref(),
+    )
+}
+
 fn find_tracked_index_by_name<B: SnarkBackend>(table: &TrackedTable<B>, name: &str) -> usize {
     find_tracked_index(table.tracked_polys().iter(), name, None)
 }
@@ -1184,6 +1221,18 @@ fn find_tracked_oracle_index_by_column<B: SnarkBackend>(
     )
 }
 
+/// Verifier mirror of `find_tracked_indices_by_column_with_segments`.
+fn find_tracked_oracle_indices_by_column_with_segments<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    col: &Column,
+) -> Vec<usize> {
+    find_tracked_indices_with_segments(
+        table.tracked_oracles().iter(),
+        &col.name,
+        col.relation.as_ref().map(|q| q.to_string()).as_deref(),
+    )
+}
+
 fn find_tracked_oracle_index_by_name<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     name: &str,
@@ -1199,6 +1248,48 @@ fn find_tracked_oracle_index_by_name_optional<B: SnarkBackend>(
         .tracked_oracles()
         .iter()
         .position(|(field, _)| field.name() == name)
+}
+
+/// Returns every tracked-poly index whose field is a segment of `base_name`
+/// (including the primary segment itself). Disambiguates by qualifier when one
+/// is provided: if a qualifier was passed, only segments whose primary field
+/// shares that qualifier are returned. If no qualified primary exists, all
+/// segments with matching base name are returned (legacy unqualified shape).
+fn find_tracked_indices_with_segments<'a, T: 'a, I>(
+    iter: I,
+    base_name: &str,
+    qualifier: Option<&str>,
+) -> Vec<usize>
+where
+    I: Iterator<Item = (&'a FieldRef, &'a T)>,
+{
+    let mut qualifier_matches = Vec::new();
+    let mut name_matches = Vec::new();
+    let mut saw_qualified_primary = false;
+    for (idx, (field, _)) in iter.enumerate() {
+        if !is_segment_of(field.name(), base_name) {
+            continue;
+        }
+        name_matches.push(idx);
+        if field.name() == base_name
+            && qualifier.is_some()
+            && field_qualifier(field) == qualifier
+        {
+            saw_qualified_primary = true;
+        }
+        if qualifier.is_some() {
+            match field_qualifier(field) {
+                Some(fq) if Some(fq) == qualifier => qualifier_matches.push(idx),
+                None => qualifier_matches.push(idx),
+                _ => {}
+            }
+        }
+    }
+    if qualifier.is_some() && saw_qualified_primary {
+        qualifier_matches
+    } else {
+        name_matches
+    }
 }
 
 fn find_tracked_index<'a, T: 'a, I>(iter: I, name: &str, qualifier: Option<&str>) -> usize

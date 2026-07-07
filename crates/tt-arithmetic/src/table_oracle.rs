@@ -20,6 +20,26 @@ use std::{convert::TryFrom, sync::Arc};
 
 pub const CONSTRAINTS_SUMMARY_METADATA_KEY: &str = "tt.constraints.summary";
 pub const EXTERNAL_COMMITMENT_SOURCE_METADATA_KEY: &str = "tt.external_commitment_source";
+/// Verifier-side mirror of `TrackedSideCol`. Carries a single side-domain
+/// oracle pair (data, activator) with its own `log_size`.
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""))]
+pub struct TrackedSideColOracle<B: SnarkBackend> {
+    pub data: TrackedOracle<B>,
+    pub activator: TrackedOracle<B>,
+    pub log_size: usize,
+    pub active_len: usize,
+}
+
+impl<B: SnarkBackend> core::fmt::Debug for TrackedSideColOracle<B> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TrackedSideColOracle")
+            .field("log_size", &self.log_size)
+            .field("active_len", &self.active_len)
+            .finish()
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked oracle to an arithmetized table in dbSNARK
@@ -32,6 +52,8 @@ pub struct TrackedTableOracle<B: SnarkBackend> {
     tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
     /// The log size of the table
     log_size: usize,
+    /// Side-domain tracked oracles (e.g. `__chars`) keyed by side field ref.
+    side_cols: IndexMap<FieldRef, TrackedSideColOracle<B>>,
 }
 
 impl<B: SnarkBackend> Default for TrackedTableOracle<B> {
@@ -40,6 +62,7 @@ impl<B: SnarkBackend> Default for TrackedTableOracle<B> {
             schema: None,
             tracked_oracles: IndexMap::new(),
             log_size: 0,
+            side_cols: IndexMap::new(),
         }
     }
 }
@@ -94,11 +117,22 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     }
 
     /// Constructs a new `TrackedTableOracle` from the provided schema (if any),
-    /// tracked oracles, and log size of the table
+    /// tracked oracles, and log size of the table (no side columns).
     pub fn new(
         schema: Option<Schema>,
         tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
         log_size: usize,
+    ) -> Self {
+        Self::new_with_side_cols(schema, tracked_oracles, log_size, IndexMap::new())
+    }
+
+    /// Constructs a new `TrackedTableOracle` with explicit side-domain
+    /// oracles.
+    pub fn new_with_side_cols(
+        schema: Option<Schema>,
+        tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
+        log_size: usize,
+        side_cols: IndexMap<FieldRef, TrackedSideColOracle<B>>,
     ) -> Self {
         #[cfg(debug_assertions)]
         {
@@ -108,7 +142,18 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             schema,
             tracked_oracles,
             log_size,
+            side_cols,
         }
+    }
+
+    /// Read-only access to side-domain oracles.
+    pub fn side_cols(&self) -> &IndexMap<FieldRef, TrackedSideColOracle<B>> {
+        &self.side_cols
+    }
+
+    /// Insert (or replace) a side-domain oracle on this table.
+    pub fn insert_side_col(&mut self, field: FieldRef, side: TrackedSideColOracle<B>) {
+        self.side_cols.insert(field, side);
     }
 
     #[cfg(debug_assertions)]
@@ -320,7 +365,22 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
 
-        TrackedTableOracle::new(sub_schema, sub_oracles, self.log_size)
+        let retained_base_names: Vec<String> = sub_oracles
+            .keys()
+            .filter(|f| !crate::is_system_column(f.name()))
+            .map(|f| f.name().to_string())
+            .collect();
+        let mut sub_side_cols: IndexMap<FieldRef, TrackedSideColOracle<B>> = IndexMap::new();
+        for (side_field, side_col) in self.side_cols.iter() {
+            if retained_base_names
+                .iter()
+                .any(|base| crate::encoding::is_segment_of(side_field.name(), base))
+            {
+                sub_side_cols.insert(side_field.clone(), side_col.clone());
+            }
+        }
+
+        TrackedTableOracle::new_with_side_cols(sub_schema, sub_oracles, self.log_size, sub_side_cols)
     }
     /// Returns all the tracked column oracles in the table, including the
     /// activator column (if any)
@@ -380,6 +440,17 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     }
 }
 
+/// Per-side-segment commitment pair (data + activator) plus sizing metadata.
+/// Mirrors `ArithSideCol` at the commitment layer.
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
+pub struct ArithSideColOracle<B: SnarkBackend> {
+    pub data: <B::MvPCS as PCS<B::F>>::Commitment,
+    pub activator: <B::MvPCS as PCS<B::F>>::Commitment,
+    pub log_size: usize,
+    pub active_len: usize,
+}
+
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
 /// An abstraction of an oracle to an arithmetized table in dbSNARK
@@ -390,6 +461,9 @@ pub struct ArithTableOracle<B: SnarkBackend> {
     schema: Option<Schema>,
     commitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
     log_size: usize,
+    /// Side-domain commitments (data + activator pairs) keyed by side
+    /// segment field reference (e.g. `<col>__chars`).
+    side_commitments: IndexMap<FieldRef, ArithSideColOracle<B>>,
 }
 
 impl<B: SnarkBackend> Display for ArithTableOracle<B> {
@@ -448,11 +522,22 @@ fn constraints_summary_label(schema: Option<&Schema>) -> Option<String> {
 }
 
 impl<B: SnarkBackend> ArithTableOracle<B> {
-    /// Constructs a new `ArithTableOracle`
+    /// Constructs a new `ArithTableOracle` with no side commitments.
     pub fn new(
         schema: Option<Schema>,
         commitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
         log_size: usize,
+    ) -> Self {
+        Self::new_with_side_commitments(schema, commitments, log_size, IndexMap::new())
+    }
+
+    /// Constructs a new `ArithTableOracle` with explicit side-domain
+    /// commitments.
+    pub fn new_with_side_commitments(
+        schema: Option<Schema>,
+        commitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
+        log_size: usize,
+        side_commitments: IndexMap<FieldRef, ArithSideColOracle<B>>,
     ) -> Self {
         #[cfg(debug_assertions)]
         {
@@ -463,7 +548,13 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
             schema,
             commitments,
             log_size,
+            side_commitments,
         }
+    }
+
+    /// Read-only access to side-domain commitment entries.
+    pub fn side_commitments(&self) -> &IndexMap<FieldRef, ArithSideColOracle<B>> {
+        &self.side_commitments
     }
     #[cfg(debug_assertions)]
     fn check_new_args(
@@ -553,11 +644,27 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
             .iter()
             .map(|(field_ref, oracle)| (field_ref.clone(), oracle.commitment()))
             .collect();
+        let side_commitments = table_oracle
+            .side_cols()
+            .iter()
+            .map(|(field_ref, side)| {
+                (
+                    field_ref.clone(),
+                    ArithSideColOracle {
+                        data: side.data.commitment(),
+                        activator: side.activator.commitment(),
+                        log_size: side.log_size,
+                        active_len: side.active_len,
+                    },
+                )
+            })
+            .collect();
         Self {
             _phantom: std::marker::PhantomData,
             schema: table_oracle.schema(),
             commitments,
             log_size: table_oracle.log_size(),
+            side_commitments,
         }
     }
 
@@ -696,6 +803,7 @@ where
             schema,
             commitments,
             log_size,
+            side_commitments: IndexMap::new(),
         })
     }
 }

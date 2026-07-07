@@ -60,26 +60,33 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             .activator_tracked_poly()
             .expect("Literal scope should carry an activator column");
         let tracker = activator_poly.tracker();
-        let literal_value =
-            arithmetic::encoding::scalar_to_field::<<B as SnarkBackend>::F>(&self.literal)
+        let literal_segments =
+            arithmetic::encoding::scalar_to_fields::<<B as SnarkBackend>::F>(&self.literal)
                 .expect("Unsupported literal type for virtual witness");
-        let literal_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
-            Either::Right(literal_value),
-            log_size,
-            tracker,
-        );
 
-        // Columns: literal value, optional row_id, and activator.
-        let literal_field = FieldRef::new(Field::new(
-            self.literal.to_string(),
-            self.literal.data_type(),
-            true,
-        ));
+        let base_name = self.literal.to_string();
         let activator_field =
             FieldRef::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true));
 
         let mut columns = IndexMap::new();
-        columns.insert(literal_field.clone(), literal_poly);
+        for segment in literal_segments {
+            let value = segment
+                .values
+                .into_iter()
+                .next()
+                .expect("literal segment should carry one value");
+            let segment_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
+                Either::Right(value),
+                log_size,
+                tracker.clone(),
+            );
+            let field = FieldRef::new(Field::new(
+                format!("{}{}", base_name, segment.suffix),
+                self.literal.data_type(),
+                true,
+            ));
+            columns.insert(field, segment_poly);
+        }
         if let Some((row_id_field, row_id_poly)) = scope_table
             .tracked_polys()
             .iter()
@@ -223,26 +230,33 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         let tracker = activator_oracle.tracker();
         let log_size = activator_oracle.log_size();
 
-        let literal_value =
-            arithmetic::encoding::scalar_to_field::<<B as SnarkBackend>::F>(&self.literal)
+        let literal_segments =
+            arithmetic::encoding::scalar_to_fields::<<B as SnarkBackend>::F>(&self.literal)
                 .expect("Unsupported literal type for virtual witness");
-        let literal_oracle = ark_piop::verifier::structs::oracle::TrackedOracle::new(
-            Either::Right(literal_value),
-            tracker.clone(),
-            log_size,
-        );
 
-        // Columns: literal value, optional row_id, and activator.
-        let literal_field = FieldRef::new(Field::new(
-            self.literal.to_string(),
-            self.literal.data_type(),
-            true,
-        ));
+        let base_name = self.literal.to_string();
         let activator_field =
             FieldRef::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true));
 
         let mut columns = IndexMap::new();
-        columns.insert(literal_field.clone(), literal_oracle);
+        for segment in literal_segments {
+            let value = segment
+                .values
+                .into_iter()
+                .next()
+                .expect("literal segment should carry one value");
+            let segment_oracle = ark_piop::verifier::structs::oracle::TrackedOracle::new(
+                Either::Right(value),
+                tracker.clone(),
+                log_size,
+            );
+            let field = FieldRef::new(Field::new(
+                format!("{}{}", base_name, segment.suffix),
+                self.literal.data_type(),
+                true,
+            ));
+            columns.insert(field, segment_oracle);
+        }
         if let Some((row_id_field, row_id_oracle)) = scope_table
             .tracked_oracles()
             .iter()

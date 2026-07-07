@@ -870,7 +870,11 @@ fn sort_specs_for_table_prover<B: SnarkBackend>(
                     .tracked_col_by_ind(*idx)
                     .field_ref()
                     .expect("Expected field ref for Sort input");
+                // Skip both __row_id__ and auxiliary segments (e.g. __length).
+                // The sort/neq machinery sees one tie indicator per logical
+                // sort key — only primary segments belong here.
                 field.name() != ROW_ID_COL_NAME
+                    && arithmetic::encoding::segment_base_name(field.name()).is_none()
             })
             .map(|idx| {
                 let field = input_table
@@ -898,6 +902,7 @@ fn sort_specs_for_table_verifier<B: SnarkBackend>(
                     .field_ref()
                     .expect("Expected field ref for Sort input");
                 field.name() != ROW_ID_COL_NAME
+                    && arithmetic::encoding::segment_base_name(field.name()).is_none()
             })
             .map(|idx| {
                 let field = input_table

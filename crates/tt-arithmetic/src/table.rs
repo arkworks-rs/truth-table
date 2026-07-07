@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use ark_ff::{PrimeField, Zero};
+use ark_ff::{BigInteger, PrimeField, Zero};
 
 use crate::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, col::TrackedCol,
@@ -22,6 +22,29 @@ use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use derivative::Derivative;
 use indexmap::IndexMap;
 use serde_json::{Value, from_slice as schema_from_slice, to_vec as schema_to_vec};
+/// A tracked side-domain column carried alongside (but not inside) the
+/// row-uniform `TrackedTable`. Each side column has its own multilinear
+/// domain. The contiguous-one activator is fully described by `active_len`
+/// (and rebuilt on demand at commit/track time) so no separate tracked
+/// activator handle is kept here.
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""))]
+pub struct TrackedSideCol<B: SnarkBackend> {
+    pub data: TrackedPoly<B>,
+    pub activator: TrackedPoly<B>,
+    pub log_size: usize,
+    pub active_len: usize,
+}
+
+impl<B: SnarkBackend> core::fmt::Debug for TrackedSideCol<B> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TrackedSideCol")
+            .field("log_size", &self.log_size)
+            .field("active_len", &self.active_len)
+            .finish()
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked arithmetized table in dbSNARK
@@ -34,6 +57,10 @@ pub struct TrackedTable<B: SnarkBackend> {
     tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
     /// The log size of the table
     log_size: usize,
+    /// Side-domain tracked polynomials owned by this table. Keyed by the
+    /// side segment's field reference (e.g. `<col>__chars`). Subtable
+    /// operations propagate the side cols of any retained data column.
+    side_cols: IndexMap<FieldRef, TrackedSideCol<B>>,
 }
 
 impl<B: SnarkBackend> Default for TrackedTable<B> {
@@ -42,6 +69,7 @@ impl<B: SnarkBackend> Default for TrackedTable<B> {
             schema: None,
             tracked_polys: IndexMap::new(),
             log_size: 0,
+            side_cols: IndexMap::new(),
         }
     }
 }
@@ -64,7 +92,22 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedTable<B> {
             .iter()
             .map(|(field, poly)| (field.clone(), poly.deep_clone(prover.clone())))
             .collect::<IndexMap<_, _>>();
-        Self::new(self.schema.clone(), tracked_polys, self.log_size)
+        let side_cols = self
+            .side_cols
+            .iter()
+            .map(|(field, side)| {
+                (
+                    field.clone(),
+                    TrackedSideCol {
+                        data: side.data.deep_clone(prover.clone()),
+                        activator: side.activator.deep_clone(prover.clone()),
+                        log_size: side.log_size,
+                        active_len: side.active_len,
+                    },
+                )
+            })
+            .collect::<IndexMap<_, _>>();
+        Self::new_with_side_cols(self.schema.clone(), tracked_polys, self.log_size, side_cols)
     }
 }
 
@@ -108,11 +151,22 @@ impl<B: SnarkBackend> TrackedTable<B> {
     }
 
     /// Constructs a new `TrackedTable` from the provided schema (if any),
-    /// tracked polynomials, and log size of the table
+    /// tracked polynomials, and log size of the table. The table starts
+    /// with no side-domain columns.
     pub fn new(
         schema: Option<Schema>,
         tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
         log_size: usize,
+    ) -> Self {
+        Self::new_with_side_cols(schema, tracked_polys, log_size, IndexMap::new())
+    }
+
+    /// Constructs a new `TrackedTable` with explicit side-domain columns.
+    pub fn new_with_side_cols(
+        schema: Option<Schema>,
+        tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
+        log_size: usize,
+        side_cols: IndexMap<FieldRef, TrackedSideCol<B>>,
     ) -> Self {
         #[cfg(debug_assertions)]
         {
@@ -123,7 +177,18 @@ impl<B: SnarkBackend> TrackedTable<B> {
             schema,
             tracked_polys,
             log_size,
+            side_cols,
         }
+    }
+
+    /// Read-only access to this table's side-domain columns.
+    pub fn side_cols(&self) -> &IndexMap<FieldRef, TrackedSideCol<B>> {
+        &self.side_cols
+    }
+
+    /// Insert (or replace) a side-domain column on this table.
+    pub fn insert_side_col(&mut self, field: FieldRef, side: TrackedSideCol<B>) {
+        self.side_cols.insert(field, side);
     }
 
     #[cfg(debug_assertions)]
@@ -327,6 +392,8 @@ impl<B: SnarkBackend> TrackedTable<B> {
 
     /// Returns a subtable containing the tracked columns at the specified
     /// indices and the current table's activator column (if any).
+    /// Side-domain columns owned by retained data columns are carried over
+    /// (identified by `is_segment_of(side_field.name(), retained_col.name())`).
     pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTable<B> {
         let mut sub_polys = IndexMap::with_capacity(
             indices.len() + self.activator_tracked_poly().is_some() as usize,
@@ -356,7 +423,22 @@ impl<B: SnarkBackend> TrackedTable<B> {
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
 
-        TrackedTable::new(sub_schema, sub_polys, self.log_size)
+        let retained_base_names: Vec<String> = sub_polys
+            .keys()
+            .filter(|f| !crate::is_system_column(f.name()))
+            .map(|f| f.name().to_string())
+            .collect();
+        let mut sub_side_cols: IndexMap<FieldRef, TrackedSideCol<B>> = IndexMap::new();
+        for (side_field, side_col) in self.side_cols.iter() {
+            if retained_base_names
+                .iter()
+                .any(|base| crate::encoding::is_segment_of(side_field.name(), base))
+            {
+                sub_side_cols.insert(side_field.clone(), side_col.clone());
+            }
+        }
+
+        TrackedTable::new_with_side_cols(sub_schema, sub_polys, self.log_size, sub_side_cols)
     }
 
     /// Returns all the tracked column polynomials in the table, including the
@@ -450,6 +532,27 @@ impl<B: SnarkBackend> TrackedTable<B> {
     }
 }
 
+/// A side-domain polynomial that lives **outside** the row-uniform table.
+/// Carries its own `log_size` (generally different from the owning table's)
+/// and a contiguous-one activator that is fully described by `active_len`.
+/// Used for things like the per-column concatenated `__chars` polynomial.
+///
+/// The data poly is stored as raw bytes so it stays 32× smaller than the
+/// field-element form. Commit and tracking passes materialize transient
+/// `MLE<F>` views from these bytes (and from `active_len` for the
+/// activator) only at the moment of MSM / proof-binding, then drop them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArithSideCol {
+    /// Raw byte values, pow2-padded with zeros. Length == `1 << log_size`.
+    pub data: Vec<u8>,
+    /// Number of variables in the side-domain MLE (data and activator
+    /// share this).
+    pub log_size: usize,
+    /// Number of active (non-padding) leading entries. Fully describes the
+    /// contiguous-one activator polynomial.
+    pub active_len: usize,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 /// An abstraction of an arithmetized table in dbSNARK
 /// An arithmetic table might not be tracked and can be serialized and
@@ -458,6 +561,12 @@ pub struct ArithTable<F: PrimeField> {
     schema: Option<Schema>,
     polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
     log_size: usize,
+    /// Side-domain polynomials owned by this table, keyed by the side
+    /// segment's own field reference (e.g. the `FieldRef` for
+    /// `<col>__chars`). Each side column carries its own `log_size` and
+    /// activator and is committed separately from the row-domain
+    /// `polynomials`.
+    side_cols: IndexMap<FieldRef, ArithSideCol>,
 }
 impl<F: PrimeField> std::fmt::Display for ArithTable<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -569,11 +678,22 @@ fn abbreviate_field_value(value: &str) -> String {
 }
 
 impl<F: PrimeField> ArithTable<F> {
-    /// Constructs a new `ArithTable`
+    /// Constructs a new `ArithTable` with no side-domain columns.
     pub fn new(
         schema: Option<Schema>,
         polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
         log_size: usize,
+    ) -> Self {
+        Self::new_with_side_cols(schema, polynomials, log_size, IndexMap::new())
+    }
+
+    /// Constructs a new `ArithTable`, optionally seeded with side-domain
+    /// columns (e.g. per-string-column concatenated `__chars` polys).
+    pub fn new_with_side_cols(
+        schema: Option<Schema>,
+        polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
+        log_size: usize,
+        side_cols: IndexMap<FieldRef, ArithSideCol>,
     ) -> Self {
         #[cfg(debug_assertions)]
         {
@@ -584,7 +704,14 @@ impl<F: PrimeField> ArithTable<F> {
             schema,
             polynomials,
             log_size,
+            side_cols,
         }
+    }
+
+    /// Read-only access to this table's side-domain columns, keyed by side
+    /// segment field reference (e.g. `<col>__chars`).
+    pub fn side_cols(&self) -> &IndexMap<FieldRef, ArithSideCol> {
+        &self.side_cols
     }
 
     #[cfg(debug_assertions)]
@@ -655,6 +782,8 @@ impl<F: PrimeField> ArithTable<F> {
     }
 
     /// Constructs an `ArithTable` from a `TrackedTable` by extracting
+    /// the underlying MLE evaluations of both row-domain and side-domain
+    /// columns.
     pub fn from_tracked_table<B>(table: &TrackedTable<B>) -> ArithTable<B::F>
     where
         B: SnarkBackend,
@@ -670,7 +799,31 @@ impl<F: PrimeField> ArithTable<F> {
                 (field.clone(), mle)
             })
             .collect::<IndexMap<_, _>>();
-        ArithTable::new(schema, tracked_polys, size)
+        let side_cols = table
+            .side_cols
+            .iter()
+            .map(|(field, side)| {
+                // Demote the tracker's F evaluations back to raw bytes.
+                // Each value was originally `F::from(byte as u64)` with the
+                // byte in [0,255], so the low byte of the canonical
+                // little-endian representation is the original byte.
+                let data_evals = side.data.evaluations();
+                let mut data_bytes: Vec<u8> = Vec::with_capacity(data_evals.len());
+                for value in data_evals {
+                    let bigint_bytes = value.into_bigint().to_bytes_le();
+                    data_bytes.push(*bigint_bytes.first().unwrap_or(&0));
+                }
+                (
+                    field.clone(),
+                    ArithSideCol {
+                        data: data_bytes,
+                        log_size: side.log_size,
+                        active_len: side.active_len,
+                    },
+                )
+            })
+            .collect::<IndexMap<_, _>>();
+        ArithTable::new_with_side_cols(schema, tracked_polys, size, side_cols)
     }
 
     /// Returns the polynomial of the activator polynomial, if any
@@ -719,6 +872,20 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
         }
 
         (self.size() as u64).serialize_with_mode(&mut writer, compress)?;
+
+        // Side-domain columns: serialized after the row-uniform polynomials
+        // as (log_size, active_len, data_bytes). The activator is fully
+        // described by active_len (contiguous-ones), so nothing else needs
+        // to be persisted for it.
+        (self.side_cols.len() as u64).serialize_with_mode(&mut writer, compress)?;
+        for (field_ref, side) in &self.side_cols {
+            let field_bytes = serde_json::to_vec(field_ref.as_ref())
+                .map_err(|_| SerializationError::InvalidData)?;
+            field_bytes.serialize_with_mode(&mut writer, compress)?;
+            (side.log_size as u64).serialize_with_mode(&mut writer, compress)?;
+            (side.active_len as u64).serialize_with_mode(&mut writer, compress)?;
+            side.data.serialize_with_mode(&mut writer, compress)?;
+        }
         Ok(())
     }
 
@@ -743,7 +910,18 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             }
         }
 
-        size + (self.size() as u64).serialized_size(compress)
+        size += (self.size() as u64).serialized_size(compress);
+
+        size += (self.side_cols.len() as u64).serialized_size(compress);
+        for (field_ref, side) in &self.side_cols {
+            let field_bytes =
+                serde_json::to_vec(field_ref.as_ref()).expect("field serialization should succeed");
+            size += field_bytes.serialized_size(compress);
+            size += (side.log_size as u64).serialized_size(compress);
+            size += (side.active_len as u64).serialized_size(compress);
+            size += side.data.serialized_size(compress);
+        }
+        size
     }
 }
 
@@ -796,7 +974,42 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
         let size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
         let size = usize::try_from(size_raw).map_err(|_| SerializationError::InvalidData)?;
 
-        let table = Self::new(schema, polynomials, size);
+        // Side-domain columns: appended after the row-uniform table data.
+        // The count, each field, then (data, activator) MLE pair per side col.
+        let side_count_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
+        let side_count =
+            usize::try_from(side_count_raw).map_err(|_| SerializationError::InvalidData)?;
+        let mut side_cols = IndexMap::with_capacity(side_count);
+        for _ in 0..side_count {
+            let field_bytes = Vec::<u8>::deserialize_with_mode(&mut reader, compress, validate)?;
+            let field: Field = serde_json::from_slice(&field_bytes)
+                .map_err(|_| SerializationError::InvalidData)?;
+            let field_ref = Arc::new(field);
+
+            let log_size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
+            let log_size =
+                usize::try_from(log_size_raw).map_err(|_| SerializationError::InvalidData)?;
+            let active_len_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
+            let active_len =
+                usize::try_from(active_len_raw).map_err(|_| SerializationError::InvalidData)?;
+
+            let data =
+                Vec::<u8>::deserialize_with_mode(&mut reader, compress, validate)?;
+            if data.len() != (1usize << log_size) {
+                return Err(SerializationError::InvalidData);
+            }
+
+            side_cols.insert(
+                field_ref,
+                ArithSideCol {
+                    data,
+                    log_size,
+                    active_len,
+                },
+            );
+        }
+
+        let table = Self::new_with_side_cols(schema, polynomials, size, side_cols);
         table.check()?;
         Ok(table)
     }

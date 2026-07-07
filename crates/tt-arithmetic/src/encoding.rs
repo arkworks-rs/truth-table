@@ -20,20 +20,116 @@ use datafusion::arrow::{
     datatypes::{DataType, IntervalUnit, TimeUnit},
 };
 use datafusion_common::ScalarValue;
+
+/// A named slice of a column's encoded representation. A single Arrow column
+/// may expand into multiple `EncodedSegment`s — e.g. strings become
+/// `[primary hash, "__length", "__chars"]`. The first segment of each Arrow
+/// column conventionally carries an empty `suffix` (so it inherits the source
+/// column's name); additional segments use a role-specific suffix (e.g.
+/// `__length`, `__chars`) or an auto-numbered `__enc<N>` when the role is
+/// generic.
+///
+/// Segments default to the **row domain** — they share the source table's
+/// row count and the table-level `__activator__`. A segment may opt into a
+/// **side domain** by setting `side: Some(SideSegmentInfo)`; side segments
+/// live on their own multilinear domain with their own contiguous-one
+/// activator, derived from `active_len` (see [`SideSegmentInfo`]).
+#[derive(Debug, Clone)]
+pub struct EncodedSegment<F: PrimeField> {
+    pub suffix: String,
+    pub values: Vec<F>,
+    pub side: Option<SideSegmentInfo>,
+}
+
+/// Payload + sizing metadata for a side-domain segment. The segment's raw
+/// data is carried here as `bytes` (one byte per slot, pow2-padded by the
+/// caller) so it can stay 32× smaller than the field-element form used by
+/// row-domain segments. `active_len` is the count of leading non-padding
+/// entries; the side activator is a contiguous-one polynomial of that
+/// weight that downstream callers materialize on demand.
+#[derive(Debug, Clone)]
+pub struct SideSegmentInfo {
+    pub bytes: Vec<u8>,
+    pub active_len: usize,
+}
+
+impl<F: PrimeField> EncodedSegment<F> {
+    pub fn primary(values: Vec<F>) -> Self {
+        Self {
+            suffix: String::new(),
+            values,
+            side: None,
+        }
+    }
+
+    pub fn named(suffix: impl Into<String>, values: Vec<F>) -> Self {
+        Self {
+            suffix: suffix.into(),
+            values,
+            side: None,
+        }
+    }
+
+    /// Construct a side-domain segment. `bytes` carries the raw byte values
+    /// of the segment (already pow2-padded by the caller), and `active_len`
+    /// is the count of active (non-padding) leading entries. The
+    /// row-domain `values` field is left empty for side segments.
+    pub fn side(suffix: impl Into<String>, bytes: Vec<u8>, active_len: usize) -> Self {
+        debug_assert!(
+            active_len <= bytes.len(),
+            "side segment active_len {} exceeds bytes length {}",
+            active_len,
+            bytes.len()
+        );
+        Self {
+            suffix: suffix.into(),
+            values: Vec::new(),
+            side: Some(SideSegmentInfo { bytes, active_len }),
+        }
+    }
+
+    pub fn is_side(&self) -> bool {
+        self.side.is_some()
+    }
+}
+
+/// Wrap a `Vec<Vec<F>>` (one inner Vec per column) into auto-named segments:
+/// the first segment uses no suffix, subsequent segments get `__enc1`,
+/// `__enc2`, … This is the default naming when an encoder does not assign
+/// role-specific names.
+pub(crate) fn auto_segments<F: PrimeField>(cols: Vec<Vec<F>>) -> Vec<EncodedSegment<F>> {
+    cols.into_iter()
+        .enumerate()
+        .map(|(i, values)| {
+            let suffix = if i == 0 {
+                String::new()
+            } else {
+                format!("__enc{i}")
+            };
+            EncodedSegment {
+                suffix,
+                values,
+                side: None,
+            }
+        })
+        .collect()
+}
+
 /// This macro implements the `Encodable` trait for Arrow array types that can
 /// be mapped directly to field elements. No decoding functionality is provided
 /// (or needed) for now.
 macro_rules! impl_col_adapter_map {
     ($array_ty:ty, $map:expr_2021) => {
         impl<F: PrimeField> Encodable<F> for $array_ty {
-            fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-                Ok(collect_by_columns(self.len(), |idx| {
+            fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+                let cols = collect_by_columns(self.len(), |idx| {
                     if self.is_null(idx) {
                         vec![F::zero()]
                     } else {
                         vec![$map(self.value(idx))]
                     }
-                }))
+                });
+                Ok(auto_segments(cols))
             }
 
             fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -47,7 +143,7 @@ macro_rules! impl_col_adapter_map {
 macro_rules! impl_col_adapter_unsupported {
     ($array_ty:ty, $name:expr_2021) => {
         impl<F: PrimeField> Encodable<F> for $array_ty {
-            fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+            fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
                 Err(EncodeError::TypeNotSupported($name.to_string()))
             }
 
@@ -60,8 +156,110 @@ macro_rules! impl_col_adapter_unsupported {
 
 /// A trait for encoding types into PrimeField elements.
 pub trait Encodable<F: PrimeField>: Sized {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError>;
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError>;
     fn decode(field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError>;
+}
+
+/// Conventional segment suffix for the byte length of a string column.
+pub const STRING_LENGTH_SUFFIX: &str = "__length";
+
+/// Conventional segment suffix for the concatenated-characters side polynomial
+/// of a string column. Each entry is the byte value (`F::from(byte as u64)`)
+/// of one character. Bytes of active strings are laid out contiguously in
+/// row order at the start of the polynomial, then zero-padded to the next
+/// power of two. The accompanying side activator is a contiguous-one poly
+/// with `active_len = sum of active string byte lengths`.
+pub const STRING_CHARS_SUFFIX: &str = "__chars";
+
+/// Returns the source-column base name if `field_name` carries a recognized
+/// segment suffix (e.g. `"col__length"` → `Some("col")`). Returns `None`
+/// when the name does not match any known segment suffix — that case can
+/// either mean a primary segment (the column itself) or an unrelated name.
+pub fn segment_base_name(field_name: &str) -> Option<&str> {
+    if let Some(base) = field_name.strip_suffix(STRING_LENGTH_SUFFIX) {
+        return Some(base);
+    }
+    if let Some(base) = field_name.strip_suffix(STRING_CHARS_SUFFIX) {
+        return Some(base);
+    }
+    // Match `__enc<N>` auto-named segments.
+    if let Some(enc_at) = field_name.rfind("__enc") {
+        let rest = &field_name[enc_at + "__enc".len()..];
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return Some(&field_name[..enc_at]);
+        }
+    }
+    None
+}
+
+/// True if `field_name` either equals `base_name` (the primary segment) or
+/// is a recognized segment of `base_name` (e.g. `base_name__length`).
+pub fn is_segment_of(field_name: &str, base_name: &str) -> bool {
+    if field_name == base_name {
+        return true;
+    }
+    matches!(segment_base_name(field_name), Some(base) if base == base_name)
+}
+
+/// Returns the ordered **row-domain** segment suffixes that
+/// `encode_arrow_array_to_field` will produce for a column of the given Arrow
+/// data type. Used by callers that have only the schema (no data) to
+/// enumerate the same set of row-space segments the prover will produce —
+/// e.g. the verifier-side tracking pass.
+///
+/// Side-domain segments (e.g. `__chars` for strings) are NOT included here;
+/// see [`side_segment_suffixes_for_type`] to enumerate those separately.
+///
+/// Must stay in lockstep with the encoder implementations below.
+pub fn segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String> {
+    let auto = |n: usize| -> Vec<String> {
+        (0..n)
+            .map(|i| {
+                if i == 0 {
+                    String::new()
+                } else {
+                    format!("__enc{i}")
+                }
+            })
+            .collect()
+    };
+    let hash_slots = 32usize.div_ceil(field_element_byte_capacity::<F>());
+
+    match dtype {
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+            let mut s = auto(hash_slots);
+            s.push(STRING_LENGTH_SUFFIX.to_string());
+            s
+        }
+        DataType::Binary
+        | DataType::LargeBinary
+        | DataType::BinaryView
+        | DataType::FixedSizeBinary(_) => auto(hash_slots),
+        DataType::Interval(IntervalUnit::DayTime) => {
+            auto(8usize.div_ceil(field_element_byte_capacity::<F>()))
+        }
+        DataType::Interval(IntervalUnit::MonthDayNano) => {
+            auto(16usize.div_ceil(field_element_byte_capacity::<F>()))
+        }
+        _ => vec![String::new()],
+    }
+}
+
+/// Returns the **side-domain** segment suffixes the encoder will emit for the
+/// given Arrow data type, in the same order the encoder produces them. The
+/// verifier-side tracking pass uses this to enumerate the side commitments it
+/// must consume from the proof transcript.
+///
+/// Each side segment carries its own (data, activator) commitment pair; the
+/// per-segment `log_size` is shared via the transcript's miscellaneous fields
+/// since it depends on prover-side data.
+pub fn side_segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String> {
+    match dtype {
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+            vec![STRING_CHARS_SUFFIX.to_string()]
+        }
+        _ => Vec::new(),
+    }
 }
 
 // Implementation of Encodable for various Arrow array types.
@@ -146,28 +344,51 @@ fn encode_hashed_bytes<F: PrimeField>(bytes: &[u8]) -> Vec<F> {
     encode_bytes_to_fields::<F>(&hash_bytes)
 }
 
-pub fn scalar_to_field<F: PrimeField>(scalar: &ScalarValue) -> Option<F> {
+/// Encode an Arrow `ScalarValue` to its (one or more) row-domain field-element
+/// segments. Each returned segment carries exactly one value (the scalar) plus
+/// the suffix that downstream consumers should use to address it.
+///
+/// Side-domain segments (e.g. the per-column `__chars` poly produced for
+/// strings) are intentionally dropped here: literals are constants that
+/// broadcast across rows, so there is no meaningful concatenated-characters
+/// polynomial to commit for them.
+pub fn scalar_to_fields<F: PrimeField>(scalar: &ScalarValue) -> Option<Vec<EncodedSegment<F>>> {
     let array = scalar.to_array().ok()?;
-    let mut columns = encode_arrow_array_to_field::<F>(&array).ok()?;
-    if columns.len() != 1 {
+    let segments = encode_arrow_array_to_field::<F>(&array).ok()?;
+    let row_segments: Vec<EncodedSegment<F>> =
+        segments.into_iter().filter(|s| !s.is_side()).collect();
+    if row_segments.is_empty() {
         return None;
     }
-    let column = columns.pop()?;
-    if column.len() != 1 {
+    for segment in &row_segments {
+        if segment.values.len() != 1 {
+            return None;
+        }
+    }
+    Some(row_segments)
+}
+
+/// Convenience for callers that only need the primary segment's single field
+/// element. Returns `None` for scalars whose encoding expands into multiple
+/// segments (e.g. strings, which produce `[hash, length]`).
+pub fn scalar_to_field<F: PrimeField>(scalar: &ScalarValue) -> Option<F> {
+    let segments = scalar_to_fields::<F>(scalar)?;
+    if segments.len() != 1 {
         return None;
     }
-    Some(column[0])
+    segments.into_iter().next()?.values.into_iter().next()
 }
 
 impl<F: PrimeField> Encodable<F> for BinaryArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        let cols = collect_by_columns(self.len(), |idx| {
             if self.is_null(idx) {
                 Vec::new()
             } else {
                 encode_hashed_bytes::<F>(self.value(idx))
             }
-        }))
+        });
+        Ok(auto_segments(cols))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -179,14 +400,15 @@ impl<F: PrimeField> Encodable<F> for BinaryArray {
 }
 
 impl<F: PrimeField> Encodable<F> for LargeBinaryArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        let cols = collect_by_columns(self.len(), |idx| {
             if self.is_null(idx) {
                 Vec::new()
             } else {
                 encode_hashed_bytes::<F>(self.value(idx))
             }
-        }))
+        });
+        Ok(auto_segments(cols))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -198,14 +420,15 @@ impl<F: PrimeField> Encodable<F> for LargeBinaryArray {
 }
 
 impl<F: PrimeField> Encodable<F> for BinaryViewArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        let cols = collect_by_columns(self.len(), |idx| {
             if self.is_null(idx) {
                 Vec::new()
             } else {
                 encode_hashed_bytes::<F>(self.value(idx))
             }
-        }))
+        });
+        Ok(auto_segments(cols))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -217,14 +440,15 @@ impl<F: PrimeField> Encodable<F> for BinaryViewArray {
 }
 
 impl<F: PrimeField> Encodable<F> for FixedSizeBinaryArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        let cols = collect_by_columns(self.len(), |idx| {
             if self.is_null(idx) {
                 Vec::new()
             } else {
                 encode_hashed_bytes::<F>(self.value(idx))
             }
-        }))
+        });
+        Ok(auto_segments(cols))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -239,7 +463,7 @@ fn encode_utf8_like<F, A, GetValue>(
     array: &A,
     short_string_threshold: usize,
     value_fn: GetValue,
-) -> Result<Vec<Vec<F>>, EncodeError>
+) -> Result<Vec<EncodedSegment<F>>, EncodeError>
 where
     F: PrimeField,
     A: Array,
@@ -256,36 +480,84 @@ where
         }
     }
 
-    if max_len <= short_string_threshold && max_len <= 1 {
-        return Ok(collect_by_columns(rows, |idx| {
-            if array.is_null(idx) {
-                Vec::new()
-            } else {
-                let bytes = value_fn(array, idx).as_bytes();
-                let field = if bytes.is_empty() {
-                    F::zero()
-                } else {
-                    F::from(bytes[0] as u64)
-                };
-                vec![field]
-            }
-        }));
-    }
-
-    let encode_row = |idx| {
-        if array.is_null(idx) {
-            Vec::new()
-        } else {
-            let value = value_fn(array, idx).as_bytes();
-            encode_hashed_bytes::<F>(value)
-        }
+    let inline_short = max_len <= short_string_threshold && max_len <= 1;
+    // Fixed shape per column so all-null arrays still produce both segments
+    // (hash slots + length). Hash slot count is constant for a given field:
+    // hash_to_32_bytes always emits 32 bytes, chunked by field byte capacity.
+    let hash_slots = if inline_short {
+        1
+    } else {
+        32usize.div_ceil(field_element_byte_capacity::<F>())
     };
 
-    Ok(collect_by_columns(rows, encode_row))
+    let mut hash_cols: Vec<Vec<F>> = (0..hash_slots)
+        .map(|_| Vec::with_capacity(rows))
+        .collect();
+    let mut length_col: Vec<F> = Vec::with_capacity(rows);
+    // Characters side polynomial: concatenated bytes of all non-null strings
+    // in row order. Null/inactive rows contribute zero bytes (their length is
+    // already 0 in `length_col`), so the contiguous-one activator computed
+    // below correctly marks "active byte" positions at the start of the
+    // padded buffer.
+    let total_chars: usize = (0..rows)
+        .map(|idx| {
+            if array.is_null(idx) {
+                0
+            } else {
+                value_fn(array, idx).len()
+            }
+        })
+        .sum();
+    // Raw byte storage (one byte per slot) — kept as `Vec<u8>` so it stays
+    // 32× smaller than the field-element form. Downstream commit / track
+    // passes lift to `MLE<F>` only transiently.
+    let mut chars_bytes: Vec<u8> = Vec::with_capacity(total_chars);
+
+    for idx in 0..rows {
+        if array.is_null(idx) {
+            for col in &mut hash_cols {
+                col.push(F::zero());
+            }
+            length_col.push(F::zero());
+            continue;
+        }
+        let bytes = value_fn(array, idx).as_bytes();
+        if inline_short {
+            let head = if bytes.is_empty() {
+                F::zero()
+            } else {
+                F::from(bytes[0] as u64)
+            };
+            hash_cols[0].push(head);
+        } else {
+            let chunks = encode_hashed_bytes::<F>(bytes);
+            for (slot, col) in hash_cols.iter_mut().enumerate() {
+                col.push(chunks.get(slot).copied().unwrap_or_else(F::zero));
+            }
+        }
+        length_col.push(F::from(bytes.len() as u64));
+        chars_bytes.extend_from_slice(bytes);
+    }
+
+    // Pad chars segment to a power-of-two length so it forms a valid MLE
+    // domain. An empty column still produces a 1-slot, all-zero side poly so
+    // downstream tracking sees a consistent shape.
+    let chars_active_len = chars_bytes.len();
+    let chars_target_len = chars_active_len.max(1).next_power_of_two();
+    chars_bytes.resize(chars_target_len, 0u8);
+
+    let mut segments = auto_segments(hash_cols);
+    segments.push(EncodedSegment::named(STRING_LENGTH_SUFFIX, length_col));
+    segments.push(EncodedSegment::side(
+        STRING_CHARS_SUFFIX,
+        chars_bytes,
+        chars_active_len,
+    ));
+    Ok(segments)
 }
 
 impl<F: PrimeField> Encodable<F> for StringArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
     }
 
@@ -298,7 +570,7 @@ impl<F: PrimeField> Encodable<F> for StringArray {
 }
 
 impl<F: PrimeField> Encodable<F> for LargeStringArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
     }
 
@@ -311,7 +583,7 @@ impl<F: PrimeField> Encodable<F> for LargeStringArray {
 }
 
 impl<F: PrimeField> Encodable<F> for StringViewArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
     }
 
@@ -326,8 +598,8 @@ impl<F: PrimeField> Encodable<F> for StringViewArray {
 // Some manual implementation of Encodable for complex types
 
 impl<F: PrimeField> Encodable<F> for NullArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(vec![vec![F::zero(); self.len()]])
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        Ok(vec![EncodedSegment::primary(vec![F::zero(); self.len()])])
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -336,8 +608,8 @@ impl<F: PrimeField> Encodable<F> for NullArray {
 }
 
 impl<F: PrimeField> Encodable<F> for IntervalDayTimeArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        let cols = collect_by_columns(self.len(), |idx| {
             if self.is_null(idx) {
                 Vec::new()
             } else {
@@ -347,7 +619,8 @@ impl<F: PrimeField> Encodable<F> for IntervalDayTimeArray {
                 bytes[4..].copy_from_slice(&interval.milliseconds.to_le_bytes());
                 encode_bytes_to_fields::<F>(&bytes)
             }
-        }))
+        });
+        Ok(auto_segments(cols))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -359,8 +632,8 @@ impl<F: PrimeField> Encodable<F> for IntervalDayTimeArray {
 }
 
 impl<F: PrimeField> Encodable<F> for IntervalMonthDayNanoArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        let cols = collect_by_columns(self.len(), |idx| {
             if self.is_null(idx) {
                 Vec::new()
             } else {
@@ -371,7 +644,8 @@ impl<F: PrimeField> Encodable<F> for IntervalMonthDayNanoArray {
                 bytes[8..16].copy_from_slice(&interval.nanoseconds.to_le_bytes());
                 encode_bytes_to_fields::<F>(&bytes)
             }
-        }))
+        });
+        Ok(auto_segments(cols))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -386,7 +660,7 @@ impl<F: PrimeField, K> Encodable<F> for DictionaryArray<K>
 where
     K: datafusion::arrow::datatypes::ArrowDictionaryKeyType,
 {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         Err(EncodeError::TypeNotSupported("Dictionary".to_string()))
     }
 
@@ -422,11 +696,11 @@ impl_col_adapter_unsupported!(Int64RunArray, "RunEndEncoded");
 /// The main function for dispatching encoders based on the Arrow data type.
 pub fn encode_arrow_array_to_field<F: PrimeField>(
     array: &ArrayRef,
-) -> Result<Vec<Vec<F>>, EncodeError> {
+) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
     fn downcast_and_encode<F: PrimeField, A: Encodable<F> + 'static>(
         array: &ArrayRef,
         err_msg: &'static str,
-    ) -> Result<Vec<Vec<F>>, EncodeError> {
+    ) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         array.as_any().downcast_ref::<A>().expect(err_msg).encode()
     }
 
@@ -733,13 +1007,21 @@ mod tests {
         let array = StringArray::from(vec![Some("a"), Some(""), None, Some("Z")]);
         let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();
 
-        assert_eq!(encoded.len(), 1);
-        let column = &encoded[0];
-        assert_eq!(column.len(), array.len());
-        assert_eq!(column[0], Fr::from(97u64));
-        assert_eq!(column[1], Fr::zero());
-        assert_eq!(column[2], Fr::zero());
-        assert_eq!(column[3], Fr::from(90u64));
+        assert_eq!(encoded.len(), 2);
+        assert_eq!(encoded[0].suffix, "");
+        assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);
+        let hash_col = &encoded[0].values;
+        let length_col = &encoded[1].values;
+        assert_eq!(hash_col.len(), array.len());
+        assert_eq!(length_col.len(), array.len());
+        assert_eq!(hash_col[0], Fr::from(97u64));
+        assert_eq!(hash_col[1], Fr::zero());
+        assert_eq!(hash_col[2], Fr::zero());
+        assert_eq!(hash_col[3], Fr::from(90u64));
+        assert_eq!(length_col[0], Fr::from(1u64));
+        assert_eq!(length_col[1], Fr::zero());
+        assert_eq!(length_col[2], Fr::zero());
+        assert_eq!(length_col[3], Fr::from(1u64));
     }
 
     #[test]
@@ -747,14 +1029,33 @@ mod tests {
         let array = StringArray::from(vec![Some("foo"), Some("bar"), None, Some("baz")]);
         let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();
 
-        assert_eq!(encoded.len(), 1);
-        let column = &encoded[0];
-        assert_eq!(column.len(), array.len());
-        let expected = encode_hashed_bytes::<Fr>(b"foo");
-        assert_eq!(column[0], expected[0]);
-        assert_eq!(column[1], encode_hashed_bytes::<Fr>(b"bar")[0]);
-        assert_eq!(column[2], Fr::zero());
-        assert_eq!(column[3], encode_hashed_bytes::<Fr>(b"baz")[0]);
+        assert_eq!(encoded.len(), 2);
+        assert_eq!(encoded[0].suffix, "");
+        assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);
+        let hash_col = &encoded[0].values;
+        let length_col = &encoded[1].values;
+        assert_eq!(hash_col.len(), array.len());
+        assert_eq!(length_col.len(), array.len());
+        assert_eq!(hash_col[0], encode_hashed_bytes::<Fr>(b"foo")[0]);
+        assert_eq!(hash_col[1], encode_hashed_bytes::<Fr>(b"bar")[0]);
+        assert_eq!(hash_col[2], Fr::zero());
+        assert_eq!(hash_col[3], encode_hashed_bytes::<Fr>(b"baz")[0]);
+        assert_eq!(length_col[0], Fr::from(3u64));
+        assert_eq!(length_col[1], Fr::from(3u64));
+        assert_eq!(length_col[2], Fr::zero());
+        assert_eq!(length_col[3], Fr::from(3u64));
+    }
+
+    #[test]
+    fn string_scalar_encodes_to_multiple_segments() {
+        let scalar = ScalarValue::Utf8(Some("hello".to_string()));
+        let segments = scalar_to_fields::<Fr>(&scalar).expect("scalar should encode");
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].suffix, "");
+        assert_eq!(segments[1].suffix, STRING_LENGTH_SUFFIX);
+        assert_eq!(segments[1].values, vec![Fr::from(5u64)]);
+        // scalar_to_field's single-field convenience refuses multi-segment scalars
+        assert!(scalar_to_field::<Fr>(&scalar).is_none());
     }
 
     // #[test]
