@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="TruthTable logo" width="100" />
+  <img src="assets/logo.png" alt="TruthTable logo" width="100" />
 </p>
 
 # TruthTable

@@ -1,0 +1,6 @@
+/* Constrain the hero logo on the landing (splash) page — the default is large. */
+.hero img {
+	width: min(70%, 180px);
+	height: auto;
+	margin-inline: auto;
+}
