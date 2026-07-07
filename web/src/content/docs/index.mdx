@@ -3,7 +3,10 @@ title: TruthTable
 description: A verifiable query engine that produces succinct cryptographic proofs that SQL query results are correct.
 template: splash
 hero:
-  tagline: A verifiable query engine — prove that SQL query results are correct, with succinct cryptographic proofs and full TPC-H support.
+  tagline: The database that can't lie to you.
+  image:
+    file: ../../assets/logo.png
+    alt: TruthTable logo
   actions:
     - text: Get Started
       link: /guides/introduction/
@@ -16,24 +19,24 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Why TruthTable?
+## What is TruthTable?
 
-TruthTable lets an untrusted party execute a SQL query over a committed dataset
-and return the result **together with a proof** that the result is correct — no
-need to trust the operator or re-run the query yourself.
+TruthTable is a verifiable query engine that lets an untrusted party execute a
+query over a committed dataset and return the result **together with a proof**
+that the result is correct — no need to trust the operator or re-run the query
+yourself.
 
-<CardGrid stagger>
-	<Card title="Verifiable results" icon="approve-check">
-		Every query result comes with a succinct proof that a verifier can check
-		in a fraction of the time it takes to run the query.
+<CardGrid>
+	<Card title="Light-Weight Verification" icon="approve-check">
+		Every query can be verified in milliseconds, against a proof only
+		kilobytes in size.
 	</Card>
-	<Card title="Complete TPC-H support" icon="list-format">
-		The engine handles the full TPC-H benchmark — joins, aggregates, sorts,
-		and nested subqueries — not just a hand-picked subset.
+	<Card title="Blazing-fast prover" icon="rocket">
+		No exotic hardware required — the prover stays lightweight and scales to
+		huge databases.
 	</Card>
-	<Card title="Built on arkworks" icon="setting">
-		Implemented in Rust on top of the arkworks ecosystem for
-		SNARK-friendly arithmetic and commitments.
+	<Card title="Formally secure" icon="padlock">
+		Protocol soundness is proved with formal verification.
 	</Card>
 	<Card title="Open source" icon="github">
 		Developed in the open at

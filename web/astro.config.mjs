@@ -11,6 +11,12 @@ export default defineConfig({
 			title: 'TruthTable',
 			description:
 				'TruthTable is a verifiable query engine: it produces succinct cryptographic proofs that SQL query results are correct.',
+			favicon: '/logo.png',
+			logo: {
+				src: './src/assets/logo.png',
+				alt: 'TruthTable logo',
+			},
+			customCss: ['./src/styles/custom.css'],
 			social: [
 				{
 					icon: 'github',
