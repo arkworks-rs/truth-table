@@ -2,6 +2,9 @@
 title: TruthTable
 description: A verifiable query engine that produces succinct cryptographic proofs that SQL query results are correct.
 template: splash
+head:
+  - tag: title
+    content: TruthTable
 hero:
   tagline: The database that can't lie to you.
   image:
@@ -17,7 +20,11 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Icon } from '@astrojs/starlight/components';
+import EngineIO from '../../components/EngineIO.astro';
+import UseCases from '../../components/UseCases.astro';
+
+---
 
 ## What is TruthTable?
 
@@ -26,20 +33,69 @@ query over a committed dataset and return the result **together with a proof**
 that the result is correct — no need to trust the operator or re-run the query
 yourself.
 
-<CardGrid>
-	<Card title="Light-Weight Verification" icon="approve-check">
-		Every query can be verified in milliseconds, against a proof only
-		kilobytes in size.
-	</Card>
-	<Card title="Blazing-fast prover" icon="rocket">
-		No exotic hardware required — the prover stays lightweight and scales to
-		huge databases.
-	</Card>
-	<Card title="Formally secure" icon="padlock">
-		Protocol soundness is proved with formal verification.
-	</Card>
-	<Card title="Open source" icon="github">
-		Developed in the open at
-		[arkworks-rs/truth-table](https://github.com/arkworks-rs/truth-table).
-	</Card>
-</CardGrid>
+<EngineIO />
+
+---
+
+## Why TruthTable?
+
+<div class="feature-tiles not-content">
+	<div class="feature-tile">
+		<Icon name="approve-check" size="2.5rem" />
+		<span class="tile-title">Light-Weight Verification</span>
+		<span class="tile-desc">Verify in milliseconds, with kilobyte-sized proofs.</span>
+	</div>
+	<div class="feature-tile">
+		<Icon name="rocket" size="2.5rem" />
+		<span class="tile-title">Blazing-fast prover</span>
+		<span class="tile-desc">Lightweight prover that scales to huge databases.</span>
+	</div>
+	<div class="feature-tile">
+		<Icon name="padlock" size="2.5rem" />
+		<span class="tile-title">Formally secure</span>
+		<span class="tile-desc">Soundness proved by formal verification.</span>
+	</div>
+	<div class="feature-tile">
+		<Icon name="github" size="2.5rem" />
+		<span class="tile-title">Open source</span>
+		<span class="tile-desc">Fully open on GitHub.</span>
+	</div>
+</div>
+
+---
+
+## Use cases
+
+<UseCases />
+
+---
+
+## Paper
+
+TruthTable is backed by an academic paper:
+
+- **[TruthTable: A Verifiable Query Engine](https://eprint.iacr.org/2026/1260)** —
+  Bharath Namboothiry, Alireza Shirzad, Spencer Solit, Ryan Marcus, and Pratyush
+  Mishra (2026)
+
+More papers to come.
+
+### Cite
+
+```bibtex
+@misc{cryptoeprint:2026/1260,
+      author = {Bharath Namboothiry and Alireza Shirzad and Spencer Solit and Ryan Marcus and Pratyush Mishra},
+      title = {{TruthTable}: A Verifiable Query Engine},
+      howpublished = {Cryptology {ePrint} Archive, Paper 2026/1260},
+      year = {2026},
+      url = {https://eprint.iacr.org/2026/1260}
+}
+```
+
+<footer class="landing-footer">
+
+[GitHub](https://github.com/arkworks-rs/truth-table) · [Documentation](/guides/introduction/) · [License](https://github.com/arkworks-rs/truth-table/blob/main/LICENSE)
+
+Built by researchers at the University of Pennsylvania. Released under the PolyForm Noncommercial 1.0.0 license.
+
+</footer>

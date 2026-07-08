@@ -1,0 +1,56 @@
+---
+// Landing-page figure: TruthTable as a black box that takes a query + data
+// and returns a result + a proof.
+---
+
+<figure class="tt-figure">
+	<svg
+		viewBox="0 0 640 200"
+		role="img"
+		aria-label="TruthTable takes a query and data as input and produces a result and a proof."
+	>
+		<!-- inputs -->
+		<rect class="tt-fig-box" x="16" y="30" width="128" height="52" rx="8" />
+		<svg class="tt-fig-icon" x="69" y="37" width="22" height="22" viewBox="0 0 24 24"><path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.39ZM11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg>
+		<text class="tt-fig-label" x="80" y="74" text-anchor="middle">Query</text>
+
+		<rect class="tt-fig-box" x="16" y="118" width="128" height="52" rx="8" />
+		<svg class="tt-fig-icon" x="69" y="125" width="22" height="22" viewBox="0 0 24 24"><path d="M8 16.5a1 1 0 1 0 1 1 1 1 0 0 0-1-1M12 2C8 2 4 3.37 4 6v12c0 2.63 4 4 8 4s8-1.37 8-4V6c0-2.63-4-4-8-4m6 16c0 .71-2.28 2-6 2s-6-1.29-6-2v-3.27A13 13 0 0 0 12 16a13 13 0 0 0 6-1.27Zm0-6c0 .71-2.28 2-6 2s-6-1.29-6-2V8.73A13 13 0 0 0 12 10a13 13 0 0 0 6-1.27Zm-6-4C8.28 8 6 6.71 6 6s2.28-2 6-2 6 1.29 6 2-2.28 2-6 2m-4 2.5a1 1 0 1 0 1 1 1 1 0 0 0-1-1"/></svg>
+		<text class="tt-fig-label" x="80" y="162" text-anchor="middle">Data</text>
+
+		<!-- engine -->
+		<rect class="tt-fig-box-accent" x="248" y="24" width="144" height="152" rx="14" />
+		<image href="/logo.png" x="294" y="38" width="52" height="52" />
+		<text class="tt-fig-title" x="320" y="110" text-anchor="middle">TruthTable</text>
+		<line class="tt-fig-line" x1="272" y1="122" x2="368" y2="122" />
+		<text class="tt-fig-credit" x="320" y="139" text-anchor="middle">powered by</text>
+		<image class="df-logo-light" href="/datafusion-black.svg" x="286" y="147" width="13" height="14" preserveAspectRatio="xMidYMid meet" />
+		<image class="df-logo-dark" href="/datafusion-white.svg" x="286" y="147" width="13" height="14" preserveAspectRatio="xMidYMid meet" />
+		<text class="tt-fig-credit" x="303" y="158" text-anchor="start">DataFusion</text>
+
+		<!-- outputs -->
+		<rect class="tt-fig-box" x="496" y="30" width="128" height="52" rx="8" />
+		<svg class="tt-fig-icon" x="549" y="37" width="22" height="22" viewBox="0 0 24 24"><path d="M3.71 16.29a1 1 0 0 0-.33-.21 1 1 0 0 0-.76 0 1 1 0 0 0-.33.21 1 1 0 0 0-.21.33 1 1 0 0 0 .21 1.09c.097.088.209.16.33.21a.94.94 0 0 0 .76 0 1.15 1.15 0 0 0 .33-.21 1 1 0 0 0 .21-1.09 1 1 0 0 0-.21-.33ZM7 8h14a1 1 0 1 0 0-2H7a1 1 0 0 0 0 2Zm-3.29 3.29a1 1 0 0 0-1.09-.21 1.15 1.15 0 0 0-.33.21 1 1 0 0 0-.21.33.94.94 0 0 0 0 .76c.05.121.122.233.21.33.097.088.209.16.33.21a.94.94 0 0 0 .76 0 1.15 1.15 0 0 0 .33-.21 1.15 1.15 0 0 0 .21-.33.94.94 0 0 0 0-.76 1 1 0 0 0-.21-.33ZM21 11H7a1 1 0 0 0 0 2h14a1 1 0 0 0 0-2ZM3.71 6.29a1 1 0 0 0-.33-.21 1 1 0 0 0-1.09.21 1.15 1.15 0 0 0-.21.33.94.94 0 0 0 0 .76c.05.121.122.233.21.33.097.088.209.16.33.21a1 1 0 0 0 1.09-.21 1.15 1.15 0 0 0 .21-.33.94.94 0 0 0 0-.76 1.15 1.15 0 0 0-.21-.33ZM21 16H7a1 1 0 0 0 0 2h14a1 1 0 0 0 0-2Z"/></svg>
+		<text class="tt-fig-label" x="560" y="74" text-anchor="middle">Result</text>
+
+		<rect class="tt-fig-box" x="496" y="118" width="128" height="52" rx="8" />
+		<svg class="tt-fig-icon" x="549" y="125" width="22" height="22" viewBox="0 0 24 24"><path d="M12 13a1.5 1.5 0 0 0-1 2.6V17a1 1 0 0 0 2 0v-1.4a1.5 1.5 0 0 0-1-2.6m5-4V7A5 5 0 0 0 7 7v2a3 3 0 0 0-3 3v7a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-7a3 3 0 0 0-3-3M9 7a3 3 0 0 1 6 0v2H9Zm9 12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1Z"/></svg>
+		<text class="tt-fig-label" x="560" y="162" text-anchor="middle">Proof</text>
+
+		<!-- arrows in -->
+		<line class="tt-fig-line" x1="144" y1="56" x2="238" y2="56" />
+		<polygon class="tt-fig-arrow" points="238,51 248,56 238,61" />
+		<line class="tt-fig-line" x1="144" y1="144" x2="238" y2="144" />
+		<polygon class="tt-fig-arrow" points="238,139 248,144 238,149" />
+
+		<!-- arrows out -->
+		<line class="tt-fig-line" x1="392" y1="56" x2="486" y2="56" />
+		<polygon class="tt-fig-arrow" points="486,51 496,56 486,61" />
+		<line class="tt-fig-line" x1="392" y1="144" x2="486" y2="144" />
+		<polygon class="tt-fig-arrow" points="486,139 496,144 486,149" />
+	</svg>
+	<figcaption>
+		TruthTable takes a query and the data as input, and returns the result
+		together with a proof of its correctness.
+	</figcaption>
+</figure>

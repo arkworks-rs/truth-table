@@ -1,6 +1,235 @@
+/* Hide the header search box on the landing (hero) page only; docs pages keep it. */
+[data-has-hero] site-search {
+	display: none;
+}
+
 /* Constrain the hero logo on the landing (splash) page — the default is large. */
 .hero img {
 	width: min(70%, 180px);
 	height: auto;
 	margin-inline: auto;
+}
+
+/* Landing-page diagrams (SVG figures). Colors come from Starlight theme vars
+   so they adapt to light/dark automatically. */
+.tt-figure {
+	margin: 1.75rem auto;
+}
+
+.tt-figure svg {
+	display: block;
+	width: 100%;
+	height: auto;
+	max-width: 600px;
+	margin-inline: auto;
+}
+
+.tt-figure figcaption {
+	max-width: 560px;
+	margin: 0.6rem auto 0;
+	text-align: center;
+	font-size: var(--sl-text-xs);
+	line-height: 1.45;
+	color: var(--sl-color-gray-3);
+}
+
+.tt-fig-box {
+	fill: var(--sl-color-gray-6, rgba(128, 128, 128, 0.08));
+	stroke: var(--sl-color-gray-5);
+	stroke-width: 1.5;
+}
+
+.tt-fig-box-accent {
+	fill: var(--sl-color-accent-low);
+	stroke: var(--sl-color-accent);
+	stroke-width: 1.5;
+}
+
+.tt-fig-outline {
+	fill: none;
+	stroke: var(--sl-color-accent);
+	stroke-width: 1.5;
+}
+
+.tt-fig-title {
+	fill: var(--sl-color-white);
+	font-size: 17px;
+	font-weight: 700;
+}
+
+.tt-fig-label {
+	fill: var(--sl-color-white);
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.tt-fig-sub {
+	fill: var(--sl-color-gray-2);
+	font-size: 11.5px;
+}
+
+.tt-fig-line {
+	stroke: var(--sl-color-gray-4);
+	stroke-width: 1.6;
+	fill: none;
+}
+
+.tt-fig-arrow {
+	fill: var(--sl-color-gray-4);
+}
+
+.tt-fig-icon {
+	fill: var(--sl-color-accent);
+}
+
+.tt-fig-op {
+	fill: var(--sl-color-gray-3);
+	font-size: 26px;
+	font-weight: 400;
+}
+
+.tt-fig-credit {
+	fill: var(--sl-color-gray-3);
+	font-size: 9.5px;
+}
+
+/* DataFusion logo: swap black/white variant by theme for contrast. */
+.df-logo-dark {
+	display: none;
+}
+:root[data-theme='dark'] .df-logo-light {
+	display: none;
+}
+:root[data-theme='dark'] .df-logo-dark {
+	display: inline;
+}
+
+/* Feature tiles — four squares on a single row. */
+.feature-tiles {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 1rem;
+	margin-top: 1.5rem;
+}
+
+.feature-tile {
+	aspect-ratio: 1 / 1;
+	/* Let the square drive the height instead of the content, so all four tiles
+	   render at exactly the same size regardless of how their text wraps. */
+	min-height: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	gap: 0.5rem;
+	padding: 0.85rem;
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 0.75rem;
+	background: var(--sl-color-gray-6, rgba(128, 128, 128, 0.06));
+}
+
+.feature-tile svg {
+	color: var(--sl-color-accent);
+}
+
+.tile-title {
+	font-weight: 600;
+	line-height: 1.2;
+	color: var(--sl-color-white);
+}
+
+.tile-desc {
+	font-size: var(--sl-text-xs);
+	line-height: 1.35;
+	color: var(--sl-color-gray-3);
+}
+
+/* Stack into 2×2 when there isn't room for four across. */
+@media (max-width: 720px) {
+	.feature-tiles {
+		grid-template-columns: repeat(2, 1fr);
+	}
+}
+
+/* Use cases — rich interactive cards. */
+.use-cases {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 1rem;
+	margin-top: 1.5rem;
+}
+
+.use-case {
+	display: flex;
+	gap: 1rem;
+	padding: 1.25rem;
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 0.85rem;
+	background: linear-gradient(
+		160deg,
+		var(--sl-color-gray-6, rgba(128, 128, 128, 0.08)),
+		transparent 65%
+	);
+	transition:
+		transform 0.16s ease,
+		border-color 0.16s ease,
+		box-shadow 0.16s ease;
+}
+
+.use-case:hover {
+	transform: translateY(-3px);
+	border-color: var(--sl-color-accent);
+	box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.5);
+}
+
+.use-case-icon {
+	flex: none;
+	width: 44px;
+	height: 44px;
+	display: grid;
+	place-items: center;
+	border-radius: 12px;
+	background: var(--sl-color-accent-low);
+	color: var(--sl-color-accent);
+}
+
+.use-case-body {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+}
+
+.use-case-title {
+	font-weight: 600;
+	line-height: 1.25;
+	color: var(--sl-color-white);
+}
+
+.use-case-desc {
+	font-size: var(--sl-text-sm);
+	line-height: 1.5;
+	color: var(--sl-color-gray-3);
+}
+
+@media (max-width: 640px) {
+	.use-cases {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* Landing-page footer. */
+.landing-footer {
+	display: block;
+	margin-top: 4rem;
+	padding-top: 2rem;
+	border-top: 1px solid var(--sl-color-hairline);
+	text-align: center;
+	font-size: var(--sl-text-sm);
+	color: var(--sl-color-gray-3);
+}
+
+.landing-footer a {
+	color: var(--sl-color-gray-2);
 }

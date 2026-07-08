@@ -1,0 +1,42 @@
+---
+import { Icon } from '@astrojs/starlight/components';
+
+const cases = [
+	{
+		icon: 'server',
+		title: 'Outsourced & cloud databases',
+		desc: 'Run queries on an untrusted server and get a proof the answers are honest — no need to trust the host or keep a copy of the data.',
+	},
+	{
+		icon: 'database',
+		title: 'Data marketplaces',
+		desc: 'Sell query access to a committed dataset while letting buyers verify that every answer was computed faithfully.',
+	},
+	{
+		icon: 'link',
+		title: 'On-chain & rollups',
+		desc: 'Move heavy SQL off-chain and post succinct proofs that a smart contract can verify cheaply.',
+	},
+	{
+		icon: 'analytics',
+		title: 'Audited analytics',
+		desc: 'Give auditors and regulators cryptographic assurance that reported figures match the underlying records.',
+	},
+];
+---
+
+<div class="use-cases not-content">
+	{
+		cases.map((c) => (
+			<div class="use-case">
+				<span class="use-case-icon">
+					<Icon name={c.icon} size="1.4rem" />
+				</span>
+				<span class="use-case-body">
+					<span class="use-case-title">{c.title}</span>
+					<span class="use-case-desc">{c.desc}</span>
+				</span>
+			</div>
+		))
+	}
+</div>
