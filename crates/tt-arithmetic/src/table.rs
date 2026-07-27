@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use ark_ff::{BigInteger, PrimeField, Zero};
+use ark_ff::{PrimeField, Zero};
 
 use crate::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, col::TrackedCol,
@@ -535,16 +535,19 @@ impl<B: SnarkBackend> TrackedTable<B> {
 /// A side-domain polynomial that lives **outside** the row-uniform table.
 /// Carries its own `log_size` (generally different from the owning table's)
 /// and a contiguous-one activator that is fully described by `active_len`.
-/// Used for things like the per-column concatenated `__chars` polynomial.
+/// Used for the per-string-column char-level polynomials from paper §3.2
+/// (`__chars`, `__orig_ind`, `__int_ind`, `__bnd`).
 ///
-/// The data poly is stored as raw bytes so it stays 32× smaller than the
-/// field-element form. Commit and tracking passes materialize transient
-/// `MLE<F>` views from these bytes (and from `active_len` for the
-/// activator) only at the moment of MSM / proof-binding, then drop them.
+/// The data poly is stored in its narrowest native form (bytes for chars/bnd,
+/// u32 for orig_ind/int_ind) so it stays much smaller than the field-element
+/// form. Commit and tracking passes materialize transient `MLE<F>` views from
+/// this raw data (and from `active_len` for the activator) only at the moment
+/// of MSM / proof-binding, then drop them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArithSideCol {
-    /// Raw byte values, pow2-padded with zeros. Length == `1 << log_size`.
-    pub data: Vec<u8>,
+    /// Element-type-tagged raw values, pow2-padded with zeros.
+    /// `data.len()` == `1 << log_size`.
+    pub data: crate::encoding::SideColData,
     /// Number of variables in the side-domain MLE (data and activator
     /// share this).
     pub log_size: usize,
@@ -799,30 +802,15 @@ impl<F: PrimeField> ArithTable<F> {
                 (field.clone(), mle)
             })
             .collect::<IndexMap<_, _>>();
-        let side_cols = table
-            .side_cols
-            .iter()
-            .map(|(field, side)| {
-                // Demote the tracker's F evaluations back to raw bytes.
-                // Each value was originally `F::from(byte as u64)` with the
-                // byte in [0,255], so the low byte of the canonical
-                // little-endian representation is the original byte.
-                let data_evals = side.data.evaluations();
-                let mut data_bytes: Vec<u8> = Vec::with_capacity(data_evals.len());
-                for value in data_evals {
-                    let bigint_bytes = value.into_bigint().to_bytes_le();
-                    data_bytes.push(*bigint_bytes.first().unwrap_or(&0));
-                }
-                (
-                    field.clone(),
-                    ArithSideCol {
-                        data: data_bytes,
-                        log_size: side.log_size,
-                        active_len: side.active_len,
-                    },
-                )
-            })
-            .collect::<IndexMap<_, _>>();
+        // Side cols on the TrackedTable side hold `TrackedPoly<B>` handles;
+        // demoting them back to raw byte / u32 values would require
+        // knowing each column's original element type by suffix. Since
+        // this conversion has no live callers today, we drop side cols
+        // for now. If a caller needs the round-trip, extend this to
+        // recover the element type from the segment suffix
+        // (`__chars`, `__bnd` → Bytes; `__orig_ind`, `__int_ind` → U32).
+        let side_cols: IndexMap<FieldRef, ArithSideCol> = IndexMap::new();
+        let _ = table.side_cols.iter(); // touch to keep it live if reactivated
         ArithTable::new_with_side_cols(schema, tracked_polys, size, side_cols)
     }
 
@@ -884,7 +872,17 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             field_bytes.serialize_with_mode(&mut writer, compress)?;
             (side.log_size as u64).serialize_with_mode(&mut writer, compress)?;
             (side.active_len as u64).serialize_with_mode(&mut writer, compress)?;
-            side.data.serialize_with_mode(&mut writer, compress)?;
+            // Element-type tag: 0 = Bytes, 1 = U32. New tags append.
+            match &side.data {
+                crate::encoding::SideColData::Bytes(bytes) => {
+                    0u8.serialize_with_mode(&mut writer, compress)?;
+                    bytes.serialize_with_mode(&mut writer, compress)?;
+                }
+                crate::encoding::SideColData::U32(vals) => {
+                    1u8.serialize_with_mode(&mut writer, compress)?;
+                    vals.serialize_with_mode(&mut writer, compress)?;
+                }
+            }
         }
         Ok(())
     }
@@ -919,7 +917,11 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             size += field_bytes.serialized_size(compress);
             size += (side.log_size as u64).serialized_size(compress);
             size += (side.active_len as u64).serialized_size(compress);
-            size += side.data.serialized_size(compress);
+            size += 0u8.serialized_size(compress); // element-type tag
+            size += match &side.data {
+                crate::encoding::SideColData::Bytes(bytes) => bytes.serialized_size(compress),
+                crate::encoding::SideColData::U32(vals) => vals.serialized_size(compress),
+            };
         }
         size
     }
@@ -993,11 +995,27 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
             let active_len =
                 usize::try_from(active_len_raw).map_err(|_| SerializationError::InvalidData)?;
 
-            let data =
-                Vec::<u8>::deserialize_with_mode(&mut reader, compress, validate)?;
-            if data.len() != (1usize << log_size) {
-                return Err(SerializationError::InvalidData);
-            }
+            // Element-type tag: 0 = Bytes, 1 = U32.
+            let tag = u8::deserialize_with_mode(&mut reader, compress, validate)?;
+            let data = match tag {
+                0 => {
+                    let bytes =
+                        Vec::<u8>::deserialize_with_mode(&mut reader, compress, validate)?;
+                    if bytes.len() != (1usize << log_size) {
+                        return Err(SerializationError::InvalidData);
+                    }
+                    crate::encoding::SideColData::Bytes(bytes)
+                }
+                1 => {
+                    let vals =
+                        Vec::<u32>::deserialize_with_mode(&mut reader, compress, validate)?;
+                    if vals.len() != (1usize << log_size) {
+                        return Err(SerializationError::InvalidData);
+                    }
+                    crate::encoding::SideColData::U32(vals)
+                }
+                _ => return Err(SerializationError::InvalidData),
+            };
 
             side_cols.insert(
                 field_ref,

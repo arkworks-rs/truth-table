@@ -16,16 +16,23 @@ use indexmap::IndexMap;
 use serde_json::{Value, json};
 use tracing::{debug, info};
 
-/// Lift the byte buffer of a side-col data poly into a transient
+/// Lift a side-col data poly (native u8 or u32 storage) into a transient
 /// `MLE<F>`. Caller is expected to drop the returned Arc as soon as the
 /// MSM / proof-binding consuming it returns, so the F-form never persists
 /// past the operation that needs it.
 fn materialize_side_data_mle<F: PrimeField>(
-    bytes: &[u8],
+    data: &arithmetic::encoding::SideColData,
     log_size: usize,
 ) -> Arc<MLE<F>> {
-    debug_assert_eq!(bytes.len(), 1usize << log_size);
-    let evals: Vec<F> = bytes.iter().map(|&b| F::from(b as u64)).collect();
+    debug_assert_eq!(data.len(), 1usize << log_size);
+    let evals: Vec<F> = match data {
+        arithmetic::encoding::SideColData::Bytes(bytes) => {
+            bytes.iter().map(|&b| F::from(b as u64)).collect()
+        }
+        arithmetic::encoding::SideColData::U32(vals) => {
+            vals.iter().map(|&v| F::from(v as u64)).collect()
+        }
+    };
     Arc::new(MLE::from_evaluations_vec(log_size, evals))
 }
 

@@ -66,7 +66,8 @@ impl<B: SnarkBackend> TrackingPass<B> {
         }
 
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
+        // Final output table: no side segments — no downstream PIOP consumes them.
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, false);
         let tracked_table = Self::track_output_table_oracle(&arith_table, &self.verifier);
         let gadget_id = root
             .children()
@@ -123,14 +124,19 @@ where
                         return track_hint_df_from_oracle(hint_df, oracle, &self.verifier)
                             .map(TrackedPayload::PlanPayload);
                     }
-                    return track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload);
+                    // TableScan without cached oracle: prover emits side commits,
+                    // verifier must consume them.
+                    return track_hint_df(hint_df, &self.verifier, true)
+                        .map(TrackedPayload::PlanPayload);
                 }
-                track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload)
+                // Intermediate operator: prover skips side segments (see
+                // ArithmetizationPass), so verifier must skip them too.
+                track_hint_df(hint_df, &self.verifier, false).map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (key, hint_df) in map.iter() {
-                    if let Some(table) = track_hint_df(hint_df, &self.verifier) {
+                    if let Some(table) = track_hint_df(hint_df, &self.verifier, false) {
                         out.insert(key.clone(), table);
                     }
                 }
@@ -263,6 +269,7 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
 fn track_hint_df<B: SnarkBackend>(
     hint_df: &crate::irs::nodes::hints::HintDF,
     verifier: &RefCell<ArgVerifier<B>>,
+    emit_side_segments: bool,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
@@ -308,29 +315,31 @@ fn track_hint_df<B: SnarkBackend>(
             tracked_oracles.insert(segment_field, oracle);
         }
     }
-    for qualified_field in &materialized {
-        for side_field in side_segment_fields::<B>(qualified_field) {
-            let data = verifier
-                .track_next_mv_com()
-                .expect("verifier should track side data commitment");
-            let activator = verifier
-                .track_next_mv_com()
-                .expect("verifier should track side activator commitment");
-            let side_log_size = data.log_size();
-            debug_assert_eq!(
-                side_log_size,
-                activator.log_size(),
-                "side data/activator must share log_size"
-            );
-            side_cols.insert(
-                side_field,
-                arithmetic::table_oracle::TrackedSideColOracle {
-                    data,
-                    activator,
-                    log_size: side_log_size,
-                    active_len: 0,
-                },
-            );
+    if emit_side_segments {
+        for qualified_field in &materialized {
+            for side_field in side_segment_fields::<B>(qualified_field) {
+                let data = verifier
+                    .track_next_mv_com()
+                    .expect("verifier should track side data commitment");
+                let activator = verifier
+                    .track_next_mv_com()
+                    .expect("verifier should track side activator commitment");
+                let side_log_size = data.log_size();
+                debug_assert_eq!(
+                    side_log_size,
+                    activator.log_size(),
+                    "side data/activator must share log_size"
+                );
+                side_cols.insert(
+                    side_field,
+                    arithmetic::table_oracle::TrackedSideColOracle {
+                        data,
+                        activator,
+                        log_size: side_log_size,
+                        active_len: 0,
+                    },
+                );
+            }
         }
     }
     // If there was no columns to be materialized, return None

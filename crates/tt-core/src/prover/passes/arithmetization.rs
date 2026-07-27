@@ -42,17 +42,26 @@ where
         _id: NodeId,
         payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
+        // Side-domain string columns (`__chars` and its future siblings
+        // `orig-ind`, `int-ind`, `bnd`) are only emitted for base tables
+        // (TableScan). Intermediate operators denormalize string columns
+        // across join fan-outs, which would produce char-level polys sized
+        // to (joined_rows × avg_len) — quickly exceeding both the SRS
+        // ceiling and available memory. Since no PIOP consumes these yet,
+        // dropping them for intermediates is safe; when white-box string
+        // gadgets land, they can opt back in per-column as needed.
+        let emit_side = node.name() == "TableScan";
         match payload? {
             MaterializedPayload::PlanPayload(mat) => {
-                let arithmetized_table = arithmetize_materialized_table(mat);
-                tracing::debug!( node = %node.name(), typ= "plan", num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), "Arithmetized");
+                let arithmetized_table = arithmetize_materialized_table(mat, emit_side);
+                tracing::debug!( node = %node.name(), typ= "plan", num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), side_cols= arithmetized_table.side_cols().len(), "Arithmetized");
                 Some(ArithPayload::PlanPayload(arithmetized_table))
             }
             MaterializedPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (k, mat) in map {
-                    let arithmetized_table = arithmetize_materialized_table(mat);
-                    tracing::debug!( node = %node.name(), typ= "plan", key = %k, num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), "Arithmetized");
+                    let arithmetized_table = arithmetize_materialized_table(mat, emit_side);
+                    tracing::debug!( node = %node.name(), typ= "plan", key = %k, num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), side_cols= arithmetized_table.side_cols().len(), "Arithmetized");
                     out.insert(k.clone(), arithmetized_table);
                 }
                 Some(ArithPayload::GadgetPayload(out))
@@ -69,7 +78,10 @@ where
     }
 }
 
-pub fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) -> ArithTable<F> {
+pub fn arithmetize_materialized_table<F: PrimeField>(
+    mat: &MaterializedTable,
+    emit_side_segments: bool,
+) -> ArithTable<F> {
     let batches = mat
         .batches()
         .expect("failed to read batches from materialized table");
@@ -93,12 +105,12 @@ pub fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) ->
 
     // Row-domain segments per source column. Side-domain segments are split
     // out into `side_segments_by_col` below and assembled into ArithSideCol
-    // entries after row encoding completes. Side segments carry raw bytes
-    // (not field elements) so the in-memory side-col storage stays 32×
+    // entries after row encoding completes. Side segments carry native small
+    // ints (bytes or u32) so the in-memory side-col storage stays much
     // smaller than the field-element form.
     let mut row_segments_by_col: Vec<Vec<(FieldRef, Vec<F>)>> = Vec::with_capacity(num_total_cols);
     let mut side_segments_by_col: Vec<
-        Vec<(FieldRef, Vec<u8>, usize /* active_len */)>,
+        Vec<(FieldRef, arithmetic::encoding::SideColData, usize /* active_len */)>,
     > = Vec::with_capacity(num_total_cols);
 
     for col_idx in 0..num_total_cols {
@@ -109,7 +121,8 @@ pub fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) ->
         .expect("arrow encoding should succeed");
 
         let mut row_for_col: Vec<(FieldRef, Vec<F>)> = Vec::new();
-        let mut side_for_col: Vec<(FieldRef, Vec<u8>, usize)> = Vec::new();
+        let mut side_for_col: Vec<(FieldRef, arithmetic::encoding::SideColData, usize)> =
+            Vec::new();
         for segment in encoded {
             let field_ref = if segment.suffix.is_empty() {
                 base_field.clone()
@@ -128,7 +141,7 @@ pub fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) ->
             match segment.side {
                 None => row_for_col.push((field_ref, segment.values)),
                 Some(info) => {
-                    side_for_col.push((field_ref, info.bytes, info.active_len));
+                    side_for_col.push((field_ref, info.data, info.active_len));
                 }
             }
         }
@@ -163,25 +176,38 @@ pub fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) ->
     // pow2-padded byte buffer plus `active_len`; commit/track passes
     // materialize transient `MLE<F>` views (for both data and the
     // contiguous-one activator) only at the moment of MSM / proof-binding.
+    //
+    // When `emit_side_segments` is false (intermediate operators), we skip
+    // building these entirely — the raw bytes were already computed by the
+    // encoder but we just drop them here. See caller for rationale.
     let mut side_cols: IndexMap<FieldRef, arithmetic::table::ArithSideCol> = IndexMap::new();
-    for column_group in side_segments_by_col {
-        for (field_ref, bytes, active_len) in column_group {
-            let side_size = bytes.len();
-            assert!(
-                side_size.is_power_of_two(),
-                "side segment must be pow2-padded by encoder (field={}, len={})",
-                field_ref.name(),
-                side_size
-            );
-            let side_log_size = side_size.trailing_zeros() as usize;
-            side_cols.insert(
-                field_ref,
-                arithmetic::table::ArithSideCol {
-                    data: bytes,
-                    log_size: side_log_size,
-                    active_len,
-                },
-            );
+    if emit_side_segments {
+        for column_group in side_segments_by_col {
+            for (field_ref, data, active_len) in column_group {
+                let side_size = data.len();
+                assert!(
+                    side_size.is_power_of_two(),
+                    "side segment must be pow2-padded by encoder (field={}, len={})",
+                    field_ref.name(),
+                    side_size
+                );
+                let side_log_size = side_size.trailing_zeros() as usize;
+                tracing::info!(
+                    field = %field_ref.name(),
+                    log_size = side_log_size,
+                    active_len = active_len,
+                    approx_f_mle_bytes = (1usize << side_log_size) * 32,
+                    "side col emitted"
+                );
+                side_cols.insert(
+                    field_ref,
+                    arithmetic::table::ArithSideCol {
+                        data,
+                        log_size: side_log_size,
+                        active_len,
+                    },
+                );
+            }
         }
     }
 

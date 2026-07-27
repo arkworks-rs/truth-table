@@ -41,16 +41,43 @@ pub struct EncodedSegment<F: PrimeField> {
     pub side: Option<SideSegmentInfo>,
 }
 
-/// Payload + sizing metadata for a side-domain segment. The segment's raw
-/// data is carried here as `bytes` (one byte per slot, pow2-padded by the
-/// caller) so it can stay 32× smaller than the field-element form used by
-/// row-domain segments. `active_len` is the count of leading non-padding
-/// entries; the side activator is a contiguous-one polynomial of that
-/// weight that downstream callers materialize on demand.
+/// Payload + sizing metadata for a side-domain segment.
+///
+/// The raw data is carried in `data`, tagged by its element type. Byte-sized
+/// values (chars, boundary flags) live in `SideColData::Bytes`; index-sized
+/// values (origin index, internal index) live in `SideColData::U32`. All are
+/// pow2-padded by the encoder. `active_len` is the count of leading
+/// non-padding entries; the side activator is a contiguous-one polynomial
+/// of that weight that downstream callers materialize on demand.
 #[derive(Debug, Clone)]
 pub struct SideSegmentInfo {
-    pub bytes: Vec<u8>,
+    pub data: SideColData,
     pub active_len: usize,
+}
+
+/// Element-type-tagged storage for a side-domain segment. Byte and u32
+/// variants are enough for TruthTable++'s string arithmetization (paper §3.2)
+/// — `char` and `bnd` fit in `Bytes`; `orig-ind` and `int-ind` fit in `U32`.
+/// Kept as native small ints so the in-memory representation stays 32× (or 8×)
+/// smaller than the field-element form; commit / track passes lift to `F`
+/// transiently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SideColData {
+    Bytes(Vec<u8>),
+    U32(Vec<u32>),
+}
+
+impl SideColData {
+    pub fn len(&self) -> usize {
+        match self {
+            SideColData::Bytes(v) => v.len(),
+            SideColData::U32(v) => v.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl<F: PrimeField> EncodedSegment<F> {
@@ -70,11 +97,10 @@ impl<F: PrimeField> EncodedSegment<F> {
         }
     }
 
-    /// Construct a side-domain segment. `bytes` carries the raw byte values
-    /// of the segment (already pow2-padded by the caller), and `active_len`
-    /// is the count of active (non-padding) leading entries. The
-    /// row-domain `values` field is left empty for side segments.
-    pub fn side(suffix: impl Into<String>, bytes: Vec<u8>, active_len: usize) -> Self {
+    /// Construct a byte-valued side-domain segment. `bytes` is pow2-padded
+    /// by the caller; `active_len` is the count of active leading entries.
+    /// The row-domain `values` field is left empty for side segments.
+    pub fn side_bytes(suffix: impl Into<String>, bytes: Vec<u8>, active_len: usize) -> Self {
         debug_assert!(
             active_len <= bytes.len(),
             "side segment active_len {} exceeds bytes length {}",
@@ -84,7 +110,29 @@ impl<F: PrimeField> EncodedSegment<F> {
         Self {
             suffix: suffix.into(),
             values: Vec::new(),
-            side: Some(SideSegmentInfo { bytes, active_len }),
+            side: Some(SideSegmentInfo {
+                data: SideColData::Bytes(bytes),
+                active_len,
+            }),
+        }
+    }
+
+    /// Construct a u32-valued side-domain segment. Same padding /
+    /// `active_len` convention as `side_bytes`.
+    pub fn side_u32(suffix: impl Into<String>, values: Vec<u32>, active_len: usize) -> Self {
+        debug_assert!(
+            active_len <= values.len(),
+            "side segment active_len {} exceeds u32 length {}",
+            active_len,
+            values.len()
+        );
+        Self {
+            suffix: suffix.into(),
+            values: Vec::new(),
+            side: Some(SideSegmentInfo {
+                data: SideColData::U32(values),
+                active_len,
+            }),
         }
     }
 
@@ -171,6 +219,23 @@ pub const STRING_LENGTH_SUFFIX: &str = "__length";
 /// with `active_len = sum of active string byte lengths`.
 pub const STRING_CHARS_SUFFIX: &str = "__chars";
 
+/// Suffix for the per-string-column **origin index** side polynomial (paper
+/// §3.2): `orig-ind[c]` is the row index of the source string that character
+/// slot `c` belongs to. Lives on the same character-level domain as
+/// `__chars`.
+pub const STRING_ORIG_IND_SUFFIX: &str = "__orig_ind";
+
+/// Suffix for the per-string-column **internal index** side polynomial
+/// (paper §3.2): `int-ind[c]` is the within-string position of character
+/// slot `c`, resetting to 0 at each string boundary. Same domain as
+/// `__chars`.
+pub const STRING_INT_IND_SUFFIX: &str = "__int_ind";
+
+/// Suffix for the per-string-column **boundary marker** side polynomial
+/// (paper §3.2): `bnd[c]` is 1 iff character slot `c` is the first
+/// character of a string, else 0. Same domain as `__chars`.
+pub const STRING_BND_SUFFIX: &str = "__bnd";
+
 /// Returns the source-column base name if `field_name` carries a recognized
 /// segment suffix (e.g. `"col__length"` → `Some("col")`). Returns `None`
 /// when the name does not match any known segment suffix — that case can
@@ -180,6 +245,15 @@ pub fn segment_base_name(field_name: &str) -> Option<&str> {
         return Some(base);
     }
     if let Some(base) = field_name.strip_suffix(STRING_CHARS_SUFFIX) {
+        return Some(base);
+    }
+    if let Some(base) = field_name.strip_suffix(STRING_ORIG_IND_SUFFIX) {
+        return Some(base);
+    }
+    if let Some(base) = field_name.strip_suffix(STRING_INT_IND_SUFFIX) {
+        return Some(base);
+    }
+    if let Some(base) = field_name.strip_suffix(STRING_BND_SUFFIX) {
         return Some(base);
     }
     // Match `__enc<N>` auto-named segments.
@@ -256,7 +330,14 @@ pub fn segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String>
 pub fn side_segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String> {
     match dtype {
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-            vec![STRING_CHARS_SUFFIX.to_string()]
+            // ORDER MATCHES ENCODER. Both prover and verifier walk side
+            // segments in this exact sequence — do not reorder.
+            vec![
+                STRING_CHARS_SUFFIX.to_string(),
+                STRING_ORIG_IND_SUFFIX.to_string(),
+                STRING_INT_IND_SUFFIX.to_string(),
+                STRING_BND_SUFFIX.to_string(),
+            ]
         }
         _ => Vec::new(),
     }
@@ -508,10 +589,17 @@ where
             }
         })
         .sum();
-    // Raw byte storage (one byte per slot) — kept as `Vec<u8>` so it stays
-    // 32× smaller than the field-element form. Downstream commit / track
-    // passes lift to `MLE<F>` only transiently.
+    // Character-level side polynomials (paper §3.2). All four share the
+    // same character-level domain and the same `active_len` = total active
+    // byte count. Their native storage is kept small:
+    //   - chars, bnd  : Vec<u8>   (byte values / 0-1 flags)
+    //   - orig_ind    : Vec<u32>  (source row index in the string column)
+    //   - int_ind     : Vec<u32>  (within-string position, resets at bnd)
+    // Commit / track passes lift these to `MLE<F>` transiently.
     let mut chars_bytes: Vec<u8> = Vec::with_capacity(total_chars);
+    let mut orig_ind: Vec<u32> = Vec::with_capacity(total_chars);
+    let mut int_ind: Vec<u32> = Vec::with_capacity(total_chars);
+    let mut bnd: Vec<u8> = Vec::with_capacity(total_chars);
 
     for idx in 0..rows {
         if array.is_null(idx) {
@@ -536,21 +624,51 @@ where
             }
         }
         length_col.push(F::from(bytes.len() as u64));
-        chars_bytes.extend_from_slice(bytes);
+        let row_ix = idx as u32;
+        for (j, &byte) in bytes.iter().enumerate() {
+            chars_bytes.push(byte);
+            orig_ind.push(row_ix);
+            int_ind.push(j as u32);
+            bnd.push(if j == 0 { 1 } else { 0 });
+        }
     }
 
-    // Pad chars segment to a power-of-two length so it forms a valid MLE
-    // domain. An empty column still produces a 1-slot, all-zero side poly so
-    // downstream tracking sees a consistent shape.
+    // Pad every char-level segment to the SAME power-of-two length so they
+    // share a common multilinear domain. An empty column still produces a
+    // 1-slot, all-zero side poly so downstream tracking sees a consistent
+    // shape.
     let chars_active_len = chars_bytes.len();
-    let chars_target_len = chars_active_len.max(1).next_power_of_two();
-    chars_bytes.resize(chars_target_len, 0u8);
+    debug_assert_eq!(orig_ind.len(), chars_active_len);
+    debug_assert_eq!(int_ind.len(), chars_active_len);
+    debug_assert_eq!(bnd.len(), chars_active_len);
+    let target_len = chars_active_len.max(1).next_power_of_two();
+    chars_bytes.resize(target_len, 0u8);
+    orig_ind.resize(target_len, 0u32);
+    int_ind.resize(target_len, 0u32);
+    bnd.resize(target_len, 0u8);
 
     let mut segments = auto_segments(hash_cols);
     segments.push(EncodedSegment::named(STRING_LENGTH_SUFFIX, length_col));
-    segments.push(EncodedSegment::side(
+    // ORDER matches `side_segment_suffixes_for_type` and the prover /
+    // verifier tracking passes — do not reorder.
+    segments.push(EncodedSegment::side_bytes(
         STRING_CHARS_SUFFIX,
         chars_bytes,
+        chars_active_len,
+    ));
+    segments.push(EncodedSegment::side_u32(
+        STRING_ORIG_IND_SUFFIX,
+        orig_ind,
+        chars_active_len,
+    ));
+    segments.push(EncodedSegment::side_u32(
+        STRING_INT_IND_SUFFIX,
+        int_ind,
+        chars_active_len,
+    ));
+    segments.push(EncodedSegment::side_bytes(
+        STRING_BND_SUFFIX,
+        bnd,
         chars_active_len,
     ));
     Ok(segments)

@@ -36,16 +36,23 @@ use std::{
 };
 use tracing::{debug, info};
 
-/// Lift the byte buffer of a side-col data poly into a transient
+/// Lift a side-col data poly (native u8 or u32 storage) into a transient
 /// `MLE<F>`. The returned Arc should be dropped as soon as the call
 /// consuming it returns so the F-form does not persist past the
 /// operation that needs it.
 fn materialize_side_data_mle<F: PrimeField>(
-    bytes: &[u8],
+    data: &arithmetic::encoding::SideColData,
     log_size: usize,
 ) -> Arc<MLE<F>> {
-    debug_assert_eq!(bytes.len(), 1usize << log_size);
-    let evals: Vec<F> = bytes.iter().map(|&b| F::from(b as u64)).collect();
+    debug_assert_eq!(data.len(), 1usize << log_size);
+    let evals: Vec<F> = match data {
+        arithmetic::encoding::SideColData::Bytes(bytes) => {
+            bytes.iter().map(|&b| F::from(b as u64)).collect()
+        }
+        arithmetic::encoding::SideColData::U32(vals) => {
+            vals.iter().map(|&v| F::from(v as u64)).collect()
+        }
+    };
     Arc::new(MLE::from_evaluations_vec(log_size, evals))
 }
 
@@ -102,7 +109,8 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
 
         let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
+        // Final output table: no side segments — no downstream PIOP consumes them.
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, false);
         let tracked_table = Self::track_arith_table_without_commitment(&arith_table, &self.prover)?;
         let gadget_id = root
             .children()
