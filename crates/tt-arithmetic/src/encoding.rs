@@ -219,6 +219,24 @@ pub const STRING_LENGTH_SUFFIX: &str = "__length";
 /// with `active_len = sum of active string byte lengths`.
 pub const STRING_CHARS_SUFFIX: &str = "__chars";
 
+/// Master toggle for the character-level side polynomials of paper §3.2.
+///
+/// When `true`, string base tables emit the full `{__chars, __orig_ind,
+/// __int_ind, __bnd}` side-column bundle at arithmetization time, and both
+/// the prover commit/track passes and the verifier tracking pass consume
+/// those commitments. When `false`, string columns arithmetize to only
+/// their `{hash, __length}` row-domain segments (same behavior as `main`),
+/// keeping the prover memory footprint identical to a no-char-level build.
+///
+/// This is a workspace-level compile-time gate because it must be flipped
+/// in lockstep on both prover and verifier: the two must agree on how many
+/// commitments enter the transcript per string column. When we start
+/// implementing white-box string PIOPs (Broadcast Check, Length Filter,
+/// Prefix/Suffix Check, Multi-Char Pattern Match), flip this to `true` and
+/// re-generate the bench SRS at the higher `log_size` that the char-level
+/// polys need.
+pub const CHAR_LEVEL_SIDE_POLYS_ENABLED: bool = false;
+
 /// Suffix for the per-string-column **origin index** side polynomial (paper
 /// §3.2): `orig-ind[c]` is the row index of the source string that character
 /// slot `c` belongs to. Lives on the same character-level domain as
@@ -328,6 +346,9 @@ pub fn segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String>
 /// per-segment `log_size` is shared via the transcript's miscellaneous fields
 /// since it depends on prover-side data.
 pub fn side_segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String> {
+    if !CHAR_LEVEL_SIDE_POLYS_ENABLED {
+        return Vec::new();
+    }
     match dtype {
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
             // ORDER MATCHES ENCODER. Both prover and verifier walk side
@@ -575,32 +596,104 @@ where
         .map(|_| Vec::with_capacity(rows))
         .collect();
     let mut length_col: Vec<F> = Vec::with_capacity(rows);
-    // Characters side polynomial: concatenated bytes of all non-null strings
-    // in row order. Null/inactive rows contribute zero bytes (their length is
-    // already 0 in `length_col`), so the contiguous-one activator computed
-    // below correctly marks "active byte" positions at the start of the
-    // padded buffer.
-    let total_chars: usize = (0..rows)
-        .map(|idx| {
-            if array.is_null(idx) {
-                0
-            } else {
-                value_fn(array, idx).len()
-            }
-        })
-        .sum();
-    // Character-level side polynomials (paper §3.2). All four share the
-    // same character-level domain and the same `active_len` = total active
-    // byte count. Their native storage is kept small:
-    //   - chars, bnd  : Vec<u8>   (byte values / 0-1 flags)
-    //   - orig_ind    : Vec<u32>  (source row index in the string column)
-    //   - int_ind     : Vec<u32>  (within-string position, resets at bnd)
-    // Commit / track passes lift these to `MLE<F>` transiently.
-    let mut chars_bytes: Vec<u8> = Vec::with_capacity(total_chars);
-    let mut orig_ind: Vec<u32> = Vec::with_capacity(total_chars);
-    let mut int_ind: Vec<u32> = Vec::with_capacity(total_chars);
-    let mut bnd: Vec<u8> = Vec::with_capacity(total_chars);
 
+    // Character-level side polynomials (paper §3.2) — only built when the
+    // workspace-level toggle is on. When off, this encoder produces only
+    // the row-domain `{hash, __length}` segments (same as pre-string-support
+    // main) so the prover memory footprint is unchanged.
+    if CHAR_LEVEL_SIDE_POLYS_ENABLED {
+        // All four share the same character-level domain and the same
+        // `active_len` = total active byte count. Native storage is kept
+        // small: chars/bnd → Vec<u8>, orig_ind/int_ind → Vec<u32>. Commit
+        // and track passes lift these to `MLE<F>` transiently.
+        let total_chars: usize = (0..rows)
+            .map(|idx| {
+                if array.is_null(idx) {
+                    0
+                } else {
+                    value_fn(array, idx).len()
+                }
+            })
+            .sum();
+        let mut chars_bytes: Vec<u8> = Vec::with_capacity(total_chars);
+        let mut orig_ind: Vec<u32> = Vec::with_capacity(total_chars);
+        let mut int_ind: Vec<u32> = Vec::with_capacity(total_chars);
+        let mut bnd: Vec<u8> = Vec::with_capacity(total_chars);
+
+        for idx in 0..rows {
+            if array.is_null(idx) {
+                for col in &mut hash_cols {
+                    col.push(F::zero());
+                }
+                length_col.push(F::zero());
+                continue;
+            }
+            let bytes = value_fn(array, idx).as_bytes();
+            if inline_short {
+                let head = if bytes.is_empty() {
+                    F::zero()
+                } else {
+                    F::from(bytes[0] as u64)
+                };
+                hash_cols[0].push(head);
+            } else {
+                let chunks = encode_hashed_bytes::<F>(bytes);
+                for (slot, col) in hash_cols.iter_mut().enumerate() {
+                    col.push(chunks.get(slot).copied().unwrap_or_else(F::zero));
+                }
+            }
+            length_col.push(F::from(bytes.len() as u64));
+            let row_ix = idx as u32;
+            for (j, &byte) in bytes.iter().enumerate() {
+                chars_bytes.push(byte);
+                orig_ind.push(row_ix);
+                int_ind.push(j as u32);
+                bnd.push(if j == 0 { 1 } else { 0 });
+            }
+        }
+
+        // Pad every char-level segment to the SAME power-of-two length so
+        // they share a common multilinear domain. An empty column still
+        // produces a 1-slot, all-zero side poly so downstream tracking
+        // sees a consistent shape.
+        let chars_active_len = chars_bytes.len();
+        debug_assert_eq!(orig_ind.len(), chars_active_len);
+        debug_assert_eq!(int_ind.len(), chars_active_len);
+        debug_assert_eq!(bnd.len(), chars_active_len);
+        let target_len = chars_active_len.max(1).next_power_of_two();
+        chars_bytes.resize(target_len, 0u8);
+        orig_ind.resize(target_len, 0u32);
+        int_ind.resize(target_len, 0u32);
+        bnd.resize(target_len, 0u8);
+
+        let mut segments = auto_segments(hash_cols);
+        segments.push(EncodedSegment::named(STRING_LENGTH_SUFFIX, length_col));
+        // ORDER matches `side_segment_suffixes_for_type` and the prover /
+        // verifier tracking passes — do not reorder.
+        segments.push(EncodedSegment::side_bytes(
+            STRING_CHARS_SUFFIX,
+            chars_bytes,
+            chars_active_len,
+        ));
+        segments.push(EncodedSegment::side_u32(
+            STRING_ORIG_IND_SUFFIX,
+            orig_ind,
+            chars_active_len,
+        ));
+        segments.push(EncodedSegment::side_u32(
+            STRING_INT_IND_SUFFIX,
+            int_ind,
+            chars_active_len,
+        ));
+        segments.push(EncodedSegment::side_bytes(
+            STRING_BND_SUFFIX,
+            bnd,
+            chars_active_len,
+        ));
+        return Ok(segments);
+    }
+
+    // Char-level toggle off: only build row-domain segments.
     for idx in 0..rows {
         if array.is_null(idx) {
             for col in &mut hash_cols {
@@ -624,53 +717,10 @@ where
             }
         }
         length_col.push(F::from(bytes.len() as u64));
-        let row_ix = idx as u32;
-        for (j, &byte) in bytes.iter().enumerate() {
-            chars_bytes.push(byte);
-            orig_ind.push(row_ix);
-            int_ind.push(j as u32);
-            bnd.push(if j == 0 { 1 } else { 0 });
-        }
     }
-
-    // Pad every char-level segment to the SAME power-of-two length so they
-    // share a common multilinear domain. An empty column still produces a
-    // 1-slot, all-zero side poly so downstream tracking sees a consistent
-    // shape.
-    let chars_active_len = chars_bytes.len();
-    debug_assert_eq!(orig_ind.len(), chars_active_len);
-    debug_assert_eq!(int_ind.len(), chars_active_len);
-    debug_assert_eq!(bnd.len(), chars_active_len);
-    let target_len = chars_active_len.max(1).next_power_of_two();
-    chars_bytes.resize(target_len, 0u8);
-    orig_ind.resize(target_len, 0u32);
-    int_ind.resize(target_len, 0u32);
-    bnd.resize(target_len, 0u8);
 
     let mut segments = auto_segments(hash_cols);
     segments.push(EncodedSegment::named(STRING_LENGTH_SUFFIX, length_col));
-    // ORDER matches `side_segment_suffixes_for_type` and the prover /
-    // verifier tracking passes — do not reorder.
-    segments.push(EncodedSegment::side_bytes(
-        STRING_CHARS_SUFFIX,
-        chars_bytes,
-        chars_active_len,
-    ));
-    segments.push(EncodedSegment::side_u32(
-        STRING_ORIG_IND_SUFFIX,
-        orig_ind,
-        chars_active_len,
-    ));
-    segments.push(EncodedSegment::side_u32(
-        STRING_INT_IND_SUFFIX,
-        int_ind,
-        chars_active_len,
-    ));
-    segments.push(EncodedSegment::side_bytes(
-        STRING_BND_SUFFIX,
-        bnd,
-        chars_active_len,
-    ));
     Ok(segments)
 }
 

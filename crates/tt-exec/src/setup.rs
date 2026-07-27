@@ -11,12 +11,12 @@ use ark_piop::setup::KeyGenerator;
 use ark_serialize::CanonicalSerialize;
 
 pub const DEFAULT_TEST_LOG_SIZE: usize = 19;
-// Sized to fit per-column `__chars` side polynomials whose log_size is the
-// next pow2 of the column's total active byte count. For TPC-H lineitem at
-// bench scale, `l_comment` (avg ~26 chars) is the largest such poly and lands
-// just under 2^25, so 25 covers all TPC-H queries with headroom. Bumping this
-// invalidates existing bench setup keys — regenerate via `tt setup --size bench`.
-pub const DEFAULT_BENCH_LOG_SIZE: usize = 25;
+// Bench SRS size. The pre-string-support baseline of 21 covers all TPC-H
+// row-domain polynomials at bench scale. When `CHAR_LEVEL_SIDE_POLYS_ENABLED`
+// is flipped on for string PIOPs, this must be bumped (to ~25 for
+// lineitem.l_comment at bench scale) and the bench setup keys regenerated
+// via `tt setup --size bench`.
+pub const DEFAULT_BENCH_LOG_SIZE: usize = 21;
 pub const DEFAULT_LOG_SIZE: usize = DEFAULT_TEST_LOG_SIZE;
 const DEFAULT_PK_FILE: &str = "tt_pk";
 const DEFAULT_VK_FILE: &str = "tt_vk";
@@ -146,7 +146,7 @@ fn parse_log_size(label: Option<String>) -> Result<usize> {
             match normalized.as_str() {
                 "small" | "test" => Ok(DEFAULT_TEST_LOG_SIZE),
                 "medium" | "bench" => Ok(DEFAULT_BENCH_LOG_SIZE),
-                "large" => Ok(27),
+                "large" => Ok(23),
                 other => other
                     .parse::<usize>()
                     .map_err(|_| anyhow!("invalid size '{other}'")),

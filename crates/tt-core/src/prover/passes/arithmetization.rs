@@ -42,15 +42,16 @@ where
         _id: NodeId,
         payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
-        // Side-domain string columns (`__chars` and its future siblings
-        // `orig-ind`, `int-ind`, `bnd`) are only emitted for base tables
-        // (TableScan). Intermediate operators denormalize string columns
-        // across join fan-outs, which would produce char-level polys sized
-        // to (joined_rows × avg_len) — quickly exceeding both the SRS
-        // ceiling and available memory. Since no PIOP consumes these yet,
-        // dropping them for intermediates is safe; when white-box string
-        // gadgets land, they can opt back in per-column as needed.
-        let emit_side = node.name() == "TableScan";
+        // Side-domain string columns are gated by the workspace-level
+        // `CHAR_LEVEL_SIDE_POLYS_ENABLED` toggle AND restricted to base
+        // tables (TableScan). The workspace toggle is currently off so this
+        // whole path is inert; when we flip it on for string PIOPs, the
+        // TableScan restriction still applies — intermediate operators
+        // denormalize string columns across join fan-outs, which would
+        // produce char-level polys sized to (joined_rows × avg_len) and
+        // blow past both the SRS ceiling and available memory.
+        let emit_side = node.name() == "TableScan"
+            && arithmetic::encoding::CHAR_LEVEL_SIDE_POLYS_ENABLED;
         match payload? {
             MaterializedPayload::PlanPayload(mat) => {
                 let arithmetized_table = arithmetize_materialized_table(mat, emit_side);
