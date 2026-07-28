@@ -1,3 +1,4 @@
+pub mod activator_consistency_check;
 pub mod bool;
 pub mod contig_sort;
 pub mod eq;
