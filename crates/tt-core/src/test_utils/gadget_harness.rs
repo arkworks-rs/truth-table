@@ -228,18 +228,52 @@ fn materialize_verifier_table<B: SnarkBackend>(
 /// Runs prove → build_proof → set_proof → verify on a fully-populated
 /// harness and returns the verifier's `verify()` result. Errors at any
 /// stage bubble up.
+///
+/// Supports composite gadgets: `initialize_gadgets` is invoked in
+/// pre-order on the root and all descendants (so parents can populate
+/// their children's payloads), then `prove` / `verify` run in post-order
+/// (so children complete before parents), mirroring the tt-core
+/// production pipeline.
 pub fn run_gadget_pipeline<B: SnarkBackend>(
     mut harness: GadgetHarness<B>,
 ) -> Result<(), SnarkError> {
-    // 1. Prover: run the gadget's prove and compile the proof.
-    harness
-        .gadget
-        .prove(&mut harness.prover, &mut harness.prover_ir, harness.node_id)?;
-    let proof = harness.prover.build_proof()?;
+    // Pre-order walk of gadget nodes rooted at the harness gadget.
+    let tree = harness.prover_ir.tree().clone();
+    let pre_order: Vec<_> = collect_pre_order(&tree);
 
-    // 2. Verifier: register the proof, then materialize the verifier
-    //    tables (needs proof to be present so track_mv_com_by_id works).
+    // 1. Prover: initialize_gadgets in pre-order (parents populate their
+    //    children's payloads before the children's own initialization
+    //    ever needs them). Disambiguate the two trait impls of the same
+    //    method name on Node<B>.
+    for (id, node) in &pre_order {
+        if let Node::Gadget(g) = node.as_ref() {
+            crate::irs::nodes::ProverNodeOps::initialize_gadgets(
+                g.as_ref(),
+                *id,
+                &mut harness.prover,
+                &mut harness.prover_ir,
+            )?;
+        }
+    }
+
+    // 2. Prover: prove in post-order (children before parents).
+    let post_order: Vec<_> = tree
+        .arena()
+        .iter()
+        .map(|(id, node)| (*id, node.clone()))
+        .collect();
+    for (id, node) in &post_order {
+        if let Node::Gadget(g) = node.as_ref() {
+            g.prove(&mut harness.prover, &mut harness.prover_ir, *id)?;
+        }
+    }
+
+    // 3. Compile the proof and hand it to the verifier.
+    let proof = harness.prover.build_proof()?;
     harness.verifier.set_proof(proof);
+
+    // 4. Materialize the harness-declared verifier tables (needs the
+    //    proof so track_mv_com_by_id resolves).
     for (target_id, committed_map) in &harness.committed {
         let mut verifier_payload: IndexMap<String, TrackedTableOracle<B>> =
             IndexMap::new();
@@ -254,12 +288,43 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
         );
     }
 
-    // 3. Verifier: run the gadget's verify + finalize.
-    harness.gadget.verify(
-        &mut harness.verifier,
-        &mut harness.verifier_ir,
-        harness.node_id,
-    )?;
+    // 5. Verifier: initialize_gadgets in pre-order (mirrors the prover;
+    //    consumers call track_next_mv_com in the same order as prover
+    //    commits, so tracker IDs stay in sync).
+    for (id, node) in &pre_order {
+        if let Node::Gadget(g) = node.as_ref() {
+            crate::irs::nodes::VerifierNodeOps::initialize_gadgets(
+                g.as_ref(),
+                *id,
+                &mut harness.verifier,
+                &mut harness.verifier_ir,
+            )?;
+        }
+    }
+
+    // 6. Verifier: verify in post-order + finalize.
+    for (id, node) in &post_order {
+        if let Node::Gadget(g) = node.as_ref() {
+            g.verify(&mut harness.verifier, &mut harness.verifier_ir, *id)?;
+        }
+    }
     harness.verifier.verify()?;
     Ok(())
+}
+
+/// Pre-order walk (parent → children → grandchildren …) starting from
+/// the tree root. Follows `Node::children()`.
+fn collect_pre_order<B: SnarkBackend>(
+    tree: &Tree<B>,
+) -> Vec<(NodeId, Arc<Node<B>>)> {
+    use crate::irs::nodes::IsNode;
+    fn walk<B: SnarkBackend>(node: Arc<Node<B>>, out: &mut Vec<(NodeId, Arc<Node<B>>)>) {
+        out.push((node.id(), node.clone()));
+        for child in <Node<B> as IsNode<B>>::children(&node) {
+            walk(child, out);
+        }
+    }
+    let mut out = Vec::with_capacity(tree.arena().len());
+    walk(tree.root().clone(), &mut out);
+    out
 }
