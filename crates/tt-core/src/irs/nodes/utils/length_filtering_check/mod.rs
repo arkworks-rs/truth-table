@@ -51,7 +51,7 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            utils::{activator_consistency_check, bool as bool_check, sign},
+            utils::{data_preserving_update_check, sign},
         },
         payloads::PayloadStructure,
     },
@@ -90,17 +90,17 @@ fn l_minus_k_field() -> FieldRef {
     Arc::new(Field::new("__l_minus_k__", DataType::Int32, false))
 }
 
-fn bool_field() -> FieldRef {
-    // Non-system field name so BoolCheck treats the poly as data.
-    Arc::new(Field::new("data", DataType::Boolean, false))
-}
 
 /// Composite gadget node for the Length Filtering relation.
+///
+/// Matches paper §5.3 PIOP 5 exactly: one Data-Preserving Update Check
+/// on the filtered activator pair (which internally does the booleanity
+/// + activator-consistency checks), the containment zerocheck emitted
+/// inline in `prove`/`verify`, and two Sign children for the length-side
+/// false-positive and false-negative checks.
 pub struct GadgetNode<B: SnarkBackend> {
     threshold: u64,
-    bool_ah_prime: Arc<Node<B>>,
-    bool_ac_prime: Arc<Node<B>>,
-    activator_consistency: Arc<Node<B>>,
+    data_preserving: Arc<Node<B>>,
     neg_sign: Arc<Node<B>>,
     nonneg_sign: Arc<Node<B>>,
     _phantom: PhantomData<B>,
@@ -108,10 +108,8 @@ pub struct GadgetNode<B: SnarkBackend> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(threshold: u64) -> Self {
-        let bool_ah_prime = Arc::new(Node::<B>::Gadget(Arc::new(bool_check::GadgetNode::new())));
-        let bool_ac_prime = Arc::new(Node::<B>::Gadget(Arc::new(bool_check::GadgetNode::new())));
-        let activator_consistency = Arc::new(Node::<B>::Gadget(Arc::new(
-            activator_consistency_check::GadgetNode::new(),
+        let data_preserving = Arc::new(Node::<B>::Gadget(Arc::new(
+            data_preserving_update_check::GadgetNode::new(),
         )));
         let neg_sign = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
             sign::SignConfig::Uniform(sign::Sign::Negative),
@@ -121,9 +119,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
         ))));
         Self {
             threshold,
-            bool_ah_prime,
-            bool_ac_prime,
-            activator_consistency,
+            data_preserving,
             neg_sign,
             nonneg_sign,
             _phantom: PhantomData,
@@ -154,9 +150,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
         vec![
-            self.bool_ah_prime.clone(),
-            self.bool_ac_prime.clone(),
-            self.activator_consistency.clone(),
+            self.data_preserving.clone(),
             self.neg_sign.clone(),
             self.nonneg_sign.clone(),
         ]
@@ -221,15 +215,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .add_scalar_poly(B::F::from(1u64));
         let ah_minus_ah_prime: TrackedPoly<B> = &one_minus_ah_prime * &ah_poly;
 
-        // 1a. Booleanity child payloads: single-column tables of {a'h}, {a'c}.
-        set_bool_payload_prover(&self.bool_ah_prime, &a_h_prime, virtualized_ir);
-        set_bool_payload_prover(&self.bool_ac_prime, &a_c_prime, virtualized_ir);
-
-        // 1b. Activator Consistency child payload: LHS = char table with
-        //     src activated by a'c; RHS = string table with (ind, l)
-        //     activated by a'h.
-        set_ac_payload_prover(
-            &self.activator_consistency,
+        // 1. (Activator Update Validity) Data-Preserving Update Check on
+        //    (char-act', a', orig-ind, ind, l). Internally: BoolCheck on
+        //    char-act', BoolCheck on a', and ActivatorConsistencyCheck on
+        //    (orig-ind, char-act', l, a').
+        set_dpuc_payload_prover(
+            &self.data_preserving,
             &src_col,
             &a_c_prime,
             &ind_col,
@@ -327,11 +318,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .add_scalar_oracle(B::F::from(1u64));
         let ah_minus_ah_prime: TrackedOracle<B> = &one_minus_ah_prime * &ah_oracle;
 
-        set_bool_payload_verifier(&self.bool_ah_prime, &a_h_prime, virtualized_ir);
-        set_bool_payload_verifier(&self.bool_ac_prime, &a_c_prime, virtualized_ir);
-
-        set_ac_payload_verifier(
-            &self.activator_consistency,
+        set_dpuc_payload_verifier(
+            &self.data_preserving,
             &src_col,
             &a_c_prime,
             &ind_col,
@@ -492,43 +480,9 @@ fn extract_verifier_inputs<B: SnarkBackend>(
     }
 }
 
-fn set_bool_payload_prover<B: SnarkBackend>(
-    bool_node: &Arc<Node<B>>,
-    data: &TrackedPoly<B>,
-    ir: &mut GadgetReadyIr<B>,
-) {
-    let mut polys = IndexMap::new();
-    polys.insert(bool_field(), data.clone());
-    let schema = Schema::new(vec![bool_field().as_ref().clone()]);
-    let table = TrackedTable::new(Some(schema), polys, data.log_size());
-    let mut payload = IndexMap::new();
-    payload.insert(bool_check::TABLE_LABEL.to_string(), table);
-    ir.set_payload_for_node(
-        bool_node.id(),
-        Some(PayloadStructure::GadgetPayload(payload)),
-    );
-}
-
-fn set_bool_payload_verifier<B: SnarkBackend>(
-    bool_node: &Arc<Node<B>>,
-    data: &TrackedOracle<B>,
-    ir: &mut VerifierGadgetReadyIr<B>,
-) {
-    let mut oracles = IndexMap::new();
-    oracles.insert(bool_field(), data.clone());
-    let schema = Schema::new(vec![bool_field().as_ref().clone()]);
-    let table = TrackedTableOracle::new(Some(schema), oracles, data.log_size());
-    let mut payload = IndexMap::new();
-    payload.insert(bool_check::TABLE_LABEL.to_string(), table);
-    ir.set_payload_for_node(
-        bool_node.id(),
-        Some(PayloadStructure::GadgetPayload(payload)),
-    );
-}
-
 #[allow(clippy::too_many_arguments)]
-fn set_ac_payload_prover<B: SnarkBackend>(
-    ac_node: &Arc<Node<B>>,
+fn set_dpuc_payload_prover<B: SnarkBackend>(
+    dpuc_node: &Arc<Node<B>>,
     src_col: &TrackedCol<B>,
     a_c_prime: &TrackedPoly<B>,
     ind_col: &TrackedCol<B>,
@@ -564,14 +518,14 @@ fn set_ac_payload_prover<B: SnarkBackend>(
     let rhs = TrackedTable::new(Some(rhs_schema), rhs_polys, str_domain);
 
     let mut payload = IndexMap::new();
-    payload.insert(activator_consistency_check::LHS_LABEL.to_string(), lhs);
-    payload.insert(activator_consistency_check::RHS_LABEL.to_string(), rhs);
-    ir.set_payload_for_node(ac_node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+    payload.insert(data_preserving_update_check::LHS_LABEL.to_string(), lhs);
+    payload.insert(data_preserving_update_check::RHS_LABEL.to_string(), rhs);
+    ir.set_payload_for_node(dpuc_node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
 #[allow(clippy::too_many_arguments)]
-fn set_ac_payload_verifier<B: SnarkBackend>(
-    ac_node: &Arc<Node<B>>,
+fn set_dpuc_payload_verifier<B: SnarkBackend>(
+    dpuc_node: &Arc<Node<B>>,
     src_col: &TrackedColOracle<B>,
     a_c_prime: &TrackedOracle<B>,
     ind_col: &TrackedColOracle<B>,
@@ -602,9 +556,9 @@ fn set_ac_payload_verifier<B: SnarkBackend>(
     let rhs = TrackedTableOracle::new(Some(rhs_schema), rhs_oracles, str_domain);
 
     let mut payload = IndexMap::new();
-    payload.insert(activator_consistency_check::LHS_LABEL.to_string(), lhs);
-    payload.insert(activator_consistency_check::RHS_LABEL.to_string(), rhs);
-    ir.set_payload_for_node(ac_node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+    payload.insert(data_preserving_update_check::LHS_LABEL.to_string(), lhs);
+    payload.insert(data_preserving_update_check::RHS_LABEL.to_string(), rhs);
+    ir.set_payload_for_node(dpuc_node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
 fn set_sign_payload_prover<B: SnarkBackend>(

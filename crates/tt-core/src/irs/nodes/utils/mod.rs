@@ -2,6 +2,7 @@ pub mod activator_consistency_check;
 pub mod bool;
 pub mod broadcast_check;
 pub mod contig_sort;
+pub mod data_preserving_update_check;
 pub mod eq;
 pub mod gen_sort;
 pub mod geq;
