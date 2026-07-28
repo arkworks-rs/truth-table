@@ -291,8 +291,10 @@ fn honest_suffix_match_verifies() {
     let match_str = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
     let match_broadcast = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let mark = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
-    // string 0's suffix window starts at char 2; string 1's at char 6.
-    let start = u(&[2, 6, 0, 0, 0, 0, 0, 0]);
+    // start[i] is the *internal index* within string i (per paper Step 4:
+    // start[i] := min O_i where O_i ⊂ int-ind). Both strings' suffix
+    // window sits at int-ind = 2.
+    let start = u(&[2, 2, 0, 0, 0, 0, 0, 0]);
 
     let char_f = u64_field("char");
     let orig_ind_f = u64_field("orig_ind");
@@ -489,8 +491,9 @@ fn honest_infix_match_verifies() {
     let match_str = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
     let match_broadcast = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let mark = u(&[0, 1, 0, 1, 0, 0, 0, 0]);
-    // String 0's match starts at c=1; string 1's at c=3.
-    let start = u(&[1, 3, 0, 0, 0, 0, 0, 0]);
+    // start[i] is the internal index within string i (per paper Step 4).
+    // String 0's "ab" sits at int-ind = 1; string 1's "ab" at int-ind = 0.
+    let start = u(&[1, 0, 0, 0, 0, 0, 0, 0]);
 
     let char_f = u64_field("char");
     let orig_ind_f = u64_field("orig_ind");

@@ -13,14 +13,17 @@
 //!
 //! - All three modes ([`Mode::Prefix`], [`Mode::Suffix`], [`Mode::Infix`])
 //!   are wired.
-//! - **Step 4d (Lookup Check for placement) and Step 4e (leftmost Sign
-//!   Check + zerocheck) are stubbed with a TODO**: `start` is committed but
-//!   not constrained to be the leftmost of `O_i`, and the string→char
-//!   ↔ mark correspondence is only enforced via the two count sumchecks in
-//!   step 4c, not via a lookup on the fingerprinted pairs. This is enough
-//!   for the honest-prover round-trip; malicious provers could pick a
-//!   non-leftmost occurrence. Full soundness requires the two stubbed
-//!   steps.
+//! - **Step 4d (Lookup Check for placement) is wired**: with a fresh
+//!   Fiat-Shamir challenge `γ`, the parties do a Lookup Check on
+//!   `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`.
+//!   Combined with the two count sumchecks in step 4c (both sides have
+//!   `n_m` active rows), the ⊑ becomes equality, tying each matched
+//!   string's `start` to the `int-ind` of its mark.
+//! - **Step 4e (leftmost Sign Check + zerocheck) is stubbed with a TODO**:
+//!   `start` is now tied to some mark, but not constrained to be the
+//!   *leftmost* of `O_i`. This is enough for the honest-prover round-trip;
+//!   malicious provers could still pick a non-leftmost occurrence. Full
+//!   soundness requires the leftmost check.
 //!
 //! # Payload structure
 //!
@@ -51,10 +54,12 @@
 //!
 //! # Decomposition
 //!
-//! Children (fixed 5 + mode-dependent):
+//! Children (fixed 6 + mode-dependent):
 //! - `BoolCheck` on `occurs`, `match`, `mark` (three children).
 //! - `BroadcastCheck` on `(match, match')` — i.e. `match'[c] = match[orig-ind[c]]`.
 //! - `NoDup(Bezout)` on `(orig-ind, mark)` — at most one mark per string.
+//! - `Lookup` on `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`
+//!   — Step 4d placement check.
 //! - (Suffix only) `RotationCheck(Direction::Left, shift=ℓ)` on
 //!   `(char-act · bnd, att_mask)` — proves `att_mask = ρ_{-ℓ}(char-act · bnd)`.
 //! - (Infix only) `ℓ − 1` `RotationCheck(Direction::Left, shift=1)`
@@ -93,7 +98,7 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            utils::{bool as bool_check, broadcast_check, nodup, rotation_check},
+            utils::{bool as bool_check, broadcast_check, lookup, nodup, rotation_check},
         },
         payloads::PayloadStructure,
     },
@@ -143,6 +148,8 @@ pub struct GadgetNode<B: SnarkBackend> {
     bool_mark: Arc<Node<B>>,
     broadcast_match: Arc<Node<B>>,
     nodup_mark: Arc<Node<B>>,
+    /// Step 4d: Lookup on `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`.
+    lookup_placement: Arc<Node<B>>,
     /// Suffix only: proves `att_mask = ρ_{-ℓ}(char-act · bnd)`.
     att_mask_rot_check: Option<Arc<Node<B>>>,
     /// Infix only: `ℓ − 1` rotation checks in a chain, each proving
@@ -163,6 +170,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let nodup_mark = Arc::new(Node::<B>::Gadget(Arc::new(nodup::GadgetNode::new(
             nodup::Mode::BezoutBased,
         ))));
+        let lookup_placement =
+            Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
         let att_mask_rot_check = match mode {
             Mode::Prefix => None,
             Mode::Suffix => Some(Arc::new(Node::<B>::Gadget(Arc::new(
@@ -189,6 +198,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             bool_mark,
             broadcast_match,
             nodup_mark,
+            lookup_placement,
             att_mask_rot_check,
             bnd_rot_checks,
             _phantom: PhantomData,
@@ -228,6 +238,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             self.bool_mark.clone(),
             self.broadcast_match.clone(),
             self.nodup_mark.clone(),
+            self.lookup_placement.clone(),
         ];
         if let Some(ref child) = self.att_mask_rot_check {
             out.push(child.clone());
@@ -744,6 +755,95 @@ fn set_att_mask_rot_check_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
+/// Step 4d: wire the Lookup child on
+/// `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`. The
+/// derived linear combinations are virtual polys built from `γ` sampled
+/// via Fiat-Shamir just before this call. `match` and `mark` sit as the
+/// respective side's activator.
+fn set_lookup_placement_payload_prover<B: SnarkBackend>(
+    node: &Arc<Node<B>>,
+    inputs: &InputsProver<B>,
+    gamma: B::F,
+    ir: &mut GadgetReadyIr<B>,
+) {
+    let str_domain = inputs.str_input.log_size();
+    let char_domain = inputs.char_input.log_size();
+
+    let ind_plus_gamma_start =
+        &inputs.ind + &inputs.start.mul_scalar_poly(gamma);
+    let ind_plus_gamma_start = resize_poly(&ind_plus_gamma_start, str_domain);
+    let orig_plus_gamma_int =
+        &inputs.orig_ind + &inputs.int_ind.mul_scalar_poly(gamma);
+    let orig_plus_gamma_int = resize_poly(&orig_plus_gamma_int, char_domain);
+
+    let included_f = u64_field("ind_plus_gamma_start");
+    let mut included_polys = IndexMap::new();
+    included_polys.insert(included_f.clone(), ind_plus_gamma_start);
+    included_polys.insert(arithmetic::ACTIVATOR_FIELD.clone(), inputs.match_str.clone());
+    let included = TrackedTable::new(
+        Some(Schema::new(vec![included_f.as_ref().clone()])),
+        included_polys,
+        str_domain,
+    );
+
+    let super_f = u64_field("orig_plus_gamma_int");
+    let mut super_polys = IndexMap::new();
+    super_polys.insert(super_f.clone(), orig_plus_gamma_int);
+    super_polys.insert(arithmetic::ACTIVATOR_FIELD.clone(), inputs.mark.clone());
+    let super_table = TrackedTable::new(
+        Some(Schema::new(vec![super_f.as_ref().clone()])),
+        super_polys,
+        char_domain,
+    );
+
+    let mut payload = IndexMap::new();
+    payload.insert(lookup::INCLUDED_LABEL.to_string(), included);
+    payload.insert(lookup::SUPER_LABEL.to_string(), super_table);
+    ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+}
+
+fn set_lookup_placement_payload_verifier<B: SnarkBackend>(
+    node: &Arc<Node<B>>,
+    inputs: &InputsVerifier<B>,
+    gamma: B::F,
+    ir: &mut VerifierGadgetReadyIr<B>,
+) {
+    let str_domain = inputs.str_input.log_size();
+    let char_domain = inputs.char_input.log_size();
+
+    let ind_plus_gamma_start =
+        &inputs.ind + &inputs.start.mul_scalar_oracle(gamma);
+    let ind_plus_gamma_start = resize_oracle(&ind_plus_gamma_start, str_domain);
+    let orig_plus_gamma_int =
+        &inputs.orig_ind + &inputs.int_ind.mul_scalar_oracle(gamma);
+    let orig_plus_gamma_int = resize_oracle(&orig_plus_gamma_int, char_domain);
+
+    let included_f = u64_field("ind_plus_gamma_start");
+    let mut included_oracles = IndexMap::new();
+    included_oracles.insert(included_f.clone(), ind_plus_gamma_start);
+    included_oracles.insert(arithmetic::ACTIVATOR_FIELD.clone(), inputs.match_str.clone());
+    let included = TrackedTableOracle::new(
+        Some(Schema::new(vec![included_f.as_ref().clone()])),
+        included_oracles,
+        str_domain,
+    );
+
+    let super_f = u64_field("orig_plus_gamma_int");
+    let mut super_oracles = IndexMap::new();
+    super_oracles.insert(super_f.clone(), orig_plus_gamma_int);
+    super_oracles.insert(arithmetic::ACTIVATOR_FIELD.clone(), inputs.mark.clone());
+    let super_table = TrackedTableOracle::new(
+        Some(Schema::new(vec![super_f.as_ref().clone()])),
+        super_oracles,
+        char_domain,
+    );
+
+    let mut payload = IndexMap::new();
+    payload.insert(lookup::INCLUDED_LABEL.to_string(), included);
+    payload.insert(lookup::SUPER_LABEL.to_string(), super_table);
+    ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+}
+
 /// Infix-only: wire each `RotationCheck` in the `bnd(δ-1) → bnd(δ)` chain.
 fn set_bnd_chain_rot_check_payloads_prover<B: SnarkBackend>(
     checks: &[Arc<Node<B>>],
@@ -905,7 +1005,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> SnarkResult<()> {
         let inputs = extract_prover_inputs(virtualized_ir, id, self.mode, self.pattern.len());
@@ -914,6 +1014,17 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         set_bool_payload_prover(&self.bool_mark, &inputs.mark, virtualized_ir);
         set_broadcast_match_payload_prover(&self.broadcast_match, &inputs, virtualized_ir);
         set_nodup_mark_payload_prover(&self.nodup_mark, &inputs, virtualized_ir);
+        // Sample γ for Step 4d BEFORE the Lookup child's own init runs.
+        // Both prover and verifier sample it here so their transcripts stay
+        // synchronized (initialize_gadgets is a pre-order pass, so this
+        // executes before the Lookup child's initialize_gadgets).
+        let gamma = prover.get_and_append_challenge(b"factor_placement_gamma")?;
+        set_lookup_placement_payload_prover(
+            &self.lookup_placement,
+            &inputs,
+            gamma,
+            virtualized_ir,
+        );
         if let Some(ref rot_check) = self.att_mask_rot_check {
             set_att_mask_rot_check_payload_prover(rot_check, &inputs, virtualized_ir);
         }
@@ -948,7 +1059,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> SnarkResult<()> {
         let inputs = extract_verifier_inputs(virtualized_ir, id, self.mode, self.pattern.len());
@@ -957,6 +1068,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         set_bool_payload_verifier(&self.bool_mark, &inputs.mark, virtualized_ir);
         set_broadcast_match_payload_verifier(&self.broadcast_match, &inputs, virtualized_ir);
         set_nodup_mark_payload_verifier(&self.nodup_mark, &inputs, virtualized_ir);
+        let gamma = verifier.get_and_append_challenge(b"factor_placement_gamma")?;
+        set_lookup_placement_payload_verifier(
+            &self.lookup_placement,
+            &inputs,
+            gamma,
+            virtualized_ir,
+        );
         if let Some(ref rot_check) = self.att_mask_rot_check {
             set_att_mask_rot_check_payload_verifier(rot_check, &inputs, virtualized_ir);
         }
@@ -1109,11 +1227,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         prover.add_mv_sumcheck_claim(inputs.mark.id(), n_m)?;
         prover.add_mv_sumcheck_claim(inputs.match_str.id(), n_m)?;
 
-        // TODO: Step 4(d) LookupCheck on (match, ind+γ·start) ⊑ (mark, orig-ind+γ·int-ind)
+        // Step 4(d) LookupCheck on (match, ind+γ·start) ⊑ (mark, orig-ind+γ·int-ind)
+        // is wired as a child gadget via `lookup_placement`; γ is sampled
+        // in `initialize_gadgets` (see the comment there).
+        //
         // TODO: Step 4(e) leftmost Sign Check + Zerocheck on
         //       occurs · 1[int-ind < start'] · match'.
-        let _ = &inputs.start;
-        let _ = &inputs.int_ind;
 
         Ok(())
     }
@@ -1219,8 +1338,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         verifier.add_mv_sumcheck_claim(inputs.mark.id(), n_m);
         verifier.add_mv_sumcheck_claim(inputs.match_str.id(), n_m);
 
-        let _ = &inputs.start;
-        let _ = &inputs.int_ind;
+        // Step 4(d) is wired via `lookup_placement`; `start` and `int-ind`
+        // are used there. TODO: Step 4(e) leftmost.
         Ok(())
     }
 
