@@ -13,6 +13,7 @@ pub mod match_pair_check;
 pub mod neq;
 pub mod nodup;
 pub mod perm;
+pub mod prefix_suffix_check;
 pub mod prescr_perm;
 pub mod remat;
 pub mod result_check;
