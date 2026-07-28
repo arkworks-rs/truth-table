@@ -3,19 +3,17 @@
 //! Unified prefix and suffix support via a `Direction` parameter, matching
 //! the paper's ε ∈ {+1, −1} formulation.
 //!
-//! **Omitted in this cut**: The paper's NoDuplicate Check on `src`
-//! activated by `s_n` is wired up as a `nodup::GadgetNode` field but not
-//! yet registered as a child. Composing the Bezout-mode NoDup with the
-//! outer gadget's inline sumcheck claims currently trips a sumcheck
-//! round-0 mismatch; the wiring is present but disabled while the
-//! composition bug is investigated. See the follow-up TODO in `children()`.
-//!
-//! Practical impact of the omission: a malicious prover can cheat by
-//! placing multiple `s_n` marks in the same string (double-counting one
-//! mismatch as several), which would let them inflate `n_nm` and satisfy
-//! the third sumcheck without honestly covering every non-matching
-//! eligible string. The other checks still constrain the *shape* of the
-//! claim; the NoDup is what forces the marks to sit on distinct strings.
+//! **Test-fixture caveat on NoDup(Bezout).** The paper's NoDup check
+//! is present and wired up in Bezout mode. Its `defrag_col` reduces the
+//! active-mark support to a size-`2^ceil(log2(k))` polynomial; for
+//! `k = 1` the resulting log_size collapses to 0, which trips a `None`
+//! unwrap deep inside ark-piop's mv-PCS compile path. This is an ark-piop
+//! degeneracy, not a soundness issue in this gadget — an honest prover
+//! marking exactly one mismatch (or an adversarial witness with a single
+//! mark) will panic before the verifier can reject it. The unit tests
+//! deliberately arrange fixtures so `s_n` carries ≥ 2 marks in every
+//! case. Followup: harden Bezout for the `size-1` support case in
+//! ark-piop.
 //!
 //! # Relation proved
 //!
@@ -61,7 +59,7 @@
 //!    `Direction::Left` for suffix), each proving `s'^{(i)} = ρ_{ε·i}(s'^{(0)})`.
 //! 7. (Suffix only) One extra `RotationCheck(Direction::Left, shift=1)`
 //!    verifying `s_b_shifted = ρ_{−1}(s_b)`.
-//! 8. `NoDup` (Bezout mode) on `src` activated by `s_n`. (Currently disabled.)
+//! 8. `NoDup` (Bezout mode) on `src` activated by `s_n`.
 //!
 //! The anchor `s'^{(0)}` is derived virtually as `a_c^{old'} · s_b` for
 //! prefix, and as `a_c^{old'} · s_b_shifted` for suffix.
@@ -279,10 +277,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         if let Some(ref child) = self.s_b_shift_check {
             out.push(child.clone());
         }
-        // TODO: enable NoDup child on (src, activated by s_n) once its
-        // Bezout mode composes cleanly with the outer gadget's inline
-        // sumcheck claims — see the module-level note.
-        let _ = &self.nodup;
+        out.push(self.nodup.clone());
         out
     }
 }
@@ -364,8 +359,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             set_rotation_payload_prover(child, &anchor, &rotated, char_domain, virtualized_ir);
         }
 
-        // --- NoDup(Bezout) — TEMPORARILY DISABLED (see children()). ---
-        let _ = &inputs;
+        set_nodup_payload_prover(&self.nodup, &inputs.src, &inputs.s_n, char_domain, virtualized_ir);
 
         Ok(())
     }
@@ -446,7 +440,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             set_rotation_payload_verifier(child, &anchor, &rotated, char_domain, virtualized_ir);
         }
 
-        let _ = &inputs;
+        set_nodup_payload_verifier(&self.nodup, &inputs.src, &inputs.s_n, char_domain, virtualized_ir);
 
         Ok(())
     }

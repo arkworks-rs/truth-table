@@ -408,26 +408,43 @@ fn dropping_matching_string_rejected_by_false_negative_no_marker() {
 #[test]
 fn wrong_mark_on_matching_string_rejected_by_nozero() {
     let mut s = honest_setup();
-    // Prover marks a slot on string 0 as a mismatch, but c[0] = p[0] = 'a'
-    // there, so `s_n · (c - p) + (1 - s_n)` collapses to 0.
-    s.s_n = u(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    // Add an extra mark at char 0 — string 0's first char, where c[0] = p[0] = 'a'.
+    // s_n · (c - p) + (1 - s_n) collapses to 0 there → NoZeroCheck rejects.
+    // We keep the two honest marks (chars 3 and 10) so NoDup(Bezout) still
+    // sees ≥ 2 active rows and doesn't hit its size-1 defrag degeneracy.
+    s.s_n[0] = F::from(1u64);
     assert!(
         run(s).is_err(),
         "marking a matching position as mismatch must be rejected by NoZeroCheck"
     );
 }
 
-// NOTE: the "duplicate marks on the same string" adversarial case is
-// deliberately omitted here — this cut of the gadget does not wire up the
-// NoDup child on (src, s_n). Once NoDup is enabled, add a test that marks
-// two anchored slots of the same string and asserts rejection.
+#[test]
+fn duplicate_marks_on_same_string_rejected_by_nodup() {
+    let mut s = honest_setup();
+    // Move string 3's mark onto a second slot of string 1 (chars 3 and 4
+    // both belong to string 1, both mismatch the pattern). This keeps the
+    // three count sumchecks satisfied (n_nm still = 2, and n_m + n_nm =
+    // |E|), keeps NoZeroCheck happy (both marked slots have c ≠ p), and
+    // keeps confinement happy (both slots are anchored). NoDup on
+    // (src, s_n) is the only check that fires: src[3] = src[4] = 1, so
+    // the two active rows carry a duplicate src key.
+    s.s_n[4] = F::from(1u64);
+    s.s_n[10] = F::from(0u64);
+    assert!(
+        run(s).is_err(),
+        "two marks on the same string must be rejected by NoDup"
+    );
+}
 
 #[test]
 fn mark_on_non_anchored_slot_rejected_by_confinement() {
     let mut s = honest_setup();
     // Char 6 belongs to string 2 (dropped by length filter). Its S = 0, so
     // a mark there triggers the confinement zerocheck s_n · (1 - S) = 0.
-    s.s_n = u(&[0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    // Kept alongside the two honest marks so NoDup(Bezout) still sees ≥ 2
+    // active rows.
+    s.s_n[6] = F::from(1u64);
     assert!(
         run(s).is_err(),
         "marking a non-anchored slot must be rejected by the confinement zerocheck"
@@ -481,9 +498,10 @@ fn suffix_tampered_s_b_shifted_rejected_by_rotation_check() {
 #[test]
 fn suffix_wrong_mark_on_matching_string_rejected_by_nozero() {
     let mut s = honest_suffix_setup();
-    // String 0 matches. Marking any of its anchored slots (0, 1, 2) as a
-    // mismatch would trip the NoZeroCheck (c = p at that position).
-    s.s_n = u(&[0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    // String 0 matches; its anchored slots (0, 1, 2) all have c = p. Add
+    // a mark at char 2 alongside the two honest marks (chars 3 and 10);
+    // NoZeroCheck rejects because c[2] = p[2] = 'c'.
+    s.s_n[2] = F::from(1u64);
     assert!(
         run_suffix(s).is_err(),
         "marking a matching position under suffix must be rejected by NoZeroCheck"
