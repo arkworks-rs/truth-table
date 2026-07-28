@@ -12,6 +12,7 @@ pub mod length_filtering_check;
 pub mod leq;
 pub mod lookup;
 pub mod match_pair_check;
+pub mod multi_character_pattern_matching;
 pub mod neq;
 pub mod nodup;
 pub mod perm;
