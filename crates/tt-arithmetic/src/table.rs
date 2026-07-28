@@ -209,13 +209,18 @@ impl<B: SnarkBackend> TrackedTable<B> {
             );
         });
 
-        // All columns must have the same log size as the table
+        // All columns must have the same log size as the table.
+        // A folded-constant poly evaluates identically on any hypercube,
+        // so its stored log_size is not required to match — mirrors the
+        // relaxation in `TrackedCol::check_new_args`.
         tracked_polys.values().for_each(|poly| {
-            assert_eq!(
-                poly.log_size(),
-                log_size,
-                "All columns must have the same log size as the table"
-            );
+            if !poly.is_constant() {
+                assert_eq!(
+                    poly.log_size(),
+                    log_size,
+                    "All columns must have the same log size as the table"
+                );
+            }
         });
 
         // If schema is provided, it must match the fields of the tracked polynomials

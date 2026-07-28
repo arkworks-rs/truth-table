@@ -174,12 +174,17 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             );
         });
 
+        // Folded-constant oracles evaluate identically on any hypercube,
+        // so their stored log_size is not required to match — mirrors the
+        // relaxation in `TrackedColOracle::check_new_args`.
         tracked_oracles.values().for_each(|oracle| {
-            assert_eq!(
-                oracle.log_size(),
-                log_size,
-                "All columns must have the same log size as the table"
-            );
+            if !oracle.is_constant() {
+                assert_eq!(
+                    oracle.log_size(),
+                    log_size,
+                    "All columns must have the same log size as the table"
+                );
+            }
         });
 
         if let Some(schema) = &schema {
