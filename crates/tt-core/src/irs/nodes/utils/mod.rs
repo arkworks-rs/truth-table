@@ -1,5 +1,6 @@
 pub mod activator_consistency_check;
 pub mod bool;
+pub mod broadcast_check;
 pub mod contig_sort;
 pub mod eq;
 pub mod gen_sort;
