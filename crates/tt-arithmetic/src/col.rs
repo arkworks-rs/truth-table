@@ -256,7 +256,14 @@ impl<B: SnarkBackend> TrackedCol<B> {
     ) {
         if activator_tracked_poly.is_some() {
             let activator = activator_tracked_poly.as_ref().unwrap();
-            debug_assert_eq!(data_tracked_poly.log_size(), activator.log_size());
+            // A folded-constant data poly evaluates to the same value on any
+            // hypercube, so its stored log_size is unconstrained relative to
+            // the activator's — enforce the size match only for non-constant
+            // data. This surfaces naturally for e.g. sign-check chunks that
+            // are all-zero over the row domain.
+            if !data_tracked_poly.is_constant() {
+                debug_assert_eq!(data_tracked_poly.log_size(), activator.log_size());
+            }
             debug_assert!(data_tracked_poly.same_tracker(activator));
         }
     }

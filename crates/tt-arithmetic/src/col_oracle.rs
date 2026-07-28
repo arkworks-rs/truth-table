@@ -118,7 +118,13 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     ) {
         if activator_tracked_oracle.is_some() {
             let activator = activator_tracked_oracle.as_ref().unwrap();
-            debug_assert_eq!(data_tracked_oracle.log_size(), activator.log_size());
+            // A folded-constant data oracle evaluates to the same value on
+            // any hypercube, so its stored log_size is unconstrained
+            // relative to the activator's — enforce the size match only for
+            // non-constant data. Mirrors `TrackedCol::check_new_args`.
+            if !data_tracked_oracle.is_constant() {
+                debug_assert_eq!(data_tracked_oracle.log_size(), activator.log_size());
+            }
             debug_assert!(data_tracked_oracle.same_tracker(activator));
         }
     }
