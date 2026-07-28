@@ -1,33 +1,35 @@
 //! A composite gadget node for paper §7.1 Prefix/Suffix Check (PIOP 8).
 //!
-//! **Scope of this implementation**:
-//! - PREFIX case only (ε = +1). The suffix case is a symmetric extension
-//!   (backward rotations from a `ρ_{-1}(s_b)` anchor and pattern column
-//!   `Σ s'_a^{(i)} · str[k-1-i]`) — future follow-up.
-//! - The paper's NoDuplicate Check on `src` activated by `s_n` is **omitted
-//!   from this cut**. It is wired up as a `nodup::GadgetNode` field on this
-//!   struct but not registered as a child (`children()` skips it and
-//!   `initialize_gadgets` doesn't populate its payload). Reason: composing
-//!   the Bezout-mode NoDup with the outer gadget's inline sumcheck claims
-//!   currently trips a sumcheck-round-0 mismatch that needs deeper
-//!   investigation into the tracker's challenge sequencing. All the other
-//!   pieces of PIOP 8 are present. See the follow-up TODO in `children()`.
+//! Unified prefix and suffix support via a `Direction` parameter, matching
+//! the paper's ε ∈ {+1, −1} formulation.
 //!
-//!   Practical impact of the omission: a malicious prover can cheat by
-//!   placing multiple `s_n` marks in the same string (double-counting one
-//!   mismatch as several), which would let them inflate `n_nm` and satisfy
-//!   the third sumcheck without honestly covering every non-matching
-//!   eligible string. The other checks still constrain the *shape* of the
-//!   claim; the NoDup is what forces the marks to sit on distinct strings.
+//! **Omitted in this cut**: The paper's NoDuplicate Check on `src`
+//! activated by `s_n` is wired up as a `nodup::GadgetNode` field but not
+//! yet registered as a child. Composing the Bezout-mode NoDup with the
+//! outer gadget's inline sumcheck claims currently trips a sumcheck
+//! round-0 mismatch; the wiring is present but disabled while the
+//! composition bug is investigated. See the follow-up TODO in `children()`.
+//!
+//! Practical impact of the omission: a malicious prover can cheat by
+//! placing multiple `s_n` marks in the same string (double-counting one
+//! mismatch as several), which would let them inflate `n_nm` and satisfy
+//! the third sumcheck without honestly covering every non-matching
+//! eligible string. The other checks still constrain the *shape* of the
+//! claim; the NoDup is what forces the marks to sit on distinct strings.
 //!
 //! # Relation proved
 //!
 //! Given the original tuple `(h, l, a_h^old, c, src, a_c^old, s_b)`, a
 //! fixed pattern `str` of length `k`, and prover-provided new activators
 //! `(a_h^new, a_c^new)`, the gadget proves that the new activators are
-//! exactly the result of applying the prefix filter `str%` to the tuple —
-//! i.e., `a_h^new[i] = 1` iff string `i` was active, has length ≥ `k`, and
-//! its first `k` characters equal `str`.
+//! exactly the result of applying the anchored filter to the tuple:
+//! - [`Direction::Prefix`] — kept string starts with `str` (`LIKE 'str%'`).
+//! - [`Direction::Suffix`] — kept string ends with `str` (`LIKE '%str'`).
+//!
+//! Following the paper's unified formulation, both cases share the same
+//! decomposition; the two knobs are the rotation direction of the anchored
+//! selectors (`ρ_{ε·i}`) and the pattern indexing `π(i) = i` for prefix,
+//! `k−1−i` for suffix.
 //!
 //! # Payload structure
 //!
@@ -38,21 +40,31 @@
 //! - [`NEW_CHAR_LABEL`] — char-level table `{ a_c^new }`, no activator.
 //! - [`NEW_STR_LABEL`] — string-level table `{ a_h^new }`, no activator.
 //! - [`ROTATED_SELECTORS_LABEL`] — char-level table with `k - 1` columns
-//!   holding `s'_b^{(1)}, ..., s'_b^{(k-1)}` in insertion order, no activator.
-//!   `s'_b^{(0)}` is derived internally as `a_c^{old'} · s_b`.
+//!   holding the anchored selectors `s'^{(1)}, ..., s'^{(k-1)}` in insertion
+//!   order, no activator. The 0-th selector `s'^{(0)}` is derived internally
+//!   from the anchor (see below).
+//! - [`SUFFIX_S_B_SHIFTED_LABEL`] — **suffix only** — char-level table
+//!   `{ s_b_shifted }` with `s_b_shifted = ρ_{−1}(s_b)` (the "last character
+//!   of each string" boundary), no activator. An extra `RotationCheck`
+//!   child verifies this against the input `s_b`. Ignored for prefix.
 //! - [`MISMATCH_LABEL`] — char-level table `{ s_n }`, no activator.
 //!
 //! # Decomposition
 //!
-//! The pipeline instantiates the following children (declared as `children()`):
+//! Children (5 fixed + `k - 1` rotations + 1 optional suffix rotation):
 //! 1. `BoolCheck` on `a_h^new`
 //! 2. `BoolCheck` on `a_c^new`
 //! 3. `BoolCheck` on `s_n`
 //! 4. `ActivatorConsistencyCheck` on `(src, a_c^new, l, a_h^new)`
-//! 5. `LengthFilteringCheck(k)` on `(src, l, a_h^old, a_c^old)`, whose caller-supplied
-//!    filtered activators (`a_c^{old'}, a_h^{old'}`) come from labels 3 and 4 above.
-//! 6. `k − 1` `RotationCheck`s, each proving `s'_b^{(i)} = ρ_i(s'_b^{(0)})` for `i = 1..k-1`.
-//! 7. `NoDup` (Bezout mode) on `src` activated by `s_n`.
+//! 5. `LengthFilteringCheck(k)` on `(src, l, a_h^old, a_c^old)`.
+//! 6. `k − 1` `RotationCheck`s (`Direction::Right` for prefix,
+//!    `Direction::Left` for suffix), each proving `s'^{(i)} = ρ_{ε·i}(s'^{(0)})`.
+//! 7. (Suffix only) One extra `RotationCheck(Direction::Left, shift=1)`
+//!    verifying `s_b_shifted = ρ_{−1}(s_b)`.
+//! 8. `NoDup` (Bezout mode) on `src` activated by `s_n`. (Currently disabled.)
+//!
+//! The anchor `s'^{(0)}` is derived virtually as `a_c^{old'} · s_b` for
+//! prefix, and as `a_c^{old'} · s_b_shifted` for suffix.
 //!
 //! And these inline claims emitted from `prove`/`verify`:
 //! - Zerocheck: `a_h^new · (1 - a_h^{old'})` (containment)
@@ -110,7 +122,38 @@ pub const LENGTH_FILTERED_STR_LABEL: &str = "__length_filtered_str__";
 pub const NEW_CHAR_LABEL: &str = "__new_char__";
 pub const NEW_STR_LABEL: &str = "__new_str__";
 pub const ROTATED_SELECTORS_LABEL: &str = "__rotated_selectors__";
+pub const SUFFIX_S_B_SHIFTED_LABEL: &str = "__suffix_s_b_shifted__";
 pub const MISMATCH_LABEL: &str = "__mismatch__";
+
+/// Direction of the anchored filter — corresponds to paper's ε ∈ {+1, −1}.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// Prefix filter (`LIKE 'str%'`). Rotations are `Right`; pattern
+    /// indexing is `π(i) = i`; anchor is `a_c^{old'} · s_b`.
+    Prefix,
+    /// Suffix filter (`LIKE '%str'`). Rotations are `Left`; pattern
+    /// indexing is `π(i) = k − 1 − i`; anchor is `a_c^{old'} · ρ_{−1}(s_b)`.
+    Suffix,
+}
+
+impl Direction {
+    fn rotation_direction(self) -> rotation_check::Direction {
+        match self {
+            Direction::Prefix => rotation_check::Direction::Right,
+            Direction::Suffix => rotation_check::Direction::Left,
+        }
+    }
+
+    /// Effective pattern under the direction: `str` for prefix, reverse of
+    /// `str` for suffix. Applied so downstream code can use the uniform
+    /// formula `p = Σ s'^{(i)} · effective_pattern[i]`.
+    fn effective_pattern<F: Clone>(self, pattern: &[F]) -> Vec<F> {
+        match self {
+            Direction::Prefix => pattern.to_vec(),
+            Direction::Suffix => pattern.iter().rev().cloned().collect(),
+        }
+    }
+}
 
 /// Rebuild a `TrackedPoly` with the specified `log_size`. Used to sanitize
 /// derived polys whose stored `log_size` may be `0` when their inputs fold
@@ -131,10 +174,12 @@ fn src_field() -> FieldRef {
     Arc::new(Field::new("src", DataType::UInt64, false))
 }
 
-/// Composite gadget node for the Prefix Check relation.
+/// Composite gadget node for the Prefix/Suffix Check relation.
 pub struct GadgetNode<B: SnarkBackend> {
-    /// The fixed pattern of length `k`.
+    /// The fixed pattern of length `k` (as given by the caller — pattern
+    /// reversal for suffix is done downstream via `effective_pattern`).
     pattern: Vec<B::F>,
+    direction: Direction,
     /// `BoolCheck` children — one per boolean input activator.
     bool_ah_new: Arc<Node<B>>,
     bool_ac_new: Arc<Node<B>>,
@@ -142,14 +187,16 @@ pub struct GadgetNode<B: SnarkBackend> {
     activator_consistency: Arc<Node<B>>,
     length_filtering: Arc<Node<B>>,
     /// `k - 1` `RotationCheck` children, `rotation_checks[i]` proves
-    /// `s'_b^{(i+1)} = ρ_{i+1}(s'_b^{(0)})`.
+    /// `s'^{(i+1)} = ρ_{ε·(i+1)}(s'^{(0)})`.
     rotation_checks: Vec<Arc<Node<B>>>,
+    /// Suffix-only: verifies `s_b_shifted = ρ_{−1}(s_b)`. `None` for prefix.
+    s_b_shift_check: Option<Arc<Node<B>>>,
     nodup: Arc<Node<B>>,
     _phantom: PhantomData<B>,
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(pattern: Vec<B::F>) -> Self {
+    pub fn new(pattern: Vec<B::F>, direction: Direction) -> Self {
         let k = pattern.len();
         assert!(k >= 1, "PrefixSuffixCheck: pattern length must be ≥ 1");
         let bool_ah_new = Arc::new(Node::<B>::Gadget(Arc::new(bool_check::GadgetNode::new())));
@@ -161,25 +208,34 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let length_filtering = Arc::new(Node::<B>::Gadget(Arc::new(
             length_filtering_check::GadgetNode::new(k as u64),
         )));
+        let rot_direction = direction.rotation_direction();
         let rotation_checks: Vec<Arc<Node<B>>> = (1..k)
             .map(|i| {
                 Arc::new(Node::<B>::Gadget(Arc::new(rotation_check::GadgetNode::new(
                     i,
-                    rotation_check::Direction::Right,
+                    rot_direction,
                 ))))
             })
             .collect();
+        let s_b_shift_check = match direction {
+            Direction::Prefix => None,
+            Direction::Suffix => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                rotation_check::GadgetNode::new(1, rotation_check::Direction::Left),
+            )))),
+        };
         let nodup = Arc::new(Node::<B>::Gadget(Arc::new(nodup::GadgetNode::new(
             nodup::Mode::BezoutBased,
         ))));
         Self {
             pattern,
+            direction,
             bool_ah_new,
             bool_ac_new,
             bool_sn,
             activator_consistency,
             length_filtering,
             rotation_checks,
+            s_b_shift_check,
             nodup,
             _phantom: PhantomData,
         }
@@ -187,6 +243,10 @@ impl<B: SnarkBackend> GadgetNode<B> {
 
     pub fn k(&self) -> usize {
         self.pattern.len()
+    }
+
+    pub fn direction(&self) -> Direction {
+        self.direction
     }
 }
 
@@ -216,6 +276,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             self.length_filtering.clone(),
         ];
         out.extend(self.rotation_checks.iter().cloned());
+        if let Some(ref child) = self.s_b_shift_check {
+            out.push(child.clone());
+        }
         // TODO: enable NoDup child on (src, activated by s_n) once its
         // Bezout mode composes cleanly with the outer gadget's inline
         // sumcheck claims — see the module-level note.
@@ -267,18 +330,42 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             virtualized_ir,
         );
 
-        // --- children 6: rotations s'_b^{(i)} = ρ_i(s'_b^{(0)}) ---
-        // Anchor: s'_b^{(0)} := a_c^{old'} · s_b. Put a_c^{old'} on the
-        // left when a candidate would otherwise be a folded constant.
-        let anchor = &inputs.a_c_old_prime * &inputs.s_b;
+        // --- suffix-only child: s_b_shifted = ρ_{−1}(s_b) ---
+        if let Some(ref shift_node) = self.s_b_shift_check {
+            let s_b_shifted = inputs
+                .s_b_shifted
+                .clone()
+                .expect("PrefixSuffixCheck: suffix direction requires SUFFIX_S_B_SHIFTED_LABEL");
+            set_rotation_payload_prover(
+                shift_node,
+                &inputs.s_b,
+                &s_b_shifted,
+                char_domain,
+                virtualized_ir,
+            );
+        }
+
+        // --- rotation children: s'^{(i)} = ρ_{ε·i}(s'^{(0)}) ---
+        // Anchor: s'^{(0)} := a_c^{old'} · s_b for prefix, or
+        //         a_c^{old'} · s_b_shifted for suffix.
+        // Put a_c^{old'} on the left when a candidate would otherwise be a
+        // folded constant.
+        let anchor_base = match self.direction {
+            Direction::Prefix => inputs.s_b.clone(),
+            Direction::Suffix => inputs
+                .s_b_shifted
+                .clone()
+                .expect("PrefixSuffixCheck: suffix direction requires SUFFIX_S_B_SHIFTED_LABEL"),
+        };
+        let anchor = &inputs.a_c_old_prime * &anchor_base;
         let anchor = resize_poly(&anchor, char_domain);
         for (i, child) in self.rotation_checks.iter().enumerate() {
             let rotated = inputs.rotated_selectors[i].clone();
             set_rotation_payload_prover(child, &anchor, &rotated, char_domain, virtualized_ir);
         }
 
-        // --- child 7: NoDup(Bezout) — TEMPORARILY DISABLED (see children()). ---
-        let _ = (char_domain, &inputs);
+        // --- NoDup(Bezout) — TEMPORARILY DISABLED (see children()). ---
+        let _ = &inputs;
 
         Ok(())
     }
@@ -331,15 +418,35 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             virtualized_ir,
         );
 
-        let anchor = &inputs.a_c_old_prime * &inputs.s_b;
+        if let Some(ref shift_node) = self.s_b_shift_check {
+            let s_b_shifted = inputs
+                .s_b_shifted
+                .clone()
+                .expect("PrefixSuffixCheck: suffix direction requires SUFFIX_S_B_SHIFTED_LABEL");
+            set_rotation_payload_verifier(
+                shift_node,
+                &inputs.s_b,
+                &s_b_shifted,
+                char_domain,
+                virtualized_ir,
+            );
+        }
+
+        let anchor_base = match self.direction {
+            Direction::Prefix => inputs.s_b.clone(),
+            Direction::Suffix => inputs
+                .s_b_shifted
+                .clone()
+                .expect("PrefixSuffixCheck: suffix direction requires SUFFIX_S_B_SHIFTED_LABEL"),
+        };
+        let anchor = &inputs.a_c_old_prime * &anchor_base;
         let anchor = resize_oracle(&anchor, char_domain);
         for (i, child) in self.rotation_checks.iter().enumerate() {
             let rotated = inputs.rotated_selectors[i].clone();
             set_rotation_payload_verifier(child, &anchor, &rotated, char_domain, virtualized_ir);
         }
 
-        // --- child 7 NoDup TEMPORARILY DISABLED (see children()). ---
-        let _ = (char_domain, &inputs);
+        let _ = &inputs;
 
         Ok(())
     }
@@ -373,15 +480,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             prover.add_mv_zerocheck_claim(containment.id())?;
         }
 
-        // Anchor: s'_b^{(0)} := a_c^{old'} · s_b.
-        let anchor = &inputs.a_c_old_prime * &inputs.s_b;
+        // Anchor: s'^{(0)} := a_c^{old'} · anchor_base, where anchor_base
+        // is s_b for prefix and s_b_shifted for suffix.
+        let anchor_base = match self.direction {
+            Direction::Prefix => inputs.s_b.clone(),
+            Direction::Suffix => inputs
+                .s_b_shifted
+                .clone()
+                .expect("PrefixSuffixCheck: suffix direction requires SUFFIX_S_B_SHIFTED_LABEL"),
+        };
+        let anchor = &inputs.a_c_old_prime * &anchor_base;
         let anchor = resize_poly(&anchor, char_domain);
 
-        // S = Σ_{i=0}^{k-1} s'_b^{(i)}, p = Σ_{i=0}^{k-1} s'_b^{(i)} · str[i].
+        // S = Σ s'^{(i)}, p = Σ s'^{(i)} · effective_pattern[i]
+        // where effective_pattern is str for prefix, reversed str for suffix.
+        let effective_pattern = self.direction.effective_pattern(&self.pattern);
         let (s_sum, p_col) = build_selector_and_pattern_polys::<B>(
             &anchor,
             &inputs.rotated_selectors,
-            &self.pattern,
+            &effective_pattern,
             char_domain,
         );
 
@@ -469,13 +586,21 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             verifier.add_mv_zerocheck_claim(containment.id());
         }
 
-        let anchor = &inputs.a_c_old_prime * &inputs.s_b;
+        let anchor_base = match self.direction {
+            Direction::Prefix => inputs.s_b.clone(),
+            Direction::Suffix => inputs
+                .s_b_shifted
+                .clone()
+                .expect("PrefixSuffixCheck: suffix direction requires SUFFIX_S_B_SHIFTED_LABEL"),
+        };
+        let anchor = &inputs.a_c_old_prime * &anchor_base;
         let anchor = resize_oracle(&anchor, char_domain);
 
+        let effective_pattern = self.direction.effective_pattern(&self.pattern);
         let (s_sum, p_col) = build_selector_and_pattern_oracles::<B>(
             &anchor,
             &inputs.rotated_selectors,
-            &self.pattern,
+            &effective_pattern,
             char_domain,
         );
 
@@ -552,6 +677,9 @@ struct PayloadInputsProver<B: SnarkBackend> {
     a_c_new: TrackedPoly<B>,
     a_h_new: TrackedPoly<B>,
     rotated_selectors: Vec<TrackedPoly<B>>,
+    /// Suffix only: `ρ_{−1}(s_b)`. `None` when the caller runs the
+    /// prefix direction and doesn't provide the label.
+    s_b_shifted: Option<TrackedPoly<B>>,
     s_n: TrackedPoly<B>,
 }
 
@@ -571,6 +699,7 @@ struct PayloadInputsVerifier<B: SnarkBackend> {
     a_c_new: TrackedOracle<B>,
     a_h_new: TrackedOracle<B>,
     rotated_selectors: Vec<TrackedOracle<B>>,
+    s_b_shifted: Option<TrackedOracle<B>>,
     s_n: TrackedOracle<B>,
 }
 
@@ -638,6 +767,10 @@ fn extract_prover_inputs<B: SnarkBackend>(
         .map(|idx| rotated.tracked_col_by_ind(idx).data_tracked_poly())
         .collect();
 
+    let s_b_shifted = payload
+        .get(SUFFIX_S_B_SHIFTED_LABEL)
+        .map(|t| single_col_data(t, "SUFFIX_S_B_SHIFTED"));
+
     PayloadInputsProver {
         char_input,
         str_input,
@@ -653,6 +786,7 @@ fn extract_prover_inputs<B: SnarkBackend>(
         a_c_new,
         a_h_new,
         rotated_selectors,
+        s_b_shifted,
         s_n,
     }
 }
@@ -731,6 +865,10 @@ fn extract_verifier_inputs<B: SnarkBackend>(
         .map(|idx| rotated.tracked_col_oracle_by_ind(idx).data_tracked_oracle())
         .collect();
 
+    let s_b_shifted = payload
+        .get(SUFFIX_S_B_SHIFTED_LABEL)
+        .map(|t| single_col_data_oracle(t, "SUFFIX_S_B_SHIFTED"));
+
     PayloadInputsVerifier {
         char_input,
         str_input,
@@ -746,6 +884,7 @@ fn extract_verifier_inputs<B: SnarkBackend>(
         a_c_new,
         a_h_new,
         rotated_selectors,
+        s_b_shifted,
         s_n,
     }
 }

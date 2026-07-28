@@ -24,9 +24,9 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
-    CHAR_INPUT_LABEL, GadgetNode, LENGTH_FILTERED_CHAR_LABEL,
+    CHAR_INPUT_LABEL, Direction, GadgetNode, LENGTH_FILTERED_CHAR_LABEL,
     LENGTH_FILTERED_STR_LABEL, MISMATCH_LABEL, NEW_CHAR_LABEL, NEW_STR_LABEL,
-    ROTATED_SELECTORS_LABEL, STR_INPUT_LABEL,
+    ROTATED_SELECTORS_LABEL, STR_INPUT_LABEL, SUFFIX_S_B_SHIFTED_LABEL,
 };
 use crate::irs::nodes::Node;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
@@ -73,7 +73,18 @@ fn fixture_src() -> Vec<F> {
     u(&[0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 3, 0, 0, 0, 0, 0])
 }
 fn fixture_s_b() -> Vec<F> {
-    u(&[1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0])
+    // Position 11 is a sentinel "start of string 4" — string 4 doesn't
+    // exist, so this bit is inactive under a_c^old, meaning the sentinel
+    // never contributes to the prefix anchor (a_c^{old'} · s_b is 0 at
+    // position 11). It exists for the SUFFIX direction, where ρ_{−1}(s_b)
+    // uses it to place a 1 at position 10 — the last char of string 3.
+    // Without the sentinel, the last string of the batch would have no
+    // suffix anchor.
+    u(&[1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0])
+}
+/// ρ_{−1}(s_b): the "last char of each string" boundary selector.
+fn fixture_s_b_shifted() -> Vec<F> {
+    shift_left(&fixture_s_b(), 1)
 }
 fn fixture_a_c_old() -> Vec<F> {
     u(&[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0])
@@ -111,11 +122,25 @@ fn build_anchor(a_c_old_prime: &[F], s_b: &[F]) -> Vec<F> {
     a_c_old_prime.iter().zip(s_b.iter()).map(|(a, b)| *a * *b).collect()
 }
 
+/// Shift a vector LEFT by `shift` (result[i] = xs[(i + shift) mod n]).
+/// Used to build the suffix-side rotated selectors and the shifted s_b.
+fn shift_left(xs: &[F], shift: usize) -> Vec<F> {
+    let n = xs.len();
+    (0..n).map(|i| xs[(i + (shift % n)) % n]).collect()
+}
+
+/// Suffix rotations: s'_a^{(i)} = ρ_{−i}(s'_a^{(0)}) = shift_left(anchor, i).
+fn build_rotated_selectors_left(anchor: &[F], k: usize) -> Vec<Vec<F>> {
+    (1..k).map(|i| shift_left(anchor, i)).collect()
+}
+
 /// Payload assembly.
 struct Setup {
     a_h_new: Vec<F>,
     a_c_new: Vec<F>,
     rotated: Vec<Vec<F>>,
+    /// Only used when running under Direction::Suffix.
+    s_b_shifted: Option<Vec<F>>,
     s_n: Vec<F>,
 }
 
@@ -136,12 +161,63 @@ fn honest_setup() -> Setup {
         a_h_new,
         a_c_new,
         rotated,
+        s_b_shifted: None,
         s_n,
     }
 }
 
 fn run(setup: Setup) -> Result<(), ark_piop::errors::SnarkError> {
-    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(pattern_abc()))));
+    run_with_direction(Direction::Prefix, setup)
+}
+
+/// Honest setup for `LIKE '%abc'` on the same fixture. Only string 0
+/// (`"abc"`) actually ends with `"abc"`; strings 1 (`"xyz"`) and 3
+/// (`"abd"`) are eligible but don't end with `"abc"`.
+fn honest_suffix_setup() -> Setup {
+    let a_h_new = u(&[1, 0, 0, 0]);
+    // a_c^new activates string 0's char slots (0..=2). Under the suffix
+    // filter, the "kept" chars are exactly those of a matched string.
+    let a_c_new = u(&[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    // Anchor for suffix: a_c^{old'} · ρ_{−1}(s_b), then rotate LEFT (Direction::Left).
+    let s_b_shifted = fixture_s_b_shifted();
+    let anchor: Vec<F> = fixture_a_c_old_prime()
+        .iter()
+        .zip(s_b_shifted.iter())
+        .map(|(a, b)| *a * *b)
+        .collect();
+    let rotated = build_rotated_selectors_left(&anchor, 3);
+
+    // Under suffix indexing (π(i) = k−1−i), the pattern column p is
+    //   'c'·s'_a^{(0)} + 'b'·s'_a^{(1)} + 'a'·s'_a^{(2)}.
+    // For string 1 ("xyz"), all three anchored slots (5, 4, 3) mismatch p
+    // — pick position 3 as the witness (c='x', p='a').
+    // For string 3 ("abd"), anchor slots are (10, 9, 8) → 'd' vs 'c',
+    // 'b' vs 'b', 'a' vs 'a'; only position 10 mismatches. Mark it.
+    let mut s_n = u(&[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    s_n[10] = F::from(1u64);
+
+    Setup {
+        a_h_new,
+        a_c_new,
+        rotated,
+        s_b_shifted: Some(s_b_shifted),
+        s_n,
+    }
+}
+
+fn run_suffix(setup: Setup) -> Result<(), ark_piop::errors::SnarkError> {
+    run_with_direction(Direction::Suffix, setup)
+}
+
+fn run_with_direction(
+    direction: Direction,
+    setup: Setup,
+) -> Result<(), ark_piop::errors::SnarkError> {
+    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(
+        pattern_abc(),
+        direction,
+    ))));
     let gadget_id = gadget.id();
 
     let c_f = u64_field("c");
@@ -263,9 +339,26 @@ fn run(setup: Setup) -> Result<(), ark_piop::errors::SnarkError> {
                 cols: vec![(flag.clone(), setup.s_n)],
                 activator: None,
             },
-        )
-        .build();
+        );
 
+    let harness = if let Some(shifted) = setup.s_b_shifted {
+        let shifted_f = u64_field("s_b_shifted");
+        let shifted_schema = Schema::new(vec![shifted_f.as_ref().clone()]);
+        harness.with_table(
+            gadget_id,
+            SUFFIX_S_B_SHIFTED_LABEL,
+            TableSpec {
+                schema: shifted_schema,
+                log_size: CHAR_NV,
+                cols: vec![(shifted_f, shifted)],
+                activator: None,
+            },
+        )
+    } else {
+        harness
+    };
+
+    let harness = harness.build();
     run_gadget_pipeline(harness)
 }
 
@@ -349,5 +442,50 @@ fn tampered_rotated_selector_rejected_by_rotation_check() {
     assert!(
         run(s).is_err(),
         "tampered rotation must be rejected by RotationCheck"
+    );
+}
+
+// ==== Suffix direction ====
+
+#[test]
+fn honest_suffix_matches_and_mismatches_verify() {
+    run_suffix(honest_suffix_setup()).expect("honest suffix check should verify");
+}
+
+#[test]
+fn suffix_keeping_non_matching_string_rejected_by_false_positive() {
+    let mut s = honest_suffix_setup();
+    // Claim string 1 also matches (`"xyz"` supposedly ends with `"abc"`).
+    s.a_h_new = u(&[1, 1, 0, 0]);
+    s.a_c_new = u(&[1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert!(
+        run_suffix(s).is_err(),
+        "keeping a non-matching string under suffix must be rejected"
+    );
+}
+
+#[test]
+fn suffix_tampered_s_b_shifted_rejected_by_rotation_check() {
+    let mut s = honest_suffix_setup();
+    // Corrupt s_b_shifted so the extra RotationCheck (s_b_shifted =
+    // ρ_{−1}(s_b)) fails.
+    let mut shifted = s.s_b_shifted.unwrap();
+    shifted[0] = F::from(1u64);
+    s.s_b_shifted = Some(shifted);
+    assert!(
+        run_suffix(s).is_err(),
+        "tampered s_b_shifted must be rejected by the extra suffix RotationCheck"
+    );
+}
+
+#[test]
+fn suffix_wrong_mark_on_matching_string_rejected_by_nozero() {
+    let mut s = honest_suffix_setup();
+    // String 0 matches. Marking any of its anchored slots (0, 1, 2) as a
+    // mismatch would trip the NoZeroCheck (c = p at that position).
+    s.s_n = u(&[0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert!(
+        run_suffix(s).is_err(),
+        "marking a matching position under suffix must be rejected by NoZeroCheck"
     );
 }
