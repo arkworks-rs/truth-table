@@ -16,7 +16,8 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
     ATT_MASK_LABEL, CHAR_INPUT_LABEL, GadgetNode, MARK_LABEL, MATCH_BROADCAST_LABEL,
-    MATCH_LABEL, Mode, OCCURS_LABEL, ROTATED_CHAR_LABEL, START_LABEL, STR_INPUT_LABEL,
+    MATCH_LABEL, Mode, OCCURS_LABEL, ROTATED_BND_LABEL, ROTATED_CHAR_LABEL, START_LABEL,
+    STR_INPUT_LABEL,
 };
 use crate::irs::nodes::Node;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
@@ -428,4 +429,202 @@ fn honest_suffix_match_verifies() {
         .build();
 
     run_gadget_pipeline(harness).expect("honest suffix Factor Placement should verify");
+}
+
+/// Honest infix Factor Placement.
+///
+/// Fixture:
+/// - n_str = 8, n_char = 8 (matched log sizes = 3).
+/// - Two real strings: `"cab"` (chars 0..=2) and `"abc"` (chars 3..=5);
+///   char slots 6..=7 are padding (char-act = 0), string slots 2..=7 are
+///   padding (a = 0).
+/// - Pattern factor: `"ab"` (ℓ = 2), Mode::Infix.
+/// - Both strings contain `"ab"` as a factor: string 0 at char pos 1,
+///   string 1 at char pos 3. Two marks (≥ 2, avoiding the size-1 Bezout
+///   NoDup degeneracy).
+///
+/// Sanity-checks the infix-specific machinery: the `ROTATED_BND_LABEL`
+/// payload (bnd(1)), the single RotationCheck child on `(bnd, bnd(1), -1)`,
+/// and the `att_mask := char-act · (1 - bnd(1))` derivation. The prefix
+/// mode would have produced att_mask `[1,0,0,1,0,0,0,0]` — very different
+/// from the infix `[1,1,0,1,1,0,0,0]` used here.
+#[test]
+fn honest_infix_match_verifies() {
+    const STR_NV: usize = 3; // n_str = 8
+    const CHAR_NV: usize = 3; // n_char = 8
+
+    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(
+        pattern_ab(),
+        Mode::Infix,
+    ))));
+    let gadget_id = gadget.id();
+
+    // "cab" + "abc" + padding.
+    let char_col = u(&[
+        b'c' as u64, b'a' as u64, b'b' as u64,
+        b'a' as u64, b'b' as u64, b'c' as u64,
+        0, 0,
+    ]);
+    let orig_ind = u(&[0, 0, 0, 1, 1, 1, 0, 0]);
+    let int_ind = u(&[0, 1, 2, 0, 1, 2, 0, 0]);
+    // Sentinel bit at position 6 marks "start after string 1 ends", so the
+    // last-char position of string 1 (char 5) is correctly disallowed as an
+    // infix-window start.
+    let bnd = u(&[1, 0, 0, 1, 0, 0, 1, 0]);
+    let char_act = u(&[1, 1, 1, 1, 1, 1, 0, 0]);
+    let ind = u(&[0, 1, 2, 3, 4, 5, 6, 7]);
+    let a = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
+
+    // char(0) = char, char(1) = shift_left(char, 1).
+    let rotated_chars = vec![char_col.clone(), shift_left(&char_col, 1)];
+    // bnd(1)[c] = bnd[(c+1) mod 8].
+    let bnd_1 = shift_left(&bnd, 1);
+    // Ensure the fixture matches what the RotationCheck will verify.
+    assert_eq!(bnd_1, u(&[0, 0, 1, 0, 0, 1, 0, 1]));
+
+    // Occurs and mark: valid infix window at c=1 (chars 1..2 = "ab") and
+    // c=3 (chars 3..4 = "ab"); at c=2 and c=5 att_mask=0 blocks; at c=4
+    // fingerprint mismatches ("bc" ≠ "ab").
+    let occurs = u(&[0, 1, 0, 1, 0, 0, 0, 0]);
+    let match_str = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
+    let match_broadcast = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
+    let mark = u(&[0, 1, 0, 1, 0, 0, 0, 0]);
+    // String 0's match starts at c=1; string 1's at c=3.
+    let start = u(&[1, 3, 0, 0, 0, 0, 0, 0]);
+
+    let char_f = u64_field("char");
+    let orig_ind_f = u64_field("orig_ind");
+    let int_ind_f = u64_field("int_ind");
+    let bnd_f = u64_field("bnd");
+    let ind_f = u64_field("ind");
+    let flag = bool_field("data");
+    let bnd_1_f = u64_field("bnd_1");
+
+    let char_input_schema = Schema::new(vec![
+        char_f.as_ref().clone(),
+        orig_ind_f.as_ref().clone(),
+        int_ind_f.as_ref().clone(),
+        bnd_f.as_ref().clone(),
+    ]);
+    let str_input_schema = Schema::new(vec![ind_f.as_ref().clone()]);
+    let rot_char_schema = Schema::new(
+        (0..pattern_ab().len())
+            .map(|d| Field::new(format!("char_{d}"), DataType::UInt64, false))
+            .collect::<Vec<_>>(),
+    );
+    let flag_schema = Schema::new(vec![flag.as_ref().clone()]);
+
+    let rot_char_cols: Vec<(Arc<Field>, Vec<F>)> = rotated_chars
+        .into_iter()
+        .enumerate()
+        .map(|(d, v)| {
+            (
+                Arc::new(Field::new(format!("char_{d}"), DataType::UInt64, false)),
+                v,
+            )
+        })
+        .collect();
+
+    let match_prime_f = u64_field("match_prime");
+
+    let harness = GadgetHarness::<B>::builder(8)
+        .with_gadget(gadget)
+        .with_table(
+            gadget_id,
+            CHAR_INPUT_LABEL,
+            TableSpec {
+                schema: char_input_schema,
+                log_size: CHAR_NV,
+                cols: vec![
+                    (char_f, char_col),
+                    (orig_ind_f, orig_ind),
+                    (int_ind_f, int_ind),
+                    (bnd_f, bnd),
+                ],
+                activator: Some(char_act),
+            },
+        )
+        .with_table(
+            gadget_id,
+            STR_INPUT_LABEL,
+            TableSpec {
+                schema: str_input_schema,
+                log_size: STR_NV,
+                cols: vec![(ind_f, ind)],
+                activator: Some(a),
+            },
+        )
+        .with_table(
+            gadget_id,
+            ROTATED_CHAR_LABEL,
+            TableSpec {
+                schema: rot_char_schema,
+                log_size: CHAR_NV,
+                cols: rot_char_cols,
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            OCCURS_LABEL,
+            TableSpec {
+                schema: flag_schema.clone(),
+                log_size: CHAR_NV,
+                cols: vec![(flag.clone(), occurs)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            MATCH_LABEL,
+            TableSpec {
+                schema: flag_schema.clone(),
+                log_size: STR_NV,
+                cols: vec![(flag.clone(), match_str)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            MARK_LABEL,
+            TableSpec {
+                schema: flag_schema.clone(),
+                log_size: CHAR_NV,
+                cols: vec![(flag.clone(), mark)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            START_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![Field::new("start", DataType::UInt64, false)]),
+                log_size: STR_NV,
+                cols: vec![(u64_field("start"), start)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            MATCH_BROADCAST_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![match_prime_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(match_prime_f, match_broadcast)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            ROTATED_BND_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![bnd_1_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(bnd_1_f, bnd_1)],
+                activator: None,
+            },
+        )
+        .build();
+
+    run_gadget_pipeline(harness).expect("honest infix Factor Placement should verify");
 }
