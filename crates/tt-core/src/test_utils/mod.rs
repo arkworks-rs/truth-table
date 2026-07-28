@@ -1,3 +1,5 @@
+pub mod gadget_harness;
+
 use std::sync::Arc;
 
 use datafusion::{
