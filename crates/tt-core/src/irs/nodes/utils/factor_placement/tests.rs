@@ -15,8 +15,8 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
-    CHAR_INPUT_LABEL, GadgetNode, MARK_LABEL, MATCH_BROADCAST_LABEL, MATCH_LABEL, Mode,
-    OCCURS_LABEL, ROTATED_CHAR_LABEL, START_LABEL, STR_INPUT_LABEL,
+    ATT_MASK_LABEL, CHAR_INPUT_LABEL, GadgetNode, MARK_LABEL, MATCH_BROADCAST_LABEL,
+    MATCH_LABEL, Mode, OCCURS_LABEL, ROTATED_CHAR_LABEL, START_LABEL, STR_INPUT_LABEL,
 };
 use crate::irs::nodes::Node;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
@@ -241,4 +241,191 @@ fn run(witness: Witness) -> Result<(), ark_piop::errors::SnarkError> {
 #[test]
 fn honest_prefix_match_verifies() {
     run(honest_witness()).expect("honest prefix Factor Placement should verify");
+}
+
+/// Honest suffix Factor Placement.
+///
+/// Fixture chosen so that prefix and suffix att_mask differ (unlike the
+/// prefix fixture where both would coincide):
+/// - n_str = 8, n_char = 8 (matched log sizes = 3).
+/// - Two real strings, both `"abab"` of length 4, packed contiguously in
+///   char positions 0..=7; six inactive padding strings.
+/// - Pattern factor: `"ab"` (ℓ = 2), Mode::Suffix.
+/// - Both strings' suffix `"ab"` matches; the valid suffix windows sit at
+///   char positions 2 (for string 0) and 6 (for string 1) — different from
+///   the prefix windows at 0 and 4.
+#[test]
+fn honest_suffix_match_verifies() {
+    const STR_NV: usize = 3; // n_str = 8
+    const CHAR_NV: usize = 3; // n_char = 8
+
+    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(
+        pattern_ab(),
+        Mode::Suffix,
+    ))));
+    let gadget_id = gadget.id();
+
+    // char = "abab" + "abab", both strings packed contiguously.
+    let char_col = u(&[
+        b'a' as u64, b'b' as u64, b'a' as u64, b'b' as u64,
+        b'a' as u64, b'b' as u64, b'a' as u64, b'b' as u64,
+    ]);
+    let orig_ind = u(&[0, 0, 0, 0, 1, 1, 1, 1]);
+    let int_ind = u(&[0, 1, 2, 3, 0, 1, 2, 3]);
+    let bnd = u(&[1, 0, 0, 0, 1, 0, 0, 0]);
+    let char_act = u(&[1; 8]);
+    let ind = u(&[0, 1, 2, 3, 4, 5, 6, 7]);
+    let a = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
+
+    // char^(0) = char, char^(1) = shift_left(char, 1).
+    let rotated = vec![char_col.clone(), shift_left(&char_col, 1)];
+
+    // att_mask = ρ_{-2}(char_act · bnd) = [0, 0, 1, 0, 0, 0, 1, 0].
+    // (char_act · bnd = [1, 0, 0, 0, 1, 0, 0, 0]; shift left by 2.)
+    let att_mask = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
+
+    // Only the two valid suffix windows have both att_mask=1 AND matching
+    // fingerprint; that's exactly where occurs is 1.
+    let occurs = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
+    let match_str = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
+    let match_broadcast = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
+    let mark = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
+    // string 0's suffix window starts at char 2; string 1's at char 6.
+    let start = u(&[2, 6, 0, 0, 0, 0, 0, 0]);
+
+    let char_f = u64_field("char");
+    let orig_ind_f = u64_field("orig_ind");
+    let int_ind_f = u64_field("int_ind");
+    let bnd_f = u64_field("bnd");
+    let ind_f = u64_field("ind");
+    let flag = bool_field("data");
+    let att_mask_f = u64_field("att_mask");
+
+    let char_input_schema = Schema::new(vec![
+        char_f.as_ref().clone(),
+        orig_ind_f.as_ref().clone(),
+        int_ind_f.as_ref().clone(),
+        bnd_f.as_ref().clone(),
+    ]);
+    let str_input_schema = Schema::new(vec![ind_f.as_ref().clone()]);
+    let rot_schema = Schema::new(
+        (0..pattern_ab().len())
+            .map(|d| Field::new(format!("char_{d}"), DataType::UInt64, false))
+            .collect::<Vec<_>>(),
+    );
+    let flag_schema = Schema::new(vec![flag.as_ref().clone()]);
+
+    let rot_cols: Vec<(Arc<Field>, Vec<F>)> = rotated
+        .into_iter()
+        .enumerate()
+        .map(|(d, v)| {
+            (
+                Arc::new(Field::new(format!("char_{d}"), DataType::UInt64, false)),
+                v,
+            )
+        })
+        .collect();
+
+    let match_prime_f = u64_field("match_prime");
+
+    let harness = GadgetHarness::<B>::builder(8)
+        .with_gadget(gadget)
+        .with_table(
+            gadget_id,
+            CHAR_INPUT_LABEL,
+            TableSpec {
+                schema: char_input_schema,
+                log_size: CHAR_NV,
+                cols: vec![
+                    (char_f, char_col),
+                    (orig_ind_f, orig_ind),
+                    (int_ind_f, int_ind),
+                    (bnd_f, bnd),
+                ],
+                activator: Some(char_act),
+            },
+        )
+        .with_table(
+            gadget_id,
+            STR_INPUT_LABEL,
+            TableSpec {
+                schema: str_input_schema,
+                log_size: STR_NV,
+                cols: vec![(ind_f, ind)],
+                activator: Some(a),
+            },
+        )
+        .with_table(
+            gadget_id,
+            ROTATED_CHAR_LABEL,
+            TableSpec {
+                schema: rot_schema,
+                log_size: CHAR_NV,
+                cols: rot_cols,
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            OCCURS_LABEL,
+            TableSpec {
+                schema: flag_schema.clone(),
+                log_size: CHAR_NV,
+                cols: vec![(flag.clone(), occurs)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            MATCH_LABEL,
+            TableSpec {
+                schema: flag_schema.clone(),
+                log_size: STR_NV,
+                cols: vec![(flag.clone(), match_str)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            MARK_LABEL,
+            TableSpec {
+                schema: flag_schema.clone(),
+                log_size: CHAR_NV,
+                cols: vec![(flag.clone(), mark)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            START_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![Field::new("start", DataType::UInt64, false)]),
+                log_size: STR_NV,
+                cols: vec![(u64_field("start"), start)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            MATCH_BROADCAST_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![match_prime_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(match_prime_f, match_broadcast)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            ATT_MASK_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![att_mask_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(att_mask_f, att_mask)],
+                activator: None,
+            },
+        )
+        .build();
+
+    run_gadget_pipeline(harness).expect("honest suffix Factor Placement should verify");
 }

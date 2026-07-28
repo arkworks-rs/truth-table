@@ -11,9 +11,9 @@
 //!
 //! # Current scope
 //!
-//! - Only [`Mode::Prefix`] is wired in this cut; suffix and infix are
-//!   follow-ups (they add 1 and `ℓ − 1` RotationCheck children respectively
-//!   and swap the `att_mask` formula).
+//! - [`Mode::Prefix`] and [`Mode::Suffix`] are wired. Infix is a follow-up
+//!   (it adds `ℓ − 1` RotationCheck children on `bnd` and switches
+//!   `att_mask` to `char-act · (1 − Σ_{δ=1..ℓ-1} bnd(δ))`).
 //! - **Step 4d (Lookup Check for placement) and Step 4e (leftmost Sign
 //!   Check + zerocheck) are stubbed with a TODO**: `start` is committed but
 //!   not constrained to be the leftmost of `O_i`, and the string→char
@@ -38,16 +38,22 @@
 //! - [`START_LABEL`] — string-level table `{ start }`, no activator.
 //! - [`MATCH_BROADCAST_LABEL`] — char-level table `{ match' }` — the
 //!   prover's broadcast of `match` to the char level, no activator.
+//! - [`ATT_MASK_LABEL`] — **suffix only** — char-level table `{ att_mask }`
+//!   containing `ρ_{-ℓ}(char-act · bnd)`. Verified by an extra
+//!   `RotationCheck(Direction::Left, shift=ℓ)` child. Ignored for prefix.
 //!
 //! # Decomposition
 //!
-//! Children (all present under prefix mode):
+//! Children (fixed 5 + mode-dependent):
 //! - `BoolCheck` on `occurs`, `match`, `mark` (three children).
 //! - `BroadcastCheck` on `(match, match')` — i.e. `match'[c] = match[orig-ind[c]]`.
 //! - `NoDup(Bezout)` on `(orig-ind, mark)` — at most one mark per string.
+//! - (Suffix only) `RotationCheck(Direction::Left, shift=ℓ)` on
+//!   `(char-act · bnd, att_mask)` — proves `att_mask = ρ_{-ℓ}(char-act · bnd)`.
 //!
 //! Inline claims emitted by `prove`/`verify`:
-//! - `att_mask := char-act · bnd` (prefix mode).
+//! - `att_mask := char-act · bnd` (prefix mode) or payload-supplied
+//!   `att_mask` (suffix mode).
 //! - Fingerprint challenges `r_0, ..., r_{ℓ-1}` are sampled here (unique
 //!   transcript tag per gadget instance).
 //! - `wf := Σ r_δ · char^(δ)`, `pf := Σ r_δ · str[δ]`, `diff := wf − pf`.
@@ -75,7 +81,7 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            utils::{bool as bool_check, broadcast_check, nodup},
+            utils::{bool as bool_check, broadcast_check, nodup, rotation_check},
         },
         payloads::PayloadStructure,
     },
@@ -91,6 +97,8 @@ pub const MATCH_LABEL: &str = "__match__";
 pub const MARK_LABEL: &str = "__mark__";
 pub const START_LABEL: &str = "__start__";
 pub const MATCH_BROADCAST_LABEL: &str = "__match_broadcast__";
+/// Suffix-only: prover-committed `att_mask = ρ_{-ℓ}(char-act · bnd)`.
+pub const ATT_MASK_LABEL: &str = "__att_mask__";
 
 /// Anchoring mode for the factor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +127,8 @@ pub struct GadgetNode<B: SnarkBackend> {
     bool_mark: Arc<Node<B>>,
     broadcast_match: Arc<Node<B>>,
     nodup_mark: Arc<Node<B>>,
+    /// Suffix only: proves `att_mask = ρ_{-ℓ}(char-act · bnd)`.
+    att_mask_rot_check: Option<Arc<Node<B>>>,
     _phantom: PhantomData<B>,
 }
 
@@ -126,8 +136,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(pattern: Vec<B::F>, mode: Mode) -> Self {
         assert!(!pattern.is_empty(), "FactorPlacement: pattern must be non-empty");
         assert!(
-            matches!(mode, Mode::Prefix),
-            "FactorPlacement: only Prefix mode is wired in this cut; suffix/infix are follow-ups"
+            !matches!(mode, Mode::Infix),
+            "FactorPlacement: Infix mode is not yet wired (follow-up)"
         );
         let bool_occurs = Arc::new(Node::<B>::Gadget(Arc::new(bool_check::GadgetNode::new())));
         let bool_match = Arc::new(Node::<B>::Gadget(Arc::new(bool_check::GadgetNode::new())));
@@ -138,6 +148,13 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let nodup_mark = Arc::new(Node::<B>::Gadget(Arc::new(nodup::GadgetNode::new(
             nodup::Mode::BezoutBased,
         ))));
+        let att_mask_rot_check = match mode {
+            Mode::Prefix => None,
+            Mode::Suffix => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                rotation_check::GadgetNode::new(pattern.len(), rotation_check::Direction::Left),
+            )))),
+            Mode::Infix => None,
+        };
         Self {
             pattern,
             mode,
@@ -146,6 +163,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             bool_mark,
             broadcast_match,
             nodup_mark,
+            att_mask_rot_check,
             _phantom: PhantomData,
         }
     }
@@ -177,13 +195,17 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![
+        let mut out = vec![
             self.bool_occurs.clone(),
             self.bool_match.clone(),
             self.bool_mark.clone(),
             self.broadcast_match.clone(),
             self.nodup_mark.clone(),
-        ]
+        ];
+        if let Some(ref child) = self.att_mask_rot_check {
+            out.push(child.clone());
+        }
+        out
     }
 }
 
@@ -214,6 +236,8 @@ struct InputsProver<B: SnarkBackend> {
     // start is committed but currently unused pending Step 4e wiring.
     start: TrackedPoly<B>,
     match_broadcast: TrackedPoly<B>,
+    /// Suffix only: prover-committed `att_mask = ρ_{-ℓ}(char-act · bnd)`.
+    att_mask: Option<TrackedPoly<B>>,
 }
 
 #[allow(dead_code)]
@@ -233,11 +257,14 @@ struct InputsVerifier<B: SnarkBackend> {
     mark: TrackedOracle<B>,
     start: TrackedOracle<B>,
     match_broadcast: TrackedOracle<B>,
+    /// Suffix only: prover-committed `att_mask`.
+    att_mask: Option<TrackedOracle<B>>,
 }
 
 fn extract_prover_inputs<B: SnarkBackend>(
     ir: &GadgetReadyIr<B>,
     id: NodeId,
+    mode: Mode,
 ) -> InputsProver<B> {
     let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
         panic!("FactorPlacement: missing gadget payload");
@@ -251,6 +278,10 @@ fn extract_prover_inputs<B: SnarkBackend>(
     let mark_t = payload.get(MARK_LABEL).expect("missing MARK");
     let start_t = payload.get(START_LABEL).expect("missing START");
     let mbcast_t = payload.get(MATCH_BROADCAST_LABEL).expect("missing MATCH_BROADCAST");
+    let att_mask_t = match mode {
+        Mode::Suffix => Some(payload.get(ATT_MASK_LABEL).expect("missing ATT_MASK (suffix)")),
+        _ => None,
+    };
 
     let char_indices = char_input.data_tracked_polys_indices();
     assert_eq!(
@@ -284,6 +315,7 @@ fn extract_prover_inputs<B: SnarkBackend>(
     let mark = single_col(mark_t, "MARK");
     let start = single_col(start_t, "START");
     let match_broadcast = single_col(mbcast_t, "MATCH_BROADCAST");
+    let att_mask = att_mask_t.map(|t| single_col(t, "ATT_MASK"));
 
     InputsProver {
         char_input,
@@ -301,12 +333,14 @@ fn extract_prover_inputs<B: SnarkBackend>(
         mark,
         start,
         match_broadcast,
+        att_mask,
     }
 }
 
 fn extract_verifier_inputs<B: SnarkBackend>(
     ir: &VerifierGadgetReadyIr<B>,
     id: NodeId,
+    mode: Mode,
 ) -> InputsVerifier<B> {
     let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
         panic!("FactorPlacement: missing gadget payload");
@@ -320,6 +354,10 @@ fn extract_verifier_inputs<B: SnarkBackend>(
     let mark_t = payload.get(MARK_LABEL).expect("missing MARK");
     let start_t = payload.get(START_LABEL).expect("missing START");
     let mbcast_t = payload.get(MATCH_BROADCAST_LABEL).expect("missing MATCH_BROADCAST");
+    let att_mask_t = match mode {
+        Mode::Suffix => Some(payload.get(ATT_MASK_LABEL).expect("missing ATT_MASK (suffix)")),
+        _ => None,
+    };
 
     let char_indices = char_input.data_tracked_oracles_indices();
     assert_eq!(
@@ -363,6 +401,7 @@ fn extract_verifier_inputs<B: SnarkBackend>(
     let mark = single_col_oracle(mark_t, "MARK");
     let start = single_col_oracle(start_t, "START");
     let match_broadcast = single_col_oracle(mbcast_t, "MATCH_BROADCAST");
+    let att_mask = att_mask_t.map(|t| single_col_oracle(t, "ATT_MASK"));
 
     InputsVerifier {
         char_input,
@@ -380,6 +419,7 @@ fn extract_verifier_inputs<B: SnarkBackend>(
         mark,
         start,
         match_broadcast,
+        att_mask,
     }
 }
 
@@ -543,6 +583,80 @@ fn set_nodup_mark_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
+/// Suffix-only: wire the `RotationCheck` child that proves
+/// `att_mask = ρ_{-ℓ}(char-act · bnd)`.
+fn set_att_mask_rot_check_payload_prover<B: SnarkBackend>(
+    node: &Arc<Node<B>>,
+    inputs: &InputsProver<B>,
+    ir: &mut GadgetReadyIr<B>,
+) {
+    let char_domain = inputs.char_input.log_size();
+    let att_mask = inputs
+        .att_mask
+        .as_ref()
+        .expect("suffix: att_mask must be populated");
+
+    let char_act_bnd = resize_poly(&(&inputs.char_act * &inputs.bnd), char_domain);
+    let left_f = u64_field("char_act_bnd");
+    let mut left_polys = IndexMap::new();
+    left_polys.insert(left_f.clone(), char_act_bnd);
+    let left = TrackedTable::new(
+        Some(Schema::new(vec![left_f.as_ref().clone()])),
+        left_polys,
+        char_domain,
+    );
+
+    let right_f = u64_field("att_mask");
+    let mut right_polys = IndexMap::new();
+    right_polys.insert(right_f.clone(), att_mask.clone());
+    let right = TrackedTable::new(
+        Some(Schema::new(vec![right_f.as_ref().clone()])),
+        right_polys,
+        char_domain,
+    );
+
+    let mut payload = IndexMap::new();
+    payload.insert(rotation_check::LEFT_LABEL.to_string(), left);
+    payload.insert(rotation_check::RIGHT_LABEL.to_string(), right);
+    ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+}
+
+fn set_att_mask_rot_check_payload_verifier<B: SnarkBackend>(
+    node: &Arc<Node<B>>,
+    inputs: &InputsVerifier<B>,
+    ir: &mut VerifierGadgetReadyIr<B>,
+) {
+    let char_domain = inputs.char_input.log_size();
+    let att_mask = inputs
+        .att_mask
+        .as_ref()
+        .expect("suffix: att_mask must be populated");
+
+    let char_act_bnd = resize_oracle(&(&inputs.char_act * &inputs.bnd), char_domain);
+    let left_f = u64_field("char_act_bnd");
+    let mut left_oracles = IndexMap::new();
+    left_oracles.insert(left_f.clone(), char_act_bnd);
+    let left = TrackedTableOracle::new(
+        Some(Schema::new(vec![left_f.as_ref().clone()])),
+        left_oracles,
+        char_domain,
+    );
+
+    let right_f = u64_field("att_mask");
+    let mut right_oracles = IndexMap::new();
+    right_oracles.insert(right_f.clone(), att_mask.clone());
+    let right = TrackedTableOracle::new(
+        Some(Schema::new(vec![right_f.as_ref().clone()])),
+        right_oracles,
+        char_domain,
+    );
+
+    let mut payload = IndexMap::new();
+    payload.insert(rotation_check::LEFT_LABEL.to_string(), left);
+    payload.insert(rotation_check::RIGHT_LABEL.to_string(), right);
+    ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+}
+
 // ---- Fingerprint & diff derivation ----
 
 /// Build `wf := Σ r_δ · char^(δ)`, `pf := Σ r_δ · str[δ]`, `diff := wf − pf`.
@@ -617,12 +731,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> SnarkResult<()> {
-        let inputs = extract_prover_inputs(virtualized_ir, id);
+        let inputs = extract_prover_inputs(virtualized_ir, id, self.mode);
         set_bool_payload_prover(&self.bool_occurs, &inputs.occurs, virtualized_ir);
         set_bool_payload_prover(&self.bool_match, &inputs.match_str, virtualized_ir);
         set_bool_payload_prover(&self.bool_mark, &inputs.mark, virtualized_ir);
         set_broadcast_match_payload_prover(&self.broadcast_match, &inputs, virtualized_ir);
         set_nodup_mark_payload_prover(&self.nodup_mark, &inputs, virtualized_ir);
+        if let Some(ref rot_check) = self.att_mask_rot_check {
+            set_att_mask_rot_check_payload_prover(rot_check, &inputs, virtualized_ir);
+        }
         Ok(())
     }
 
@@ -650,12 +767,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> SnarkResult<()> {
-        let inputs = extract_verifier_inputs(virtualized_ir, id);
+        let inputs = extract_verifier_inputs(virtualized_ir, id, self.mode);
         set_bool_payload_verifier(&self.bool_occurs, &inputs.occurs, virtualized_ir);
         set_bool_payload_verifier(&self.bool_match, &inputs.match_str, virtualized_ir);
         set_bool_payload_verifier(&self.bool_mark, &inputs.mark, virtualized_ir);
         set_broadcast_match_payload_verifier(&self.broadcast_match, &inputs, virtualized_ir);
         set_nodup_mark_payload_verifier(&self.nodup_mark, &inputs, virtualized_ir);
+        if let Some(ref rot_check) = self.att_mask_rot_check {
+            set_att_mask_rot_check_payload_verifier(rot_check, &inputs, virtualized_ir);
+        }
         Ok(())
     }
 
@@ -678,7 +798,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()> {
-        let inputs = extract_prover_inputs(gadget_ready_ir, id);
+        let inputs = extract_prover_inputs(gadget_ready_ir, id, self.mode);
         let char_domain = inputs.char_input.log_size();
 
         // Fingerprint coefficients — sampled per instance. Each successive
@@ -689,9 +809,17 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             coeffs.push(prover.get_and_append_challenge(b"factor_placement_r")?);
         }
 
-        // att_mask := char-act · bnd (prefix mode).
-        let att_mask = &inputs.char_act * &inputs.bnd;
-        let att_mask = resize_poly(&att_mask, char_domain);
+        // Prefix: att_mask := char-act · bnd (derived).
+        // Suffix: att_mask is payload-supplied; the RotationCheck child
+        //         proves it equals ρ_{-ℓ}(char-act · bnd).
+        let att_mask = match self.mode {
+            Mode::Prefix => resize_poly(&(&inputs.char_act * &inputs.bnd), char_domain),
+            Mode::Suffix => inputs
+                .att_mask
+                .clone()
+                .expect("suffix: att_mask must be populated"),
+            Mode::Infix => unreachable!("Infix mode not yet wired"),
+        };
 
         // diff := Σ r_δ · char^(δ) − pf
         let diff = build_diff_poly::<B>(
@@ -795,7 +923,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()> {
-        let inputs = extract_verifier_inputs(gadget_ready_ir, id);
+        let inputs = extract_verifier_inputs(gadget_ready_ir, id, self.mode);
         let char_domain = inputs.char_input.log_size();
 
         let mut coeffs = Vec::with_capacity(self.pattern.len());
@@ -803,8 +931,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             coeffs.push(verifier.get_and_append_challenge(b"factor_placement_r")?);
         }
 
-        let att_mask = &inputs.char_act * &inputs.bnd;
-        let att_mask = resize_oracle(&att_mask, char_domain);
+        let att_mask = match self.mode {
+            Mode::Prefix => resize_oracle(&(&inputs.char_act * &inputs.bnd), char_domain),
+            Mode::Suffix => inputs
+                .att_mask
+                .clone()
+                .expect("suffix: att_mask must be populated"),
+            Mode::Infix => unreachable!("Infix mode not yet wired"),
+        };
 
         let diff = build_diff_oracle::<B>(
             &inputs.rotated_chars,
