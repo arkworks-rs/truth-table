@@ -2,6 +2,7 @@
 //! different properties of columns, e.g. inclusion, having no duplicates,
 //! having no zeros, etc. The tools here are mainly consumed in `ra-toolbox`.
 
+pub mod broadcast_check;
 pub mod fold_check;
 pub mod keyed_sumcheck;
 pub mod lookup;
