@@ -6,6 +6,7 @@ pub mod eq;
 pub mod gen_sort;
 pub mod geq;
 pub mod keyed_sumcheck;
+pub mod length_filtering_check;
 pub mod leq;
 pub mod lookup;
 pub mod match_pair_check;
