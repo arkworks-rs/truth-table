@@ -769,6 +769,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     }
 }
 
+#[cfg(test)]
+mod tests;
+
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
