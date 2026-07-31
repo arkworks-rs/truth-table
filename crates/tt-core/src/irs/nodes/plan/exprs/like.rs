@@ -275,13 +275,8 @@ impl<B: SnarkBackend> ExprNode<B> {
              string column to bind directly to a TableScan.",
         );
         let chars_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_CHARS_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_CHARS_SUFFIX)
+            .cloned()
             .expect("Like: missing __chars side col");
         let tracker_rc = chars_side.data.tracker();
 
@@ -322,31 +317,16 @@ impl<B: SnarkBackend> ExprNode<B> {
         let str_domain = scope_table.log_size();
         let base_name = Self::find_string_column_base_name_side_prover(scope_table).unwrap();
         let orig_ind_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_ORIG_IND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_ORIG_IND_SUFFIX)
+            .cloned()
             .expect("Like: missing __orig_ind side col");
         let int_ind_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_INT_IND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_INT_IND_SUFFIX)
+            .cloned()
             .expect("Like: missing __int_ind side col");
         let bnd_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_BND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_BND_SUFFIX)
+            .cloned()
             .expect("Like: missing __bnd side col");
         let char_domain = chars_side.log_size;
 
@@ -414,40 +394,20 @@ impl<B: SnarkBackend> ExprNode<B> {
              polys are not propagated through intermediate ops).",
         );
         let chars_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_CHARS_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_CHARS_SUFFIX)
+            .cloned()
             .expect("Like: missing __chars side col");
         let orig_ind_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_ORIG_IND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_ORIG_IND_SUFFIX)
+            .cloned()
             .expect("Like: missing __orig_ind side col");
         let int_ind_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_INT_IND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_INT_IND_SUFFIX)
+            .cloned()
             .expect("Like: missing __int_ind side col");
         let bnd_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_BND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_BND_SUFFIX)
+            .cloned()
             .expect("Like: missing __bnd side col");
         let char_domain = chars_side.log_size;
 
@@ -880,40 +840,20 @@ impl<B: SnarkBackend> ExprNode<B> {
              direct binding to a TableScan.",
         );
         let chars_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_CHARS_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_CHARS_SUFFIX)
+            .cloned()
             .expect("Like: missing __chars side oracle");
         let orig_ind_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_ORIG_IND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_ORIG_IND_SUFFIX)
+            .cloned()
             .expect("Like: missing __orig_ind side oracle");
         let int_ind_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_INT_IND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_INT_IND_SUFFIX)
+            .cloned()
             .expect("Like: missing __int_ind side oracle");
         let bnd_side = scope_table
-            .side_cols()
-            .iter()
-            .find(|(f, _)| {
-                f.name().as_str()
-                    == format!("{base_name}{STRING_BND_SUFFIX}").as_str()
-            })
-            .map(|(_, s)| s.clone())
+            .side_segment(&base_name, STRING_BND_SUFFIX)
+            .cloned()
             .expect("Like: missing __bnd side oracle");
         let char_domain = chars_side.log_size;
 

@@ -406,13 +406,15 @@ impl<B: SnarkBackend> TrackedTable<B> {
             Some(field_ref.clone()),
         )
     }
-    /// Returns the tracked column with the specified name
+    /// Returns the tracked column with the specified name, fully grouped
+    /// with its aux row-domain segments and side-domain segments (via the
+    /// `tracked_cols` bridge). Callers get a `MultiSegment` for
+    /// multi-segment columns and a `SingleSegment` otherwise. Returns
+    /// `None` if `name` is not a source-column name in this table.
     pub fn tracked_col_by_name(&self, name: &str) -> Option<TrackedCol<B>> {
-        let idx = self
-            .schema
-            .as_ref()
-            .and_then(|schema| schema.index_of(name).ok())?;
-        Some(self.tracked_col_by_ind(idx))
+        self.tracked_cols()
+            .iter()
+            .find_map(|(f, c)| (f.name() == name).then(|| c.clone()))
     }
 
     /// Returns the tracked columns at the specified indices
