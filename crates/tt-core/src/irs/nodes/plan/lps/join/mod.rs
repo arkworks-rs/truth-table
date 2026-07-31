@@ -456,8 +456,8 @@ impl<B: SnarkBackend> LpNode<B> {
         for (field, poly) in table.tracked_polys_iter() {
             let preserve =
                 Self::preserve_constraints_for_field(mode, field.name(), left_names, right_names);
-            let updated_field = Self::rewrite_constraint_metadata(field, preserve);
-            updated_polys.insert(updated_field, poly.clone());
+            let updated_field = Self::rewrite_constraint_metadata(&field, preserve);
+            updated_polys.insert(updated_field, poly);
         }
         let schema = table.schema_ref().map(|schema| {
             let fields = updated_polys.keys().cloned().collect::<Vec<_>>();
