@@ -1,11 +1,45 @@
-mod dispatch;
-mod encodable;
-mod other;
-mod primitives;
+// Segment types: `EncodedSegment`, `SideSegmentInfo`, `SideColData`, plus the
+// internal `auto_segments` wrapper used by encoders that don't assign
+// role-specific names.
 mod segment;
-mod strings;
+
+// Segment-name conventions: the `STRING_*_SUFFIX` constants, the master
+// `CHAR_LEVEL_SIDE_POLYS_ENABLED` toggle, and the helpers that recognize /
+// enumerate segment names for a given Arrow data type.
 mod suffixes;
+
+// The `Encodable` trait every Arrow array implements, plus the two
+// `impl_col_adapter_map!` / `impl_col_adapter_unsupported!` macros that reduce
+// the boilerplate of adding a new type.
+mod encodable;
+
+// Internal helpers shared across encoders: hashing bytes into field elements,
+// computing field byte capacity, and shape-shifting per-row vectors into
+// per-column ones. Not part of the public API.
 mod util;
+
+// `Encodable` implementations for scalar-like Arrow arrays that map
+// element-wise via `impl_col_adapter_map!` — bool, all int / uint widths,
+// float, timestamp, date, time, duration, interval-year-month, decimals.
+mod primitives;
+
+// `Encodable` implementations for string-like Arrow arrays: the
+// `encode_utf8_like` core plus `StringArray`, `LargeStringArray`,
+// `StringViewArray`. Emits row-domain `{hash, __length}` segments and
+// (when `CHAR_LEVEL_SIDE_POLYS_ENABLED`) side-domain `{__chars, __orig_ind,
+// __int_ind, __bnd}` segments.
+mod strings;
+
+// `Encodable` implementations for everything else — binary array variants,
+// `NullArray`, `IntervalDayTime` / `IntervalMonthDayNano`, `DictionaryArray`
+// — plus the `impl_col_adapter_unsupported!` invocations that reject list /
+// struct / union / map / run-end arrays.
+mod other;
+
+// The top-level dispatcher: `encode_arrow_array_to_field` matches on Arrow
+// `DataType` and forwards to the right `Encodable::encode`, plus the
+// `scalar_to_fields` / `scalar_to_field` helpers for encoding literals.
+mod dispatch;
 
 pub use dispatch::{encode_arrow_array_to_field, scalar_to_field, scalar_to_fields};
 pub use encodable::Encodable;
