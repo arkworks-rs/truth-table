@@ -25,13 +25,6 @@ pub static ACTIVATOR_EXPR: Lazy<Expr> =
     Lazy::new(|| Expr::Column(Column::from_name(ACTIVATOR_COL_NAME)));
 pub static ROW_ID_EXPR: Lazy<Expr> = Lazy::new(|| Expr::Column(Column::from_name(ROW_ID_COL_NAME)));
 
-/// The conventional id used for a single-segment column or the primary
-/// segment of a multi-segment column. Primary lives in dedicated fields
-/// rather than the aux map, but callers that enumerate segments still see
-/// primary yielded with this id so downstream naming stays consistent with
-/// the encoder's `EncodedSegment::primary()` which uses an empty suffix.
-pub const PRIMARY_SEGMENT_ID: &str = "";
-
 pub fn is_system_column(name: &str) -> bool {
     name == ACTIVATOR_COL_NAME || name == ROW_ID_COL_NAME
 }
@@ -357,19 +350,20 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Iterate `(segment_id, data_poly, activator_poly)` over every segment
-    /// in this column. For multi-segment, primary is yielded first under
-    /// `PRIMARY_SEGMENT_ID`, then aux segments in insertion order.
+    /// Iterate `(id, data_poly, activator_poly)` over every segment in this
+    /// column. Primary yields `id = None`; aux segments yield `id = Some(sid)`
+    /// in insertion order. For SingleSegment, only the primary is yielded.
     pub fn segments_iter(
         &self,
-    ) -> Box<dyn Iterator<Item = (&str, &TrackedPoly<B>, Option<&TrackedPoly<B>>)> + '_> {
+    ) -> Box<dyn Iterator<Item = (Option<&str>, &TrackedPoly<B>, Option<&TrackedPoly<B>>)> + '_>
+    {
         match self {
             Self::SingleSegment {
                 data_tracked_poly,
                 activator_tracked_poly,
                 ..
             } => Box::new(std::iter::once((
-                PRIMARY_SEGMENT_ID,
+                None,
                 data_tracked_poly,
                 activator_tracked_poly.as_ref(),
             ))),
@@ -382,13 +376,13 @@ impl<B: SnarkBackend> TrackedCol<B> {
                 ..
             } => {
                 let primary = std::iter::once((
-                    PRIMARY_SEGMENT_ID,
+                    None,
                     primary_data_tracked_poly,
                     primary_activator_tracked_poly.as_ref(),
                 ));
                 let aux = aux_segment_map.iter().map(move |(sid, (data_idx, act_idx))| {
                     (
-                        sid.as_str(),
+                        Some(sid.as_str()),
                         &aux_data_tracked_polys[*data_idx],
                         aux_activator_tracked_polys[*act_idx].as_ref(),
                     )
@@ -398,43 +392,27 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Look up a specific segment by id. Returns the segment's data and
-    /// activator polys. `PRIMARY_SEGMENT_ID` returns the primary segment.
-    pub fn segment(&self, segment_id: &str) -> Option<(TrackedPoly<B>, Option<TrackedPoly<B>>)> {
+    /// Look up an aux segment by id. Returns `None` if the id is not a
+    /// registered aux (including if this is a `SingleSegment` column, which
+    /// has no aux). Use `data_tracked_poly()` / `activator_tracked_poly()`
+    /// to reach the primary.
+    pub fn aux_segment(
+        &self,
+        aux_id: &str,
+    ) -> Option<(TrackedPoly<B>, Option<TrackedPoly<B>>)> {
         match self {
-            Self::SingleSegment {
-                data_tracked_poly,
-                activator_tracked_poly,
-                ..
-            } => {
-                if segment_id == PRIMARY_SEGMENT_ID {
-                    Some((data_tracked_poly.clone(), activator_tracked_poly.clone()))
-                } else {
-                    None
-                }
-            }
+            Self::SingleSegment { .. } => None,
             Self::MultiSegment {
-                primary_data_tracked_poly,
-                primary_activator_tracked_poly,
                 aux_data_tracked_polys,
                 aux_activator_tracked_polys,
                 aux_segment_map,
                 ..
-            } => {
-                if segment_id == PRIMARY_SEGMENT_ID {
-                    Some((
-                        primary_data_tracked_poly.clone(),
-                        primary_activator_tracked_poly.clone(),
-                    ))
-                } else {
-                    aux_segment_map.get(segment_id).map(|(data_idx, act_idx)| {
-                        (
-                            aux_data_tracked_polys[*data_idx].clone(),
-                            aux_activator_tracked_polys[*act_idx].clone(),
-                        )
-                    })
-                }
-            }
+            } => aux_segment_map.get(aux_id).map(|(data_idx, act_idx)| {
+                (
+                    aux_data_tracked_polys[*data_idx].clone(),
+                    aux_activator_tracked_polys[*act_idx].clone(),
+                )
+            }),
         }
     }
 

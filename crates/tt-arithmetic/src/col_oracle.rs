@@ -4,8 +4,6 @@ use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
 use indexmap::IndexMap;
 
-use crate::col::PRIMARY_SEGMENT_ID;
-
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// Verifier-side mirror of `TrackedCol`. Single-segment columns carry one
@@ -214,19 +212,20 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Iterate `(segment_id, data_oracle, activator_oracle)` over every
-    /// segment. For multi-segment, primary is yielded first under
-    /// `PRIMARY_SEGMENT_ID`, then aux segments in insertion order.
+    /// Iterate `(id, data_oracle, activator_oracle)` over every segment.
+    /// Primary yields `id = None`; aux segments yield `id = Some(sid)` in
+    /// insertion order. For SingleSegment, only the primary is yielded.
     pub fn segments_iter(
         &self,
-    ) -> Box<dyn Iterator<Item = (&str, &TrackedOracle<B>, Option<&TrackedOracle<B>>)> + '_> {
+    ) -> Box<dyn Iterator<Item = (Option<&str>, &TrackedOracle<B>, Option<&TrackedOracle<B>>)> + '_>
+    {
         match self {
             Self::SingleSegment {
                 data_tracked_oracle,
                 activator_tracked_oracle,
                 ..
             } => Box::new(std::iter::once((
-                PRIMARY_SEGMENT_ID,
+                None,
                 data_tracked_oracle,
                 activator_tracked_oracle.as_ref(),
             ))),
@@ -239,13 +238,13 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => {
                 let primary = std::iter::once((
-                    PRIMARY_SEGMENT_ID,
+                    None,
                     primary_data_tracked_oracle,
                     primary_activator_tracked_oracle.as_ref(),
                 ));
                 let aux = aux_segment_map.iter().map(move |(sid, (data_idx, act_idx))| {
                     (
-                        sid.as_str(),
+                        Some(sid.as_str()),
                         &aux_data_tracked_oracles[*data_idx],
                         aux_activator_tracked_oracles[*act_idx].as_ref(),
                     )
@@ -255,49 +254,27 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Look up a specific segment by id. `PRIMARY_SEGMENT_ID` returns the
-    /// primary segment.
-    pub fn segment(
+    /// Look up an aux segment by id. Returns `None` if the id is not a
+    /// registered aux (including if this is a `SingleSegment` oracle).
+    /// Use `data_tracked_oracle()` / `activator_tracked_oracle()` to reach
+    /// the primary.
+    pub fn aux_segment(
         &self,
-        segment_id: &str,
+        aux_id: &str,
     ) -> Option<(TrackedOracle<B>, Option<TrackedOracle<B>>)> {
         match self {
-            Self::SingleSegment {
-                data_tracked_oracle,
-                activator_tracked_oracle,
-                ..
-            } => {
-                if segment_id == PRIMARY_SEGMENT_ID {
-                    Some((
-                        data_tracked_oracle.clone(),
-                        activator_tracked_oracle.clone(),
-                    ))
-                } else {
-                    None
-                }
-            }
+            Self::SingleSegment { .. } => None,
             Self::MultiSegment {
-                primary_data_tracked_oracle,
-                primary_activator_tracked_oracle,
                 aux_data_tracked_oracles,
                 aux_activator_tracked_oracles,
                 aux_segment_map,
                 ..
-            } => {
-                if segment_id == PRIMARY_SEGMENT_ID {
-                    Some((
-                        primary_data_tracked_oracle.clone(),
-                        primary_activator_tracked_oracle.clone(),
-                    ))
-                } else {
-                    aux_segment_map.get(segment_id).map(|(data_idx, act_idx)| {
-                        (
-                            aux_data_tracked_oracles[*data_idx].clone(),
-                            aux_activator_tracked_oracles[*act_idx].clone(),
-                        )
-                    })
-                }
-            }
+            } => aux_segment_map.get(aux_id).map(|(data_idx, act_idx)| {
+                (
+                    aux_data_tracked_oracles[*data_idx].clone(),
+                    aux_activator_tracked_oracles[*act_idx].clone(),
+                )
+            }),
         }
     }
 
