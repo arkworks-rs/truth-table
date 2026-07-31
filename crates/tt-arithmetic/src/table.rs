@@ -249,6 +249,85 @@ impl<B: SnarkBackend> TrackedTable<B> {
         self.tracked_polys.iter()
     }
 
+    /// Bridge accessor: reconstructs a source-column-keyed view of this
+    /// table by grouping the flat `tracked_polys` + `side_cols` entries by
+    /// source column name (via `segment_base_name` / `is_segment_of`). A
+    /// column with no aux and no side segments materializes as
+    /// `TrackedCol::SingleSegment`; otherwise `TrackedCol::MultiSegment`
+    /// carrying all its row-domain aux and all its side polys.
+    ///
+    /// This exists as a compatibility layer while callers migrate off the
+    /// flat storage. It will become the sole storage in a later phase; at
+    /// that point this method just becomes a direct accessor.
+    pub fn tracked_cols(&self) -> IndexMap<FieldRef, TrackedCol<B>> {
+        let mut out = IndexMap::with_capacity(self.tracked_polys.len());
+        let primary_names: Vec<String> = self
+            .tracked_polys
+            .keys()
+            .filter(|f| crate::encoding::segment_base_name(f.name()).is_none())
+            .map(|f| f.name().to_string())
+            .collect();
+        let shared_activator = self.activator_tracked_poly();
+        for (field, poly) in self.tracked_polys.iter() {
+            if crate::encoding::segment_base_name(field.name()).is_some() {
+                continue;
+            }
+            let primary_name = field.name();
+            let mut aux_segments: Vec<(String, TrackedPoly<B>, Option<TrackedPoly<B>>)> =
+                Vec::new();
+            for (aux_field, aux_poly) in self.tracked_polys.iter() {
+                if aux_field.name() == primary_name {
+                    continue;
+                }
+                if let Some(base) = crate::encoding::segment_base_name(aux_field.name())
+                    && base == primary_name
+                {
+                    let suffix = &aux_field.name()[primary_name.len()..];
+                    aux_segments.push((
+                        suffix.to_string(),
+                        aux_poly.clone(),
+                        shared_activator.clone(),
+                    ));
+                }
+            }
+            let mut side_segments: Vec<(String, TrackedSideCol<B>)> = Vec::new();
+            for (side_field, side) in self.side_cols.iter() {
+                if let Some(base) = crate::encoding::segment_base_name(side_field.name())
+                    && base == primary_name
+                {
+                    let suffix = &side_field.name()[primary_name.len()..];
+                    side_segments.push((suffix.to_string(), side.clone()));
+                }
+            }
+            let col = if aux_segments.is_empty() && side_segments.is_empty() {
+                TrackedCol::new(poly.clone(), shared_activator.clone(), Some(field.clone()))
+            } else {
+                TrackedCol::new_multi(
+                    poly.clone(),
+                    shared_activator.clone(),
+                    aux_segments,
+                    side_segments,
+                    Some(field.clone()),
+                )
+            };
+            out.insert(field.clone(), col);
+        }
+        // `primary_names` is only used to reserve space; suppress unused warning
+        // once we drop the guard below.
+        let _ = primary_names;
+        out
+    }
+
+    /// Look up a specific side-domain segment by source column name and
+    /// suffix (e.g. `side_segment("n_name", "__chars")`). Bridge accessor;
+    /// reads directly from today's flat `side_cols` map.
+    pub fn side_segment(&self, col_name: &str, suffix: &str) -> Option<&TrackedSideCol<B>> {
+        let target = format!("{col_name}{suffix}");
+        self.side_cols
+            .iter()
+            .find_map(|(field, side)| (field.name().as_str() == target).then_some(side))
+    }
+
     pub fn data_tracked_polys_indices(&self) -> Vec<usize> {
         self.tracked_polys
             .iter()

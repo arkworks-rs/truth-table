@@ -28,6 +28,10 @@ pub enum TrackedColOracle<B: SnarkBackend> {
         /// `aux_segment_id → (aux_data_idx, aux_activator_idx)`. Empty ids
         /// are rejected — primary is not in this map.
         aux_segment_map: IndexMap<String, (usize, usize)>,
+        /// Side-domain segments owned by this column oracle (verifier
+        /// mirror of `TrackedCol::MultiSegment.side_tracked_polys`). Keyed
+        /// by segment suffix.
+        side_tracked_oracles: IndexMap<String, crate::table_oracle::TrackedSideColOracle<B>>,
         field_ref: Option<FieldRef>,
     },
 }
@@ -49,6 +53,7 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedColOracle<B> {
                 aux_data_tracked_oracles,
                 aux_activator_tracked_oracles,
                 aux_segment_map,
+                side_tracked_oracles,
                 field_ref,
                 ..
             } => f
@@ -59,6 +64,10 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedColOracle<B> {
                     &aux_activator_tracked_oracles.len(),
                 )
                 .field("aux_segments", &aux_segment_map.keys().collect::<Vec<_>>())
+                .field(
+                    "side_segments",
+                    &side_tracked_oracles.keys().collect::<Vec<_>>(),
+                )
                 .field("field_ref", field_ref)
                 .finish(),
         }
@@ -84,13 +93,16 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     }
 
     /// Constructs a multi-segment tracked column oracle: one required
-    /// primary segment plus zero or more named aux segments. Aux ids must
-    /// be non-empty (the primary owns the empty id by convention). Aux
-    /// activators are deduplicated by equality to form activator groups.
+    /// primary segment plus zero or more named aux segments plus zero or
+    /// more named side-domain segments. Aux ids must be non-empty (the
+    /// primary owns the empty id by convention). Aux activators are
+    /// deduplicated by equality to form activator groups. Side segments
+    /// live on their own multilinear domain and are keyed by suffix.
     pub fn new_multi(
         primary_data_tracked_oracle: TrackedOracle<B>,
         primary_activator_tracked_oracle: Option<TrackedOracle<B>>,
         aux_segments: Vec<(String, TrackedOracle<B>, Option<TrackedOracle<B>>)>,
+        side_segments: Vec<(String, crate::table_oracle::TrackedSideColOracle<B>)>,
         field_ref: Option<FieldRef>,
     ) -> Self {
         let mut aux_data_tracked_oracles: Vec<TrackedOracle<B>> =
@@ -120,12 +132,28 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
             aux_data_tracked_oracles.push(data_oracle);
             aux_segment_map.insert(sid, (data_idx, activator_idx));
         }
+        let mut side_tracked_oracles: IndexMap<
+            String,
+            crate::table_oracle::TrackedSideColOracle<B>,
+        > = IndexMap::with_capacity(side_segments.len());
+        for (sid, side) in side_segments {
+            assert!(
+                !sid.is_empty(),
+                "MultiSegment side segment id must be non-empty"
+            );
+            assert!(
+                !side_tracked_oracles.contains_key(&sid),
+                "duplicate side segment id '{sid}' in MultiSegment column oracle"
+            );
+            side_tracked_oracles.insert(sid, side);
+        }
         Self::MultiSegment {
             primary_data_tracked_oracle,
             primary_activator_tracked_oracle,
             aux_data_tracked_oracles,
             aux_activator_tracked_oracles,
             aux_segment_map,
+            side_tracked_oracles,
             field_ref,
         }
     }
@@ -275,6 +303,41 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                     aux_activator_tracked_oracles[*act_idx].clone(),
                 )
             }),
+        }
+    }
+
+    /// Look up a side-domain segment by suffix. Returns `None` for
+    /// `SingleSegment` oracles or when the suffix is not registered.
+    pub fn side_segment(
+        &self,
+        side_id: &str,
+    ) -> Option<&crate::table_oracle::TrackedSideColOracle<B>> {
+        match self {
+            Self::SingleSegment { .. } => None,
+            Self::MultiSegment {
+                side_tracked_oracles,
+                ..
+            } => side_tracked_oracles.get(side_id),
+        }
+    }
+
+    /// Iterate `(suffix, side_oracle)` over every side-domain segment in
+    /// this column oracle, in insertion order. Empty for `SingleSegment`.
+    pub fn side_segments_iter(
+        &self,
+    ) -> Box<
+        dyn Iterator<Item = (&str, &crate::table_oracle::TrackedSideColOracle<B>)> + '_,
+    > {
+        match self {
+            Self::SingleSegment { .. } => Box::new(std::iter::empty()),
+            Self::MultiSegment {
+                side_tracked_oracles,
+                ..
+            } => Box::new(
+                side_tracked_oracles
+                    .iter()
+                    .map(|(sid, side)| (sid.as_str(), side)),
+            ),
         }
     }
 

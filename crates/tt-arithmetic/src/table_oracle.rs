@@ -208,6 +208,78 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         self.tracked_oracles.iter()
     }
 
+    /// Bridge accessor: reconstructs a source-column-keyed view of this
+    /// table oracle by grouping the flat `tracked_oracles` + `side_cols`
+    /// entries by source column name (via `segment_base_name` /
+    /// `is_segment_of`). Mirrors `TrackedTable::tracked_cols`.
+    pub fn tracked_col_oracles(&self) -> IndexMap<FieldRef, TrackedColOracle<B>> {
+        let mut out = IndexMap::with_capacity(self.tracked_oracles.len());
+        let shared_activator = self.activator_tracked_poly();
+        for (field, oracle) in self.tracked_oracles.iter() {
+            if crate::encoding::segment_base_name(field.name()).is_some() {
+                continue;
+            }
+            let primary_name = field.name();
+            let mut aux_segments: Vec<(String, TrackedOracle<B>, Option<TrackedOracle<B>>)> =
+                Vec::new();
+            for (aux_field, aux_oracle) in self.tracked_oracles.iter() {
+                if aux_field.name() == primary_name {
+                    continue;
+                }
+                if let Some(base) = crate::encoding::segment_base_name(aux_field.name())
+                    && base == primary_name
+                {
+                    let suffix = &aux_field.name()[primary_name.len()..];
+                    aux_segments.push((
+                        suffix.to_string(),
+                        aux_oracle.clone(),
+                        shared_activator.clone(),
+                    ));
+                }
+            }
+            let mut side_segments: Vec<(String, TrackedSideColOracle<B>)> = Vec::new();
+            for (side_field, side) in self.side_cols.iter() {
+                if let Some(base) = crate::encoding::segment_base_name(side_field.name())
+                    && base == primary_name
+                {
+                    let suffix = &side_field.name()[primary_name.len()..];
+                    side_segments.push((suffix.to_string(), side.clone()));
+                }
+            }
+            let col = if aux_segments.is_empty() && side_segments.is_empty() {
+                TrackedColOracle::new(
+                    oracle.clone(),
+                    shared_activator.clone(),
+                    Some(field.clone()),
+                )
+            } else {
+                TrackedColOracle::new_multi(
+                    oracle.clone(),
+                    shared_activator.clone(),
+                    aux_segments,
+                    side_segments,
+                    Some(field.clone()),
+                )
+            };
+            out.insert(field.clone(), col);
+        }
+        out
+    }
+
+    /// Look up a specific side-domain oracle by source column name and
+    /// suffix. Bridge accessor; reads directly from today's flat
+    /// `side_cols` map.
+    pub fn side_segment(
+        &self,
+        col_name: &str,
+        suffix: &str,
+    ) -> Option<&TrackedSideColOracle<B>> {
+        let target = format!("{col_name}{suffix}");
+        self.side_cols
+            .iter()
+            .find_map(|(field, side)| (field.name().as_str() == target).then_some(side))
+    }
+
     pub fn data_tracked_oracles_indices(&self) -> Vec<usize> {
         self.tracked_oracles
             .iter()

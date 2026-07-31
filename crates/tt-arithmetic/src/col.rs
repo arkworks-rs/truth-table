@@ -62,6 +62,13 @@ pub enum TrackedCol<B: SnarkBackend> {
         /// `aux_segment_id → (aux_data_idx, aux_activator_idx)`. Empty ids
         /// are rejected — primary is not in this map.
         aux_segment_map: IndexMap<String, (usize, usize)>,
+        /// Side-domain segments owned by this column (e.g. `__chars`,
+        /// `__orig_ind`, `__int_ind`, `__bnd` for a string). Each carries
+        /// its own multilinear domain (`log_size`) and contiguous-one
+        /// activator (fully described by `active_len`). Keyed by segment
+        /// suffix (matches the `EncodedSegment.suffix` produced by the
+        /// encoder).
+        side_tracked_polys: IndexMap<String, crate::table::TrackedSideCol<B>>,
         field_ref: Option<FieldRef>,
     },
 }
@@ -83,6 +90,7 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedCol<B> {
                 aux_data_tracked_polys,
                 aux_activator_tracked_polys,
                 aux_segment_map,
+                side_tracked_polys,
                 field_ref,
                 ..
             } => f
@@ -93,6 +101,10 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedCol<B> {
                     &aux_activator_tracked_polys.len(),
                 )
                 .field("aux_segments", &aux_segment_map.keys().collect::<Vec<_>>())
+                .field(
+                    "side_segments",
+                    &side_tracked_polys.keys().collect::<Vec<_>>(),
+                )
                 .field("field_ref", field_ref)
                 .finish(),
         }
@@ -179,6 +191,7 @@ impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
                 aux_data_tracked_polys,
                 aux_activator_tracked_polys,
                 aux_segment_map,
+                side_tracked_polys,
                 ..
             } => {
                 writeln!(f, "{} (multi-segment):", field_name)?;
@@ -195,6 +208,13 @@ impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
                         sid,
                         data_repr(&aux_data_tracked_polys[*data_idx]),
                         activator_repr(&aux_activator_tracked_polys[*activator_idx]),
+                    )?;
+                }
+                for (sid, side) in side_tracked_polys.iter() {
+                    writeln!(
+                        f,
+                        "  {} (side): log_size={}, active_len={}",
+                        sid, side.log_size, side.active_len,
                     )?;
                 }
                 Ok(())
@@ -222,14 +242,17 @@ impl<B: SnarkBackend> TrackedCol<B> {
     }
 
     /// Constructs a multi-segment tracked column: one required primary
-    /// segment plus zero or more named aux segments. Aux ids must be
-    /// non-empty (the primary owns the empty id by convention). Aux
-    /// segments that share the same activator share an activator group
-    /// (compared by `TrackedPoly` equality).
+    /// segment plus zero or more named aux segments plus zero or more named
+    /// side-domain segments. Aux ids must be non-empty (the primary owns
+    /// the empty id by convention). Aux segments that share the same
+    /// activator share an activator group (compared by `TrackedPoly`
+    /// equality). Side segments live on their own multilinear domain and
+    /// are keyed by suffix.
     pub fn new_multi(
         primary_data_tracked_poly: TrackedPoly<B>,
         primary_activator_tracked_poly: Option<TrackedPoly<B>>,
         aux_segments: Vec<(String, TrackedPoly<B>, Option<TrackedPoly<B>>)>,
+        side_segments: Vec<(String, crate::table::TrackedSideCol<B>)>,
         field_ref: Option<FieldRef>,
     ) -> Self {
         let mut aux_data_tracked_polys: Vec<TrackedPoly<B>> =
@@ -260,12 +283,26 @@ impl<B: SnarkBackend> TrackedCol<B> {
             aux_data_tracked_polys.push(data_poly);
             aux_segment_map.insert(sid, (data_idx, activator_idx));
         }
+        let mut side_tracked_polys: IndexMap<String, crate::table::TrackedSideCol<B>> =
+            IndexMap::with_capacity(side_segments.len());
+        for (sid, side) in side_segments {
+            assert!(
+                !sid.is_empty(),
+                "MultiSegment side segment id must be non-empty"
+            );
+            assert!(
+                !side_tracked_polys.contains_key(&sid),
+                "duplicate side segment id '{sid}' in MultiSegment column"
+            );
+            side_tracked_polys.insert(sid, side);
+        }
         Self::MultiSegment {
             primary_data_tracked_poly,
             primary_activator_tracked_poly,
             aux_data_tracked_polys,
             aux_activator_tracked_polys,
             aux_segment_map,
+            side_tracked_polys,
             field_ref,
         }
     }
@@ -416,6 +453,35 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
+    /// Look up a side-domain segment by suffix (e.g. `__chars`,
+    /// `__orig_ind`). Returns `None` for `SingleSegment` columns or when
+    /// the suffix is not registered.
+    pub fn side_segment(&self, side_id: &str) -> Option<&crate::table::TrackedSideCol<B>> {
+        match self {
+            Self::SingleSegment { .. } => None,
+            Self::MultiSegment {
+                side_tracked_polys, ..
+            } => side_tracked_polys.get(side_id),
+        }
+    }
+
+    /// Iterate `(suffix, side_col)` over every side-domain segment in this
+    /// column, in insertion order. Empty for `SingleSegment` columns.
+    pub fn side_segments_iter(
+        &self,
+    ) -> Box<dyn Iterator<Item = (&str, &crate::table::TrackedSideCol<B>)> + '_> {
+        match self {
+            Self::SingleSegment { .. } => Box::new(std::iter::empty()),
+            Self::MultiSegment {
+                side_tracked_polys, ..
+            } => Box::new(
+                side_tracked_polys
+                    .iter()
+                    .map(|(sid, side)| (sid.as_str(), side)),
+            ),
+        }
+    }
+
     /// Returns a reference to the tracker shared by all polys in this column.
     pub fn tracker_ref(&self) -> ArgProver<B> {
         let poly = match self {
@@ -559,6 +625,7 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
                 aux_data_tracked_polys,
                 aux_activator_tracked_polys,
                 aux_segment_map,
+                side_tracked_polys,
                 field_ref,
             } => Self::MultiSegment {
                 primary_data_tracked_poly: primary_data_tracked_poly
@@ -575,6 +642,20 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
                     .map(|opt| opt.as_ref().map(|act| act.deep_clone(new_prover.clone())))
                     .collect(),
                 aux_segment_map: aux_segment_map.clone(),
+                side_tracked_polys: side_tracked_polys
+                    .iter()
+                    .map(|(sid, side)| {
+                        (
+                            sid.clone(),
+                            crate::table::TrackedSideCol {
+                                data: side.data.deep_clone(new_prover.clone()),
+                                activator: side.activator.deep_clone(new_prover.clone()),
+                                log_size: side.log_size,
+                                active_len: side.active_len,
+                            },
+                        )
+                    })
+                    .collect(),
                 field_ref: field_ref.clone(),
             },
         }
