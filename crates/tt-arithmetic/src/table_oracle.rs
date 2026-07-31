@@ -46,23 +46,26 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedSideColOracle<B> {
 /// A tracked oracle to an arithmetized table is represented by a set of tracked
 /// oracles representing the columns
 pub struct TrackedTableOracle<B: SnarkBackend> {
-    /// The schema of the table, if any
+    /// The schema of the table, if any. Lists the flat Arrow fields
+    /// (primary + all expanded segments) so downstream that reads the
+    /// schema still sees the pre-expanded shape it expects.
     schema: Option<Schema>,
-    /// The oracles representing the columns, stored in schema order
-    tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
+    /// The tracked column oracles of the table, keyed by SOURCE column
+    /// name (not per-segment). Each `TrackedColOracle` owns its primary
+    /// row-domain oracle, its auxiliary row-domain oracles (e.g.
+    /// `__length`), and its side-domain oracles (e.g. `__chars`,
+    /// `__orig_ind`, `__int_ind`, `__bnd`).
+    tracked_col_oracles: IndexMap<FieldRef, TrackedColOracle<B>>,
     /// The log size of the table
     log_size: usize,
-    /// Side-domain tracked oracles (e.g. `__chars`) keyed by side field ref.
-    side_cols: IndexMap<FieldRef, TrackedSideColOracle<B>>,
 }
 
 impl<B: SnarkBackend> Default for TrackedTableOracle<B> {
     fn default() -> Self {
         Self {
             schema: None,
-            tracked_oracles: IndexMap::new(),
+            tracked_col_oracles: IndexMap::new(),
             log_size: 0,
-            side_cols: IndexMap::new(),
         }
     }
 }
@@ -116,8 +119,9 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         TrackedTableOracle::new(None, oracles, log_size)
     }
 
-    /// Constructs a new `TrackedTableOracle` from the provided schema (if any),
-    /// tracked oracles, and log size of the table (no side columns).
+    /// Constructs a new `TrackedTableOracle` from the flat schema-order
+    /// oracles map. The flat input is regrouped internally into
+    /// source-column-keyed `tracked_col_oracles`.
     pub fn new(
         schema: Option<Schema>,
         tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
@@ -126,8 +130,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         Self::new_with_side_cols(schema, tracked_oracles, log_size, IndexMap::new())
     }
 
-    /// Constructs a new `TrackedTableOracle` with explicit side-domain
-    /// oracles.
+    /// Constructs a new `TrackedTableOracle` from flat row-domain oracles
+    /// + side oracles. Same regrouping logic as `new`.
     pub fn new_with_side_cols(
         schema: Option<Schema>,
         tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
@@ -138,22 +142,102 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         {
             Self::check_new_args(&schema, &tracked_oracles, log_size).unwrap();
         }
+        let tracked_col_oracles =
+            regroup_flat_into_tracked_col_oracles(&tracked_oracles, &side_cols);
         Self {
             schema,
-            tracked_oracles,
+            tracked_col_oracles,
             log_size,
-            side_cols,
         }
     }
 
-    /// Read-only access to side-domain oracles.
-    pub fn side_cols(&self) -> &IndexMap<FieldRef, TrackedSideColOracle<B>> {
-        &self.side_cols
+    /// Constructs a `TrackedTableOracle` directly from a
+    /// source-column-keyed map (no regrouping).
+    pub fn new_from_col_oracles(
+        schema: Option<Schema>,
+        tracked_col_oracles: IndexMap<FieldRef, TrackedColOracle<B>>,
+        log_size: usize,
+    ) -> Self {
+        Self {
+            schema,
+            tracked_col_oracles,
+            log_size,
+        }
     }
 
-    /// Insert (or replace) a side-domain oracle on this table.
+    /// Read-only access to side-domain oracles, derived from source-column
+    /// storage on demand. Synthesized side FieldRefs inherit the source
+    /// column's metadata.
+    pub fn side_cols(&self) -> IndexMap<FieldRef, TrackedSideColOracle<B>> {
+        let mut out: IndexMap<FieldRef, TrackedSideColOracle<B>> = IndexMap::new();
+        for (field, col) in self.tracked_col_oracles.iter() {
+            for (suffix, side) in col.side_segments_iter() {
+                let side_field = Arc::new(
+                    Field::new(
+                        format!("{}{}", field.name(), suffix),
+                        field.data_type().clone(),
+                        field.is_nullable(),
+                    )
+                    .with_metadata(field.metadata().clone()),
+                );
+                out.insert(side_field, side.clone());
+            }
+        }
+        out
+    }
+
+    /// Insert (or attach) a side-domain oracle to the source column that
+    /// owns it. If the target col is `SingleSegment`, it is promoted to
+    /// `MultiSegment`.
     pub fn insert_side_col(&mut self, field: FieldRef, side: TrackedSideColOracle<B>) {
-        self.side_cols.insert(field, side);
+        let base_name = crate::encoding::segment_base_name(field.name())
+            .expect("insert_side_col: field name must carry a known segment suffix")
+            .to_string();
+        let suffix = field.name()[base_name.len()..].to_string();
+        let target_field = self
+            .tracked_col_oracles
+            .keys()
+            .find(|f| f.name() == base_name.as_str())
+            .cloned()
+            .expect("insert_side_col: no source column found for side segment");
+        let existing = self
+            .tracked_col_oracles
+            .swap_remove(&target_field)
+            .expect("insert_side_col: source column disappeared");
+        let promoted = match existing {
+            TrackedColOracle::SingleSegment {
+                data_tracked_oracle,
+                activator_tracked_oracle,
+                field_ref,
+            } => TrackedColOracle::new_multi(
+                data_tracked_oracle,
+                activator_tracked_oracle,
+                Vec::new(),
+                vec![(suffix, side)],
+                field_ref,
+            ),
+            TrackedColOracle::MultiSegment {
+                primary_data_tracked_oracle,
+                primary_activator_tracked_oracle,
+                aux_data_tracked_oracles,
+                aux_activator_tracked_oracles,
+                aux_segment_map,
+                mut side_tracked_oracles,
+                field_ref,
+            } => {
+                side_tracked_oracles.insert(suffix, side);
+                TrackedColOracle::MultiSegment {
+                    primary_data_tracked_oracle,
+                    primary_activator_tracked_oracle,
+                    aux_data_tracked_oracles,
+                    aux_activator_tracked_oracles,
+                    aux_segment_map,
+                    side_tracked_oracles,
+                    field_ref,
+                }
+            }
+        };
+        self.tracked_col_oracles.insert(target_field, promoted);
     }
 
     #[cfg(debug_assertions)]
@@ -199,92 +283,86 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         Ok(())
     }
 
-    /// Returns the vector of raw column oracles in the table
+    /// Returns the flat schema-order tracked oracles map, derived on
+    /// demand from the source-column-keyed storage.
     pub fn tracked_oracles(&self) -> IndexMap<FieldRef, TrackedOracle<B>> {
-        self.tracked_oracles.clone()
-    }
-
-    pub fn tracked_oracles_iter(&self) -> impl Iterator<Item = (&FieldRef, &TrackedOracle<B>)> {
-        self.tracked_oracles.iter()
-    }
-
-    /// Bridge accessor: reconstructs a source-column-keyed view of this
-    /// table oracle by grouping the flat `tracked_oracles` + `side_cols`
-    /// entries by source column name (via `segment_base_name` /
-    /// `is_segment_of`). Mirrors `TrackedTable::tracked_cols`.
-    pub fn tracked_col_oracles(&self) -> IndexMap<FieldRef, TrackedColOracle<B>> {
-        let mut out = IndexMap::with_capacity(self.tracked_oracles.len());
-        let shared_activator = self.activator_tracked_poly();
-        for (field, oracle) in self.tracked_oracles.iter() {
-            if crate::encoding::segment_base_name(field.name()).is_some() {
-                continue;
+        let mut out: IndexMap<FieldRef, TrackedOracle<B>> = IndexMap::new();
+        for (field, col) in self.tracked_col_oracles.iter() {
+            for (suffix, oracle, _act) in col.segments_iter() {
+                let seg_field = match suffix {
+                    None => field.clone(),
+                    Some(sid) => Arc::new(
+                        Field::new(
+                            format!("{}{}", field.name(), sid),
+                            field.data_type().clone(),
+                            field.is_nullable(),
+                        )
+                        .with_metadata(field.metadata().clone()),
+                    ),
+                };
+                out.insert(seg_field, oracle.clone());
             }
-            let primary_name = field.name();
-            let mut aux_segments: Vec<(String, TrackedOracle<B>, Option<TrackedOracle<B>>)> =
-                Vec::new();
-            for (aux_field, aux_oracle) in self.tracked_oracles.iter() {
-                if aux_field.name() == primary_name {
-                    continue;
-                }
-                if let Some(base) = crate::encoding::segment_base_name(aux_field.name())
-                    && base == primary_name
-                {
-                    let suffix = &aux_field.name()[primary_name.len()..];
-                    aux_segments.push((
-                        suffix.to_string(),
-                        aux_oracle.clone(),
-                        shared_activator.clone(),
-                    ));
-                }
-            }
-            let mut side_segments: Vec<(String, TrackedSideColOracle<B>)> = Vec::new();
-            for (side_field, side) in self.side_cols.iter() {
-                if let Some(base) = crate::encoding::segment_base_name(side_field.name())
-                    && base == primary_name
-                {
-                    let suffix = &side_field.name()[primary_name.len()..];
-                    side_segments.push((suffix.to_string(), side.clone()));
-                }
-            }
-            let col = if aux_segments.is_empty() && side_segments.is_empty() {
-                TrackedColOracle::new(
-                    oracle.clone(),
-                    shared_activator.clone(),
-                    Some(field.clone()),
-                )
-            } else {
-                TrackedColOracle::new_multi(
-                    oracle.clone(),
-                    shared_activator.clone(),
-                    aux_segments,
-                    side_segments,
-                    Some(field.clone()),
-                )
-            };
-            out.insert(field.clone(), col);
         }
         out
     }
 
+    /// Iterator over the flat schema-order tracked oracles. Yields owned
+    /// tuples (materialized on demand).
+    pub fn tracked_oracles_iter(
+        &self,
+    ) -> Box<dyn Iterator<Item = (FieldRef, TrackedOracle<B>)> + '_> {
+        Box::new(self.tracked_col_oracles.iter().flat_map(|(field, col)| {
+            col.segments_iter()
+                .map(move |(suffix, oracle, _act)| {
+                    let seg_field = match suffix {
+                        None => field.clone(),
+                        Some(sid) => Arc::new(
+                            Field::new(
+                                format!("{}{}", field.name(), sid),
+                                field.data_type().clone(),
+                                field.is_nullable(),
+                            )
+                            .with_metadata(field.metadata().clone()),
+                        ),
+                    };
+                    (seg_field, oracle.clone())
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+        }))
+    }
+
+    /// Direct accessor for the source-column-keyed storage.
+    pub fn tracked_col_oracles(&self) -> IndexMap<FieldRef, TrackedColOracle<B>> {
+        self.tracked_col_oracles.clone()
+    }
+
+    /// Iterator over source-column-keyed entries (borrowed refs).
+    pub fn tracked_col_oracles_iter(
+        &self,
+    ) -> impl Iterator<Item = (&FieldRef, &TrackedColOracle<B>)> {
+        self.tracked_col_oracles.iter()
+    }
+
     /// Look up a specific side-domain oracle by source column name and
-    /// suffix. Bridge accessor; reads directly from today's flat
-    /// `side_cols` map.
+    /// suffix.
     pub fn side_segment(
         &self,
         col_name: &str,
         suffix: &str,
     ) -> Option<&TrackedSideColOracle<B>> {
-        let target = format!("{col_name}{suffix}");
-        self.side_cols
+        self.tracked_col_oracles
             .iter()
-            .find_map(|(field, side)| (field.name().as_str() == target).then_some(side))
+            .find(|(f, _)| f.name() == col_name)
+            .and_then(|(_, col)| col.side_segment(suffix))
     }
 
+    /// Indices into the flat schema-order view of all non-system columns.
     pub fn data_tracked_oracles_indices(&self) -> Vec<usize> {
-        self.tracked_oracles
-            .iter()
+        self.tracked_oracles()
+            .keys()
             .enumerate()
-            .filter_map(|(idx, (field, _))| (!crate::is_system_column(field.name())).then_some(idx))
+            .filter_map(|(idx, field)| (!crate::is_system_column(field.name())).then_some(idx))
             .collect()
     }
 
@@ -309,12 +387,12 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
 
     /// Pretty-print the tracked table oracle by showing only the column names.
     pub fn pretty_string(&self) -> String {
-        if self.tracked_oracles.is_empty() {
+        let flat = self.tracked_oracles();
+        if flat.is_empty() {
             return "TrackedTableOracle<empty>".to_string();
         }
 
-        let headers: Vec<String> = self
-            .tracked_oracles
+        let headers: Vec<String> = flat
             .keys()
             .map(|field| {
                 let name = field.name();
@@ -335,17 +413,13 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         out
     }
 
-    /// Folds the specified column oracles of the tracked table oracle using the
-    /// provided challenges and returns the resulting folded tracked column
-    /// oracle. The output tracked column will have the same activator
-    /// polynomial as the original tracked table oracle (if any) and does
-    /// not have any datatype
+    /// Folds the specified column oracles by flat schema-order indices.
     pub fn fold(&self, col_inds: &[usize], challs: &[B::F]) -> TrackedColOracle<B> {
+        let flat = self.tracked_oracles();
         let first_idx = *col_inds
             .first()
             .expect("fold requires at least one column index");
-        let (_, first_oracle) = self
-            .tracked_oracles
+        let (_, first_oracle) = flat
             .get_index(first_idx)
             .expect("column oracle index out of bounds");
         if col_inds.len() == 1 {
@@ -363,8 +437,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             .expect("fold requires at least one challenge");
         let mut folded: TrackedOracle<B> = first_oracle.mul_scalar_oracle(first_chall);
         for (&col_idx, &chall) in col_inds.iter().zip(challs).skip(1) {
-            let (_, col_oracle) = self
-                .tracked_oracles
+            let (_, col_oracle) = flat
                 .get_index(col_idx)
                 .expect("column oracle index out of bounds");
             folded += &col_oracle.mul_scalar_oracle(chall);
@@ -378,14 +451,14 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         let data_col_indices = self.data_tracked_oracles_indices();
         self.fold(&data_col_indices, challs)
     }
-    /// Returns the tracked column oracle at the specified index
-    pub fn tracked_col_oracle_by_ind(&self, col_ind: usize) -> TrackedColOracle<B> {
-        let (field_ref, data_tracked_oracle) = self
-            .tracked_oracles
-            .iter()
-            .nth(col_ind)
-            .expect("column oracle not found");
 
+    /// Returns the tracked column oracle at the specified flat schema-order
+    /// index, wrapped as SingleSegment.
+    pub fn tracked_col_oracle_by_ind(&self, col_ind: usize) -> TrackedColOracle<B> {
+        let flat = self.tracked_oracles();
+        let (field_ref, data_tracked_oracle) = flat
+            .get_index(col_ind)
+            .expect("column oracle not found");
         TrackedColOracle::new(
             data_tracked_oracle.clone(),
             self.activator_tracked_poly(),
@@ -393,17 +466,17 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         )
     }
 
-    /// Returns the tracked column oracle with the specified name, fully
-    /// grouped with its aux row-domain segments and side-domain segments
-    /// (via the `tracked_col_oracles` bridge). Returns `None` if `name`
-    /// is not a source-column name in this table oracle.
+    /// Returns the tracked column oracle with the specified source column
+    /// name, fully grouped. Returns `None` if `name` is not a source
+    /// column here.
     pub fn tracked_col_oracle_by_name(&self, name: &str) -> Option<TrackedColOracle<B>> {
-        self.tracked_col_oracles()
+        self.tracked_col_oracles
             .iter()
             .find_map(|(f, c)| (f.name() == name).then(|| c.clone()))
     }
 
-    /// Returns the tracked column oracles at the specified indices
+    /// Returns the tracked column oracles at the specified flat schema-order
+    /// indices.
     pub fn tracked_col_oracles_by_indices(&self, indices: &[usize]) -> Vec<TrackedColOracle<B>> {
         indices
             .iter()
@@ -411,79 +484,82 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             .collect()
     }
 
-    /// Returns a subtable oracle containing the tracked column oracles at the
-    /// specified indices and the current table oracle's activator column (if
-    /// any).
+    /// Returns a subtable oracle containing the tracked columns at the
+    /// specified flat schema-order indices, plus the activator (if any).
+    /// Aux/side segments of retained source columns are carried over
+    /// intact.
     pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTableOracle<B> {
-        let mut sub_oracles = IndexMap::with_capacity(
-            indices.len() + self.activator_tracked_poly().is_some() as usize,
-        );
-
+        let flat = self.tracked_oracles();
+        let mut retained_source_names: indexmap::IndexSet<String> = indexmap::IndexSet::new();
         for &idx in indices {
-            let (field_ref, tracked_oracle) = self
-                .tracked_oracles
-                .get_index(idx)
-                .expect("column oracle index out of bounds");
-            sub_oracles.insert(field_ref.clone(), tracked_oracle.clone());
+            let (field, _) = flat.get_index(idx).expect("column oracle index out of bounds");
+            let base = crate::encoding::segment_base_name(field.name())
+                .unwrap_or_else(|| field.name());
+            retained_source_names.insert(base.to_string());
+        }
+        for (field, _) in self.tracked_col_oracles.iter() {
+            if crate::is_system_column(field.name()) {
+                retained_source_names.insert(field.name().to_string());
+            }
         }
 
-        for (field_ref, tracked_oracle) in self.tracked_oracles.iter() {
-            if crate::is_system_column(field_ref.name()) {
-                sub_oracles
-                    .entry(field_ref.clone())
-                    .or_insert_with(|| tracked_oracle.clone());
+        let mut sub_cols: IndexMap<FieldRef, TrackedColOracle<B>> = IndexMap::new();
+        for (field, col) in self.tracked_col_oracles.iter() {
+            if retained_source_names.contains(field.name()) {
+                sub_cols.insert(field.clone(), col.clone());
             }
         }
 
         let sub_schema = self.schema.as_ref().map(|schema| {
-            let fields = sub_oracles
-                .keys()
-                .map(|field| field.as_ref().clone())
+            let sub_flat_names: std::collections::HashSet<String> = sub_cols
+                .iter()
+                .flat_map(|(f, c)| {
+                    c.segments_iter().map(move |(suffix, _, _)| match suffix {
+                        None => f.name().to_string(),
+                        Some(sid) => format!("{}{}", f.name(), sid),
+                    })
+                })
+                .collect();
+            let fields = schema
+                .fields()
+                .iter()
+                .filter(|f| sub_flat_names.contains(f.name()))
+                .map(|f| f.as_ref().clone())
                 .collect::<Vec<Field>>();
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
 
-        let retained_base_names: Vec<String> = sub_oracles
-            .keys()
-            .filter(|f| !crate::is_system_column(f.name()))
-            .map(|f| f.name().to_string())
-            .collect();
-        let mut sub_side_cols: IndexMap<FieldRef, TrackedSideColOracle<B>> = IndexMap::new();
-        for (side_field, side_col) in self.side_cols.iter() {
-            if retained_base_names
-                .iter()
-                .any(|base| crate::encoding::is_segment_of(side_field.name(), base))
-            {
-                sub_side_cols.insert(side_field.clone(), side_col.clone());
-            }
-        }
-
-        TrackedTableOracle::new_with_side_cols(sub_schema, sub_oracles, self.log_size, sub_side_cols)
+        TrackedTableOracle::new_from_col_oracles(sub_schema, sub_cols, self.log_size)
     }
-    /// Returns all the tracked column oracles in the table, including the
-    /// activator column (if any)
+
+    /// Returns all the tracked column oracles (flat schema-order, each
+    /// wrapped as SingleSegment).
     pub fn all_tracked_col_oracles(&self) -> Vec<TrackedColOracle<B>> {
         self.tracked_col_oracles_by_indices(
             &(0..self.num_total_tracked_col_oracles()).collect::<Vec<usize>>(),
         )
     }
 
-    /// Number of columns in the table including activator (if any)
+    /// Number of flat schema-order columns including activator.
     pub fn num_total_tracked_col_oracles(&self) -> usize {
-        self.tracked_oracles.len()
+        self.tracked_col_oracles
+            .values()
+            .map(|c| c.num_segments())
+            .sum()
     }
-    /// Returns the number of columns in the table excluding activator (if any)
+
+    /// Number of flat schema-order data columns (excluding system).
     pub fn num_data_tracked_col_oracles(&self) -> usize {
-        self.tracked_oracles
+        self.tracked_oracles()
             .keys()
             .filter(|field| !crate::is_system_column(field.name()))
             .count()
     }
 
-    /// Returns the tracked oracle of the activator column, if any
+    /// Returns the tracked oracle of the activator column, if any.
     pub fn activator_tracked_poly(&self) -> Option<TrackedOracle<B>> {
-        self.tracked_oracles.iter().find_map(|(field, oracle)| {
-            (field.name() == ACTIVATOR_COL_NAME).then(|| oracle.clone())
+        self.tracked_col_oracles.iter().find_map(|(field, col)| {
+            (field.name() == ACTIVATOR_COL_NAME).then(|| col.data_tracked_oracle())
         })
     }
 
@@ -516,6 +592,87 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
 
         Ok(Self::new(schema, data_map, log_size))
     }
+}
+
+/// Regroup a flat `IndexMap<FieldRef, TrackedOracle<B>>` + a flat
+/// `IndexMap<FieldRef, TrackedSideColOracle<B>>` into the source-column-keyed
+/// shape stored by `TrackedTableOracle`. Verifier-side mirror of
+/// `regroup_flat_into_tracked_cols` in `table.rs`. Orphan aux fields
+/// (aux whose primary is absent from the flat input) become their own
+/// SingleSegment entries — preserves scratch-table semantics.
+fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
+    tracked_oracles: &IndexMap<FieldRef, TrackedOracle<B>>,
+    side_cols: &IndexMap<FieldRef, TrackedSideColOracle<B>>,
+) -> IndexMap<FieldRef, TrackedColOracle<B>> {
+    let shared_activator = tracked_oracles.iter().find_map(|(field, oracle)| {
+        (field.name() == ACTIVATOR_COL_NAME).then(|| oracle.clone())
+    });
+    let primary_present: std::collections::HashSet<String> = tracked_oracles
+        .keys()
+        .filter(|f| crate::encoding::segment_base_name(f.name()).is_none())
+        .map(|f| f.name().to_string())
+        .collect();
+    let mut out = IndexMap::with_capacity(tracked_oracles.len());
+    for (field, oracle) in tracked_oracles.iter() {
+        if let Some(base) = crate::encoding::segment_base_name(field.name()) {
+            if primary_present.contains(base) {
+                continue;
+            }
+            out.insert(
+                field.clone(),
+                TrackedColOracle::new(
+                    oracle.clone(),
+                    shared_activator.clone(),
+                    Some(field.clone()),
+                ),
+            );
+            continue;
+        }
+        let primary_name = field.name();
+        let mut aux_segments: Vec<(String, TrackedOracle<B>, Option<TrackedOracle<B>>)> =
+            Vec::new();
+        for (aux_field, aux_oracle) in tracked_oracles.iter() {
+            if aux_field.name() == primary_name {
+                continue;
+            }
+            if let Some(base) = crate::encoding::segment_base_name(aux_field.name())
+                && base == primary_name
+            {
+                let suffix = &aux_field.name()[primary_name.len()..];
+                aux_segments.push((
+                    suffix.to_string(),
+                    aux_oracle.clone(),
+                    shared_activator.clone(),
+                ));
+            }
+        }
+        let mut side_segments: Vec<(String, TrackedSideColOracle<B>)> = Vec::new();
+        for (side_field, side) in side_cols.iter() {
+            if let Some(base) = crate::encoding::segment_base_name(side_field.name())
+                && base == primary_name
+            {
+                let suffix = &side_field.name()[primary_name.len()..];
+                side_segments.push((suffix.to_string(), side.clone()));
+            }
+        }
+        let col = if aux_segments.is_empty() && side_segments.is_empty() {
+            TrackedColOracle::new(
+                oracle.clone(),
+                shared_activator.clone(),
+                Some(field.clone()),
+            )
+        } else {
+            TrackedColOracle::new_multi(
+                oracle.clone(),
+                shared_activator.clone(),
+                aux_segments,
+                side_segments,
+                Some(field.clone()),
+            )
+        };
+        out.insert(field.clone(), col);
+    }
+    out
 }
 
 /// Per-side-segment commitment pair (data + activator) plus sizing metadata.

@@ -476,8 +476,8 @@ impl<B: SnarkBackend> LpNode<B> {
         for (field, oracle) in table.tracked_oracles_iter() {
             let preserve =
                 Self::preserve_constraints_for_field(mode, field.name(), left_names, right_names);
-            let updated_field = Self::rewrite_constraint_metadata(field, preserve);
-            updated_oracles.insert(updated_field, oracle.clone());
+            let updated_field = Self::rewrite_constraint_metadata(&field, preserve);
+            updated_oracles.insert(updated_field, oracle);
         }
         let schema = table.schema_ref().map(|schema| {
             let fields = updated_oracles.keys().cloned().collect::<Vec<_>>();
