@@ -1,4 +1,10 @@
 use ark_ff::PrimeField;
+use datafusion::arrow::datatypes::{DataType, IntervalUnit};
+
+use super::strings::{string_row_segment_suffixes, string_segment_base, string_side_segment_suffixes};
+use super::util::field_element_byte_capacity;
+
+// --- Segment value types --------------------------------------------------
 
 /// A named slice of a column's encoded representation. A single Arrow column
 /// may expand into multiple `EncodedSegment`s — e.g. strings become
@@ -120,24 +126,121 @@ impl<F: PrimeField> EncodedSegment<F> {
     }
 }
 
-/// Wrap a `Vec<Vec<F>>` (one inner Vec per column) into auto-named segments:
-/// the first segment uses no suffix, subsequent segments get `__enc1`,
-/// `__enc2`, … This is the default naming when an encoder does not assign
-/// role-specific names.
+// --- Auto-numbered segment convention ------------------------------------
+// `auto_segments` and `auto_suffixes` are the value-side and name-side of
+// the same convention: the first entry uses `""` (primary — inherits the
+// source column name), subsequent entries use `"__enc1"`, `"__enc2"`, …
+// Kept adjacent so the invariant that the two agree is visually obvious.
+
+/// Wrap a `Vec<Vec<F>>` (one inner Vec per column) into auto-named segments.
+/// The default naming when an encoder does not assign role-specific names.
 pub(crate) fn auto_segments<F: PrimeField>(cols: Vec<Vec<F>>) -> Vec<EncodedSegment<F>> {
     cols.into_iter()
         .enumerate()
-        .map(|(i, values)| {
-            let suffix = if i == 0 {
-                String::new()
-            } else {
-                format!("__enc{i}")
-            };
-            EncodedSegment {
-                suffix,
-                values,
-                side: None,
-            }
+        .map(|(i, values)| EncodedSegment {
+            suffix: auto_suffix_at(i),
+            values,
+            side: None,
         })
         .collect()
+}
+
+/// Generate the auto-numbered suffix sequence for `n` segments: `""`,
+/// `"__enc1"`, `"__enc2"`, …. Kept `pub(super)` so per-type-family modules
+/// (see `strings::string_row_segment_suffixes`) can share the same
+/// convention.
+pub(super) fn auto_suffixes(n: usize) -> Vec<String> {
+    (0..n).map(auto_suffix_at).collect()
+}
+
+fn auto_suffix_at(i: usize) -> String {
+    if i == 0 {
+        String::new()
+    } else {
+        format!("__enc{i}")
+    }
+}
+
+// --- Segment-name dispatchers --------------------------------------------
+
+/// Returns the source-column base name if `field_name` carries a recognized
+/// segment suffix (e.g. `"col__length"` → `Some("col")`). Returns `None`
+/// when the name does not match any known segment suffix — that case can
+/// either mean a primary segment (the column itself) or an unrelated name.
+///
+/// Delegation: type-family-specific suffix constants (e.g. the string
+/// `__length` / `__chars` / …) live with their encoders; only the generic
+/// `__enc<N>` auto-numbered convention is decoded here.
+pub fn segment_base_name(field_name: &str) -> Option<&str> {
+    if let Some(base) = string_segment_base(field_name) {
+        return Some(base);
+    }
+    // Auto-numbered `__enc<N>` segments produced by `auto_segments`.
+    if let Some(enc_at) = field_name.rfind("__enc") {
+        let rest = &field_name[enc_at + "__enc".len()..];
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return Some(&field_name[..enc_at]);
+        }
+    }
+    None
+}
+
+/// True if `field_name` either equals `base_name` (the primary segment) or
+/// is a recognized segment of `base_name` (e.g. `base_name__length`).
+pub fn is_segment_of(field_name: &str, base_name: &str) -> bool {
+    if field_name == base_name {
+        return true;
+    }
+    matches!(segment_base_name(field_name), Some(base) if base == base_name)
+}
+
+/// Returns the ordered **row-domain** segment suffixes that
+/// `encode_arrow_array_to_field` will produce for a column of the given Arrow
+/// data type. Used by callers that have only the schema (no data) to
+/// enumerate the same set of row-space segments the prover will produce —
+/// e.g. the verifier-side tracking pass.
+///
+/// Side-domain segments (e.g. `__chars` for strings) are NOT included here;
+/// see [`side_segment_suffixes_for_type`] to enumerate those separately.
+///
+/// Must stay in lockstep with the encoder implementations. Per-type-family
+/// suffix sets live with their encoders (see e.g.
+/// [`string_row_segment_suffixes`](super::strings::string_row_segment_suffixes));
+/// this function only dispatches.
+pub fn segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String> {
+    let hash_slots = 32usize.div_ceil(field_element_byte_capacity::<F>());
+
+    match dtype {
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+            string_row_segment_suffixes::<F>()
+        }
+        DataType::Binary
+        | DataType::LargeBinary
+        | DataType::BinaryView
+        | DataType::FixedSizeBinary(_) => auto_suffixes(hash_slots),
+        DataType::Interval(IntervalUnit::DayTime) => {
+            auto_suffixes(8usize.div_ceil(field_element_byte_capacity::<F>()))
+        }
+        DataType::Interval(IntervalUnit::MonthDayNano) => {
+            auto_suffixes(16usize.div_ceil(field_element_byte_capacity::<F>()))
+        }
+        _ => vec![String::new()],
+    }
+}
+
+/// Returns the **side-domain** segment suffixes the encoder will emit for the
+/// given Arrow data type, in the same order the encoder produces them. The
+/// verifier-side tracking pass uses this to enumerate the side commitments it
+/// must consume from the proof transcript.
+///
+/// Each side segment carries its own (data, activator) commitment pair; the
+/// per-segment `log_size` is shared via the transcript's miscellaneous fields
+/// since it depends on prover-side data.
+pub fn side_segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String> {
+    match dtype {
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
+            string_side_segment_suffixes()
+        }
+        _ => Vec::new(),
+    }
 }

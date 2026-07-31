@@ -1,12 +1,12 @@
-// Segment types: `EncodedSegment`, `SideSegmentInfo`, `SideColData`, plus the
-// internal `auto_segments` wrapper used by encoders that don't assign
-// role-specific names.
+// Segment types + naming infrastructure. Value side: `EncodedSegment`,
+// `SideSegmentInfo`, `SideColData`, plus the internal `auto_segments`
+// wrapper for encoders that don't assign role-specific names. Name side:
+// the `""` primary convention, the `__enc<N>` auto-numbered convention,
+// and the type-family dispatchers (`segment_base_name`, `is_segment_of`,
+// `segment_suffixes_for_type`, `side_segment_suffixes_for_type`).
+// Family-specific suffix constants live with their encoders — see
+// `mod strings` for the string family.
 mod segment;
-
-// Segment-name conventions: the `STRING_*_SUFFIX` constants, the master
-// `CHAR_LEVEL_SIDE_POLYS_ENABLED` toggle, and the helpers that recognize /
-// enumerate segment names for a given Arrow data type.
-mod suffixes;
 
 // The `Encodable` trait every Arrow array implements, plus the two
 // `impl_col_adapter_map!` / `impl_col_adapter_unsupported!` macros that reduce
@@ -24,11 +24,14 @@ mod util;
 // are intentionally excluded; see `mod other` for the rejection.
 mod primitives;
 
-// `Encodable` implementations for string-like Arrow arrays: the
-// `encode_utf8_like` core plus `StringArray`, `LargeStringArray`,
-// `StringViewArray`. Emits row-domain `{hash, __length}` segments and
-// (when `CHAR_LEVEL_SIDE_POLYS_ENABLED`) side-domain `{__chars, __orig_ind,
-// __int_ind, __bnd}` segments.
+// String-family: `Encodable` implementations for `StringArray`,
+// `LargeStringArray`, `StringViewArray` (via the shared `encode_utf8_like`
+// core) plus the string-specific suffix constants and dispatcher helpers
+// (`STRING_LENGTH_SUFFIX`, `STRING_CHARS_SUFFIX`, `STRING_ORIG_IND_SUFFIX`,
+// `STRING_INT_IND_SUFFIX`, `STRING_BND_SUFFIX`, and the
+// `CHAR_LEVEL_SIDE_POLYS_ENABLED` toggle). Emits row-domain
+// `{hash, __length}` segments and (when the toggle is on) side-domain
+// `{__chars, __orig_ind, __int_ind, __bnd}` segments.
 mod strings;
 
 // `Encodable` implementations for everything else — binary array variants,
@@ -45,9 +48,11 @@ mod dispatch;
 
 pub use dispatch::{encode_arrow_array_to_field, scalar_to_field, scalar_to_fields};
 pub use encodable::Encodable;
-pub use segment::{EncodedSegment, SideColData, SideSegmentInfo};
-pub use suffixes::{
+pub use segment::{
     is_segment_of, segment_base_name, segment_suffixes_for_type, side_segment_suffixes_for_type,
+    EncodedSegment, SideColData, SideSegmentInfo,
+};
+pub use strings::{
     CHAR_LEVEL_SIDE_POLYS_ENABLED, STRING_BND_SUFFIX, STRING_CHARS_SUFFIX, STRING_INT_IND_SUFFIX,
     STRING_LENGTH_SUFFIX, STRING_ORIG_IND_SUFFIX,
 };
