@@ -2,11 +2,10 @@ use ark_ff::PrimeField;
 use datafusion::arrow::array::{
     Array, BooleanArray, Date32Array, Date64Array, Decimal128Array, Decimal256Array,
     DurationMicrosecondArray, DurationMillisecondArray, DurationNanosecondArray,
-    DurationSecondArray, Float16Array, Float32Array, Float64Array, Int8Array, Int16Array,
-    Int32Array, Int64Array, IntervalYearMonthArray, Time32MillisecondArray, Time32SecondArray,
-    Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
-    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt8Array,
-    UInt16Array, UInt32Array, UInt64Array,
+    DurationSecondArray, Int8Array, Int16Array, Int32Array, Int64Array, IntervalYearMonthArray,
+    Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
+    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+    TimestampSecondArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
 };
 
 use crate::errors::EncodeError;
@@ -28,16 +27,6 @@ impl_col_adapter_map!(UInt8Array, |v| F::from(v as u64));
 impl_col_adapter_map!(UInt16Array, |v| F::from(v as u64));
 impl_col_adapter_map!(UInt32Array, |v| F::from(v as u64));
 impl_col_adapter_map!(UInt64Array, |v| F::from(v));
-// Floating point numbers
-impl_col_adapter_map!(Float16Array, |v: <datafusion::arrow::datatypes::Float16Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
-    &v.to_bits().to_le_bytes()
-));
-impl_col_adapter_map!(Float32Array, |v: <datafusion::arrow::datatypes::Float32Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
-    &v.to_le_bytes()
-));
-impl_col_adapter_map!(Float64Array, |v: <datafusion::arrow::datatypes::Float64Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
-    &v.to_le_bytes()
-));
 // TimeStamps
 impl_col_adapter_map!(TimestampSecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(TimestampMillisecondArray, |v| F::from(v as i128));

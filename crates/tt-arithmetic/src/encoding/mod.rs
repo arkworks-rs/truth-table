@@ -20,7 +20,8 @@ mod util;
 
 // `Encodable` implementations for scalar-like Arrow arrays that map
 // element-wise via `impl_col_adapter_map!` — bool, all int / uint widths,
-// float, timestamp, date, time, duration, interval-year-month, decimals.
+// timestamp, date, time, duration, interval-year-month, decimals. Floats
+// are intentionally excluded; see `mod other` for the rejection.
 mod primitives;
 
 // `Encodable` implementations for string-like Arrow arrays: the
@@ -32,8 +33,9 @@ mod strings;
 
 // `Encodable` implementations for everything else — binary array variants,
 // `NullArray`, `IntervalDayTime` / `IntervalMonthDayNano`, `DictionaryArray`
-// — plus the `impl_col_adapter_unsupported!` invocations that reject list /
-// struct / union / map / run-end arrays.
+// — plus the `impl_col_adapter_unsupported!` invocations that reject
+// Float16 / Float32 / Float64 (IEEE bit-cast into a field is not
+// arithmetic-meaningful) and list / struct / union / map / run-end arrays.
 mod other;
 
 // The top-level dispatcher: `encode_arrow_array_to_field` matches on Arrow

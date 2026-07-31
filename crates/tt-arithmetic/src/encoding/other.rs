@@ -1,9 +1,10 @@
 use ark_ff::PrimeField;
 use datafusion::arrow::array::{
     Array, BinaryArray, BinaryViewArray, DictionaryArray, FixedSizeBinaryArray,
-    FixedSizeListArray, Int16RunArray, Int32RunArray, Int64RunArray, IntervalDayTimeArray,
-    IntervalMonthDayNanoArray, LargeBinaryArray, LargeListArray, LargeListViewArray, ListArray,
-    ListViewArray, MapArray, NullArray, StructArray, UnionArray,
+    FixedSizeListArray, Float16Array, Float32Array, Float64Array, Int16RunArray, Int32RunArray,
+    Int64RunArray, IntervalDayTimeArray, IntervalMonthDayNanoArray, LargeBinaryArray,
+    LargeListArray, LargeListViewArray, ListArray, ListViewArray, MapArray, NullArray,
+    StructArray, UnionArray,
 };
 
 use crate::errors::EncodeError;
@@ -170,6 +171,13 @@ where
 }
 
 // Unsupported data types
+// Floats: IEEE bit-cast into a prime field is not arithmetic-meaningful, so
+// we reject them explicitly rather than silently pass through nonsense.
+// Callers that need numeric semantics should convert to Decimal128 first
+// (see `tt-tpch-data::convert_batch_to_decimalized`).
+impl_col_adapter_unsupported!(Float16Array, "Float16");
+impl_col_adapter_unsupported!(Float32Array, "Float32");
+impl_col_adapter_unsupported!(Float64Array, "Float64");
 impl_col_adapter_unsupported!(ListArray, "List");
 impl_col_adapter_unsupported!(LargeListArray, "LargeList");
 impl_col_adapter_unsupported!(ListViewArray, "ListView");
