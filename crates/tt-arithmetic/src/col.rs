@@ -25,8 +25,11 @@ pub static ACTIVATOR_EXPR: Lazy<Expr> =
     Lazy::new(|| Expr::Column(Column::from_name(ACTIVATOR_COL_NAME)));
 pub static ROW_ID_EXPR: Lazy<Expr> = Lazy::new(|| Expr::Column(Column::from_name(ROW_ID_COL_NAME)));
 
-/// The conventional id used for a single-segment column or for the "primary"
-/// segment of a multi-segment column.
+/// The conventional id used for a single-segment column or the primary
+/// segment of a multi-segment column. Primary lives in dedicated fields
+/// rather than the aux map, but callers that enumerate segments still see
+/// primary yielded with this id so downstream naming stays consistent with
+/// the encoder's `EncodedSegment::primary()` which uses an empty suffix.
 pub const PRIMARY_SEGMENT_ID: &str = "";
 
 pub fn is_system_column(name: &str) -> bool {
@@ -51,16 +54,21 @@ pub enum TrackedCol<B: SnarkBackend> {
         field_ref: Option<FieldRef>,
     },
     MultiSegment {
-        /// All data polynomials in this column.
-        data_tracked_polys: Vec<TrackedPoly<B>>,
-        /// Distinct activator groups within this column. Length = number of
-        /// activator groups (often 1; can be > 1 when segments come from
-        /// different filter contexts).
-        activator_tracked_polys: Vec<Option<TrackedPoly<B>>>,
-        /// `segment_id → (data_idx, activator_idx)`. Multiple segments
-        /// sharing the same activator share the same `activator_idx`.
-        /// The primary segment uses `PRIMARY_SEGMENT_ID` ("").
-        segment_map: IndexMap<String, (usize, usize)>,
+        /// The primary (canonical) data polynomial. Always present.
+        primary_data_tracked_poly: TrackedPoly<B>,
+        /// Activator paired with the primary data polynomial.
+        primary_activator_tracked_poly: Option<TrackedPoly<B>>,
+        /// Non-primary ("auxiliary") data polynomials — e.g. `__length`,
+        /// `__chars` for a string encoding.
+        aux_data_tracked_polys: Vec<TrackedPoly<B>>,
+        /// Distinct activator groups among aux segments only. Auxes that
+        /// share an activator share the same index; auxes that share
+        /// primary's activator store their own reference (compared by
+        /// `TrackedPoly` equality downstream).
+        aux_activator_tracked_polys: Vec<Option<TrackedPoly<B>>>,
+        /// `aux_segment_id → (aux_data_idx, aux_activator_idx)`. Empty ids
+        /// are rejected — primary is not in this map.
+        aux_segment_map: IndexMap<String, (usize, usize)>,
         field_ref: Option<FieldRef>,
     },
 }
@@ -79,15 +87,19 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedCol<B> {
                 .field("field_ref", field_ref)
                 .finish(),
             Self::MultiSegment {
-                data_tracked_polys,
-                activator_tracked_polys,
-                segment_map,
+                aux_data_tracked_polys,
+                aux_activator_tracked_polys,
+                aux_segment_map,
                 field_ref,
+                ..
             } => f
                 .debug_struct("TrackedCol::MultiSegment")
-                .field("num_segments", &data_tracked_polys.len())
-                .field("num_activator_groups", &activator_tracked_polys.len())
-                .field("segments", &segment_map.keys().collect::<Vec<_>>())
+                .field("num_segments", &(1 + aux_data_tracked_polys.len()))
+                .field(
+                    "num_aux_activator_groups",
+                    &aux_activator_tracked_polys.len(),
+                )
+                .field("aux_segments", &aux_segment_map.keys().collect::<Vec<_>>())
                 .field("field_ref", field_ref)
                 .finish(),
         }
@@ -169,20 +181,27 @@ impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
                 activator_repr(activator_tracked_poly),
             ),
             Self::MultiSegment {
-                data_tracked_polys,
-                activator_tracked_polys,
-                segment_map,
+                primary_data_tracked_poly,
+                primary_activator_tracked_poly,
+                aux_data_tracked_polys,
+                aux_activator_tracked_polys,
+                aux_segment_map,
                 ..
             } => {
                 writeln!(f, "{} (multi-segment):", field_name)?;
-                for (sid, (data_idx, activator_idx)) in segment_map.iter() {
-                    let label = if sid.is_empty() { "<primary>" } else { sid };
+                writeln!(
+                    f,
+                    "  <primary>: data={}, activator={}",
+                    data_repr(primary_data_tracked_poly),
+                    activator_repr(primary_activator_tracked_poly),
+                )?;
+                for (sid, (data_idx, activator_idx)) in aux_segment_map.iter() {
                     writeln!(
                         f,
                         "  {}: data={}, activator={}",
-                        label,
-                        data_repr(&data_tracked_polys[*data_idx]),
-                        activator_repr(&activator_tracked_polys[*activator_idx]),
+                        sid,
+                        data_repr(&aux_data_tracked_polys[*data_idx]),
+                        activator_repr(&aux_activator_tracked_polys[*activator_idx]),
                     )?;
                 }
                 Ok(())
@@ -209,41 +228,51 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Constructs a multi-segment tracked column from named segments. Each
-    /// segment is `(segment_id, data_poly, activator_poly)`; segments that
-    /// supply the same activator (compared by identity via `Option<&TrackedPoly>`
-    /// equality on the underlying tracker) share an activator group.
+    /// Constructs a multi-segment tracked column: one required primary
+    /// segment plus zero or more named aux segments. Aux ids must be
+    /// non-empty (the primary owns the empty id by convention). Aux
+    /// segments that share the same activator share an activator group
+    /// (compared by `TrackedPoly` equality).
     pub fn new_multi(
-        segments: Vec<(String, TrackedPoly<B>, Option<TrackedPoly<B>>)>,
+        primary_data_tracked_poly: TrackedPoly<B>,
+        primary_activator_tracked_poly: Option<TrackedPoly<B>>,
+        aux_segments: Vec<(String, TrackedPoly<B>, Option<TrackedPoly<B>>)>,
         field_ref: Option<FieldRef>,
     ) -> Self {
-        assert!(
-            !segments.is_empty(),
-            "MultiSegment column requires at least one segment"
-        );
-        let mut data_tracked_polys: Vec<TrackedPoly<B>> = Vec::with_capacity(segments.len());
-        let mut activator_tracked_polys: Vec<Option<TrackedPoly<B>>> = Vec::new();
-        let mut segment_map: IndexMap<String, (usize, usize)> =
-            IndexMap::with_capacity(segments.len());
-        for (sid, data_poly, activator_poly) in segments {
-            let activator_idx = match activator_tracked_polys
+        let mut aux_data_tracked_polys: Vec<TrackedPoly<B>> =
+            Vec::with_capacity(aux_segments.len());
+        let mut aux_activator_tracked_polys: Vec<Option<TrackedPoly<B>>> = Vec::new();
+        let mut aux_segment_map: IndexMap<String, (usize, usize)> =
+            IndexMap::with_capacity(aux_segments.len());
+        for (sid, data_poly, activator_poly) in aux_segments {
+            assert!(
+                !sid.is_empty(),
+                "MultiSegment aux segment id must be non-empty (primary owns the empty id)"
+            );
+            assert!(
+                !aux_segment_map.contains_key(&sid),
+                "duplicate aux segment id '{sid}' in MultiSegment column"
+            );
+            let activator_idx = match aux_activator_tracked_polys
                 .iter()
                 .position(|existing| activators_equal(existing.as_ref(), activator_poly.as_ref()))
             {
                 Some(idx) => idx,
                 None => {
-                    activator_tracked_polys.push(activator_poly.clone());
-                    activator_tracked_polys.len() - 1
+                    aux_activator_tracked_polys.push(activator_poly.clone());
+                    aux_activator_tracked_polys.len() - 1
                 }
             };
-            let data_idx = data_tracked_polys.len();
-            data_tracked_polys.push(data_poly);
-            segment_map.insert(sid, (data_idx, activator_idx));
+            let data_idx = aux_data_tracked_polys.len();
+            aux_data_tracked_polys.push(data_poly);
+            aux_segment_map.insert(sid, (data_idx, activator_idx));
         }
         Self::MultiSegment {
-            data_tracked_polys,
-            activator_tracked_polys,
-            segment_map,
+            primary_data_tracked_poly,
+            primary_activator_tracked_poly,
+            aux_data_tracked_polys,
+            aux_activator_tracked_polys,
+            aux_segment_map,
             field_ref,
         }
     }
@@ -274,36 +303,27 @@ impl<B: SnarkBackend> TrackedCol<B> {
                 data_tracked_poly, ..
             } => data_tracked_poly.log_size(),
             Self::MultiSegment {
-                data_tracked_polys, ..
-            } => data_tracked_polys[0].log_size(),
+                primary_data_tracked_poly,
+                ..
+            } => primary_data_tracked_poly.log_size(),
         }
     }
 
     /// Returns the primary data polynomial — the unique poly for a single-
-    /// segment column, or the poly registered under `PRIMARY_SEGMENT_ID` for
-    /// a multi-segment column.
+    /// segment column, or the primary of a multi-segment column.
     pub fn data_tracked_poly(&self) -> TrackedPoly<B> {
         match self {
             Self::SingleSegment {
                 data_tracked_poly, ..
             } => data_tracked_poly.clone(),
             Self::MultiSegment {
-                data_tracked_polys,
-                segment_map,
+                primary_data_tracked_poly,
                 ..
-            } => {
-                let (data_idx, _) = segment_map
-                    .get(PRIMARY_SEGMENT_ID)
-                    .or_else(|| segment_map.values().next())
-                    .expect("multi-segment column must contain at least one segment");
-                data_tracked_polys[*data_idx].clone()
-            }
+            } => primary_data_tracked_poly.clone(),
         }
     }
 
     /// Returns the activator polynomial paired with the primary data segment.
-    /// Single-segment columns return their sole activator. Multi-segment
-    /// columns return the activator from the primary segment's group.
     pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
         match self {
             Self::SingleSegment {
@@ -311,16 +331,9 @@ impl<B: SnarkBackend> TrackedCol<B> {
                 ..
             } => activator_tracked_poly.clone(),
             Self::MultiSegment {
-                activator_tracked_polys,
-                segment_map,
+                primary_activator_tracked_poly,
                 ..
-            } => {
-                let (_, activator_idx) = segment_map
-                    .get(PRIMARY_SEGMENT_ID)
-                    .or_else(|| segment_map.values().next())
-                    .expect("multi-segment column must contain at least one segment");
-                activator_tracked_polys[*activator_idx].clone()
-            }
+            } => primary_activator_tracked_poly.clone(),
         }
     }
 
@@ -338,13 +351,15 @@ impl<B: SnarkBackend> TrackedCol<B> {
         match self {
             Self::SingleSegment { .. } => 1,
             Self::MultiSegment {
-                data_tracked_polys, ..
-            } => data_tracked_polys.len(),
+                aux_data_tracked_polys,
+                ..
+            } => 1 + aux_data_tracked_polys.len(),
         }
     }
 
     /// Iterate `(segment_id, data_poly, activator_poly)` over every segment
-    /// in this column, in insertion order.
+    /// in this column. For multi-segment, primary is yielded first under
+    /// `PRIMARY_SEGMENT_ID`, then aux segments in insertion order.
     pub fn segments_iter(
         &self,
     ) -> Box<dyn Iterator<Item = (&str, &TrackedPoly<B>, Option<&TrackedPoly<B>>)> + '_> {
@@ -359,22 +374,32 @@ impl<B: SnarkBackend> TrackedCol<B> {
                 activator_tracked_poly.as_ref(),
             ))),
             Self::MultiSegment {
-                data_tracked_polys,
-                activator_tracked_polys,
-                segment_map,
+                primary_data_tracked_poly,
+                primary_activator_tracked_poly,
+                aux_data_tracked_polys,
+                aux_activator_tracked_polys,
+                aux_segment_map,
                 ..
-            } => Box::new(segment_map.iter().map(move |(sid, (data_idx, act_idx))| {
-                (
-                    sid.as_str(),
-                    &data_tracked_polys[*data_idx],
-                    activator_tracked_polys[*act_idx].as_ref(),
-                )
-            })),
+            } => {
+                let primary = std::iter::once((
+                    PRIMARY_SEGMENT_ID,
+                    primary_data_tracked_poly,
+                    primary_activator_tracked_poly.as_ref(),
+                ));
+                let aux = aux_segment_map.iter().map(move |(sid, (data_idx, act_idx))| {
+                    (
+                        sid.as_str(),
+                        &aux_data_tracked_polys[*data_idx],
+                        aux_activator_tracked_polys[*act_idx].as_ref(),
+                    )
+                });
+                Box::new(primary.chain(aux))
+            }
         }
     }
 
     /// Look up a specific segment by id. Returns the segment's data and
-    /// activator polys.
+    /// activator polys. `PRIMARY_SEGMENT_ID` returns the primary segment.
     pub fn segment(&self, segment_id: &str) -> Option<(TrackedPoly<B>, Option<TrackedPoly<B>>)> {
         match self {
             Self::SingleSegment {
@@ -389,16 +414,27 @@ impl<B: SnarkBackend> TrackedCol<B> {
                 }
             }
             Self::MultiSegment {
-                data_tracked_polys,
-                activator_tracked_polys,
-                segment_map,
+                primary_data_tracked_poly,
+                primary_activator_tracked_poly,
+                aux_data_tracked_polys,
+                aux_activator_tracked_polys,
+                aux_segment_map,
                 ..
-            } => segment_map.get(segment_id).map(|(data_idx, act_idx)| {
-                (
-                    data_tracked_polys[*data_idx].clone(),
-                    activator_tracked_polys[*act_idx].clone(),
-                )
-            }),
+            } => {
+                if segment_id == PRIMARY_SEGMENT_ID {
+                    Some((
+                        primary_data_tracked_poly.clone(),
+                        primary_activator_tracked_poly.clone(),
+                    ))
+                } else {
+                    aux_segment_map.get(segment_id).map(|(data_idx, act_idx)| {
+                        (
+                            aux_data_tracked_polys[*data_idx].clone(),
+                            aux_activator_tracked_polys[*act_idx].clone(),
+                        )
+                    })
+                }
+            }
         }
     }
 
@@ -409,8 +445,9 @@ impl<B: SnarkBackend> TrackedCol<B> {
                 data_tracked_poly, ..
             } => data_tracked_poly,
             Self::MultiSegment {
-                data_tracked_polys, ..
-            } => &data_tracked_polys[0],
+                primary_data_tracked_poly,
+                ..
+            } => primary_data_tracked_poly,
         };
         ArgProver::new_from_tracker_rc(poly.tracker())
     }
@@ -539,20 +576,27 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
                 field_ref: field_ref.clone(),
             },
             Self::MultiSegment {
-                data_tracked_polys,
-                activator_tracked_polys,
-                segment_map,
+                primary_data_tracked_poly,
+                primary_activator_tracked_poly,
+                aux_data_tracked_polys,
+                aux_activator_tracked_polys,
+                aux_segment_map,
                 field_ref,
             } => Self::MultiSegment {
-                data_tracked_polys: data_tracked_polys
+                primary_data_tracked_poly: primary_data_tracked_poly
+                    .deep_clone(new_prover.clone()),
+                primary_activator_tracked_poly: primary_activator_tracked_poly
+                    .as_ref()
+                    .map(|act| act.deep_clone(new_prover.clone())),
+                aux_data_tracked_polys: aux_data_tracked_polys
                     .iter()
                     .map(|poly| poly.deep_clone(new_prover.clone()))
                     .collect(),
-                activator_tracked_polys: activator_tracked_polys
+                aux_activator_tracked_polys: aux_activator_tracked_polys
                     .iter()
                     .map(|opt| opt.as_ref().map(|act| act.deep_clone(new_prover.clone())))
                     .collect(),
-                segment_map: segment_map.clone(),
+                aux_segment_map: aux_segment_map.clone(),
                 field_ref: field_ref.clone(),
             },
         }

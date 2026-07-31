@@ -19,10 +19,17 @@ pub enum TrackedColOracle<B: SnarkBackend> {
         field_ref: Option<FieldRef>,
     },
     MultiSegment {
-        data_tracked_oracles: Vec<TrackedOracle<B>>,
-        activator_tracked_oracles: Vec<Option<TrackedOracle<B>>>,
-        /// `segment_id → (data_idx, activator_idx)`.
-        segment_map: IndexMap<String, (usize, usize)>,
+        /// The primary (canonical) data oracle. Always present.
+        primary_data_tracked_oracle: TrackedOracle<B>,
+        /// Activator paired with the primary data oracle.
+        primary_activator_tracked_oracle: Option<TrackedOracle<B>>,
+        /// Non-primary ("auxiliary") data oracles.
+        aux_data_tracked_oracles: Vec<TrackedOracle<B>>,
+        /// Distinct activator groups among aux segments only.
+        aux_activator_tracked_oracles: Vec<Option<TrackedOracle<B>>>,
+        /// `aux_segment_id → (aux_data_idx, aux_activator_idx)`. Empty ids
+        /// are rejected — primary is not in this map.
+        aux_segment_map: IndexMap<String, (usize, usize)>,
         field_ref: Option<FieldRef>,
     },
 }
@@ -41,15 +48,19 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedColOracle<B> {
                 .field("field_ref", field_ref)
                 .finish(),
             Self::MultiSegment {
-                data_tracked_oracles,
-                activator_tracked_oracles,
-                segment_map,
+                aux_data_tracked_oracles,
+                aux_activator_tracked_oracles,
+                aux_segment_map,
                 field_ref,
+                ..
             } => f
                 .debug_struct("TrackedColOracle::MultiSegment")
-                .field("num_segments", &data_tracked_oracles.len())
-                .field("num_activator_groups", &activator_tracked_oracles.len())
-                .field("segments", &segment_map.keys().collect::<Vec<_>>())
+                .field("num_segments", &(1 + aux_data_tracked_oracles.len()))
+                .field(
+                    "num_aux_activator_groups",
+                    &aux_activator_tracked_oracles.len(),
+                )
+                .field("aux_segments", &aux_segment_map.keys().collect::<Vec<_>>())
                 .field("field_ref", field_ref)
                 .finish(),
         }
@@ -74,38 +85,49 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Constructs a multi-segment tracked column oracle, deduplicating
-    /// activator oracles by equality to form activator groups.
+    /// Constructs a multi-segment tracked column oracle: one required
+    /// primary segment plus zero or more named aux segments. Aux ids must
+    /// be non-empty (the primary owns the empty id by convention). Aux
+    /// activators are deduplicated by equality to form activator groups.
     pub fn new_multi(
-        segments: Vec<(String, TrackedOracle<B>, Option<TrackedOracle<B>>)>,
+        primary_data_tracked_oracle: TrackedOracle<B>,
+        primary_activator_tracked_oracle: Option<TrackedOracle<B>>,
+        aux_segments: Vec<(String, TrackedOracle<B>, Option<TrackedOracle<B>>)>,
         field_ref: Option<FieldRef>,
     ) -> Self {
-        assert!(
-            !segments.is_empty(),
-            "MultiSegment column oracle requires at least one segment"
-        );
-        let mut data_tracked_oracles: Vec<TrackedOracle<B>> = Vec::with_capacity(segments.len());
-        let mut activator_tracked_oracles: Vec<Option<TrackedOracle<B>>> = Vec::new();
-        let mut segment_map: IndexMap<String, (usize, usize)> =
-            IndexMap::with_capacity(segments.len());
-        for (sid, data_oracle, activator_oracle) in segments {
-            let activator_idx = match activator_tracked_oracles.iter().position(|existing| {
+        let mut aux_data_tracked_oracles: Vec<TrackedOracle<B>> =
+            Vec::with_capacity(aux_segments.len());
+        let mut aux_activator_tracked_oracles: Vec<Option<TrackedOracle<B>>> = Vec::new();
+        let mut aux_segment_map: IndexMap<String, (usize, usize)> =
+            IndexMap::with_capacity(aux_segments.len());
+        for (sid, data_oracle, activator_oracle) in aux_segments {
+            assert!(
+                !sid.is_empty(),
+                "MultiSegment aux segment id must be non-empty (primary owns the empty id)"
+            );
+            assert!(
+                !aux_segment_map.contains_key(&sid),
+                "duplicate aux segment id '{sid}' in MultiSegment column oracle"
+            );
+            let activator_idx = match aux_activator_tracked_oracles.iter().position(|existing| {
                 activators_equal(existing.as_ref(), activator_oracle.as_ref())
             }) {
                 Some(idx) => idx,
                 None => {
-                    activator_tracked_oracles.push(activator_oracle.clone());
-                    activator_tracked_oracles.len() - 1
+                    aux_activator_tracked_oracles.push(activator_oracle.clone());
+                    aux_activator_tracked_oracles.len() - 1
                 }
             };
-            let data_idx = data_tracked_oracles.len();
-            data_tracked_oracles.push(data_oracle);
-            segment_map.insert(sid, (data_idx, activator_idx));
+            let data_idx = aux_data_tracked_oracles.len();
+            aux_data_tracked_oracles.push(data_oracle);
+            aux_segment_map.insert(sid, (data_idx, activator_idx));
         }
         Self::MultiSegment {
-            data_tracked_oracles,
-            activator_tracked_oracles,
-            segment_map,
+            primary_data_tracked_oracle,
+            primary_activator_tracked_oracle,
+            aux_data_tracked_oracles,
+            aux_activator_tracked_oracles,
+            aux_segment_map,
             field_ref,
         }
     }
@@ -138,9 +160,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => data_tracked_oracle.log_size(),
             Self::MultiSegment {
-                data_tracked_oracles,
+                primary_data_tracked_oracle,
                 ..
-            } => data_tracked_oracles[0].log_size(),
+            } => primary_data_tracked_oracle.log_size(),
         }
     }
 
@@ -152,16 +174,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => data_tracked_oracle.clone(),
             Self::MultiSegment {
-                data_tracked_oracles,
-                segment_map,
+                primary_data_tracked_oracle,
                 ..
-            } => {
-                let (data_idx, _) = segment_map
-                    .get(PRIMARY_SEGMENT_ID)
-                    .or_else(|| segment_map.values().next())
-                    .expect("multi-segment column oracle must contain at least one segment");
-                data_tracked_oracles[*data_idx].clone()
-            }
+            } => primary_data_tracked_oracle.clone(),
         }
     }
 
@@ -173,16 +188,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => activator_tracked_oracle.clone(),
             Self::MultiSegment {
-                activator_tracked_oracles,
-                segment_map,
+                primary_activator_tracked_oracle,
                 ..
-            } => {
-                let (_, activator_idx) = segment_map
-                    .get(PRIMARY_SEGMENT_ID)
-                    .or_else(|| segment_map.values().next())
-                    .expect("multi-segment column oracle must contain at least one segment");
-                activator_tracked_oracles[*activator_idx].clone()
-            }
+            } => primary_activator_tracked_oracle.clone(),
         }
     }
 
@@ -200,14 +208,15 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         match self {
             Self::SingleSegment { .. } => 1,
             Self::MultiSegment {
-                data_tracked_oracles,
+                aux_data_tracked_oracles,
                 ..
-            } => data_tracked_oracles.len(),
+            } => 1 + aux_data_tracked_oracles.len(),
         }
     }
 
     /// Iterate `(segment_id, data_oracle, activator_oracle)` over every
-    /// segment, in insertion order.
+    /// segment. For multi-segment, primary is yielded first under
+    /// `PRIMARY_SEGMENT_ID`, then aux segments in insertion order.
     pub fn segments_iter(
         &self,
     ) -> Box<dyn Iterator<Item = (&str, &TrackedOracle<B>, Option<&TrackedOracle<B>>)> + '_> {
@@ -222,21 +231,32 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 activator_tracked_oracle.as_ref(),
             ))),
             Self::MultiSegment {
-                data_tracked_oracles,
-                activator_tracked_oracles,
-                segment_map,
+                primary_data_tracked_oracle,
+                primary_activator_tracked_oracle,
+                aux_data_tracked_oracles,
+                aux_activator_tracked_oracles,
+                aux_segment_map,
                 ..
-            } => Box::new(segment_map.iter().map(move |(sid, (data_idx, act_idx))| {
-                (
-                    sid.as_str(),
-                    &data_tracked_oracles[*data_idx],
-                    activator_tracked_oracles[*act_idx].as_ref(),
-                )
-            })),
+            } => {
+                let primary = std::iter::once((
+                    PRIMARY_SEGMENT_ID,
+                    primary_data_tracked_oracle,
+                    primary_activator_tracked_oracle.as_ref(),
+                ));
+                let aux = aux_segment_map.iter().map(move |(sid, (data_idx, act_idx))| {
+                    (
+                        sid.as_str(),
+                        &aux_data_tracked_oracles[*data_idx],
+                        aux_activator_tracked_oracles[*act_idx].as_ref(),
+                    )
+                });
+                Box::new(primary.chain(aux))
+            }
         }
     }
 
-    /// Look up a specific segment by id.
+    /// Look up a specific segment by id. `PRIMARY_SEGMENT_ID` returns the
+    /// primary segment.
     pub fn segment(
         &self,
         segment_id: &str,
@@ -257,16 +277,27 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 }
             }
             Self::MultiSegment {
-                data_tracked_oracles,
-                activator_tracked_oracles,
-                segment_map,
+                primary_data_tracked_oracle,
+                primary_activator_tracked_oracle,
+                aux_data_tracked_oracles,
+                aux_activator_tracked_oracles,
+                aux_segment_map,
                 ..
-            } => segment_map.get(segment_id).map(|(data_idx, act_idx)| {
-                (
-                    data_tracked_oracles[*data_idx].clone(),
-                    activator_tracked_oracles[*act_idx].clone(),
-                )
-            }),
+            } => {
+                if segment_id == PRIMARY_SEGMENT_ID {
+                    Some((
+                        primary_data_tracked_oracle.clone(),
+                        primary_activator_tracked_oracle.clone(),
+                    ))
+                } else {
+                    aux_segment_map.get(segment_id).map(|(data_idx, act_idx)| {
+                        (
+                            aux_data_tracked_oracles[*data_idx].clone(),
+                            aux_activator_tracked_oracles[*act_idx].clone(),
+                        )
+                    })
+                }
+            }
         }
     }
 
@@ -278,9 +309,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => data_tracked_oracle,
             Self::MultiSegment {
-                data_tracked_oracles,
+                primary_data_tracked_oracle,
                 ..
-            } => &data_tracked_oracles[0],
+            } => primary_data_tracked_oracle,
         };
         ArgVerifier::new_from_tracker_rc(oracle.tracker().clone())
     }
