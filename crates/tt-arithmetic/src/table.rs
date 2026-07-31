@@ -840,6 +840,59 @@ impl<F: PrimeField> ArithTable<F> {
         &self.polynomials
     }
 
+    /// Bridge accessor: reconstructs a source-column-keyed view of this
+    /// arithmetized table by grouping the flat `polynomials` + `side_cols`
+    /// entries by source column name (via `segment_base_name` /
+    /// `is_segment_of`). A column with no aux and no side segments
+    /// materializes as `ArithCol::SingleSegment`; otherwise
+    /// `ArithCol::MultiSegment` carrying all its row-domain aux and side
+    /// segments.
+    ///
+    /// Mirrors `TrackedTable::tracked_cols`. Compatibility layer until the
+    /// primary storage flips to source-column-keyed natively.
+    pub fn arith_cols(&self) -> IndexMap<FieldRef, crate::arith_col::ArithCol<F>> {
+        let mut out = IndexMap::with_capacity(self.polynomials.len());
+        for (field, mle) in self.polynomials.iter() {
+            if crate::encoding::segment_base_name(field.name()).is_some() {
+                continue;
+            }
+            let primary_name = field.name();
+            let mut aux_data: IndexMap<String, Arc<MLE<F>>> = IndexMap::new();
+            for (aux_field, aux_mle) in self.polynomials.iter() {
+                if aux_field.name() == primary_name {
+                    continue;
+                }
+                if let Some(base) = crate::encoding::segment_base_name(aux_field.name())
+                    && base == primary_name
+                {
+                    let suffix = &aux_field.name()[primary_name.len()..];
+                    aux_data.insert(suffix.to_string(), aux_mle.clone());
+                }
+            }
+            let mut side_data: IndexMap<String, ArithSideCol> = IndexMap::new();
+            for (side_field, side) in self.side_cols.iter() {
+                if let Some(base) = crate::encoding::segment_base_name(side_field.name())
+                    && base == primary_name
+                {
+                    let suffix = &side_field.name()[primary_name.len()..];
+                    side_data.insert(suffix.to_string(), side.clone());
+                }
+            }
+            let col = if aux_data.is_empty() && side_data.is_empty() {
+                crate::arith_col::ArithCol::new(mle.clone(), Some(field.clone()))
+            } else {
+                crate::arith_col::ArithCol::new_multi(
+                    mle.clone(),
+                    aux_data,
+                    side_data,
+                    Some(field.clone()),
+                )
+            };
+            out.insert(field.clone(), col);
+        }
+        out
+    }
+
     /// Returns the log size of the table
     pub fn log_size(&self) -> usize {
         self.log_size

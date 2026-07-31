@@ -5,6 +5,7 @@
 //! objects used in proof-systems , like polynomials.
 
 ///////// Modules /////////
+pub mod arith_col;
 pub mod col;
 pub mod col_oracle;
 pub mod encoding;
