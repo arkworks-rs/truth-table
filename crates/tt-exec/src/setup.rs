@@ -16,7 +16,7 @@ pub const DEFAULT_TEST_LOG_SIZE: usize = 19;
 // is flipped on for string PIOPs, this must be bumped (to ~25 for
 // lineitem.l_comment at bench scale) and the bench setup keys regenerated
 // via `tt setup --size bench`.
-pub const DEFAULT_BENCH_LOG_SIZE: usize = 21;
+pub const DEFAULT_BENCH_LOG_SIZE: usize = 25;
 pub const DEFAULT_LOG_SIZE: usize = DEFAULT_TEST_LOG_SIZE;
 const DEFAULT_PK_FILE: &str = "tt_pk";
 const DEFAULT_VK_FILE: &str = "tt_vk";

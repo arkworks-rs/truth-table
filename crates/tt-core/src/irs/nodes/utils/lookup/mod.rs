@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use arithmetic::{
-    ACTIVATOR_FIELD, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
 use ark_piop::arithmetic::mat_poly::mle::MLE;
@@ -19,6 +19,8 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+
+mod hints;
 
 pub const INCLUDED_LABEL: &str = "_included_";
 pub const SUPER_LABEL: &str = "_super_";
@@ -66,12 +68,20 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             Some(hint_df) => hint_df,
             None => return Ok(()),
         };
-        let _super_hint = match gadget_payload.get(SUPER_LABEL) {
+        let super_hint = match gadget_payload.get(SUPER_LABEL) {
             Some(hint_df) => hint_df,
             None => return Ok(()),
         };
-        let _ = included_hint;
-        let multiplicities_hint = multiplicity_schema_only_hint();
+        // Compute the multiplicity witness eagerly from the upstream
+        // super/included HintDFs and hand a real HintDF (not a virtual
+        // placeholder) to the standard materialization → commitment →
+        // tracking pipeline. See `hints.rs` for the design invariant.
+        let multiplicities_hint = hints::build_multiplicity_hint(super_hint, included_hint)
+            .map_err(|e| {
+                ark_piop::errors::SnarkError::Artifact(format!(
+                    "lookup multiplicity hint construction failed: {e}"
+                ))
+            })?;
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
@@ -95,6 +105,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
+        // Fast path: if the plan-time HintDF was materialized+committed
+        // into a TrackedTable by the standard pipeline, the payload
+        // already carries SUPER_MULTIPLICITIES_LABEL and we have
+        // nothing to commit here.
+        if payload.get(SUPER_MULTIPLICITIES_LABEL).is_some() {
+            return Ok(());
+        }
+        // Fallback: no plan-time hint (e.g. test harness driving this
+        // gadget in isolation). Compute + commit the multiplicity table
+        // in-place, preserving the pre-refactor behavior.
         let (Some(included_table), Some(super_table)) = (
             payload.get(INCLUDED_LABEL).cloned(),
             payload.get(SUPER_LABEL).cloned(),
@@ -123,11 +143,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         if gadget_payload.get(INCLUDED_LABEL).is_none() {
             return Ok(());
         }
-        let _super_hint = match gadget_payload.get(SUPER_LABEL) {
+        let super_hint = match gadget_payload.get(SUPER_LABEL) {
             Some(hint_df) => hint_df,
             None => return Ok(()),
         };
-        let multiplicities_hint = multiplicity_schema_only_hint();
+        // Verifier gets a schema-matching HintDF so the tracking pass
+        // consumes the matching commit slot in the same field order the
+        // prover committed. Data values are placeholders — verifier
+        // skips materialization, only the schema + should_materialize
+        // flags matter here.
+        let multiplicities_hint = hints::build_multiplicity_hint_schema_only(super_hint)
+            .map_err(|e| {
+                ark_piop::errors::SnarkError::Artifact(format!(
+                    "lookup multiplicity verifier hint failed: {e}"
+                ))
+            })?;
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
@@ -146,31 +176,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let (mut payload, multiplicities) = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => {
-                let Some(super_table) = map.get(SUPER_LABEL) else {
-                    return Ok(());
-                };
-                let multiplicities =
-                    multiplicities_from_runtime_tables_verifier(verifier, super_table)?;
-                (map.clone(), multiplicities)
-            }
+        let mut payload = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
+        // Fast path: tracking pass already produced the multiplicity
+        // TrackedTableOracle from the plan-time HintDF; nothing to do.
+        if payload.get(SUPER_MULTIPLICITIES_LABEL).is_some() {
+            return Ok(());
+        }
+        // Fallback: test harness path. Track the next committed
+        // multiplicity oracle inline.
+        let Some(super_table) = payload.get(SUPER_LABEL) else {
+            return Ok(());
+        };
+        let multiplicities =
+            multiplicities_from_runtime_tables_verifier(verifier, super_table)?;
         payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
-}
-
-fn multiplicity_schema_only_hint() -> crate::irs::nodes::hints::HintDF {
-    let df = crate::irs::nodes::hints::schema_only_df(vec![
-        ACTIVATOR_FIELD.as_ref().clone(),
-        Field::new("multiplicity", DataType::Int64, true),
-    ]);
-    // This is only a planning-time schema placeholder. The real multiplicity
-    // polynomial is computed and committed later in initialize_gadgets().
-    crate::irs::nodes::hints::HintDF::new_virtual(df)
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {

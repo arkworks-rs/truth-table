@@ -908,10 +908,6 @@ impl<B: SnarkBackend> SignNode<B> {
         ]);
 
         let zero_poly = &col.activated_data_tracked_poly() - &recomposed;
-        // let zero_poly = match &col.activator_tracked_poly() {
-        //     Some(activator) => &combined * activator,
-        //     None => combined,
-        // };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         let activator = col.activator_tracked_poly();

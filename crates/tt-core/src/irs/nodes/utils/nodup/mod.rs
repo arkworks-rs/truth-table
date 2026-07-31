@@ -33,6 +33,7 @@ mod keyed_sumcheck;
 pub(crate) mod perm_check;
 mod rematerialize_check;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     BezoutBased,
     SortBased,

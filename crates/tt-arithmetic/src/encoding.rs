@@ -235,7 +235,7 @@ pub const STRING_CHARS_SUFFIX: &str = "__chars";
 /// Prefix/Suffix Check, Multi-Char Pattern Match), flip this to `true` and
 /// re-generate the bench SRS at the higher `log_size` that the char-level
 /// polys need.
-pub const CHAR_LEVEL_SIDE_POLYS_ENABLED: bool = false;
+pub const CHAR_LEVEL_SIDE_POLYS_ENABLED: bool = true;
 
 /// Suffix for the per-string-column **origin index** side polynomial (paper
 /// §3.2): `orig-ind[c]` is the row index of the source string that character
@@ -1175,7 +1175,12 @@ mod tests {
         let array = StringArray::from(vec![Some("a"), Some(""), None, Some("Z")]);
         let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();
 
-        assert_eq!(encoded.len(), 2);
+        // 2 row-domain segments (inlined hash + length) plus, when the
+        // char-level toggle is on, 4 side-domain segments (chars,
+        // orig_ind, int_ind, bnd). This test asserts only the row-domain
+        // shape; the side-domain shape is exercised elsewhere.
+        let expected_len = if CHAR_LEVEL_SIDE_POLYS_ENABLED { 6 } else { 2 };
+        assert_eq!(encoded.len(), expected_len);
         assert_eq!(encoded[0].suffix, "");
         assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);
         let hash_col = &encoded[0].values;
@@ -1197,7 +1202,8 @@ mod tests {
         let array = StringArray::from(vec![Some("foo"), Some("bar"), None, Some("baz")]);
         let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();
 
-        assert_eq!(encoded.len(), 2);
+        let expected_len = if CHAR_LEVEL_SIDE_POLYS_ENABLED { 6 } else { 2 };
+        assert_eq!(encoded.len(), expected_len);
         assert_eq!(encoded[0].suffix, "");
         assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);
         let hash_col = &encoded[0].values;

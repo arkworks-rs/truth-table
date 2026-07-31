@@ -19,11 +19,19 @@
 //!   Combined with the two count sumchecks in step 4c (both sides have
 //!   `n_m` active rows), the ⊑ becomes equality, tying each matched
 //!   string's `start` to the `int-ind` of its mark.
-//! - **Step 4e (leftmost Sign Check + zerocheck) is stubbed with a TODO**:
-//!   `start` is now tied to some mark, but not constrained to be the
-//!   *leftmost* of `O_i`. This is enough for the honest-prover round-trip;
-//!   malicious provers could still pick a non-leftmost occurrence. Full
-//!   soundness requires the leftmost check.
+//! - **Step 4e (leftmost check) is wired**: prover commits `start'` (the
+//!   char-level broadcast of `start`) and a boolean char-level `mask`
+//!   with `mask[c] = 1 iff int-ind[c] < start'[c]`. Three children
+//!   discharge the correctness of these witnesses:
+//!   - [`bool_check`] on `mask`,
+//!   - [`broadcast_check`] on `(start, start')`,
+//!   - [`sign::SignNode`]`(NonNegative)` on
+//!     `mask · (start' - int-ind - 1) + (1 - mask) · (int-ind - start')`,
+//!     activated by `char-act` — being `≥ 0` everywhere is equivalent to
+//!     `mask` matching its honest value.
+//!   Together with the inline zerocheck `occurs · mask · match' = 0`,
+//!   any candidate occurrence to the left of the mark is rejected —
+//!   so `start` is now the *leftmost* occurrence of each matched string.
 //!
 //! # Payload structure
 //!
@@ -51,15 +59,26 @@
 //!   `RotationCheck(Direction::Left, shift=1)` children on
 //!   `(bnd(δ-1), bnd(δ))`. For `ℓ = 1` the table may be absent since the
 //!   sum is empty.
+//! - [`START_BROADCAST_LABEL`] — char-level table `{ start' }` where
+//!   `start'[c] = start[orig-ind[c]]`. Step 4e broadcasts the string-level
+//!   `start` to the char domain via a [`broadcast_check`] child.
+//! - [`LEFTMOST_MASK_LABEL`] — char-level table `{ mask }` where
+//!   `mask[c] = 1 iff int-ind[c] < start'[c]`. Discharged by a
+//!   [`bool_check`] child and pinned to its honest value by a
+//!   [`sign::SignNode`] child (see the Step 4e block above).
 //!
 //! # Decomposition
 //!
-//! Children (fixed 6 + mode-dependent):
+//! Children (fixed 9 + mode-dependent):
 //! - `BoolCheck` on `occurs`, `match`, `mark` (three children).
 //! - `BroadcastCheck` on `(match, match')` — i.e. `match'[c] = match[orig-ind[c]]`.
 //! - `NoDup(Bezout)` on `(orig-ind, mark)` — at most one mark per string.
 //! - `Lookup` on `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`
 //!   — Step 4d placement check.
+//! - `BoolCheck` on `mask` — Step 4e mask booleanity.
+//! - `BroadcastCheck` on `(start, start')` — Step 4e start broadcast.
+//! - `SignNode(NonNegative)` on the Step 4e mask-selected difference,
+//!   activated by `char-act`.
 //! - (Suffix only) `RotationCheck(Direction::Left, shift=ℓ)` on
 //!   `(char-act · bnd, att_mask)` — proves `att_mask = ρ_{-ℓ}(char-act · bnd)`.
 //! - (Infix only) `ℓ − 1` `RotationCheck(Direction::Left, shift=1)`
@@ -81,24 +100,36 @@
 //! - Zerocheck: `occurs · (1 − match') = 0`.
 //! - Zerocheck: `mark · (1 − occurs) = 0`.
 //! - Sumcheck: `Σ mark = n_m` and `Σ match = n_m`.
+//! - Zerocheck: `occurs · mask · match' = 0` — Step 4e leftmost constraint.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
 use ark_ff::Zero;
 use ark_piop::{
-    SnarkBackend, errors::SnarkResult, prover::structs::polynomial::TrackedPoly,
-    verifier::structs::oracle::TrackedOracle,
+    SnarkBackend, errors::SnarkError, errors::SnarkResult,
+    prover::structs::polynomial::TrackedPoly, verifier::structs::oracle::TrackedOracle,
 };
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::arrow::{
+    array::{Array, ArrayRef, BooleanArray, Int64Array},
+    datatypes::{DataType, Field, FieldRef, Schema},
+    record_batch::RecordBatch,
+};
+use datafusion::datasource::MemTable;
+use datafusion::prelude::SessionContext;
+use datafusion_common::Result as DataFusionResult;
 use indexmap::IndexMap;
 
 use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            utils::{bool as bool_check, broadcast_check, lookup, nodup, rotation_check},
+            hints::HintDF,
+            utils::{bool as bool_check, broadcast_check, lookup, nodup, rotation_check, sign},
         },
         payloads::PayloadStructure,
     },
@@ -120,6 +151,14 @@ pub const ATT_MASK_LABEL: &str = "__att_mask__";
 /// in insertion order (each is shift-left-by-1 of the previous, with
 /// `bnd(0)` being the input `bnd`). May be absent when `ℓ = 1`.
 pub const ROTATED_BND_LABEL: &str = "__rotated_bnd__";
+/// Char-level broadcast of `start`: `start'[c] = start[orig_ind[c]]`.
+/// Wired to Step 4(e) via a [`broadcast_check`] child on `(start, start')`.
+pub const START_BROADCAST_LABEL: &str = "__start_broadcast__";
+/// Char-level boolean `mask`: `mask[c] = 1 iff int_ind[c] < start'[c]`.
+/// Wired to Step 4(e) via a [`bool_check`] child on `mask` and a
+/// [`sign::SignNode`] on `mask · (start' - int_ind - 1) + (1 - mask) ·
+/// (int_ind - start')`, which is non-negative iff `mask` is honest.
+pub const LEFTMOST_MASK_LABEL: &str = "__leftmost_mask__";
 
 /// Anchoring mode for the factor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,11 +194,36 @@ pub struct GadgetNode<B: SnarkBackend> {
     /// Infix only: `ℓ − 1` rotation checks in a chain, each proving
     /// `bnd(δ) = ρ_{-1}(bnd(δ-1))` for `δ = 1..ℓ-1`.
     bnd_rot_checks: Vec<Arc<Node<B>>>,
+    /// Step 4(e): BoolCheck on the prover-committed `mask` column.
+    bool_leftmost_mask: Arc<Node<B>>,
+    /// Step 4(e): BroadcastCheck on `(start, start_broadcast)` — proves
+    /// `start_broadcast[c] = start[orig_ind[c]]`.
+    broadcast_start: Arc<Node<B>>,
+    /// Step 4(e): NonNegative Sign on the mask-selected difference
+    /// `mask · (start' - int_ind - 1) + (1 - mask) · (int_ind - start')`,
+    /// activated by `char_act`. Being ≥ 0 everywhere pins `mask` to its
+    /// honest value.
+    sign_leftmost: Arc<Node<B>>,
     _phantom: PhantomData<B>,
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(pattern: Vec<B::F>, mode: Mode) -> Self {
+        Self::new_with_nodup_mode(pattern, mode, nodup::Mode::SortBased)
+    }
+
+    /// Test-facing constructor that lets callers pick the nodup_mark
+    /// gadget's mode explicitly. Production callers should use
+    /// [`Self::new`] which defaults to `SortBased` (required for the
+    /// LIKE plan-time pipeline). Test harnesses that skip
+    /// `initialize_gadget_plans` need `BezoutBased` because its
+    /// `initialize_gadgets` is a no-op and doesn't require the
+    /// plan-time LEX_SORTED_LABEL hint.
+    pub fn new_with_nodup_mode(
+        pattern: Vec<B::F>,
+        mode: Mode,
+        nodup_mode: nodup::Mode,
+    ) -> Self {
         assert!(!pattern.is_empty(), "FactorPlacement: pattern must be non-empty");
         let bool_occurs = Arc::new(Node::<B>::Gadget(Arc::new(bool_check::GadgetNode::new())));
         let bool_match = Arc::new(Node::<B>::Gadget(Arc::new(bool_check::GadgetNode::new())));
@@ -168,7 +232,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             broadcast_check::GadgetNode::new(),
         )));
         let nodup_mark = Arc::new(Node::<B>::Gadget(Arc::new(nodup::GadgetNode::new(
-            nodup::Mode::BezoutBased,
+            nodup_mode,
         ))));
         let lookup_placement =
             Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
@@ -190,6 +254,15 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 .collect(),
             _ => Vec::new(),
         };
+        let bool_leftmost_mask = Arc::new(Node::<B>::Gadget(Arc::new(
+            bool_check::GadgetNode::new(),
+        )));
+        let broadcast_start = Arc::new(Node::<B>::Gadget(Arc::new(
+            broadcast_check::GadgetNode::new(),
+        )));
+        let sign_leftmost = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
+            sign::SignConfig::Uniform(sign::Sign::NonNegative),
+        ))));
         Self {
             pattern,
             mode,
@@ -201,6 +274,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
             lookup_placement,
             att_mask_rot_check,
             bnd_rot_checks,
+            bool_leftmost_mask,
+            broadcast_start,
+            sign_leftmost,
             _phantom: PhantomData,
         }
     }
@@ -244,6 +320,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             out.push(child.clone());
         }
         out.extend(self.bnd_rot_checks.iter().cloned());
+        out.push(self.bool_leftmost_mask.clone());
+        out.push(self.broadcast_start.clone());
+        out.push(self.sign_leftmost.clone());
         out
     }
 }
@@ -280,6 +359,10 @@ struct InputsProver<B: SnarkBackend> {
     /// Infix only: prover-committed `bnd(1), ..., bnd(ℓ-1)`. Empty for
     /// non-infix modes or when `ℓ = 1`.
     rotated_bnds: Vec<TrackedPoly<B>>,
+    /// Step 4(e): char-level `start'` where `start'[c] = start[orig_ind[c]]`.
+    start_broadcast: TrackedPoly<B>,
+    /// Step 4(e): char-level `mask` where `mask[c] = 1 iff int_ind[c] < start'[c]`.
+    leftmost_mask: TrackedPoly<B>,
 }
 
 #[allow(dead_code)]
@@ -303,6 +386,10 @@ struct InputsVerifier<B: SnarkBackend> {
     att_mask: Option<TrackedOracle<B>>,
     /// Infix only: prover-committed `bnd(1), ..., bnd(ℓ-1)`.
     rotated_bnds: Vec<TrackedOracle<B>>,
+    /// Step 4(e): char-level `start'`.
+    start_broadcast: TrackedOracle<B>,
+    /// Step 4(e): char-level `mask`.
+    leftmost_mask: TrackedOracle<B>,
 }
 
 fn extract_prover_inputs<B: SnarkBackend>(
@@ -323,6 +410,12 @@ fn extract_prover_inputs<B: SnarkBackend>(
     let mark_t = payload.get(MARK_LABEL).expect("missing MARK");
     let start_t = payload.get(START_LABEL).expect("missing START");
     let mbcast_t = payload.get(MATCH_BROADCAST_LABEL).expect("missing MATCH_BROADCAST");
+    let start_bcast_t = payload
+        .get(START_BROADCAST_LABEL)
+        .expect("missing START_BROADCAST");
+    let leftmost_mask_t = payload
+        .get(LEFTMOST_MASK_LABEL)
+        .expect("missing LEFTMOST_MASK");
     let att_mask_t = match mode {
         Mode::Suffix => Some(payload.get(ATT_MASK_LABEL).expect("missing ATT_MASK (suffix)")),
         _ => None,
@@ -368,6 +461,8 @@ fn extract_prover_inputs<B: SnarkBackend>(
     let mark = single_col(mark_t, "MARK");
     let start = single_col(start_t, "START");
     let match_broadcast = single_col(mbcast_t, "MATCH_BROADCAST");
+    let start_broadcast = single_col(start_bcast_t, "START_BROADCAST");
+    let leftmost_mask = single_col(leftmost_mask_t, "LEFTMOST_MASK");
     let att_mask = att_mask_t.map(|t| single_col(t, "ATT_MASK"));
     let rotated_bnds: Vec<TrackedPoly<B>> = match rotated_bnds_t {
         Some(t) => {
@@ -405,6 +500,8 @@ fn extract_prover_inputs<B: SnarkBackend>(
         match_broadcast,
         att_mask,
         rotated_bnds,
+        start_broadcast,
+        leftmost_mask,
     }
 }
 
@@ -426,6 +523,12 @@ fn extract_verifier_inputs<B: SnarkBackend>(
     let mark_t = payload.get(MARK_LABEL).expect("missing MARK");
     let start_t = payload.get(START_LABEL).expect("missing START");
     let mbcast_t = payload.get(MATCH_BROADCAST_LABEL).expect("missing MATCH_BROADCAST");
+    let start_bcast_t = payload
+        .get(START_BROADCAST_LABEL)
+        .expect("missing START_BROADCAST");
+    let leftmost_mask_t = payload
+        .get(LEFTMOST_MASK_LABEL)
+        .expect("missing LEFTMOST_MASK");
     let att_mask_t = match mode {
         Mode::Suffix => Some(payload.get(ATT_MASK_LABEL).expect("missing ATT_MASK (suffix)")),
         _ => None,
@@ -481,6 +584,8 @@ fn extract_verifier_inputs<B: SnarkBackend>(
     let mark = single_col_oracle(mark_t, "MARK");
     let start = single_col_oracle(start_t, "START");
     let match_broadcast = single_col_oracle(mbcast_t, "MATCH_BROADCAST");
+    let start_broadcast = single_col_oracle(start_bcast_t, "START_BROADCAST");
+    let leftmost_mask = single_col_oracle(leftmost_mask_t, "LEFTMOST_MASK");
     let att_mask = att_mask_t.map(|t| single_col_oracle(t, "ATT_MASK"));
     let rotated_bnds: Vec<TrackedOracle<B>> = match rotated_bnds_t {
         Some(t) => {
@@ -518,6 +623,8 @@ fn extract_verifier_inputs<B: SnarkBackend>(
         match_broadcast,
         att_mask,
         rotated_bnds,
+        start_broadcast,
+        leftmost_mask,
     }
 }
 
@@ -657,7 +764,13 @@ fn set_nodup_mark_payload_prover<B: SnarkBackend>(
         polys,
         char_domain,
     );
-    let mut payload = IndexMap::new();
+    // Merge with any pre-existing payload — under SortBased the pipeline
+    // has already populated LEX_SORTED_LABEL (from nodup's plan-time hint);
+    // starting from a fresh IndexMap would drop it and break SortNoDup.
+    let mut payload = match ir.payload_for_node(&node.id()).cloned() {
+        Some(PayloadStructure::GadgetPayload(map)) => map,
+        _ => IndexMap::new(),
+    };
     payload.insert(nodup::INPUT_LABEL.to_string(), table);
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
@@ -676,7 +789,10 @@ fn set_nodup_mark_payload_verifier<B: SnarkBackend>(
         oracles,
         char_domain,
     );
-    let mut payload = IndexMap::new();
+    let mut payload = match ir.payload_for_node(&node.id()).cloned() {
+        Some(PayloadStructure::GadgetPayload(map)) => map,
+        _ => IndexMap::new(),
+    };
     payload.insert(nodup::INPUT_LABEL.to_string(), table);
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
@@ -934,6 +1050,177 @@ fn set_bnd_chain_rot_check_payloads_verifier<B: SnarkBackend>(
     }
 }
 
+// ---- Step 4(e) children: leftmost check (broadcast_start + bool_mask + sign) ----
+
+/// Broadcast check payload for `start_broadcast[c] = start[orig_ind[c]]`:
+/// - STR side: `{ ind, start }` with activator `a`.
+/// - CHAR side: `{ orig_ind, start_broadcast }` with activator `char_act`.
+fn set_broadcast_start_payload_prover<B: SnarkBackend>(
+    node: &Arc<Node<B>>,
+    inputs: &InputsProver<B>,
+    ir: &mut GadgetReadyIr<B>,
+) {
+    let str_domain = inputs.str_input.log_size();
+    let char_domain = inputs.char_input.log_size();
+
+    let mut str_polys = IndexMap::new();
+    str_polys.insert(u64_field("ind"), inputs.ind.clone());
+    str_polys.insert(u64_field("start"), inputs.start.clone());
+    str_polys.insert(ACTIVATOR_FIELD.clone(), inputs.a.clone());
+    let str_schema = Schema::new(vec![
+        Field::new("ind", DataType::UInt64, false),
+        Field::new("start", DataType::UInt64, false),
+    ]);
+    let str_table = TrackedTable::new(Some(str_schema), str_polys, str_domain);
+
+    let mut char_polys = IndexMap::new();
+    char_polys.insert(u64_field("orig_ind"), inputs.orig_ind.clone());
+    char_polys.insert(u64_field("start_broadcast"), inputs.start_broadcast.clone());
+    char_polys.insert(ACTIVATOR_FIELD.clone(), inputs.char_act.clone());
+    let char_schema = Schema::new(vec![
+        Field::new("orig_ind", DataType::UInt64, false),
+        Field::new("start_broadcast", DataType::UInt64, false),
+    ]);
+    let char_table = TrackedTable::new(Some(char_schema), char_polys, char_domain);
+
+    let mut payload = IndexMap::new();
+    payload.insert(broadcast_check::STR_LABEL.to_string(), str_table);
+    payload.insert(broadcast_check::CHAR_LABEL.to_string(), char_table);
+    ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+}
+
+fn set_broadcast_start_payload_verifier<B: SnarkBackend>(
+    node: &Arc<Node<B>>,
+    inputs: &InputsVerifier<B>,
+    ir: &mut VerifierGadgetReadyIr<B>,
+) {
+    let str_domain = inputs.str_input.log_size();
+    let char_domain = inputs.char_input.log_size();
+
+    let mut str_oracles = IndexMap::new();
+    str_oracles.insert(u64_field("ind"), inputs.ind.clone());
+    str_oracles.insert(u64_field("start"), inputs.start.clone());
+    str_oracles.insert(ACTIVATOR_FIELD.clone(), inputs.a.clone());
+    let str_schema = Schema::new(vec![
+        Field::new("ind", DataType::UInt64, false),
+        Field::new("start", DataType::UInt64, false),
+    ]);
+    let str_table = TrackedTableOracle::new(Some(str_schema), str_oracles, str_domain);
+
+    let mut char_oracles = IndexMap::new();
+    char_oracles.insert(u64_field("orig_ind"), inputs.orig_ind.clone());
+    char_oracles.insert(u64_field("start_broadcast"), inputs.start_broadcast.clone());
+    char_oracles.insert(ACTIVATOR_FIELD.clone(), inputs.char_act.clone());
+    let char_schema = Schema::new(vec![
+        Field::new("orig_ind", DataType::UInt64, false),
+        Field::new("start_broadcast", DataType::UInt64, false),
+    ]);
+    let char_table = TrackedTableOracle::new(Some(char_schema), char_oracles, char_domain);
+
+    let mut payload = IndexMap::new();
+    payload.insert(broadcast_check::STR_LABEL.to_string(), str_table);
+    payload.insert(broadcast_check::CHAR_LABEL.to_string(), char_table);
+    ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+}
+
+/// Sign check payload wrapping the derived `sign_input` — a `Int64`-typed
+/// column (differences fit in `i64`) with activator `char_act`. The Sign
+/// gadget checks `sign_input * char_act ≥ 0` on the hypercube, which
+/// (combined with the BoolCheck on `mask`) pins `mask` to its honest value.
+fn sign_input_field() -> FieldRef {
+    Arc::new(Field::new(
+        "__leftmost_sign_input__",
+        DataType::Int64,
+        false,
+    ))
+}
+
+fn set_sign_leftmost_payload_prover<B: SnarkBackend>(
+    node: &Arc<Node<B>>,
+    sign_input: &TrackedPoly<B>,
+    activator: &TrackedPoly<B>,
+    log_size: usize,
+    ir: &mut GadgetReadyIr<B>,
+) {
+    let field = sign_input_field();
+    let mut polys = IndexMap::new();
+    polys.insert(field.clone(), sign_input.clone());
+    polys.insert(ACTIVATOR_FIELD.clone(), activator.clone());
+    let schema = Schema::new(vec![field.as_ref().clone()]);
+    let table = TrackedTable::new(Some(schema), polys, log_size);
+    let mut payload = IndexMap::new();
+    payload.insert(sign::INPUT_LABEL.to_string(), table);
+    ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+}
+
+fn set_sign_leftmost_payload_verifier<B: SnarkBackend>(
+    node: &Arc<Node<B>>,
+    sign_input: &TrackedOracle<B>,
+    activator: &TrackedOracle<B>,
+    log_size: usize,
+    ir: &mut VerifierGadgetReadyIr<B>,
+) {
+    let field = sign_input_field();
+    let mut oracles = IndexMap::new();
+    oracles.insert(field.clone(), sign_input.clone());
+    oracles.insert(ACTIVATOR_FIELD.clone(), activator.clone());
+    let schema = Schema::new(vec![field.as_ref().clone()]);
+    let table = TrackedTableOracle::new(Some(schema), oracles, log_size);
+    let mut payload = IndexMap::new();
+    payload.insert(sign::INPUT_LABEL.to_string(), table);
+    ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
+}
+
+/// Build the derived `sign_input` polynomial for the leftmost Sign check:
+///   `mask · (start' - int_ind - 1) + (1 - mask) · (int_ind - start')`
+/// Non-negative iff `mask` truthfully indicates `int_ind < start'`.
+fn build_leftmost_sign_input_poly<B: SnarkBackend>(
+    inputs: &InputsProver<B>,
+) -> TrackedPoly<B> {
+    let mask = &inputs.leftmost_mask;
+    let start_bcast = &inputs.start_broadcast;
+    let int_ind = &inputs.int_ind;
+
+    // start' - int_ind - 1
+    let start_minus_int = start_bcast - int_ind;
+    let start_minus_int_minus_one = start_minus_int.sub_scalar_poly(B::F::from(1u64));
+    // int_ind - start'
+    let int_minus_start = int_ind - start_bcast;
+
+    // mask · (start' - int_ind - 1)
+    let term1 = mask * &start_minus_int_minus_one;
+    // 1 - mask
+    let one_minus_mask = mask
+        .mul_scalar_poly(-B::F::from(1u64))
+        .add_scalar_poly(B::F::from(1u64));
+    // (1 - mask) · (int_ind - start')
+    let term2 = &one_minus_mask * &int_minus_start;
+
+    let sign_input = &term1 + &term2;
+    resize_poly(&sign_input, inputs.char_input.log_size())
+}
+
+fn build_leftmost_sign_input_oracle<B: SnarkBackend>(
+    inputs: &InputsVerifier<B>,
+) -> TrackedOracle<B> {
+    let mask = &inputs.leftmost_mask;
+    let start_bcast = &inputs.start_broadcast;
+    let int_ind = &inputs.int_ind;
+
+    let start_minus_int = start_bcast - int_ind;
+    let start_minus_int_minus_one = start_minus_int.sub_scalar_oracle(B::F::from(1u64));
+    let int_minus_start = int_ind - start_bcast;
+
+    let term1 = mask * &start_minus_int_minus_one;
+    let one_minus_mask = mask
+        .mul_scalar_oracle(-B::F::from(1u64))
+        .add_scalar_oracle(B::F::from(1u64));
+    let term2 = &one_minus_mask * &int_minus_start;
+
+    let sign_input = &term1 + &term2;
+    resize_oracle(&sign_input, inputs.char_input.log_size())
+}
+
 // ---- Fingerprint & diff derivation ----
 
 /// Build `wf := Σ r_δ · char^(δ)`, `pf := Σ r_δ · str[δ]`, `diff := wf − pf`.
@@ -989,8 +1276,197 @@ fn sum_of_field<B: SnarkBackend>(poly: &TrackedPoly<B>) -> B::F {
         .fold(B::F::zero(), |acc, v| acc + v)
 }
 
-fn miscellaneous_key(id: NodeId, tag: &str) -> String {
-    format!("factor_placement_{id:?}_{tag}")
+/// Deterministic key for `add_miscellaneous_field_element` / lookup by both
+/// prover and verifier. We do NOT key by raw NodeId — prover and verifier
+/// build separate trees whose pointer-derived ids differ across runs.
+/// DFS rank among FactorPlacement nodes stays deterministic across both
+/// trees, mirroring the pattern used by `nodup::active_input_rows_misc_key`.
+fn miscellaneous_key<B: SnarkBackend>(
+    target_id: NodeId,
+    tree: &crate::irs::tree::Tree<B>,
+    tag: &str,
+) -> String {
+    fn dfs_rank<B: SnarkBackend>(
+        node: &Arc<Node<B>>,
+        target_id: NodeId,
+        rank: &mut usize,
+        found: &mut Option<usize>,
+    ) {
+        if found.is_some() {
+            return;
+        }
+        let is_fp = matches!(node.as_ref(), Node::Gadget(_))
+            && node.name().starts_with("FactorPlacement");
+        if is_fp {
+            if node.id() == target_id {
+                *found = Some(*rank);
+                return;
+            }
+            *rank += 1;
+        }
+        for child in node.children() {
+            dfs_rank(&child, target_id, rank, found);
+            if found.is_some() {
+                return;
+            }
+        }
+    }
+
+    let mut rank = 0usize;
+    let mut found = None;
+    dfs_rank(tree.root(), target_id, &mut rank, &mut found);
+    let fp_rank = found.unwrap_or_else(|| {
+        panic!(
+            "FactorPlacement node id {:?} was not found while computing misc key",
+            target_id
+        )
+    });
+    format!("factor_placement_{fp_rank}_{tag}")
+}
+
+/// Blocking DataFrame collect that works in both current-thread and
+/// multi-thread tokio runtimes.
+fn collect_blocking_fp(
+    df: datafusion::prelude::DataFrame,
+) -> DataFusionResult<Vec<RecordBatch>> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(df.collect()))
+            }
+            tokio::runtime::RuntimeFlavor::CurrentThread => {
+                let df_clone = df.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| {
+                            datafusion_common::DataFusionError::Execution(e.to_string())
+                        })?;
+                    rt.block_on(df_clone.collect())
+                })
+                .join()
+                .map_err(|_| {
+                    datafusion_common::DataFusionError::Execution(
+                        "factor placement nodup hint collection thread panicked".to_string(),
+                    )
+                })?
+            }
+            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
+        },
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| datafusion_common::DataFusionError::Execution(e.to_string()))?;
+            rt.block_on(df.collect())
+        }
+    }
+}
+
+/// Combine LIKE's plan-time `orig_ind` (Int64) and `mark` (Int64
+/// {0,1}) virtual HintDFs into the shape SortNoDup expects for
+/// `INPUT_LABEL`: an `Int64` data column `orig_ind` plus a `Boolean`
+/// activator column, both marked `should_materialize = false`.
+fn build_nodup_mark_input_hint(
+    orig_ind: &HintDF,
+    mark: &HintDF,
+) -> DataFusionResult<HintDF> {
+    // Pull orig_ind values from the first data column of the orig_ind hint.
+    let orig_batches = collect_blocking_fp(orig_ind.data_frame().clone())?;
+    let mark_batches = collect_blocking_fp(mark.data_frame().clone())?;
+
+    // Concatenate all batches so we get a single row-aligned view.
+    let orig_schema = orig_batches
+        .first()
+        .map(|b| b.schema())
+        .ok_or_else(|| datafusion_common::DataFusionError::Plan(
+            "empty orig_ind hint".to_string(),
+        ))?;
+    let orig_combined =
+        datafusion::arrow::compute::concat_batches(&orig_schema, &orig_batches)?;
+
+    let mark_schema = mark_batches
+        .first()
+        .map(|b| b.schema())
+        .ok_or_else(|| datafusion_common::DataFusionError::Plan(
+            "empty mark hint".to_string(),
+        ))?;
+    let mark_combined =
+        datafusion::arrow::compute::concat_batches(&mark_schema, &mark_batches)?;
+
+    let n = orig_combined.num_rows();
+    if mark_combined.num_rows() != n {
+        return Err(datafusion_common::DataFusionError::Plan(format!(
+            "orig_ind/mark row-count mismatch: {} vs {}",
+            n,
+            mark_combined.num_rows()
+        )));
+    }
+
+    // Find the "data" columns (first non-system column) of each input.
+    let orig_data_idx = orig_combined
+        .schema()
+        .fields()
+        .iter()
+        .position(|f| f.name() != ROW_ID_COL_NAME && f.name() != ACTIVATOR_COL_NAME)
+        .ok_or_else(|| datafusion_common::DataFusionError::Plan(
+            "orig_ind hint has no data column".to_string(),
+        ))?;
+    let mark_data_idx = mark_combined
+        .schema()
+        .fields()
+        .iter()
+        .position(|f| f.name() != ROW_ID_COL_NAME && f.name() != ACTIVATOR_COL_NAME)
+        .ok_or_else(|| datafusion_common::DataFusionError::Plan(
+            "mark hint has no data column".to_string(),
+        ))?;
+
+    let orig_arr = orig_combined
+        .column(orig_data_idx)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .ok_or_else(|| datafusion_common::DataFusionError::Plan(
+            "orig_ind hint data column must be Int64".to_string(),
+        ))?;
+    let mark_arr = mark_combined
+        .column(mark_data_idx)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .ok_or_else(|| datafusion_common::DataFusionError::Plan(
+            "mark hint data column must be Int64".to_string(),
+        ))?;
+
+    let orig_vals: Vec<i64> = (0..n).map(|i| orig_arr.value(i)).collect();
+    let mark_vals: Vec<bool> = (0..n).map(|i| mark_arr.value(i) != 0).collect();
+
+    let orig_field = Field::new("orig_ind", DataType::Int64, false);
+    let activator_field = ACTIVATOR_FIELD.as_ref().clone();
+    let row_id_field = Field::new(ROW_ID_COL_NAME, DataType::Int64, false);
+    let schema = Arc::new(Schema::new(vec![
+        orig_field.clone(),
+        activator_field.clone(),
+        row_id_field.clone(),
+    ]));
+
+    let orig_out: ArrayRef = Arc::new(Int64Array::from(orig_vals));
+    let act_out: ArrayRef = Arc::new(BooleanArray::from(mark_vals));
+    let row_out: ArrayRef = Arc::new(Int64Array::from_iter_values(
+        (0..n as i64).collect::<Vec<_>>(),
+    ));
+    let batch = RecordBatch::try_new(schema.clone(), vec![orig_out, act_out, row_out])?;
+    let mem_table = MemTable::try_new(schema, vec![vec![batch]])?;
+    let ctx = SessionContext::new();
+    let df = ctx.read_table(Arc::new(mem_table))?;
+
+    let orig_fref: FieldRef = Arc::new(orig_field);
+    let activator_fref: FieldRef = Arc::new(activator_field);
+    let row_id_fref: FieldRef = Arc::new(row_id_field);
+    let mut should_materialize: IndexMap<FieldRef, bool> = IndexMap::new();
+    should_materialize.insert(orig_fref, false);
+    should_materialize.insert(activator_fref, false);
+    should_materialize.insert(row_id_fref, false);
+    Ok(HintDF::new(df, should_materialize))
 }
 
 impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
@@ -1035,14 +1511,57 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             );
         }
+        // Step 4(e): leftmost check — BoolCheck(mask), BroadcastCheck(start),
+        // and Sign(NonNegative) on the mask-selected difference.
+        set_bool_payload_prover(&self.bool_leftmost_mask, &inputs.leftmost_mask, virtualized_ir);
+        set_broadcast_start_payload_prover(&self.broadcast_start, &inputs, virtualized_ir);
+        let sign_input = build_leftmost_sign_input_poly(&inputs);
+        set_sign_leftmost_payload_prover(
+            &self.sign_leftmost,
+            &sign_input,
+            &inputs.char_act,
+            inputs.char_input.log_size(),
+            virtualized_ir,
+        );
         Ok(())
     }
 
     fn initialize_gadget_plans(
         &self,
-        _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
+        // Combine the LIKE-injected `orig_ind` and `mark` char-domain
+        // hints into a single INPUT_LABEL HintDF for the SortNoDup child
+        // (`nodup_mark`). SortNoDup's planner then uses the combined
+        // table to compute LEX_SORTED_LABEL. All fields stay virtual —
+        // the concrete TrackedPolys are still committed at prove time
+        // by LIKE's existing pipeline.
+        let own = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+        let orig_ind_hint = match own.get("__like_orig_ind_plan_hint__") {
+            Some(h) => h.clone(),
+            None => return Ok(()),
+        };
+        let mark_hint = match own.get("__like_mark_plan_hint__") {
+            Some(h) => h.clone(),
+            None => return Ok(()),
+        };
+
+        let nodup_hint = build_nodup_mark_input_hint(&orig_ind_hint, &mark_hint)
+            .map_err(|e| SnarkError::Artifact(format!("factor placement nodup hint: {e}")))?;
+
+        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_mark.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_hint);
+        planned_ir.set_payload_for_node(
+            self.nodup_mark.id(),
+            Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
         Ok(())
     }
 }
@@ -1085,14 +1604,60 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             );
         }
+        // Step 4(e): leftmost check — mirror of the prover side.
+        set_bool_payload_verifier(
+            &self.bool_leftmost_mask,
+            &inputs.leftmost_mask,
+            virtualized_ir,
+        );
+        set_broadcast_start_payload_verifier(&self.broadcast_start, &inputs, virtualized_ir);
+        let sign_input = build_leftmost_sign_input_oracle(&inputs);
+        set_sign_leftmost_payload_verifier(
+            &self.sign_leftmost,
+            &sign_input,
+            &inputs.char_act,
+            inputs.char_input.log_size(),
+            virtualized_ir,
+        );
         Ok(())
     }
 
     fn initialize_gadget_plans(
         &self,
-        _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
+        // Combine the LIKE-injected `orig_ind` and `mark` char-domain
+        // hints into a single INPUT_LABEL HintDF for the SortNoDup child
+        // (`nodup_mark`). SortNoDup's planner then uses the combined
+        // table to compute LEX_SORTED_LABEL. All fields stay virtual —
+        // the concrete TrackedPolys are still committed at prove time
+        // by LIKE's existing pipeline.
+        let own = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+        let orig_ind_hint = match own.get("__like_orig_ind_plan_hint__") {
+            Some(h) => h.clone(),
+            None => return Ok(()),
+        };
+        let mark_hint = match own.get("__like_mark_plan_hint__") {
+            Some(h) => h.clone(),
+            None => return Ok(()),
+        };
+
+        let nodup_hint = build_nodup_mark_input_hint(&orig_ind_hint, &mark_hint)
+            .map_err(|e| SnarkError::Artifact(format!("factor placement nodup hint: {e}")))?;
+
+        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_mark.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_hint);
+        planned_ir.set_payload_for_node(
+            self.nodup_mark.id(),
+            Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
         Ok(())
     }
 }
@@ -1222,7 +1787,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let n_m = n_m_match;
         let _ = n_m_mark;
 
-        let n_m_key = miscellaneous_key(id, "n_m");
+        let n_m_key = miscellaneous_key(id, gadget_ready_ir.tree(), "n_m");
         prover.add_miscellaneous_field_element(n_m_key, n_m)?;
         prover.add_mv_sumcheck_claim(inputs.mark.id(), n_m)?;
         prover.add_mv_sumcheck_claim(inputs.match_str.id(), n_m)?;
@@ -1230,9 +1795,20 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         // Step 4(d) LookupCheck on (match, ind+γ·start) ⊑ (mark, orig-ind+γ·int-ind)
         // is wired as a child gadget via `lookup_placement`; γ is sampled
         // in `initialize_gadgets` (see the comment there).
-        //
-        // TODO: Step 4(e) leftmost Sign Check + Zerocheck on
-        //       occurs · 1[int-ind < start'] · match'.
+
+        // Step 4(e): leftmost check — Zerocheck on
+        //   occurs · leftmost_mask · match_broadcast = 0.
+        // Combined with the BoolCheck on `mask`, the BroadcastCheck on
+        // `(start, start')`, and the NonNegative Sign on
+        //   mask · (start' - int_ind - 1) + (1 - mask) · (int_ind - start')
+        // — all wired in `initialize_gadgets` — this forces `mask[c] = 1
+        // iff int_ind[c] < start'[c]`, so any candidate occurrence to the
+        // left of the mark contradicts the zerocheck and is rejected.
+        {
+            let masked = &inputs.occurs * &inputs.leftmost_mask;
+            let claim = &resize_poly(&masked, char_domain) * &inputs.match_broadcast;
+            prover.add_mv_zerocheck_claim(resize_poly(&claim, char_domain).id())?;
+        }
 
         Ok(())
     }
@@ -1333,13 +1909,21 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             verifier.add_mv_zerocheck_claim(resize_oracle(&claim, char_domain).id());
         }
 
-        let n_m_key = miscellaneous_key(id, "n_m");
+        let n_m_key = miscellaneous_key(id, gadget_ready_ir.tree(), "n_m");
         let n_m = verifier.miscellaneous_field_element(&n_m_key)?;
         verifier.add_mv_sumcheck_claim(inputs.mark.id(), n_m);
         verifier.add_mv_sumcheck_claim(inputs.match_str.id(), n_m);
 
         // Step 4(d) is wired via `lookup_placement`; `start` and `int-ind`
-        // are used there. TODO: Step 4(e) leftmost.
+        // are used there.
+
+        // Step 4(e): leftmost check — Zerocheck mirroring the prover side.
+        {
+            let masked = &inputs.occurs * &inputs.leftmost_mask;
+            let claim = &resize_oracle(&masked, char_domain) * &inputs.match_broadcast;
+            verifier.add_mv_zerocheck_claim(resize_oracle(&claim, char_domain).id());
+        }
+
         Ok(())
     }
 

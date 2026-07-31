@@ -37,7 +37,7 @@ use crate::{
             plan::{
                 exprs::{
                     aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
-                    in_subquery, literal, scalar_function,
+                    in_subquery, like, literal, scalar_function,
                 },
                 lps::{
                     aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan,
@@ -443,6 +443,15 @@ impl<B: SnarkBackend> Node<B> {
             }),
             Expr::Case(_) => Arc::new_cyclic(|weak_self| {
                 let node = case::ExprNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
+            Expr::Like(_) => Arc::new_cyclic(|weak_self| {
+                let node = like::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),

@@ -1,11 +1,11 @@
 //! Top-level composite gadget for paper §6.1 PIOP 6 Multi-Character
 //! Pattern Matching.
 //!
-//! **Current scope:** single-factor `t = 1` sweep (essentially the
-//! specialization of Sweep Factors that just invokes Factor Placement
-//! once). Multi-factor (`t ≥ 2`) requires the full Sweep Factors
-//! orchestration with per-round `past_j` placement indicators and
-//! `alive_c` updates — deferred to a follow-up.
+//! Supports arbitrary `t ≥ 1` factor lists via the Sweep Factors
+//! orchestration (paper PIOP 7). For `t = 1` this reduces to a single
+//! FactorPlacement wrapped in the usual DPUC + LFC + verdict frame; for
+//! `t ≥ 2` Sweep Factors additionally threads a `past_j`-gated alive
+//! activator through the round-by-round placements.
 //!
 //! # Relation
 //!
@@ -21,17 +21,19 @@
 //! 1. **Activator validity** — `DataPreservingUpdateCheck` on
 //!    `(char-act^new, a^new, orig-ind, ind, l)`.
 //! 2. **Length filtering** — `LengthFilteringCheck` with threshold
-//!    `k` on `(a^old, char-act^old, a^{old'}, char-act^{old'})`.
+//!    `Σ_j |str_j|` on `(a^old, char-act^old, a^{old'}, char-act^{old'})`.
 //! 3. **Containment** — inline `Zerocheck` on `a^new · (1 − a^{old'})`.
-//! 4. **Sweep factors** (t = 1) — `FactorPlacement` on p_1 with the
-//!    length-filtered activators, producing `match`.
+//! 4. **Sweep factors** — `SweepFactors([(str_1, mode_1), …, (str_t,
+//!    mode_t)])` with `(char-act^{old'}, a^{old'})` as the initial
+//!    alive activators. For `t = 1` this reduces to a single Factor
+//!    Placement; for `t ≥ 2` past_j indicators gate subsequent
+//!    factors' char domains.
 //! 5. **Verdict** — inline `Zerocheck` on `a^new − alive_h` where
-//!    `alive_h` is `match` for t = 1.
+//!    `alive_h = match_{t-1}`.
 //!
 //! # Payload structure
 //!
-//! Callers pass the same shape as PrefixSuffixCheck used to plus a
-//! rotated-char table for FactorPlacement:
+//! Shared slots:
 //! - [`CHAR_INPUT_LABEL`] — `{ char, orig-ind, int-ind, bnd }` with
 //!   activator `char-act^old`.
 //! - [`STR_INPUT_LABEL`] — `{ ind, l }` with activator `a^old`.
@@ -39,12 +41,18 @@
 //! - [`LENGTH_FILTERED_STR_LABEL`] — `{ a^{old'} }`, no activator.
 //! - [`NEW_CHAR_LABEL`] — `{ char-act^new }`, no activator.
 //! - [`NEW_STR_LABEL`] — `{ a^new }`, no activator.
-//! - [`ROTATED_CHAR_LABEL`] — `k` columns `char^(0), ..., char^(k-1)`.
-//!   `char^(0)` is `char`; the higher rotations should be honestly
-//!   computed rotations of `char` — currently taken on faith (should
-//!   be verified by a Sweep-Factors init step in a future revision).
-//! - `OCCURS_LABEL`, `MATCH_LABEL`, `MARK_LABEL`, `START_LABEL`,
-//!   `MATCH_BROADCAST_LABEL` — prover witnesses for Factor Placement.
+//!
+//! Per factor `j` (0-indexed), via [`factor_label`]`(j, …)` (re-exported
+//! from [`sweep_factors::factor_label`]):
+//! - `"rotated_char"` — `k_j` char-level columns `char^{(0)}_j..char^{(k_j−1)}_j`
+//!   for factor `j` (each verified against `char` by SweepFactors's
+//!   internal rotation chain).
+//! - `"occurs"`, `"match"`, `"mark"`, `"start"`, `"match_broadcast"`,
+//!   `"start_broadcast"`, `"leftmost_mask"` — FactorPlacement witnesses.
+//! - `"att_mask"` — suffix mode only.
+//! - `"rotated_bnd"` — infix mode with `k_j ≥ 2` only.
+//! - `"past"` — only for `j < t − 1` (past_j indicator for the
+//!   inter-factor alive chain).
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -61,7 +69,9 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            utils::{data_preserving_update_check, factor_placement, length_filtering_check},
+            utils::{
+                data_preserving_update_check, length_filtering_check, sweep_factors,
+            },
         },
         payloads::PayloadStructure,
     },
@@ -69,7 +79,7 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
-pub use factor_placement::Mode;
+pub use sweep_factors::{Mode, factor_label};
 
 pub const CHAR_INPUT_LABEL: &str = "__char_input__";
 pub const STR_INPUT_LABEL: &str = "__str_input__";
@@ -77,12 +87,6 @@ pub const LENGTH_FILTERED_CHAR_LABEL: &str = "__length_filtered_char__";
 pub const LENGTH_FILTERED_STR_LABEL: &str = "__length_filtered_str__";
 pub const NEW_CHAR_LABEL: &str = "__new_char__";
 pub const NEW_STR_LABEL: &str = "__new_str__";
-pub const ROTATED_CHAR_LABEL: &str = factor_placement::ROTATED_CHAR_LABEL;
-pub const OCCURS_LABEL: &str = factor_placement::OCCURS_LABEL;
-pub const MATCH_LABEL: &str = factor_placement::MATCH_LABEL;
-pub const MARK_LABEL: &str = factor_placement::MARK_LABEL;
-pub const START_LABEL: &str = factor_placement::START_LABEL;
-pub const MATCH_BROADCAST_LABEL: &str = factor_placement::MATCH_BROADCAST_LABEL;
 
 fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
     TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
@@ -98,43 +102,72 @@ fn u64_field(name: &str) -> FieldRef {
     Arc::new(Field::new(name, DataType::UInt64, false))
 }
 
-/// Single-factor Multi-Character Pattern Matching gadget.
+/// Multi-Character Pattern Matching gadget, arbitrary factor count.
 pub struct GadgetNode<B: SnarkBackend> {
-    pattern: Vec<B::F>,
-    mode: Mode,
+    factors: Vec<(Vec<B::F>, Mode)>,
     data_preserving: Arc<Node<B>>,
     length_filtering: Arc<Node<B>>,
-    factor_placement: Arc<Node<B>>,
+    sweep: Arc<Node<B>>,
     _phantom: PhantomData<B>,
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(pattern: Vec<B::F>, mode: Mode) -> Self {
-        assert!(!pattern.is_empty(), "MCPM: pattern must be non-empty");
-        let k = pattern.len();
+    /// Construct with an explicit factor list.
+    pub fn new(factors: Vec<(Vec<B::F>, Mode)>) -> Self {
+        Self::new_with_nodup_mode(
+            factors,
+            crate::irs::nodes::utils::nodup::Mode::SortBased,
+        )
+    }
+
+    /// Test-facing constructor exposing the nodup_mark mode of each
+    /// nested FactorPlacement. Production callers should use
+    /// [`Self::new`]; test harnesses that bypass
+    /// `initialize_gadget_plans` should pass `BezoutBased`.
+    pub fn new_with_nodup_mode(
+        factors: Vec<(Vec<B::F>, Mode)>,
+        nodup_mode: crate::irs::nodes::utils::nodup::Mode,
+    ) -> Self {
+        assert!(!factors.is_empty(), "MCPM: factor list must be non-empty");
+        for (pat, _) in &factors {
+            assert!(!pat.is_empty(), "MCPM: each factor pattern must be non-empty");
+        }
+        // Length-filter threshold is the total pattern content (Σ_j |str_j|):
+        // a string can satisfy the pattern only if it has at least that
+        // many chars in total (the wildcards demand zero or more chars
+        // between factors, so their contribution is 0).
+        let total_len: usize = factors.iter().map(|(pat, _)| pat.len()).sum();
         let data_preserving = Arc::new(Node::<B>::Gadget(Arc::new(
             data_preserving_update_check::GadgetNode::new(),
         )));
         let length_filtering = Arc::new(Node::<B>::Gadget(Arc::new(
-            length_filtering_check::GadgetNode::new(k as u64),
+            length_filtering_check::GadgetNode::new(total_len as u64),
         )));
-        let factor_placement = Arc::new(Node::<B>::Gadget(Arc::new(
-            factor_placement::GadgetNode::new(pattern.clone(), mode),
+        let sweep = Arc::new(Node::<B>::Gadget(Arc::new(
+            sweep_factors::GadgetNode::new_with_nodup_mode(factors.clone(), nodup_mode),
         )));
         Self {
-            pattern,
-            mode,
+            factors,
             data_preserving,
             length_filtering,
-            factor_placement,
+            sweep,
             _phantom: PhantomData,
         }
+    }
+
+    /// Convenience constructor for the common `t = 1` case.
+    pub fn new_single(pattern: Vec<B::F>, mode: Mode) -> Self {
+        Self::new(vec![(pattern, mode)])
+    }
+
+    pub fn num_factors(&self) -> usize {
+        self.factors.len()
     }
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
-        format!("MultiCharacterPatternMatching(t=1, {:?})", self.mode)
+        format!("MultiCharacterPatternMatching(t={})", self.factors.len())
     }
     fn display(&self) -> String {
         crate::irs::nodes::display_with_inputs(&self.name(), &self.children())
@@ -150,7 +183,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         vec![
             self.data_preserving.clone(),
             self.length_filtering.clone(),
-            self.factor_placement.clone(),
+            self.sweep.clone(),
         ]
     }
 }
@@ -176,6 +209,7 @@ struct PayloadVerifier<B: SnarkBackend> {
 fn extract_prover<B: SnarkBackend>(
     ir: &GadgetReadyIr<B>,
     id: NodeId,
+    last_factor_idx: usize,
 ) -> PayloadProver<B> {
     let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
         panic!("MCPM: missing gadget payload");
@@ -186,7 +220,12 @@ fn extract_prover<B: SnarkBackend>(
         .get(LENGTH_FILTERED_STR_LABEL)
         .expect("missing LENGTH_FILTERED_STR");
     let new_str = payload.get(NEW_STR_LABEL).expect("missing NEW_STR");
-    let match_t = payload.get(MATCH_LABEL).expect("missing MATCH");
+    // The verdict reads alive_h = match_{t-1}, i.e. the last factor's
+    // match column.
+    let match_key = factor_label(last_factor_idx, "match");
+    let match_t = payload
+        .get(&match_key)
+        .unwrap_or_else(|| panic!("MCPM: missing {match_key} (last factor's match)"));
 
     let a_h_old_prime = lf_str
         .tracked_col_by_ind(lf_str.data_tracked_polys_indices()[0])
@@ -209,6 +248,7 @@ fn extract_prover<B: SnarkBackend>(
 fn extract_verifier<B: SnarkBackend>(
     ir: &VerifierGadgetReadyIr<B>,
     id: NodeId,
+    last_factor_idx: usize,
 ) -> PayloadVerifier<B> {
     let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
         panic!("MCPM: missing gadget payload");
@@ -219,7 +259,10 @@ fn extract_verifier<B: SnarkBackend>(
         .get(LENGTH_FILTERED_STR_LABEL)
         .expect("missing LENGTH_FILTERED_STR");
     let new_str = payload.get(NEW_STR_LABEL).expect("missing NEW_STR");
-    let match_t = payload.get(MATCH_LABEL).expect("missing MATCH");
+    let match_key = factor_label(last_factor_idx, "match");
+    let match_t = payload
+        .get(&match_key)
+        .unwrap_or_else(|| panic!("MCPM: missing {match_key} (last factor's match)"));
 
     let a_h_old_prime = lf_str
         .tracked_col_oracle_by_ind(lf_str.data_tracked_oracles_indices()[0])
@@ -548,14 +591,25 @@ fn set_lfc_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(child)));
 }
 
-fn set_factor_placement_payload_prover<B: SnarkBackend>(
+/// Labels the MCPM-level payload owns; everything else in the parent
+/// payload is assumed to belong to a per-factor slot and gets forwarded
+/// to SweepFactors unchanged.
+const MCPM_OWNED_LABELS: &[&str] = &[
+    CHAR_INPUT_LABEL,
+    STR_INPUT_LABEL,
+    LENGTH_FILTERED_CHAR_LABEL,
+    LENGTH_FILTERED_STR_LABEL,
+    NEW_CHAR_LABEL,
+    NEW_STR_LABEL,
+];
+
+fn set_sweep_factors_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     ir: &mut GadgetReadyIr<B>,
     id: NodeId,
 ) {
-    // Factor Placement's payload requires the length-filtered activator
-    // pair (a^{old'}, char-act^{old'}) as the current alive state; forward
-    // by rebuilding tables with those as activators.
+    // SweepFactors takes over from the LFC-filtered activator pair:
+    // `(char-act^{old'}, a^{old'})` become alive_c_0 / alive_h_0.
     let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
         panic!("MCPM: missing gadget payload");
     };
@@ -564,17 +618,10 @@ fn set_factor_placement_payload_prover<B: SnarkBackend>(
     let str_input: &TrackedTable<B> = payload.get(STR_INPUT_LABEL).unwrap();
     let lf_char = payload.get(LENGTH_FILTERED_CHAR_LABEL).unwrap();
     let lf_str = payload.get(LENGTH_FILTERED_STR_LABEL).unwrap();
-    let rotated: TrackedTable<B> = payload.get(ROTATED_CHAR_LABEL).unwrap().clone();
-    let occurs: TrackedTable<B> = payload.get(OCCURS_LABEL).unwrap().clone();
-    let match_t: TrackedTable<B> = payload.get(MATCH_LABEL).unwrap().clone();
-    let mark: TrackedTable<B> = payload.get(MARK_LABEL).unwrap().clone();
-    let start: TrackedTable<B> = payload.get(START_LABEL).unwrap().clone();
-    let mbcast: TrackedTable<B> = payload.get(MATCH_BROADCAST_LABEL).unwrap().clone();
 
     let char_domain = char_input.log_size();
     let str_domain = str_input.log_size();
 
-    // Pull the required column polys.
     let char_col = char_input
         .tracked_col_by_ind(char_input.data_tracked_polys_indices()[0])
         .data_tracked_poly();
@@ -597,7 +644,6 @@ fn set_factor_placement_payload_prover<B: SnarkBackend>(
         .tracked_col_by_ind(lf_str.data_tracked_polys_indices()[0])
         .data_tracked_poly();
 
-    // char_input rebuilt with activator = char-act^{old'}.
     let mut char_polys = IndexMap::new();
     char_polys.insert(u64_field("char"), char_col);
     char_polys.insert(u64_field("orig_ind"), orig_ind);
@@ -613,7 +659,6 @@ fn set_factor_placement_payload_prover<B: SnarkBackend>(
     let child_char =
         TrackedTable::new(Some(char_schema), char_polys, char_domain);
 
-    // str_input rebuilt as {ind} with activator = a^{old'}.
     let mut str_polys = IndexMap::new();
     str_polys.insert(u64_field("ind"), ind);
     str_polys.insert(ACTIVATOR_FIELD.clone(), a_old_prime);
@@ -621,18 +666,18 @@ fn set_factor_placement_payload_prover<B: SnarkBackend>(
     let child_str = TrackedTable::new(Some(str_schema), str_polys, str_domain);
 
     let mut child = IndexMap::new();
-    child.insert(factor_placement::CHAR_INPUT_LABEL.to_string(), child_char);
-    child.insert(factor_placement::STR_INPUT_LABEL.to_string(), child_str);
-    child.insert(factor_placement::ROTATED_CHAR_LABEL.to_string(), rotated);
-    child.insert(factor_placement::OCCURS_LABEL.to_string(), occurs);
-    child.insert(factor_placement::MATCH_LABEL.to_string(), match_t);
-    child.insert(factor_placement::MARK_LABEL.to_string(), mark);
-    child.insert(factor_placement::START_LABEL.to_string(), start);
-    child.insert(factor_placement::MATCH_BROADCAST_LABEL.to_string(), mbcast);
+    child.insert(sweep_factors::CHAR_INPUT_LABEL.to_string(), child_char);
+    child.insert(sweep_factors::STR_INPUT_LABEL.to_string(), child_str);
+    // Forward all per-factor tables (anything not owned by MCPM).
+    for (key, table) in payload.iter() {
+        if !MCPM_OWNED_LABELS.contains(&key.as_str()) {
+            child.insert(key.clone(), table.clone());
+        }
+    }
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(child)));
 }
 
-fn set_factor_placement_payload_verifier<B: SnarkBackend>(
+fn set_sweep_factors_payload_verifier<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     ir: &mut VerifierGadgetReadyIr<B>,
     id: NodeId,
@@ -645,12 +690,6 @@ fn set_factor_placement_payload_verifier<B: SnarkBackend>(
     let str_input: &TrackedTableOracle<B> = payload.get(STR_INPUT_LABEL).unwrap();
     let lf_char = payload.get(LENGTH_FILTERED_CHAR_LABEL).unwrap();
     let lf_str = payload.get(LENGTH_FILTERED_STR_LABEL).unwrap();
-    let rotated: TrackedTableOracle<B> = payload.get(ROTATED_CHAR_LABEL).unwrap().clone();
-    let occurs: TrackedTableOracle<B> = payload.get(OCCURS_LABEL).unwrap().clone();
-    let match_t: TrackedTableOracle<B> = payload.get(MATCH_LABEL).unwrap().clone();
-    let mark: TrackedTableOracle<B> = payload.get(MARK_LABEL).unwrap().clone();
-    let start: TrackedTableOracle<B> = payload.get(START_LABEL).unwrap().clone();
-    let mbcast: TrackedTableOracle<B> = payload.get(MATCH_BROADCAST_LABEL).unwrap().clone();
 
     let char_domain = char_input.log_size();
     let str_domain = str_input.log_size();
@@ -700,14 +739,13 @@ fn set_factor_placement_payload_verifier<B: SnarkBackend>(
         TrackedTableOracle::new(Some(str_schema), str_oracles, str_domain);
 
     let mut child = IndexMap::new();
-    child.insert(factor_placement::CHAR_INPUT_LABEL.to_string(), child_char);
-    child.insert(factor_placement::STR_INPUT_LABEL.to_string(), child_str);
-    child.insert(factor_placement::ROTATED_CHAR_LABEL.to_string(), rotated);
-    child.insert(factor_placement::OCCURS_LABEL.to_string(), occurs);
-    child.insert(factor_placement::MATCH_LABEL.to_string(), match_t);
-    child.insert(factor_placement::MARK_LABEL.to_string(), mark);
-    child.insert(factor_placement::START_LABEL.to_string(), start);
-    child.insert(factor_placement::MATCH_BROADCAST_LABEL.to_string(), mbcast);
+    child.insert(sweep_factors::CHAR_INPUT_LABEL.to_string(), child_char);
+    child.insert(sweep_factors::STR_INPUT_LABEL.to_string(), child_str);
+    for (key, table) in payload.iter() {
+        if !MCPM_OWNED_LABELS.contains(&key.as_str()) {
+            child.insert(key.clone(), table.clone());
+        }
+    }
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(child)));
 }
 
@@ -729,14 +767,43 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     ) -> SnarkResult<()> {
         set_dpuc_payload_prover(&self.data_preserving, virtualized_ir, id);
         set_lfc_payload_prover(&self.length_filtering, virtualized_ir, id);
-        set_factor_placement_payload_prover(&self.factor_placement, virtualized_ir, id);
+        set_sweep_factors_payload_prover(&self.sweep, virtualized_ir, id);
         Ok(())
     }
     fn initialize_gadget_plans(
         &self,
-        _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
+        // Forward the LIKE-injected plan-time hints down to the
+        // SweepFactors child so it can further route them to each
+        // per-factor FactorPlacement. If no hints are present (e.g.
+        // isolated MCPM test harness), skip silently.
+        let own = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+        let orig_key = "__like_orig_ind_plan_hint__".to_string();
+        let orig_ind_hint = match own.get(&orig_key) {
+            Some(h) => h.clone(),
+            None => return Ok(()),
+        };
+
+        let mut sweep_payload = match planned_ir.payload_for_node(&self.sweep.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        sweep_payload.insert(orig_key, orig_ind_hint);
+        for j in 0..self.factors.len() {
+            let key = format!("__like_f{j}_mark_plan_hint__");
+            if let Some(mark_hint) = own.get(&key) {
+                sweep_payload.insert(key, mark_hint.clone());
+            }
+        }
+        planned_ir.set_payload_for_node(
+            self.sweep.id(),
+            Some(PayloadStructure::GadgetPayload(sweep_payload)),
+        );
         Ok(())
     }
 }
@@ -757,14 +824,43 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     ) -> SnarkResult<()> {
         set_dpuc_payload_verifier(&self.data_preserving, virtualized_ir, id);
         set_lfc_payload_verifier(&self.length_filtering, virtualized_ir, id);
-        set_factor_placement_payload_verifier(&self.factor_placement, virtualized_ir, id);
+        set_sweep_factors_payload_verifier(&self.sweep, virtualized_ir, id);
         Ok(())
     }
     fn initialize_gadget_plans(
         &self,
-        _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
+        // Forward the LIKE-injected plan-time hints down to the
+        // SweepFactors child so it can further route them to each
+        // per-factor FactorPlacement. If no hints are present (e.g.
+        // isolated MCPM test harness), skip silently.
+        let own = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+        let orig_key = "__like_orig_ind_plan_hint__".to_string();
+        let orig_ind_hint = match own.get(&orig_key) {
+            Some(h) => h.clone(),
+            None => return Ok(()),
+        };
+
+        let mut sweep_payload = match planned_ir.payload_for_node(&self.sweep.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        sweep_payload.insert(orig_key, orig_ind_hint);
+        for j in 0..self.factors.len() {
+            let key = format!("__like_f{j}_mark_plan_hint__");
+            if let Some(mark_hint) = own.get(&key) {
+                sweep_payload.insert(key, mark_hint.clone());
+            }
+        }
+        planned_ir.set_payload_for_node(
+            self.sweep.id(),
+            Some(PayloadStructure::GadgetPayload(sweep_payload)),
+        );
         Ok(())
     }
 }
@@ -779,9 +875,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()> {
-        let inputs = extract_prover(gadget_ready_ir, id);
+        let last = self.factors.len() - 1;
+        let inputs = extract_prover(gadget_ready_ir, id, last);
         let str_domain = inputs.str_input.log_size();
-        let _ = (&inputs.char_input, &self.pattern);
+        let _ = &inputs.char_input;
 
         // Step 3 (Containment): a^new · (1 − a^{old'}) = 0.
         {
@@ -792,7 +889,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let claim = &inputs.a_h_new * &one_minus;
             prover.add_mv_zerocheck_claim(resize_poly(&claim, str_domain).id())?;
         }
-        // Step 5 (Verdict): a^new − alive_h = a^new − match = 0.
+        // Step 5 (Verdict): a^new − alive_h = a^new − match_{t-1} = 0.
         {
             let claim = &inputs.a_h_new - &inputs.match_str;
             prover.add_mv_zerocheck_claim(resize_poly(&claim, str_domain).id())?;
@@ -813,7 +910,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()> {
-        let inputs = extract_verifier(gadget_ready_ir, id);
+        let last = self.factors.len() - 1;
+        let inputs = extract_verifier(gadget_ready_ir, id, last);
         let str_domain = inputs.str_input.log_size();
         let _ = &inputs.char_input;
 

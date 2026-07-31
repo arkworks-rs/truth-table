@@ -15,11 +15,12 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
-    ATT_MASK_LABEL, CHAR_INPUT_LABEL, GadgetNode, MARK_LABEL, MATCH_BROADCAST_LABEL,
-    MATCH_LABEL, Mode, OCCURS_LABEL, ROTATED_BND_LABEL, ROTATED_CHAR_LABEL, START_LABEL,
-    STR_INPUT_LABEL,
+    ATT_MASK_LABEL, CHAR_INPUT_LABEL, GadgetNode, LEFTMOST_MASK_LABEL, MARK_LABEL,
+    MATCH_BROADCAST_LABEL, MATCH_LABEL, Mode, OCCURS_LABEL, ROTATED_BND_LABEL,
+    ROTATED_CHAR_LABEL, START_BROADCAST_LABEL, START_LABEL, STR_INPUT_LABEL,
 };
 use crate::irs::nodes::Node;
+use crate::irs::nodes::utils::nodup;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
 
 type B = DefaultSnarkBackend;
@@ -43,6 +44,46 @@ fn bool_field(name: &str) -> Arc<Field> {
 fn shift_left(xs: &[F], shift: usize) -> Vec<F> {
     let n = xs.len();
     (0..n).map(|i| xs[(i + (shift % n)) % n]).collect()
+}
+
+/// Convert a field element that we know encodes a small integer back to a
+/// `u64`. Used by the honest-witness helpers so tests can compute the
+/// char-level broadcast/mask columns directly from the fixture data.
+fn as_u64(x: F) -> u64 {
+    use ark_ff::{BigInteger, PrimeField};
+    let bi = x.into_bigint();
+    let bytes = bi.to_bytes_le();
+    let mut acc = 0u64;
+    for (i, b) in bytes.iter().take(8).enumerate() {
+        acc |= (*b as u64) << (8 * i);
+    }
+    acc
+}
+
+/// Honest `start_broadcast[c] = start[orig_ind[c]]`.
+fn leftmost_start_broadcast(orig_ind: &[F], start: &[F]) -> Vec<F> {
+    orig_ind
+        .iter()
+        .map(|oi| {
+            let s = start[as_u64(*oi) as usize];
+            s
+        })
+        .collect()
+}
+
+/// Honest `mask[c] = 1 iff int_ind[c] < start_broadcast[c] else 0`.
+fn leftmost_mask(int_ind: &[F], start_broadcast: &[F]) -> Vec<F> {
+    int_ind
+        .iter()
+        .zip(start_broadcast.iter())
+        .map(|(ii, sb)| {
+            if as_u64(*ii) < as_u64(*sb) {
+                F::from(1u64)
+            } else {
+                F::from(0u64)
+            }
+        })
+        .collect()
 }
 
 fn fixture_char() -> Vec<F> {
@@ -106,9 +147,14 @@ fn honest_witness() -> Witness {
 }
 
 fn run(witness: Witness) -> Result<(), ark_piop::errors::SnarkError> {
-    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(
+    // BezoutBased nodup_mark: the test harness bypasses
+    // `initialize_gadget_plans`, so the plan-time LEX_SORTED_LABEL
+    // hint that `SortBased` requires is never produced. `BezoutBased`
+    // is self-contained at `initialize_gadgets` time.
+    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new_with_nodup_mode(
         pattern_ab(),
         Mode::Prefix,
+        nodup::Mode::BezoutBased,
     ))));
     let gadget_id = gadget.id();
 
@@ -146,8 +192,14 @@ fn run(witness: Witness) -> Result<(), ark_piop::errors::SnarkError> {
         .collect();
 
     let match_prime_f = u64_field("match_prime");
+    let start_bcast_f = u64_field("start_broadcast");
+    let mask_f = u64_field("leftmost_mask");
 
-    let harness = GadgetHarness::<B>::builder(8)
+    let start_broadcast_col =
+        leftmost_start_broadcast(&fixture_orig_ind(), &witness.start);
+    let leftmost_mask_col = leftmost_mask(&fixture_int_ind(), &start_broadcast_col);
+
+    let harness = GadgetHarness::<B>::builder(16)
         .with_gadget(gadget)
         .with_table(
             gadget_id,
@@ -234,6 +286,26 @@ fn run(witness: Witness) -> Result<(), ark_piop::errors::SnarkError> {
                 activator: None,
             },
         )
+        .with_table(
+            gadget_id,
+            START_BROADCAST_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![start_bcast_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(start_bcast_f, start_broadcast_col)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            LEFTMOST_MASK_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![mask_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(mask_f, leftmost_mask_col)],
+                activator: None,
+            },
+        )
         .build();
 
     run_gadget_pipeline(harness)
@@ -260,9 +332,10 @@ fn honest_suffix_match_verifies() {
     const STR_NV: usize = 3; // n_str = 8
     const CHAR_NV: usize = 3; // n_char = 8
 
-    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(
+    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new_with_nodup_mode(
         pattern_ab(),
         Mode::Suffix,
+        nodup::Mode::BezoutBased,
     ))));
     let gadget_id = gadget.id();
 
@@ -330,8 +403,13 @@ fn honest_suffix_match_verifies() {
         .collect();
 
     let match_prime_f = u64_field("match_prime");
+    let start_bcast_f = u64_field("start_broadcast");
+    let mask_f = u64_field("leftmost_mask");
 
-    let harness = GadgetHarness::<B>::builder(8)
+    let start_broadcast_col = leftmost_start_broadcast(&orig_ind, &start);
+    let leftmost_mask_col = leftmost_mask(&int_ind, &start_broadcast_col);
+
+    let harness = GadgetHarness::<B>::builder(16)
         .with_gadget(gadget)
         .with_table(
             gadget_id,
@@ -428,6 +506,26 @@ fn honest_suffix_match_verifies() {
                 activator: None,
             },
         )
+        .with_table(
+            gadget_id,
+            START_BROADCAST_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![start_bcast_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(start_bcast_f, start_broadcast_col)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            LEFTMOST_MASK_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![mask_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(mask_f, leftmost_mask_col)],
+                activator: None,
+            },
+        )
         .build();
 
     run_gadget_pipeline(harness).expect("honest suffix Factor Placement should verify");
@@ -455,9 +553,10 @@ fn honest_infix_match_verifies() {
     const STR_NV: usize = 3; // n_str = 8
     const CHAR_NV: usize = 3; // n_char = 8
 
-    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(
+    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new_with_nodup_mode(
         pattern_ab(),
         Mode::Infix,
+        nodup::Mode::BezoutBased,
     ))));
     let gadget_id = gadget.id();
 
@@ -529,8 +628,13 @@ fn honest_infix_match_verifies() {
         .collect();
 
     let match_prime_f = u64_field("match_prime");
+    let start_bcast_f = u64_field("start_broadcast");
+    let mask_f = u64_field("leftmost_mask");
 
-    let harness = GadgetHarness::<B>::builder(8)
+    let start_broadcast_col = leftmost_start_broadcast(&orig_ind, &start);
+    let leftmost_mask_col = leftmost_mask(&int_ind, &start_broadcast_col);
+
+    let harness = GadgetHarness::<B>::builder(16)
         .with_gadget(gadget)
         .with_table(
             gadget_id,
@@ -624,6 +728,26 @@ fn honest_infix_match_verifies() {
                 schema: Schema::new(vec![bnd_1_f.as_ref().clone()]),
                 log_size: CHAR_NV,
                 cols: vec![(bnd_1_f, bnd_1)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            START_BROADCAST_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![start_bcast_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(start_bcast_f, start_broadcast_col)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            LEFTMOST_MASK_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![mask_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(mask_f, leftmost_mask_col)],
                 activator: None,
             },
         )
