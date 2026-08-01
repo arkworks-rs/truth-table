@@ -312,7 +312,7 @@ impl<B: SnarkBackend> ExprNode<B> {
     fn scan_and_compute_witness_prover(
         &self,
         scope_table: &TrackedTable<B>,
-        chars_side: &arithmetic::table::TrackedSideCol<B>,
+        chars_side: &arithmetic::col::TrackedAuxPoly<B>,
     ) -> McpmWitness<B::F> {
         let str_domain = scope_table.log_size();
         let base_name = Self::find_string_column_base_name_side_prover(scope_table).unwrap();
@@ -328,7 +328,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .side_segment(&base_name, STRING_BND_SUFFIX)
             .cloned()
             .expect("Like: missing __bnd side col");
-        let char_domain = chars_side.log_size;
+        let char_domain = chars_side.log_size();
 
         let (_length_field, length_poly) = scope_table
             .tracked_polys_iter()
@@ -343,7 +343,7 @@ impl<B: SnarkBackend> ExprNode<B> {
         let orig_ind_evals = orig_ind_side.data.evaluations().to_vec();
         let int_ind_evals = int_ind_side.data.evaluations().to_vec();
         let bnd_evals = bnd_side.data.evaluations().to_vec();
-        let char_act_evals = chars_side.activator.evaluations().to_vec();
+        let char_act_evals = chars_side.activator.as_ref().expect("side segment must carry activator").evaluations().to_vec();
         let l_evals = length_poly.evaluations().to_vec();
         let a_evals = scope_table
             .activator_tracked_poly()
@@ -409,7 +409,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .side_segment(&base_name, STRING_BND_SUFFIX)
             .cloned()
             .expect("Like: missing __bnd side col");
-        let char_domain = chars_side.log_size;
+        let char_domain = chars_side.log_size();
 
         let (length_field, length_poly) = scope_table
             .tracked_polys_iter()
@@ -428,7 +428,7 @@ impl<B: SnarkBackend> ExprNode<B> {
         let orig_ind_evals = orig_ind_side.data.evaluations().to_vec();
         let int_ind_evals = int_ind_side.data.evaluations().to_vec();
         let bnd_evals = bnd_side.data.evaluations().to_vec();
-        let char_act_evals = chars_side.activator.evaluations().to_vec();
+        let char_act_evals = chars_side.activator.as_ref().expect("side segment must carry activator").evaluations().to_vec();
         let l_evals = length_poly.evaluations().to_vec();
         let a_evals = scope_table
             .activator_tracked_poly()
@@ -555,7 +555,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             polys.insert(orig_ind_f.clone(), orig_ind_side.data.clone());
             polys.insert(int_ind_f.clone(), int_ind_side.data.clone());
             polys.insert(bnd_f.clone(), bnd_side.data.clone());
-            polys.insert(ACTIVATOR_FIELD.clone(), chars_side.activator.clone());
+            polys.insert(ACTIVATOR_FIELD.clone(), chars_side.activator.clone().expect("side segment must carry activator"));
             let schema = Schema::new(vec![
                 char_f.as_ref().clone(),
                 orig_ind_f.as_ref().clone(),
@@ -855,7 +855,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .side_segment(&base_name, STRING_BND_SUFFIX)
             .cloned()
             .expect("Like: missing __bnd side oracle");
-        let char_domain = chars_side.log_size;
+        let char_domain = chars_side.log_size();
 
         let (length_field, length_oracle) = scope_table
             .tracked_oracles_iter()
@@ -961,7 +961,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             oracles.insert(orig_ind_f.clone(), orig_ind_side.data.clone());
             oracles.insert(int_ind_f.clone(), int_ind_side.data.clone());
             oracles.insert(bnd_f.clone(), bnd_side.data.clone());
-            oracles.insert(ACTIVATOR_FIELD.clone(), chars_side.activator.clone());
+            oracles.insert(ACTIVATOR_FIELD.clone(), chars_side.activator.clone().expect("side segment must carry activator"));
             let schema = Schema::new(vec![
                 char_f.as_ref().clone(),
                 orig_ind_f.as_ref().clone(),

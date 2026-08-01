@@ -3,7 +3,8 @@ use std::{fmt, sync::Arc};
 use ark_ff::{PrimeField, Zero};
 
 use crate::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, col::TrackedCol,
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD,
+    col::{TrackedAuxPoly, TrackedCol},
     table_oracle::CONSTRAINTS_SUMMARY_METADATA_KEY,
 };
 use ark_piop::SnarkBackend;
@@ -22,29 +23,6 @@ use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use derivative::Derivative;
 use indexmap::IndexMap;
 use serde_json::{Value, from_slice as schema_from_slice, to_vec as schema_to_vec};
-/// A tracked side-domain column carried alongside (but not inside) the
-/// row-uniform `TrackedTable`. Each side column has its own multilinear
-/// domain. The contiguous-one activator is fully described by `active_len`
-/// (and rebuilt on demand at commit/track time) so no separate tracked
-/// activator handle is kept here.
-#[derive(Derivative)]
-#[derivative(Clone(bound = ""), PartialEq(bound = ""))]
-pub struct TrackedSideCol<B: SnarkBackend> {
-    pub data: TrackedPoly<B>,
-    pub activator: TrackedPoly<B>,
-    pub log_size: usize,
-    pub active_len: usize,
-}
-
-impl<B: SnarkBackend> core::fmt::Debug for TrackedSideCol<B> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TrackedSideCol")
-            .field("log_size", &self.log_size)
-            .field("active_len", &self.active_len)
-            .finish()
-    }
-}
-
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked arithmetized table in dbSNARK
@@ -160,7 +138,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
         schema: Option<Schema>,
         tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
         log_size: usize,
-        side_cols: IndexMap<FieldRef, TrackedSideCol<B>>,
+        side_cols: IndexMap<FieldRef, TrackedAuxPoly<B>>,
     ) -> Self {
         #[cfg(debug_assertions)]
         {
@@ -189,13 +167,13 @@ impl<B: SnarkBackend> TrackedTable<B> {
         }
     }
 
-    /// Read-only access to this table's side-domain columns, derived from
-    /// the source-column-keyed storage on demand. Keyed by side segment
-    /// FieldRef (e.g. `<col>__chars`) so callers that walk by expanded
-    /// name keep working. Synthesized side FieldRefs inherit the source
-    /// column's metadata (e.g. `tt.qualifier`).
-    pub fn side_cols(&self) -> IndexMap<FieldRef, TrackedSideCol<B>> {
-        let mut out: IndexMap<FieldRef, TrackedSideCol<B>> = IndexMap::new();
+    /// Read-only access to this table's side-domain segments, derived
+    /// from the source-column-keyed storage on demand. Keyed by side
+    /// segment FieldRef (e.g. `<col>__chars`) so callers that walk by
+    /// expanded name keep working. Synthesized side FieldRefs inherit
+    /// the source column's metadata (e.g. `tt.qualifier`).
+    pub fn side_cols(&self) -> IndexMap<FieldRef, crate::col::TrackedAuxPoly<B>> {
+        let mut out: IndexMap<FieldRef, crate::col::TrackedAuxPoly<B>> = IndexMap::new();
         for (field, col) in self.tracked_cols.iter() {
             for (suffix, side) in col.side_segments_iter() {
                 let side_field = Arc::new(
@@ -212,10 +190,15 @@ impl<B: SnarkBackend> TrackedTable<B> {
         out
     }
 
-    /// Insert (or attach) a side-domain segment to the source column that
-    /// owns it (identified by `segment_base_name`). If the target column
-    /// is currently `SingleSegment`, it is promoted to `MultiSegment`.
-    pub fn insert_side_col(&mut self, field: FieldRef, side: TrackedSideCol<B>) {
+    /// Attach a side-domain segment (a `TrackedAuxPoly` with
+    /// `active_len: Some(_)`) to the source column that owns it,
+    /// identified by `segment_base_name`. Promotes the target column to
+    /// `MultiSegment` if it was `SingleSegment`.
+    pub fn insert_side_col(&mut self, field: FieldRef, side: crate::col::TrackedAuxPoly<B>) {
+        debug_assert!(
+            side.is_side(),
+            "insert_side_col: aux poly must be a side segment (active_len: Some)"
+        );
         let base_name = crate::encoding::segment_base_name(field.name())
             .expect("insert_side_col: field name must carry a known segment suffix")
             .to_string();
@@ -238,27 +221,20 @@ impl<B: SnarkBackend> TrackedTable<B> {
             } => TrackedCol::new_multi(
                 data_tracked_poly,
                 activator_tracked_poly,
-                Vec::new(),
                 vec![(suffix, side)],
                 field_ref,
             ),
             TrackedCol::MultiSegment {
                 primary_data_tracked_poly,
                 primary_activator_tracked_poly,
-                aux_data_tracked_polys,
-                aux_activator_tracked_polys,
-                aux_segment_map,
-                mut side_tracked_polys,
+                mut aux_segments,
                 field_ref,
             } => {
-                side_tracked_polys.insert(suffix, side);
+                aux_segments.insert(suffix, side);
                 TrackedCol::MultiSegment {
                     primary_data_tracked_poly,
                     primary_activator_tracked_poly,
-                    aux_data_tracked_polys,
-                    aux_activator_tracked_polys,
-                    aux_segment_map,
-                    side_tracked_polys,
+                    aux_segments,
                     field_ref,
                 }
             }
@@ -370,7 +346,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
 
     /// Look up a specific side-domain segment by source column name and
     /// suffix (e.g. `side_segment("n_name", "__chars")`).
-    pub fn side_segment(&self, col_name: &str, suffix: &str) -> Option<&TrackedSideCol<B>> {
+    pub fn side_segment(&self, col_name: &str, suffix: &str) -> Option<&TrackedAuxPoly<B>> {
         self.tracked_cols
             .iter()
             .find(|(f, _)| f.name() == col_name)
@@ -603,11 +579,13 @@ impl<B: SnarkBackend> TrackedTable<B> {
         self.tracked_col_by_indices(&(0..self.num_total_tracked_cols()).collect::<Vec<usize>>())
     }
 
-    /// Number of flat schema-order columns including activator.
+    /// Number of flat schema-order ROW-DOMAIN columns including
+    /// activator. Matches the length of `tracked_polys()` (side segments
+    /// live in `side_cols()` and are counted separately).
     pub fn num_total_tracked_cols(&self) -> usize {
         self.tracked_cols
             .values()
-            .map(|c| c.num_segments())
+            .map(|c| c.segments_iter().count())
             .sum()
     }
 
@@ -695,7 +673,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
 }
 
 /// Regroup a flat `IndexMap<FieldRef, TrackedPoly<B>>` (schema-order row
-/// polys) + a flat `IndexMap<FieldRef, TrackedSideCol<B>>` (schema-order
+/// polys) + a flat `IndexMap<FieldRef, TrackedAuxPoly<B>>` (schema-order
 /// side polys) into the source-column-keyed shape stored by
 /// `TrackedTable`. Iteration order in the output matches the order the
 /// PRIMARY segments appear in `tracked_polys`. Every aux/side segment is
@@ -704,7 +682,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
 /// single activator; side polys carry their own.
 fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
     tracked_polys: &IndexMap<FieldRef, TrackedPoly<B>>,
-    side_cols: &IndexMap<FieldRef, TrackedSideCol<B>>,
+    side_cols: &IndexMap<FieldRef, TrackedAuxPoly<B>>,
 ) -> IndexMap<FieldRef, TrackedCol<B>> {
     let shared_activator = tracked_polys
         .iter()
@@ -735,7 +713,8 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
             continue;
         }
         let primary_name = field.name();
-        let mut aux_segments: Vec<(String, TrackedPoly<B>, Option<TrackedPoly<B>>)> = Vec::new();
+        let mut aux_segments: Vec<(String, TrackedAuxPoly<B>)> = Vec::new();
+        // Row-domain aux (from `tracked_polys`): active_len: None.
         for (aux_field, aux_poly) in tracked_polys.iter() {
             if aux_field.name() == primary_name {
                 continue;
@@ -746,28 +725,26 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
                 let suffix = &aux_field.name()[primary_name.len()..];
                 aux_segments.push((
                     suffix.to_string(),
-                    aux_poly.clone(),
-                    shared_activator.clone(),
+                    TrackedAuxPoly::new_row(aux_poly.clone(), shared_activator.clone()),
                 ));
             }
         }
-        let mut side_segments: Vec<(String, TrackedSideCol<B>)> = Vec::new();
+        // Side-domain aux (from `side_cols`): active_len: Some already.
         for (side_field, side) in side_cols.iter() {
             if let Some(base) = crate::encoding::segment_base_name(side_field.name())
                 && base == primary_name
             {
                 let suffix = &side_field.name()[primary_name.len()..];
-                side_segments.push((suffix.to_string(), side.clone()));
+                aux_segments.push((suffix.to_string(), side.clone()));
             }
         }
-        let col = if aux_segments.is_empty() && side_segments.is_empty() {
+        let col = if aux_segments.is_empty() {
             TrackedCol::new(poly.clone(), shared_activator.clone(), Some(field.clone()))
         } else {
             TrackedCol::new_multi(
                 poly.clone(),
                 shared_activator.clone(),
                 aux_segments,
-                side_segments,
                 Some(field.clone()),
             )
         };

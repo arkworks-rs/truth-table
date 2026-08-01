@@ -321,7 +321,7 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
     // polys. Side commitments are always freshly emitted by the prover (even
     // when the row-domain side came from a cached ctx oracle) so they bind as
     // `ProofEmitted` regardless of `external_commitments`.
-    let mut tracked_side_cols: IndexMap<FieldRef, arithmetic::table::TrackedSideCol<B>> =
+    let mut tracked_side_cols: IndexMap<FieldRef, arithmetic::col::TrackedAuxPoly<B>> =
         IndexMap::with_capacity(arith_table.side_cols().len());
     for (field_ref, side) in arith_table.side_cols() {
         let side_oracle = oracle
@@ -354,12 +354,11 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         total_committed.set(total_committed.get() + 2);
         tracked_side_cols.insert(
             field_ref.clone(),
-            arithmetic::table::TrackedSideCol {
-                data: data_poly,
-                activator: activator_poly,
-                log_size: side.log_size,
-                active_len: side.active_len,
-            },
+            arithmetic::col::TrackedAuxPoly::new_side(
+                data_poly,
+                activator_poly,
+                side.active_len,
+            ),
         );
     }
 
