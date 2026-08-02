@@ -165,7 +165,7 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut side_cols: IndexMap<
         FieldRef,
-        arithmetic::col_oracle::TrackedAuxOracle<B>,
+        arithmetic::col_oracle::OracleBundle<B>,
     > = IndexMap::new();
     let mut log_size = 0usize;
 
@@ -227,20 +227,14 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
             let activator = verifier
                 .track_next_mv_com()
                 .expect("verifier should track side activator commitment");
-            let side_log_size = data.log_size();
             debug_assert_eq!(
-                side_log_size,
+                data.log_size(),
                 activator.log_size(),
                 "side data/activator must share log_size"
             );
-            // verifier doesn't see `active_len` from a count; it must
-            // arrive via a future side-channel (transcript misc field)
-            // when a constraint gadget needs it. For now (commits only),
-            // 0 is a safe placeholder — no consumer reads it.
-            let _ = side_log_size;
             side_cols.insert(
                 side_field,
-                arithmetic::col_oracle::TrackedAuxOracle::new_side(data, activator, 0),
+                arithmetic::col_oracle::OracleBundle::new(data, Some(activator)),
             );
         }
     }
@@ -274,7 +268,7 @@ fn track_hint_df<B: SnarkBackend>(
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut side_cols: IndexMap<
         FieldRef,
-        arithmetic::col_oracle::TrackedAuxOracle<B>,
+        arithmetic::col_oracle::OracleBundle<B>,
     > = IndexMap::new();
     let mut log_size = 0usize;
 
@@ -320,16 +314,14 @@ fn track_hint_df<B: SnarkBackend>(
                 let activator = verifier
                     .track_next_mv_com()
                     .expect("verifier should track side activator commitment");
-                let side_log_size = data.log_size();
                 debug_assert_eq!(
-                    side_log_size,
+                    data.log_size(),
                     activator.log_size(),
                     "side data/activator must share log_size"
                 );
-                let _ = side_log_size;
                 side_cols.insert(
                     side_field,
-                    arithmetic::col_oracle::TrackedAuxOracle::new_side(data, activator, 0),
+                    arithmetic::col_oracle::OracleBundle::new(data, Some(activator)),
                 );
             }
         }

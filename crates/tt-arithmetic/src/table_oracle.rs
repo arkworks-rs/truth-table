@@ -1,6 +1,6 @@
 use crate::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD,
-    col_oracle::{TrackedAuxOracle, TrackedColOracle},
+    col_oracle::{OracleBundle, TrackedColOracle},
     table::TrackedTable,
 };
 use ark_piop::SnarkBackend;
@@ -118,7 +118,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         schema: Option<Schema>,
         tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
         log_size: usize,
-        side_cols: IndexMap<FieldRef, TrackedAuxOracle<B>>,
+        side_cols: IndexMap<FieldRef, OracleBundle<B>>,
     ) -> Self {
         #[cfg(debug_assertions)]
         {
@@ -150,8 +150,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     /// Read-only access to side-domain oracles, derived from source-column
     /// storage on demand. Synthesized side FieldRefs inherit the source
     /// column's metadata.
-    pub fn side_cols(&self) -> IndexMap<FieldRef, TrackedAuxOracle<B>> {
-        let mut out: IndexMap<FieldRef, TrackedAuxOracle<B>> = IndexMap::new();
+    pub fn side_cols(&self) -> IndexMap<FieldRef, OracleBundle<B>> {
+        let mut out: IndexMap<FieldRef, OracleBundle<B>> = IndexMap::new();
         for (field, col) in self.tracked_col_oracles.iter() {
             for (suffix, side) in col.side_segments_iter() {
                 let side_field = Arc::new(
@@ -171,7 +171,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     /// Insert (or attach) a side-domain oracle to the source column that
     /// owns it. If the target col is `SingleSegment`, it is promoted to
     /// `MultiSegment`.
-    pub fn insert_side_col(&mut self, field: FieldRef, side: TrackedAuxOracle<B>) {
+    pub fn insert_side_col(&mut self, field: FieldRef, side: OracleBundle<B>) {
         let base_name = crate::encoding::segment_base_name(field.name())
             .expect("insert_side_col: field name must carry a known segment suffix")
             .to_string();
@@ -192,22 +192,19 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
                 activator_tracked_oracle,
                 field_ref,
             } => TrackedColOracle::new_multi(
-                data_tracked_oracle,
-                activator_tracked_oracle,
+                OracleBundle::new(data_tracked_oracle, activator_tracked_oracle),
                 vec![(suffix, side)],
                 field_ref,
             ),
             TrackedColOracle::MultiSegment {
-                primary_data_tracked_oracle,
-                primary_activator_tracked_oracle,
-                mut aux_segments,
+                primary_oracle_bundle,
+                mut aux_oracle_bundles,
                 field_ref,
             } => {
-                aux_segments.insert(suffix, side);
+                aux_oracle_bundles.insert(suffix, side);
                 TrackedColOracle::MultiSegment {
-                    primary_data_tracked_oracle,
-                    primary_activator_tracked_oracle,
-                    aux_segments,
+                    primary_oracle_bundle,
+                    aux_oracle_bundles,
                     field_ref,
                 }
             }
@@ -325,7 +322,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         &self,
         col_name: &str,
         suffix: &str,
-    ) -> Option<&TrackedAuxOracle<B>> {
+    ) -> Option<&OracleBundle<B>> {
         self.tracked_col_oracles
             .iter()
             .find(|(f, _)| f.name() == col_name)
@@ -572,14 +569,14 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
 }
 
 /// Regroup a flat `IndexMap<FieldRef, TrackedOracle<B>>` + a flat
-/// `IndexMap<FieldRef, TrackedAuxOracle<B>>` into the source-column-keyed
+/// `IndexMap<FieldRef, OracleBundle<B>>` into the source-column-keyed
 /// shape stored by `TrackedTableOracle`. Verifier-side mirror of
 /// `regroup_flat_into_tracked_cols` in `table.rs`. Orphan aux fields
 /// (aux whose primary is absent from the flat input) become their own
 /// SingleSegment entries — preserves scratch-table semantics.
 fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
     tracked_oracles: &IndexMap<FieldRef, TrackedOracle<B>>,
-    side_cols: &IndexMap<FieldRef, TrackedAuxOracle<B>>,
+    side_cols: &IndexMap<FieldRef, OracleBundle<B>>,
 ) -> IndexMap<FieldRef, TrackedColOracle<B>> {
     let shared_activator = tracked_oracles.iter().find_map(|(field, oracle)| {
         (field.name() == ACTIVATOR_COL_NAME).then(|| oracle.clone())
@@ -606,7 +603,7 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
             continue;
         }
         let primary_name = field.name();
-        let mut aux_segments: Vec<(String, TrackedAuxOracle<B>)> = Vec::new();
+        let mut aux_oracle_bundles: Vec<(String, OracleBundle<B>)> = Vec::new();
         for (aux_field, aux_oracle) in tracked_oracles.iter() {
             if aux_field.name() == primary_name {
                 continue;
@@ -615,9 +612,9 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
                 && base == primary_name
             {
                 let suffix = &aux_field.name()[primary_name.len()..];
-                aux_segments.push((
+                aux_oracle_bundles.push((
                     suffix.to_string(),
-                    TrackedAuxOracle::new_row(aux_oracle.clone(), shared_activator.clone()),
+                    OracleBundle::new(aux_oracle.clone(), shared_activator.clone()),
                 ));
             }
         }
@@ -626,10 +623,10 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
                 && base == primary_name
             {
                 let suffix = &side_field.name()[primary_name.len()..];
-                aux_segments.push((suffix.to_string(), side.clone()));
+                aux_oracle_bundles.push((suffix.to_string(), side.clone()));
             }
         }
-        let col = if aux_segments.is_empty() {
+        let col = if aux_oracle_bundles.is_empty() {
             TrackedColOracle::new(
                 oracle.clone(),
                 shared_activator.clone(),
@@ -637,9 +634,8 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
             )
         } else {
             TrackedColOracle::new_multi(
-                oracle.clone(),
-                shared_activator.clone(),
-                aux_segments,
+                OracleBundle::new(oracle.clone(), shared_activator.clone()),
+                aux_oracle_bundles,
                 Some(field.clone()),
             )
         };
@@ -866,9 +862,12 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
                             .expect("side segment must carry a tracked activator")
                             .commitment(),
                         log_size: side.log_size(),
-                        active_len: side
-                            .active_len
-                            .expect("side segment must carry active_len"),
+                        // `active_len` is not carried on the tracked
+                        // layer; no downstream consumer reads this
+                        // field on `ArithSideColOracle`. See
+                        // verifier/passes/tracking.rs for the parallel
+                        // placeholder used on the verifier side.
+                        active_len: 0,
                     },
                 )
             })

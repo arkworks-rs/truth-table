@@ -4,36 +4,21 @@ use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
 use indexmap::IndexMap;
 
-/// Verifier-side mirror of `TrackedAuxPoly`. Uniform payload for both
-/// row-domain aux oracles and side-domain aux oracles; distinguished by
-/// `active_len` (Some → contiguous-one activator, i.e. side-domain).
+/// Verifier-side mirror of `PolyBundle`: data oracle plus its
+/// paired activator (optional — row aux inherit primary's, which may
+/// itself be `None` on unfiltered base tables). Row-vs-side is a
+/// derived property (compare `data.log_size()` against the owning
+/// column's primary log_size).
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
-pub struct TrackedAuxOracle<B: SnarkBackend> {
+pub struct OracleBundle<B: SnarkBackend> {
     pub data: TrackedOracle<B>,
     pub activator: Option<TrackedOracle<B>>,
-    pub active_len: Option<usize>,
 }
 
-impl<B: SnarkBackend> TrackedAuxOracle<B> {
-    pub fn new_row(data: TrackedOracle<B>, activator: Option<TrackedOracle<B>>) -> Self {
-        Self {
-            data,
-            activator,
-            active_len: None,
-        }
-    }
-
-    pub fn new_side(data: TrackedOracle<B>, activator: TrackedOracle<B>, active_len: usize) -> Self {
-        Self {
-            data,
-            activator: Some(activator),
-            active_len: Some(active_len),
-        }
-    }
-
-    pub fn is_side(&self) -> bool {
-        self.active_len.is_some()
+impl<B: SnarkBackend> OracleBundle<B> {
+    pub fn new(data: TrackedOracle<B>, activator: Option<TrackedOracle<B>>) -> Self {
+        Self { data, activator }
     }
 
     pub fn log_size(&self) -> usize {
@@ -44,7 +29,7 @@ impl<B: SnarkBackend> TrackedAuxOracle<B> {
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// Verifier-side mirror of `TrackedCol`. Row-domain and side-domain aux
-/// oracles live in the same `aux_segments` map; see [`TrackedAuxOracle`].
+/// oracles live in the same `aux_segments` map; see [`OracleBundle`].
 pub enum TrackedColOracle<B: SnarkBackend> {
     SingleSegment {
         data_tracked_oracle: TrackedOracle<B>,
@@ -52,13 +37,11 @@ pub enum TrackedColOracle<B: SnarkBackend> {
         field_ref: Option<FieldRef>,
     },
     MultiSegment {
-        /// The primary (canonical) data oracle. Always present.
-        primary_data_tracked_oracle: TrackedOracle<B>,
-        /// Activator paired with the primary data oracle.
-        primary_activator_tracked_oracle: Option<TrackedOracle<B>>,
-        /// All auxiliary oracles (row-domain + side-domain), keyed by
-        /// segment suffix.
-        aux_segments: IndexMap<String, TrackedAuxOracle<B>>,
+        /// The primary (canonical) data oracle + its activator.
+        primary_oracle_bundle: OracleBundle<B>,
+        /// All auxiliary oracle bundles (row-domain + side-domain),
+        /// keyed by segment suffix.
+        aux_oracle_bundles: IndexMap<String, OracleBundle<B>>,
         field_ref: Option<FieldRef>,
     },
 }
@@ -77,15 +60,16 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedColOracle<B> {
                 .field("field_ref", field_ref)
                 .finish(),
             Self::MultiSegment {
-                aux_segments,
+                primary_oracle_bundle,
+                aux_oracle_bundles,
                 field_ref,
-                ..
             } => {
-                let (side_ids, row_ids): (Vec<_>, Vec<_>) = aux_segments
+                let primary_log_size = primary_oracle_bundle.log_size();
+                let (side_ids, row_ids): (Vec<_>, Vec<_>) = aux_oracle_bundles
                     .iter()
-                    .partition(|(_, aux)| aux.is_side());
+                    .partition(|(_, aux)| aux.log_size() != primary_log_size);
                 f.debug_struct("TrackedColOracle::MultiSegment")
-                    .field("num_segments", &(1 + aux_segments.len()))
+                    .field("num_segments", &(1 + aux_oracle_bundles.len()))
                     .field(
                         "row_aux_segments",
                         &row_ids.iter().map(|(k, _)| k).collect::<Vec<_>>(),
@@ -120,34 +104,32 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     }
 
     /// Constructs a multi-segment tracked column oracle: one required
-    /// primary oracle plus zero or more named aux oracles. Aux ids must
-    /// be non-empty (the primary owns the empty id by convention).
-    /// Row- and side-domain aux oracles live in the same map; each
-    /// `TrackedAuxOracle` self-describes whether it's a side-domain
-    /// segment via `active_len`.
+    /// primary oracle bundle plus zero or more named aux oracle bundles.
+    /// Aux ids must be non-empty (the primary owns the empty id by
+    /// convention). Row- and side-domain aux oracles live in the same
+    /// map — distinguished downstream by comparing `aux.data.log_size()`
+    /// against primary's.
     pub fn new_multi(
-        primary_data_tracked_oracle: TrackedOracle<B>,
-        primary_activator_tracked_oracle: Option<TrackedOracle<B>>,
-        aux_segments_input: Vec<(String, TrackedAuxOracle<B>)>,
+        primary_oracle_bundle: OracleBundle<B>,
+        aux_oracle_bundles_input: Vec<(String, OracleBundle<B>)>,
         field_ref: Option<FieldRef>,
     ) -> Self {
-        let mut aux_segments: IndexMap<String, TrackedAuxOracle<B>> =
-            IndexMap::with_capacity(aux_segments_input.len());
-        for (sid, aux) in aux_segments_input {
+        let mut aux_oracle_bundles: IndexMap<String, OracleBundle<B>> =
+            IndexMap::with_capacity(aux_oracle_bundles_input.len());
+        for (sid, aux) in aux_oracle_bundles_input {
             assert!(
                 !sid.is_empty(),
                 "MultiSegment aux segment id must be non-empty (primary owns the empty id)"
             );
             assert!(
-                !aux_segments.contains_key(&sid),
+                !aux_oracle_bundles.contains_key(&sid),
                 "duplicate aux segment id '{sid}' in MultiSegment column oracle"
             );
-            aux_segments.insert(sid, aux);
+            aux_oracle_bundles.insert(sid, aux);
         }
         Self::MultiSegment {
-            primary_data_tracked_oracle,
-            primary_activator_tracked_oracle,
-            aux_segments,
+            primary_oracle_bundle,
+            aux_oracle_bundles,
             field_ref,
         }
     }
@@ -171,8 +153,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Returns the log size of the tracked oracle. Multi-segment oracles
-    /// share log size across all segments by construction.
+    /// Returns the log size of the tracked oracle. All row-domain
+    /// segments in a multi-segment oracle share the same log size by
+    /// construction.
     pub fn log_size(&self) -> usize {
         match self {
             Self::SingleSegment {
@@ -180,9 +163,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => data_tracked_oracle.log_size(),
             Self::MultiSegment {
-                primary_data_tracked_oracle,
+                primary_oracle_bundle,
                 ..
-            } => primary_data_tracked_oracle.log_size(),
+            } => primary_oracle_bundle.log_size(),
         }
     }
 
@@ -194,9 +177,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => data_tracked_oracle.clone(),
             Self::MultiSegment {
-                primary_data_tracked_oracle,
+                primary_oracle_bundle,
                 ..
-            } => primary_data_tracked_oracle.clone(),
+            } => primary_oracle_bundle.data.clone(),
         }
     }
 
@@ -208,9 +191,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => activator_tracked_oracle.clone(),
             Self::MultiSegment {
-                primary_activator_tracked_oracle,
+                primary_oracle_bundle,
                 ..
-            } => primary_activator_tracked_oracle.clone(),
+            } => primary_oracle_bundle.activator.clone(),
         }
     }
 
@@ -228,7 +211,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     pub fn num_segments(&self) -> usize {
         match self {
             Self::SingleSegment { .. } => 1,
-            Self::MultiSegment { aux_segments, .. } => 1 + aux_segments.len(),
+            Self::MultiSegment {
+                aux_oracle_bundles, ..
+            } => 1 + aux_oracle_bundles.len(),
         }
     }
 
@@ -251,19 +236,19 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 activator_tracked_oracle.as_ref(),
             ))),
             Self::MultiSegment {
-                primary_data_tracked_oracle,
-                primary_activator_tracked_oracle,
-                aux_segments,
+                primary_oracle_bundle,
+                aux_oracle_bundles,
                 ..
             } => {
+                let primary_log_size = primary_oracle_bundle.log_size();
                 let primary = std::iter::once((
                     None,
-                    primary_data_tracked_oracle,
-                    primary_activator_tracked_oracle.as_ref(),
+                    &primary_oracle_bundle.data,
+                    primary_oracle_bundle.activator.as_ref(),
                 ));
-                let aux = aux_segments
+                let aux = aux_oracle_bundles
                     .iter()
-                    .filter(|(_, aux)| !aux.is_side())
+                    .filter(move |(_, aux)| aux.data.log_size() == primary_log_size)
                     .map(|(sid, aux)| (Some(sid.as_str()), &aux.data, aux.activator.as_ref()));
                 Box::new(primary.chain(aux))
             }
@@ -273,32 +258,43 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     /// Look up ANY aux segment (row-domain or side-domain) by id.
     /// Returns `None` if the id is not registered (including for
     /// `SingleSegment` oracles).
-    pub fn aux_segment(&self, aux_id: &str) -> Option<&TrackedAuxOracle<B>> {
+    pub fn aux_segment(&self, aux_id: &str) -> Option<&OracleBundle<B>> {
         match self {
             Self::SingleSegment { .. } => None,
-            Self::MultiSegment { aux_segments, .. } => aux_segments.get(aux_id),
+            Self::MultiSegment {
+                aux_oracle_bundles, ..
+            } => aux_oracle_bundles.get(aux_id),
         }
     }
 
     /// Look up a side-domain segment specifically (returns `None` if the
     /// id resolves to a row-domain aux).
-    pub fn side_segment(&self, side_id: &str) -> Option<&TrackedAuxOracle<B>> {
-        self.aux_segment(side_id).filter(|aux| aux.is_side())
+    pub fn side_segment(&self, side_id: &str) -> Option<&OracleBundle<B>> {
+        let primary_log_size = self.log_size();
+        self.aux_segment(side_id)
+            .filter(|aux| aux.data.log_size() != primary_log_size)
     }
 
     /// Iterate `(suffix, aux)` over every side-domain segment in this
     /// column oracle, in insertion order. Empty for `SingleSegment`.
     pub fn side_segments_iter(
         &self,
-    ) -> Box<dyn Iterator<Item = (&str, &TrackedAuxOracle<B>)> + '_> {
+    ) -> Box<dyn Iterator<Item = (&str, &OracleBundle<B>)> + '_> {
         match self {
             Self::SingleSegment { .. } => Box::new(std::iter::empty()),
-            Self::MultiSegment { aux_segments, .. } => Box::new(
-                aux_segments
-                    .iter()
-                    .filter(|(_, aux)| aux.is_side())
-                    .map(|(sid, aux)| (sid.as_str(), aux)),
-            ),
+            Self::MultiSegment {
+                primary_oracle_bundle,
+                aux_oracle_bundles,
+                ..
+            } => {
+                let primary_log_size = primary_oracle_bundle.log_size();
+                Box::new(
+                    aux_oracle_bundles
+                        .iter()
+                        .filter(move |(_, aux)| aux.data.log_size() != primary_log_size)
+                        .map(|(sid, aux)| (sid.as_str(), aux)),
+                )
+            }
         }
     }
 
@@ -310,9 +306,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
                 ..
             } => data_tracked_oracle,
             Self::MultiSegment {
-                primary_data_tracked_oracle,
+                primary_oracle_bundle,
                 ..
-            } => primary_data_tracked_oracle,
+            } => &primary_oracle_bundle.data,
         };
         ArgVerifier::new_from_tracker_rc(oracle.tracker().clone())
     }

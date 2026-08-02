@@ -312,7 +312,7 @@ impl<B: SnarkBackend> ExprNode<B> {
     fn scan_and_compute_witness_prover(
         &self,
         scope_table: &TrackedTable<B>,
-        chars_side: &arithmetic::col::TrackedAuxPoly<B>,
+        chars_side: &arithmetic::col::PolyBundle<B>,
     ) -> McpmWitness<B::F> {
         let str_domain = scope_table.log_size();
         let base_name = Self::find_string_column_base_name_side_prover(scope_table).unwrap();
@@ -555,7 +555,13 @@ impl<B: SnarkBackend> ExprNode<B> {
             polys.insert(orig_ind_f.clone(), orig_ind_side.data.clone());
             polys.insert(int_ind_f.clone(), int_ind_side.data.clone());
             polys.insert(bnd_f.clone(), bnd_side.data.clone());
-            polys.insert(ACTIVATOR_FIELD.clone(), chars_side.activator.clone().expect("side segment must carry activator"));
+            polys.insert(
+                ACTIVATOR_FIELD.clone(),
+                chars_side
+                    .activator
+                    .clone()
+                    .expect("side segment must carry activator"),
+            );
             let schema = Schema::new(vec![
                 char_f.as_ref().clone(),
                 orig_ind_f.as_ref().clone(),
@@ -961,7 +967,13 @@ impl<B: SnarkBackend> ExprNode<B> {
             oracles.insert(orig_ind_f.clone(), orig_ind_side.data.clone());
             oracles.insert(int_ind_f.clone(), int_ind_side.data.clone());
             oracles.insert(bnd_f.clone(), bnd_side.data.clone());
-            oracles.insert(ACTIVATOR_FIELD.clone(), chars_side.activator.clone().expect("side segment must carry activator"));
+            oracles.insert(
+                ACTIVATOR_FIELD.clone(),
+                chars_side
+                    .activator
+                    .clone()
+                    .expect("side segment must carry activator"),
+            );
             let schema = Schema::new(vec![
                 char_f.as_ref().clone(),
                 orig_ind_f.as_ref().clone(),
