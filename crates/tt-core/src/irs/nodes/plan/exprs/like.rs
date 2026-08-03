@@ -83,16 +83,6 @@ use crate::irs::{
 use crate::prover::irs::VirtualizedIr as ProverVirtualizedIr;
 use crate::verifier::irs::VirtualizedIr as VerifierVirtualizedIr;
 
-fn bool_field() -> FieldRef {
-    Arc::new(Field::new("data", DataType::Boolean, false))
-}
-fn u64_field(name: &str) -> FieldRef {
-    Arc::new(Field::new(name, DataType::UInt64, false))
-}
-fn i32_field(name: &str) -> FieldRef {
-    Arc::new(Field::new(name, DataType::Int32, false))
-}
-
 pub struct ExprNode<B: SnarkBackend> {
     pub scope: Vec<std::sync::Weak<Node<B>>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
@@ -546,10 +536,10 @@ impl<B: SnarkBackend> ExprNode<B> {
         let mut mcpm_payload: IndexMap<String, TrackedTable<B>> = IndexMap::new();
 
         {
-            let char_f = u64_field("char");
-            let orig_ind_f = u64_field("orig_ind");
-            let int_ind_f = u64_field("int_ind");
-            let bnd_f = u64_field("bnd");
+            let char_f = Arc::new(Field::new("char", DataType::UInt64, false));
+            let orig_ind_f = Arc::new(Field::new("orig_ind", DataType::UInt64, false));
+            let int_ind_f = Arc::new(Field::new("int_ind", DataType::UInt64, false));
+            let bnd_f = Arc::new(Field::new("bnd", DataType::UInt64, false));
             let mut polys = IndexMap::new();
             polys.insert(char_f.clone(), chars_side.data.clone());
             polys.insert(orig_ind_f.clone(), orig_ind_side.data.clone());
@@ -574,7 +564,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             );
         }
         {
-            let ind_f = u64_field("ind");
+            let ind_f = Arc::new(Field::new("ind", DataType::UInt64, false));
             let l_f = length_field.clone();
             let mut polys = IndexMap::new();
             let ind_poly = scope_table
@@ -607,8 +597,8 @@ impl<B: SnarkBackend> ExprNode<B> {
 
         let bool_table = |data: TrackedPoly<B>, log_size: usize| -> TrackedTable<B> {
             let mut polys = IndexMap::new();
-            polys.insert(bool_field(), data);
-            let schema = Schema::new(vec![bool_field().as_ref().clone()]);
+            polys.insert(Arc::new(Field::new("data", DataType::Boolean, false)), data);
+            let schema = Schema::new(vec![Arc::new(Field::new("data", DataType::Boolean, false)).as_ref().clone()]);
             TrackedTable::new(Some(schema), polys, log_size)
         };
         mcpm_payload.insert(
@@ -634,7 +624,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 let mut polys = IndexMap::new();
                 let mut fields = Vec::with_capacity(k);
                 for (delta, p) in fp.rotated_chars.into_iter().enumerate() {
-                    let f = u64_field(&format!("char_{delta}"));
+                    let f = Arc::new(Field::new(format!("char_{delta}"), DataType::UInt64, false));
                     polys.insert(f.clone(), p);
                     fields.push(f.as_ref().clone());
                 }
@@ -656,7 +646,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 bool_table(fp.mark, char_domain),
             );
             {
-                let start_f = u64_field("start");
+                let start_f = Arc::new(Field::new("start", DataType::UInt64, false));
                 let mut polys = IndexMap::new();
                 polys.insert(start_f.clone(), fp.start);
                 mcpm_payload.insert(
@@ -669,7 +659,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             {
-                let mb_f = u64_field("match_prime");
+                let mb_f = Arc::new(Field::new("match_prime", DataType::UInt64, false));
                 let mut polys = IndexMap::new();
                 polys.insert(mb_f.clone(), fp.match_broadcast);
                 mcpm_payload.insert(
@@ -682,7 +672,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             {
-                let sb_f = u64_field("start_broadcast");
+                let sb_f = Arc::new(Field::new("start_broadcast", DataType::UInt64, false));
                 let mut polys = IndexMap::new();
                 polys.insert(sb_f.clone(), fp.start_broadcast);
                 mcpm_payload.insert(
@@ -695,7 +685,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             {
-                let mask_f = u64_field("leftmost_mask");
+                let mask_f = Arc::new(Field::new("leftmost_mask", DataType::UInt64, false));
                 let mut polys = IndexMap::new();
                 polys.insert(mask_f.clone(), fp.leftmost_mask);
                 mcpm_payload.insert(
@@ -708,7 +698,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             if let Some(am) = fp.att_mask {
-                let am_f = u64_field("att_mask");
+                let am_f = Arc::new(Field::new("att_mask", DataType::UInt64, false));
                 let mut polys = IndexMap::new();
                 polys.insert(am_f.clone(), am);
                 mcpm_payload.insert(
@@ -725,7 +715,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 let mut fields = Vec::with_capacity(rb.len());
                 for (delta1, p) in rb.into_iter().enumerate() {
                     let name = format!("bnd_{}", delta1 + 1);
-                    let f = u64_field(&name);
+                    let f = Arc::new(Field::new(name, DataType::UInt64, false));
                     polys.insert(f.clone(), p);
                     fields.push(f.as_ref().clone());
                 }
@@ -735,7 +725,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             if let Some(past) = fp.past {
-                let past_f = u64_field("past");
+                let past_f = Arc::new(Field::new("past", DataType::UInt64, false));
                 let mut polys = IndexMap::new();
                 polys.insert(past_f.clone(), past);
                 mcpm_payload.insert(
@@ -958,10 +948,10 @@ impl<B: SnarkBackend> ExprNode<B> {
         let mut mcpm_payload: IndexMap<String, TrackedTableOracle<B>> = IndexMap::new();
 
         {
-            let char_f = u64_field("char");
-            let orig_ind_f = u64_field("orig_ind");
-            let int_ind_f = u64_field("int_ind");
-            let bnd_f = u64_field("bnd");
+            let char_f = Arc::new(Field::new("char", DataType::UInt64, false));
+            let orig_ind_f = Arc::new(Field::new("orig_ind", DataType::UInt64, false));
+            let int_ind_f = Arc::new(Field::new("int_ind", DataType::UInt64, false));
+            let bnd_f = Arc::new(Field::new("bnd", DataType::UInt64, false));
             let mut oracles = IndexMap::new();
             oracles.insert(char_f.clone(), chars_side.data.clone());
             oracles.insert(orig_ind_f.clone(), orig_ind_side.data.clone());
@@ -986,7 +976,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             );
         }
         {
-            let ind_f = u64_field("ind");
+            let ind_f = Arc::new(Field::new("ind", DataType::UInt64, false));
             let mut oracles = IndexMap::new();
             // Mirror prover: if no __row_id__ oracle exists on the scope,
             // the prover committed a fresh ind poly at (0..n_strs). Track
@@ -1019,8 +1009,8 @@ impl<B: SnarkBackend> ExprNode<B> {
         let bool_table_oracle =
             |data: TrackedOracle<B>, log_size: usize| -> TrackedTableOracle<B> {
                 let mut oracles = IndexMap::new();
-                oracles.insert(bool_field(), data);
-                let schema = Schema::new(vec![bool_field().as_ref().clone()]);
+                oracles.insert(Arc::new(Field::new("data", DataType::Boolean, false)), data);
+                let schema = Schema::new(vec![Arc::new(Field::new("data", DataType::Boolean, false)).as_ref().clone()]);
                 TrackedTableOracle::new(Some(schema), oracles, log_size)
             };
         mcpm_payload.insert(
@@ -1046,7 +1036,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 let mut oracles = IndexMap::new();
                 let mut fields = Vec::with_capacity(k);
                 for (delta, p) in fo.rotated_chars.into_iter().enumerate() {
-                    let f = u64_field(&format!("char_{delta}"));
+                    let f = Arc::new(Field::new(format!("char_{delta}"), DataType::UInt64, false));
                     oracles.insert(f.clone(), p);
                     fields.push(f.as_ref().clone());
                 }
@@ -1068,7 +1058,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 bool_table_oracle(fo.mark, char_domain),
             );
             {
-                let start_f = u64_field("start");
+                let start_f = Arc::new(Field::new("start", DataType::UInt64, false));
                 let mut oracles = IndexMap::new();
                 oracles.insert(start_f.clone(), fo.start);
                 mcpm_payload.insert(
@@ -1081,7 +1071,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             {
-                let mb_f = u64_field("match_prime");
+                let mb_f = Arc::new(Field::new("match_prime", DataType::UInt64, false));
                 let mut oracles = IndexMap::new();
                 oracles.insert(mb_f.clone(), fo.match_broadcast);
                 mcpm_payload.insert(
@@ -1094,7 +1084,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             {
-                let sb_f = u64_field("start_broadcast");
+                let sb_f = Arc::new(Field::new("start_broadcast", DataType::UInt64, false));
                 let mut oracles = IndexMap::new();
                 oracles.insert(sb_f.clone(), fo.start_broadcast);
                 mcpm_payload.insert(
@@ -1107,7 +1097,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             {
-                let mask_f = u64_field("leftmost_mask");
+                let mask_f = Arc::new(Field::new("leftmost_mask", DataType::UInt64, false));
                 let mut oracles = IndexMap::new();
                 oracles.insert(mask_f.clone(), fo.leftmost_mask);
                 mcpm_payload.insert(
@@ -1120,7 +1110,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             if let Some(am) = fo.att_mask {
-                let am_f = u64_field("att_mask");
+                let am_f = Arc::new(Field::new("att_mask", DataType::UInt64, false));
                 let mut oracles = IndexMap::new();
                 oracles.insert(am_f.clone(), am);
                 mcpm_payload.insert(
@@ -1137,7 +1127,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 let mut fields = Vec::with_capacity(rb.len());
                 for (delta1, p) in rb.into_iter().enumerate() {
                     let name = format!("bnd_{}", delta1 + 1);
-                    let f = u64_field(&name);
+                    let f = Arc::new(Field::new(name, DataType::UInt64, false));
                     oracles.insert(f.clone(), p);
                     fields.push(f.as_ref().clone());
                 }
@@ -1147,7 +1137,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 );
             }
             if let Some(past) = fo.past {
-                let past_f = u64_field("past");
+                let past_f = Arc::new(Field::new("past", DataType::UInt64, false));
                 let mut oracles = IndexMap::new();
                 oracles.insert(past_f.clone(), past);
                 mcpm_payload.insert(
@@ -1834,10 +1824,4 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
             .map(|s| s.upgrade().expect("Like scope should be available"))
             .collect()
     }
-}
-
-#[allow(dead_code)]
-fn _touch_unused() {
-    let _ = is_system_column;
-    let _ = i32_field("_");
 }
