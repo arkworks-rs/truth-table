@@ -184,6 +184,11 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
         todo!()
     }
 
+    // NOTE: `like.pattern` is intentionally NOT a child. `from_expr`
+    // asserts it must be a Utf8 literal and consumes it into `factors`
+    // at construction; it produces no witness, oracle, or payload. If we
+    // ever support non-literal patterns (e.g. `col1 LIKE col2`), wrap it
+    // as a Node<B> here so it gets its own witness/oracle slot.
     fn children(&self) -> Vec<Arc<Node<B>>> {
         let mut kids = vec![self.expr.clone()];
         if let Some(mcpm) = &self.mcpm {

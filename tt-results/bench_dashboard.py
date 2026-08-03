@@ -19,6 +19,38 @@ ARK_PIOP_TYPES_PATH = Path(__file__).resolve().parents[2] / "ark-piop" / "src" /
 ARK_PIOP_LIB_PATH = Path(__file__).resolve().parents[2] / "ark-piop" / "src" / "lib.rs"
 
 
+# Canonical order the TT prover emits plan / IR stages in, from
+# `crates/tt-front-end/src/prover.rs`. Any stage not in this list is
+# appended at the end in alphabetical order — safe default if the
+# pipeline grows a new stage the dashboard hasn't been taught yet.
+PIPELINE_STAGE_ORDER = (
+    "initial_logical_plan",
+    "analyzed_logical_plan",
+    "structural_optimized_logical_plan",
+    "data_dependent_optimized_logical_plan",
+    "initial_ir",
+    "optimized_initial_ir",
+    "output_planned_ir",
+    "gadget_planned_ir",
+    "materialized_ir",
+    "arithmetized_ir",
+    "committed_ir",
+    "tracked_ir",
+    "virtualized_ir",
+    "gadget_ready_ir",
+)
+
+
+def order_plan_stages(names: Any) -> list[str]:
+    """Sort plan-stage names by pipeline order; unknown names go last A→Z."""
+    index_of = {name: i for i, name in enumerate(PIPELINE_STAGE_ORDER)}
+    unknown_start = len(PIPELINE_STAGE_ORDER)
+    return sorted(
+        names,
+        key=lambda name: (index_of.get(name, unknown_start), name),
+    )
+
+
 def parse_scalar(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: parse_scalar(inner_value) for key, inner_value in value.items()}
@@ -435,6 +467,63 @@ def render_results_section(results: dict[str, Any]) -> None:
     else:
         st.info("No result schema found for this run.")
 
+    # Inline preview (first N rows, embedded in the JSONL by the bench).
+    # We convert to a pandas DataFrame explicitly rather than passing the
+    # list of dicts directly — st.dataframe's internal Arrow inference has
+    # been fragile across pyarrow / streamlit / pandas version combos.
+    preview = results.get("preview_rows")
+    if preview:
+        st.markdown("#### Preview")
+        preview_rows: list[Any] | None = None
+        if isinstance(preview, str):
+            try:
+                parsed = json.loads(preview)
+                if isinstance(parsed, list):
+                    preview_rows = parsed
+            except json.JSONDecodeError:
+                st.warning("Preview rows field is not valid JSON.")
+        elif isinstance(preview, list):
+            preview_rows = preview
+        if preview_rows is not None:
+            if preview_rows:
+                try:
+                    import pandas as pd  # local import: pandas is heavy
+
+                    preview_df = pd.DataFrame(preview_rows)
+                    st.dataframe(preview_df, hide_index=True, use_container_width=True)
+                    total = results.get("Rows Count")
+                    if isinstance(total, int) and total > len(preview_rows):
+                        st.caption(
+                            f"Showing first {len(preview_rows)} of {total} rows. "
+                            f"Full result available below."
+                        )
+                except Exception as exc:
+                    st.error(f"Preview render failed: {exc}")
+                    st.code(json.dumps(preview_rows[:5], indent=2), language="json")
+            else:
+                st.info("Result set is empty.")
+
+    # Full result — lazy-loaded only when the user clicks the button so we
+    # don't re-read the parquet on every rerun (Streamlit re-executes the
+    # whole script per interaction; expander bodies run even when collapsed).
+    parquet_path = results.get("parquet_path")
+    if parquet_path:
+        st.markdown("#### Full Result")
+        path = Path(str(parquet_path))
+        if not path.exists():
+            st.caption(f"No parquet at `{path}`.")
+        else:
+            st.caption(f"Sidecar: `{path}`")
+            if st.button("Load full result from parquet"):
+                try:
+                    import pandas as pd  # local import: pandas is heavy
+
+                    df = pd.read_parquet(path)
+                    st.caption(f"{len(df):,} rows × {len(df.columns)} cols")
+                    st.dataframe(df, hide_index=True, use_container_width=True)
+                except Exception as exc:
+                    st.error(f"Failed to read parquet: {exc}")
+
 
 def render_proof_size_section(proof_size: dict[str, Any]) -> None:
     st.subheader("Proof Size")
@@ -632,7 +721,7 @@ def render_plans_section(record: dict[str, Any]) -> None:
         st.info("No plan graphviz data found for this run.")
         return
 
-    stage_names = list(plans.keys())
+    stage_names = order_plan_stages(plans.keys())
     selected_stage = st.selectbox(
         "Plan Stage",
         stage_names,

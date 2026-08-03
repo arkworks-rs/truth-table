@@ -38,6 +38,29 @@ fn filter_like_cases() -> &'static [BenchCase] {
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let cases: Vec<BenchCase> = vec![
+            // Nation LIKE audit set — three shapes on the same column
+            // (`n_name`) so the IR / prover / verifier / proof metrics
+            // are directly comparable across pattern kinds. Nation is
+            // ~25 rows, so these run in seconds and won't OOM the
+            // dashboard host.
+            BenchCase {
+                name: "filter_like_prefix_nation",
+                query: r#"SELECT n_name FROM nation WHERE n_name LIKE 'IN%'"#,
+                tables: &["nation"],
+                benchmark_suite: None,
+            },
+            BenchCase {
+                name: "filter_like_suffix_nation",
+                query: r#"SELECT n_name FROM nation WHERE n_name LIKE '%AN'"#,
+                tables: &["nation"],
+                benchmark_suite: None,
+            },
+            BenchCase {
+                name: "filter_like_infix_nation",
+                query: r#"SELECT n_name FROM nation WHERE n_name LIKE '%AN%'"#,
+                tables: &["nation"],
+                benchmark_suite: None,
+            },
             // t = 1, single infix — the most common shape.
             BenchCase {
                 name: "filter_like_infix",

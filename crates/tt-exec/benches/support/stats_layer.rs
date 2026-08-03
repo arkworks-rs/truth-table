@@ -241,7 +241,11 @@ impl PendingBenchRecord {
                     let normalized = key.strip_prefix("plan_").unwrap_or(&key).to_string();
                     self.plans.insert(normalized, value);
                 }
-                "results_rows_count" | "results_schema" | "results_size_bytes" => {
+                "results_rows_count"
+                | "results_schema"
+                | "results_size_bytes"
+                | "results_preview_rows"
+                | "results_parquet_path" => {
                     let normalized = key.strip_prefix("results_").unwrap_or(&key).to_string();
                     self.results.insert(normalized, value);
                 }
@@ -307,7 +311,9 @@ impl PendingBenchRecord {
                 json!({
                     "Rows Count": self.results.get("rows_count").cloned().unwrap_or(Value::Null),
                     "Schema": self.results.get("schema").cloned().unwrap_or(Value::Null),
-                    "Size": self.results.get("size_bytes").cloned().unwrap_or(Value::Null)
+                    "Size": self.results.get("size_bytes").cloned().unwrap_or(Value::Null),
+                    "preview_rows": self.results.get("preview_rows").cloned().unwrap_or(Value::Null),
+                    "parquet_path": self.results.get("parquet_path").cloned().unwrap_or(Value::Null)
                 }),
             );
         }
@@ -597,13 +603,22 @@ pub fn emit_proof_size_bytes(
     );
 }
 
-pub fn emit_results_stats(query: &str, rows_count: usize, schema: &str, size_bytes: usize) {
+pub fn emit_results_stats(
+    query: &str,
+    rows_count: usize,
+    schema: &str,
+    size_bytes: usize,
+    preview_rows: &str,
+    parquet_path: &str,
+) {
     tracing::info!(
         target: BENCH_STATS_TARGET,
         query,
         results_rows_count = rows_count,
         results_schema = schema,
         results_size_bytes = size_bytes,
+        results_preview_rows = preview_rows,
+        results_parquet_path = parquet_path,
         "results"
     );
 }
