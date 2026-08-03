@@ -188,14 +188,9 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             .expect("insert_side_col: source column disappeared");
         let promoted = match existing {
             TrackedColOracle::SingleSegment {
-                data_tracked_oracle,
-                activator_tracked_oracle,
+                oracle_bundle,
                 field_ref,
-            } => TrackedColOracle::new_multi(
-                OracleBundle::new(data_tracked_oracle, activator_tracked_oracle),
-                vec![(suffix, side)],
-                field_ref,
-            ),
+            } => TrackedColOracle::new_multi(oracle_bundle, vec![(suffix, side)], field_ref),
             TrackedColOracle::MultiSegment {
                 primary_oracle_bundle,
                 mut aux_oracle_bundles,

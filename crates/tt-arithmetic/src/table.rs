@@ -211,14 +211,9 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .expect("insert_side_col: source column disappeared");
         let promoted = match existing {
             TrackedCol::SingleSegment {
-                data_tracked_poly,
-                activator_tracked_poly,
+                poly_bundle,
                 field_ref,
-            } => TrackedCol::new_multi(
-                PolyBundle::new(data_tracked_poly, activator_tracked_poly),
-                vec![(suffix, side)],
-                field_ref,
-            ),
+            } => TrackedCol::new_multi(poly_bundle, vec![(suffix, side)], field_ref),
             TrackedCol::MultiSegment {
                 primary_poly_bundle,
                 mut aux_poly_bundles,

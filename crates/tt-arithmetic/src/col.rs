@@ -74,8 +74,8 @@ impl<B: SnarkBackend> PolyBundle<B> {
 /// aux have their own smaller domain).
 pub enum TrackedCol<B: SnarkBackend> {
     SingleSegment {
-        data_tracked_poly: TrackedPoly<B>,
-        activator_tracked_poly: Option<TrackedPoly<B>>,
+        /// The column's data polynomial + its (optional) activator.
+        poly_bundle: PolyBundle<B>,
         field_ref: Option<FieldRef>,
     },
     MultiSegment {
@@ -93,13 +93,12 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedCol<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::SingleSegment {
-                data_tracked_poly,
-                activator_tracked_poly,
+                poly_bundle,
                 field_ref,
             } => f
                 .debug_struct("TrackedCol::SingleSegment")
-                .field("log_size", &data_tracked_poly.log_size())
-                .field("has_activator", &activator_tracked_poly.is_some())
+                .field("log_size", &poly_bundle.log_size())
+                .field("has_activator", &poly_bundle.activator.is_some())
                 .field("field_ref", field_ref)
                 .finish(),
             Self::MultiSegment {
@@ -191,16 +190,12 @@ impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
         };
 
         match self {
-            Self::SingleSegment {
-                data_tracked_poly,
-                activator_tracked_poly,
-                ..
-            } => write!(
+            Self::SingleSegment { poly_bundle, .. } => write!(
                 f,
                 "{}: data={}, activator={}",
                 field_name,
-                data_repr(data_tracked_poly),
-                activator_repr(activator_tracked_poly),
+                data_repr(&poly_bundle.data),
+                activator_repr(&poly_bundle.activator),
             ),
             Self::MultiSegment {
                 primary_poly_bundle,
@@ -251,8 +246,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
             Self::check_new_args(&data_tracked_poly, &activator_tracked_poly, &field_ref);
         }
         Self::SingleSegment {
-            data_tracked_poly,
-            activator_tracked_poly,
+            poly_bundle: PolyBundle::new(data_tracked_poly, activator_tracked_poly),
             field_ref,
         }
     }
@@ -310,9 +304,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
     /// construction.
     pub fn log_size(&self) -> usize {
         match self {
-            Self::SingleSegment {
-                data_tracked_poly, ..
-            } => data_tracked_poly.log_size(),
+            Self::SingleSegment { poly_bundle, .. } => poly_bundle.log_size(),
             Self::MultiSegment {
                 primary_poly_bundle,
                 ..
@@ -324,9 +316,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
     /// segment column, or the primary of a multi-segment column.
     pub fn data_tracked_poly(&self) -> TrackedPoly<B> {
         match self {
-            Self::SingleSegment {
-                data_tracked_poly, ..
-            } => data_tracked_poly.clone(),
+            Self::SingleSegment { poly_bundle, .. } => poly_bundle.data.clone(),
             Self::MultiSegment {
                 primary_poly_bundle,
                 ..
@@ -337,10 +327,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
     /// Returns the activator polynomial paired with the primary data segment.
     pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
         match self {
-            Self::SingleSegment {
-                activator_tracked_poly,
-                ..
-            } => activator_tracked_poly.clone(),
+            Self::SingleSegment { poly_bundle, .. } => poly_bundle.activator.clone(),
             Self::MultiSegment {
                 primary_poly_bundle,
                 ..
@@ -378,14 +365,10 @@ impl<B: SnarkBackend> TrackedCol<B> {
     ) -> Box<dyn Iterator<Item = (Option<&str>, &TrackedPoly<B>, Option<&TrackedPoly<B>>)> + '_>
     {
         match self {
-            Self::SingleSegment {
-                data_tracked_poly,
-                activator_tracked_poly,
-                ..
-            } => Box::new(std::iter::once((
+            Self::SingleSegment { poly_bundle, .. } => Box::new(std::iter::once((
                 None,
-                data_tracked_poly,
-                activator_tracked_poly.as_ref(),
+                &poly_bundle.data,
+                poly_bundle.activator.as_ref(),
             ))),
             Self::MultiSegment {
                 primary_poly_bundle,
@@ -454,9 +437,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
     /// Returns a reference to the tracker shared by all polys in this column.
     pub fn tracker_ref(&self) -> ArgProver<B> {
         let poly = match self {
-            Self::SingleSegment {
-                data_tracked_poly, ..
-            } => data_tracked_poly,
+            Self::SingleSegment { poly_bundle, .. } => &poly_bundle.data,
             Self::MultiSegment {
                 primary_poly_bundle,
                 ..
@@ -578,14 +559,16 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
     fn deep_clone(&self, new_prover: ArgProver<B>) -> Self {
         match self {
             Self::SingleSegment {
-                data_tracked_poly,
-                activator_tracked_poly,
+                poly_bundle,
                 field_ref,
             } => Self::SingleSegment {
-                data_tracked_poly: data_tracked_poly.deep_clone(new_prover.clone()),
-                activator_tracked_poly: activator_tracked_poly
-                    .as_ref()
-                    .map(|activator| activator.deep_clone(new_prover)),
+                poly_bundle: PolyBundle {
+                    data: poly_bundle.data.deep_clone(new_prover.clone()),
+                    activator: poly_bundle
+                        .activator
+                        .as_ref()
+                        .map(|activator| activator.deep_clone(new_prover)),
+                },
                 field_ref: field_ref.clone(),
             },
             Self::MultiSegment {

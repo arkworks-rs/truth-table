@@ -32,8 +32,8 @@ impl<B: SnarkBackend> OracleBundle<B> {
 /// oracles live in the same `aux_segments` map; see [`OracleBundle`].
 pub enum TrackedColOracle<B: SnarkBackend> {
     SingleSegment {
-        data_tracked_oracle: TrackedOracle<B>,
-        activator_tracked_oracle: Option<TrackedOracle<B>>,
+        /// The column's data oracle + its (optional) activator.
+        oracle_bundle: OracleBundle<B>,
         field_ref: Option<FieldRef>,
     },
     MultiSegment {
@@ -50,13 +50,12 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedColOracle<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::SingleSegment {
-                data_tracked_oracle,
-                activator_tracked_oracle,
+                oracle_bundle,
                 field_ref,
             } => f
                 .debug_struct("TrackedColOracle::SingleSegment")
-                .field("log_size", &data_tracked_oracle.log_size())
-                .field("has_activator", &activator_tracked_oracle.is_some())
+                .field("log_size", &oracle_bundle.log_size())
+                .field("has_activator", &oracle_bundle.activator.is_some())
                 .field("field_ref", field_ref)
                 .finish(),
             Self::MultiSegment {
@@ -97,8 +96,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
             Self::check_new_args(&data_tracked_oracle, &activator_tracked_oracle, &field_ref);
         }
         Self::SingleSegment {
-            data_tracked_oracle,
-            activator_tracked_oracle,
+            oracle_bundle: OracleBundle::new(data_tracked_oracle, activator_tracked_oracle),
             field_ref,
         }
     }
@@ -158,10 +156,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     /// construction.
     pub fn log_size(&self) -> usize {
         match self {
-            Self::SingleSegment {
-                data_tracked_oracle,
-                ..
-            } => data_tracked_oracle.log_size(),
+            Self::SingleSegment { oracle_bundle, .. } => oracle_bundle.log_size(),
             Self::MultiSegment {
                 primary_oracle_bundle,
                 ..
@@ -172,10 +167,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     /// Returns the primary data oracle.
     pub fn data_tracked_oracle(&self) -> TrackedOracle<B> {
         match self {
-            Self::SingleSegment {
-                data_tracked_oracle,
-                ..
-            } => data_tracked_oracle.clone(),
+            Self::SingleSegment { oracle_bundle, .. } => oracle_bundle.data.clone(),
             Self::MultiSegment {
                 primary_oracle_bundle,
                 ..
@@ -186,10 +178,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     /// Returns the primary segment's activator oracle.
     pub fn activator_tracked_oracle(&self) -> Option<TrackedOracle<B>> {
         match self {
-            Self::SingleSegment {
-                activator_tracked_oracle,
-                ..
-            } => activator_tracked_oracle.clone(),
+            Self::SingleSegment { oracle_bundle, .. } => oracle_bundle.activator.clone(),
             Self::MultiSegment {
                 primary_oracle_bundle,
                 ..
@@ -226,14 +215,10 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     ) -> Box<dyn Iterator<Item = (Option<&str>, &TrackedOracle<B>, Option<&TrackedOracle<B>>)> + '_>
     {
         match self {
-            Self::SingleSegment {
-                data_tracked_oracle,
-                activator_tracked_oracle,
-                ..
-            } => Box::new(std::iter::once((
+            Self::SingleSegment { oracle_bundle, .. } => Box::new(std::iter::once((
                 None,
-                data_tracked_oracle,
-                activator_tracked_oracle.as_ref(),
+                &oracle_bundle.data,
+                oracle_bundle.activator.as_ref(),
             ))),
             Self::MultiSegment {
                 primary_oracle_bundle,
@@ -301,10 +286,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
     /// Returns the verifier tracker.
     pub fn tracker_ref(&self) -> ArgVerifier<B> {
         let oracle = match self {
-            Self::SingleSegment {
-                data_tracked_oracle,
-                ..
-            } => data_tracked_oracle,
+            Self::SingleSegment { oracle_bundle, .. } => &oracle_bundle.data,
             Self::MultiSegment {
                 primary_oracle_bundle,
                 ..
