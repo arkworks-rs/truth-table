@@ -909,6 +909,167 @@ def render_buckets_section(record: dict[str, Any]) -> None:
     st.dataframe(summary_rows, use_container_width=True, hide_index=True)
 
 
+def render_memory_section(record: dict[str, Any]) -> None:
+    """RSS-over-time curve for the bench_query span.
+
+    Samples come from the tt-exec subscriber's background sampler thread
+    (10 ms interval on Linux; no-op elsewhere). x-axis is elapsed ms from
+    the first sample; y-axis is RSS in MiB. Vertical dashed markers show
+    per-bucket sumcheck boundaries so it's easy to attribute a memory
+    spike to a specific bucket.
+    """
+    st.subheader("Memory")
+    memory = record.get("memory")
+    if not isinstance(memory, dict):
+        st.info("No memory samples in this record (older JSONL or non-Linux).")
+        return
+    samples = memory.get("samples")
+    if not isinstance(samples, list) or not samples:
+        st.info("Memory sample list is empty.")
+        return
+
+    # Samples arrive as [[wall_ms, rss_bytes], ...]. Convert to elapsed ms
+    # from the first sample, so different runs can be compared on a common
+    # 0-based axis regardless of when they ran.
+    typed: list[tuple[int, int]] = []
+    for item in samples:
+        if not isinstance(item, list) or len(item) != 2:
+            continue
+        try:
+            t = int(item[0])
+            r = int(item[1])
+        except (TypeError, ValueError):
+            continue
+        typed.append((t, r))
+    if not typed:
+        st.info("Memory samples were unparseable.")
+        return
+    t0 = typed[0][0]
+    points = [(t - t0, r) for t, r in typed]
+    peak = max(r for _, r in points)
+    duration_ms = points[-1][0]
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Peak RSS", f"{peak / (1024 * 1024):.1f} MiB")
+    col2.metric("Samples", str(memory.get("sample_count", len(points))))
+    col3.metric("Sample interval", f"{memory.get('sample_interval_ms', '?')} ms")
+
+    # Collect bucket boundaries (wall-clock ms → elapsed ms) so we can
+    # overlay dashed lines at bucket transitions.
+    sc_buckets = record.get("sc_buckets")
+    bucket_markers: list[tuple[int, str]] = []
+    if isinstance(sc_buckets, dict):
+        for b in sc_buckets.get("buckets") or []:
+            if not isinstance(b, dict):
+                continue
+            wall_start = b.get("wall_start_ms")
+            try:
+                x = int(wall_start) - t0
+            except (TypeError, ValueError):
+                continue
+            if 0 <= x <= duration_ms:
+                bucket_markers.append((x, f"b{b.get('index')} nv={b.get('target_nv')}"))
+
+    st.markdown(render_line_chart_svg(points, peak, duration_ms, bucket_markers), unsafe_allow_html=True)
+
+    with st.expander("Raw samples", expanded=False):
+        st.markdown(
+            f"First sample at wall_clock_ms = {t0}, "
+            f"{len(points)} samples over {duration_ms} ms."
+        )
+        st.dataframe(
+            [{"elapsed_ms": x, "rss_mib": f"{r / (1024 * 1024):.2f}"} for x, r in points],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+def render_line_chart_svg(
+    points: list[tuple[int, int]],
+    peak_bytes: int,
+    duration_ms: int,
+    markers: list[tuple[int, str]],
+) -> str:
+    """Inline SVG line chart. RSS in MiB on Y, elapsed ms on X. Vertical
+    dashed lines at each marker with a small text label at the top."""
+    if not points or duration_ms <= 0 or peak_bytes <= 0:
+        return ""
+    chart_left = 60
+    chart_right_pad = 20
+    chart_top = 20
+    chart_height = 260
+    chart_width = 900
+    inner_w = chart_width - chart_left - chart_right_pad
+
+    x_of = lambda t: chart_left + (t / duration_ms) * inner_w if duration_ms > 0 else chart_left
+    y_of = lambda r: chart_top + chart_height - (r / peak_bytes) * chart_height
+
+    # Build polyline points.
+    poly = " ".join(f"{x_of(t):.2f},{y_of(r):.2f}" for t, r in points)
+
+    parts = [
+        f'<svg viewBox="0 0 {chart_width} {chart_top + chart_height + 60}" '
+        f'width="100%" height="{chart_top + chart_height + 60}" '
+        f'xmlns="http://www.w3.org/2000/svg">',
+        f'<text x="{chart_left}" y="14" font-size="14" font-weight="bold" fill="#222">'
+        f'RSS over time — peak {peak_bytes / (1024 * 1024):.1f} MiB</text>',
+        # Axes
+        f'<line x1="{chart_left}" y1="{chart_top}" x2="{chart_left}" '
+        f'y2="{chart_top + chart_height}" stroke="#555" />',
+        f'<line x1="{chart_left}" y1="{chart_top + chart_height}" '
+        f'x2="{chart_left + inner_w}" y2="{chart_top + chart_height}" stroke="#555" />',
+    ]
+
+    # Y ticks (5 rows, MiB labels).
+    for tick_idx in range(5):
+        frac = (4 - tick_idx) / 4
+        value_bytes = peak_bytes * frac
+        y = chart_top + chart_height * tick_idx / 4
+        parts.append(
+            f'<line x1="{chart_left}" y1="{y:.2f}" '
+            f'x2="{chart_left + inner_w}" y2="{y:.2f}" stroke="#e5e7eb" />'
+        )
+        parts.append(
+            f'<text x="{chart_left - 8}" y="{y + 4:.2f}" text-anchor="end" '
+            f'font-size="11" fill="#555">{value_bytes / (1024 * 1024):.0f} MiB</text>'
+        )
+
+    # X ticks (5 columns, ms labels).
+    for tick_idx in range(6):
+        frac = tick_idx / 5
+        value_ms = duration_ms * frac
+        x = chart_left + inner_w * frac
+        parts.append(
+            f'<text x="{x:.2f}" y="{chart_top + chart_height + 16}" '
+            f'text-anchor="middle" font-size="11" fill="#555">{value_ms:.0f} ms</text>'
+        )
+
+    # Bucket boundary markers — vertical dashed lines with labels alternating
+    # top/bottom to avoid overlap.
+    marker_colors = ["#e11d48", "#7c3aed", "#0891b2", "#ca8a04", "#059669"]
+    for idx, (x_ms, label) in enumerate(markers):
+        x = x_of(x_ms)
+        color = marker_colors[idx % len(marker_colors)]
+        parts.append(
+            f'<line x1="{x:.2f}" y1="{chart_top}" x2="{x:.2f}" '
+            f'y2="{chart_top + chart_height}" stroke="{color}" '
+            f'stroke-width="1.5" stroke-dasharray="4,3" />'
+        )
+        # Alternate label y so overlapping markers stay readable.
+        label_y = chart_top - 6 if idx % 2 == 0 else chart_top + chart_height + 34
+        parts.append(
+            f'<text x="{x:.2f}" y="{label_y:.2f}" text-anchor="middle" '
+            f'font-size="10" fill="{color}">{escape(label)}</text>'
+        )
+
+    # The line itself last, so it draws on top of gridlines.
+    parts.append(
+        f'<polyline points="{poly}" fill="none" stroke="#2563eb" stroke-width="1.5" />'
+    )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 def render_plans_section(record: dict[str, Any]) -> None:
     st.subheader("Plans")
     plans = record.get("plans", {})
@@ -929,6 +1090,54 @@ def render_plans_section(record: dict[str, Any]) -> None:
     render_zoomable_graphviz(dot)
 
 
+def collect_mem_samples_by_query(records: list[dict[str, Any]]) -> dict[str, list[tuple[int, int]]]:
+    """Group streaming `mem_sample` records by query. Used as an OOM
+    fallback — the sampler thread flushes each sample to disk as its
+    own record, so even if the bench_query span never closes (because
+    the process got SIGKILL'd) we can still reconstruct the RSS curve
+    for the killed query.
+    """
+    by_query: dict[str, list[tuple[int, int]]] = {}
+    for r in records:
+        if r.get("kind") != "mem_sample":
+            continue
+        q = r.get("query")
+        if not isinstance(q, str):
+            continue
+        try:
+            wall_ms = int(r.get("wall_ms"))
+            rss = int(r.get("rss_bytes"))
+        except (TypeError, ValueError):
+            continue
+        by_query.setdefault(q, []).append((wall_ms, rss))
+    # Sort each series so the dashboard sees them in wall-clock order.
+    for series in by_query.values():
+        series.sort(key=lambda p: p[0])
+    return by_query
+
+
+def synthesize_oom_record(query: str, samples: list[tuple[int, int]]) -> dict[str, Any]:
+    """Build a minimal bench_query-shaped record for a query that only
+    has streaming mem_samples on disk (i.e. it OOM'd before the span
+    closed). Everything downstream (tabs) will show "no data" for
+    non-memory sections — which is exactly what happened.
+    """
+    peak = max((r for _, r in samples), default=0)
+    return {
+        "kind": "bench_query",
+        "query": query,
+        "timestamp": "(oom — reconstructed from mem_samples)",
+        "timestamp_utc": "",
+        "memory": {
+            "peak_rss_bytes": peak,
+            "sample_count": len(samples),
+            "sample_interval_ms": 10,
+            "samples": [[t, r] for t, r in samples],
+        },
+        "_oom_reconstructed": True,
+    }
+
+
 def main() -> None:
     st.set_page_config(page_title="TT Bench Dashboard", layout="wide")
     st.title("TT Bench Dashboard")
@@ -942,6 +1151,18 @@ def main() -> None:
         return
 
     bench_records = [record for record in records if record.get("kind") == "bench_query"]
+
+    # OOM fallback: if a query only shows up as streaming mem_sample
+    # records with no matching bench_query record, synthesize a minimal
+    # record so it appears in the Query selector and its Memory tab
+    # renders. Any query that DOES have a bench_query record keeps its
+    # real one (streaming samples are already embedded there).
+    mem_by_query = collect_mem_samples_by_query(records)
+    completed_queries = {r.get("query") for r in bench_records}
+    for q, samples in mem_by_query.items():
+        if q not in completed_queries and samples:
+            bench_records.append(synthesize_oom_record(q, samples))
+
     if not bench_records:
         st.warning("No bench_query records found in the JSONL file.")
         return
@@ -954,6 +1175,8 @@ def main() -> None:
     timestamp_options = [record.get("timestamp", "") for record in filtered_records]
     selected_timestamp = st.sidebar.selectbox("Run", timestamp_options)
     record = next(r for r in filtered_records if r.get("timestamp") == selected_timestamp)
+    if record.get("_oom_reconstructed"):
+        st.sidebar.warning("This run OOM'd — only memory samples survived.")
 
     (
         overview_tab,
@@ -962,6 +1185,7 @@ def main() -> None:
         claims_tab,
         prover_timing_tab,
         buckets_tab,
+        memory_tab,
         plans_tab,
         extra_tab,
     ) = st.tabs(
@@ -972,6 +1196,7 @@ def main() -> None:
             "Claims",
             "Prover Timing",
             "Buckets",
+            "Memory",
             "Plans",
             "Extra",
         ]
@@ -1003,6 +1228,9 @@ def main() -> None:
 
     with buckets_tab:
         render_buckets_section(record)
+
+    with memory_tab:
+        render_memory_section(record)
 
     with plans_tab:
         render_plans_section(record)

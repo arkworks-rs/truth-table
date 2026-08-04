@@ -1,4 +1,13 @@
 // Single entry point for all exec benchmarks; module files register the benches.
+
+// Use jemalloc on non-Windows platforms. TT's prover allocates many large
+// `Vec<F>` polynomials with varied lifetimes; jemalloc handles that
+// fragmentation pattern noticeably better than glibc's malloc. On the
+// LIKE-lineitem bench this is ~free to try and can meaningfully change RSS.
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 mod aggregate;
 mod commit;
 mod filter;

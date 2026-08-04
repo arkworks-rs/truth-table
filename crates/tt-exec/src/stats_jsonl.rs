@@ -4,7 +4,12 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::JoinHandle,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use chrono::Utc;
@@ -46,6 +51,113 @@ pub fn configured_jsonl_path() -> PathBuf {
 
 pub fn query_stats_span(query: &str) -> Span {
     tracing::info_span!(target: JSONL_STATS_TARGET, "bench_query", query = %query)
+}
+
+/// How often the memory sampler reads `/proc/self/status` while a
+/// `bench_query` span is open. 10 ms gives fine-grained curves on short
+/// queries (~17 samples on a 170 ms LIKE run) and is still cheap on long
+/// queries (~5000 samples over 50 s ≈ 40 KB of JSON). Total sampler CPU
+/// cost is on the order of `interval / 10ms * 5μs`, well under 0.1% for
+/// any realistic bench.
+const MEMORY_SAMPLE_INTERVAL_MS: u64 = 10;
+
+/// Read current process resident-set-size from `/proc/self/status` VmRSS
+/// field (kB → bytes). Returns None on non-Linux or read/parse failure.
+/// Prefers VmRSS over `/proc/self/statm` so we avoid hardcoding a page
+/// size (which is 4 KB on x86-64 but 16 KB/64 KB on some ARM/PowerPC
+/// hosts). Parse cost is a few μs — still negligible at 10 ms intervals.
+#[cfg(target_os = "linux")]
+fn read_rss_bytes() -> Option<u64> {
+    let content = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in content.lines() {
+        let Some(rest) = line.strip_prefix("VmRSS:") else {
+            continue;
+        };
+        let mut parts = rest.split_whitespace();
+        let n: u64 = parts.next()?.parse().ok()?;
+        let unit = parts.next()?;
+        return match unit {
+            "kB" | "KB" => Some(n * 1024),
+            _ => None,
+        };
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_rss_bytes() -> Option<u64> {
+    None
+}
+
+fn wall_clock_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Background RSS sampler attached to each `bench_query` span. Spawns one
+/// thread on span open that sleeps `MEMORY_SAMPLE_INTERVAL_MS` between
+/// reads and appends `(wall_clock_ms, rss_bytes)` to a shared buffer.
+/// The buffer is drained on span close and stored as `memory_samples` in
+/// the JSONL record. The sampler thread is a no-op on non-Linux — the
+/// stat file simply returns None and no samples accumulate.
+struct MemorySampler {
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+    samples: Arc<Mutex<Vec<(u64, u64)>>>,
+}
+
+impl MemorySampler {
+    /// Each sample also gets streamed to `sink` immediately as a
+    /// `{"kind":"mem_sample",...}` line and flushed. This is what
+    /// survives an OOM kill: even though the aggregate bench_query
+    /// record is only written on span close (which never runs if the
+    /// process gets SIGKILL'd), the individual mem_sample lines are
+    /// already on disk by the time the killer fires. The dashboard
+    /// reconstructs the RSS curve for killed queries from those lines.
+    fn start(sink: Arc<Mutex<JsonlSink>>, query: String) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let samples: Arc<Mutex<Vec<(u64, u64)>>> = Arc::new(Mutex::new(Vec::new()));
+        let stop_thread = stop.clone();
+        let samples_thread = samples.clone();
+        let handle = std::thread::Builder::new()
+            .name("tt-mem-sampler".to_string())
+            .spawn(move || {
+                let interval = Duration::from_millis(MEMORY_SAMPLE_INTERVAL_MS);
+                while !stop_thread.load(Ordering::Relaxed) {
+                    if let Some(rss) = read_rss_bytes() {
+                        let ms = wall_clock_ms();
+                        if let Ok(mut v) = samples_thread.lock() {
+                            v.push((ms, rss));
+                        }
+                        let entry = json!({
+                            "kind": "mem_sample",
+                            "query": query,
+                            "wall_ms": ms,
+                            "rss_bytes": rss,
+                        });
+                        if let Ok(mut s) = sink.lock() {
+                            let _ = s.write_entry(&entry);
+                        }
+                    }
+                    std::thread::sleep(interval);
+                }
+            })
+            .ok();
+        Self { stop, handle, samples }
+    }
+
+    fn stop_and_take(&mut self) -> Vec<(u64, u64)> {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+        self.samples
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_default()
+    }
 }
 
 pub struct BenchStatsJsonlLayer {
@@ -91,7 +203,11 @@ where
         if let (Some(span), Some(query)) = (ctx.span(id), query)
             && !query.is_empty()
         {
-            span.extensions_mut().insert(QueryLabel(query));
+            let mut ext = span.extensions_mut();
+            ext.insert(QueryLabel(query.clone()));
+            // One sampler thread per bench_query span; joined on close.
+            // Streams samples to sink so they survive an OOM kill.
+            ext.insert(MemorySampler::start(self.sink.clone(), query));
         }
     }
 
@@ -103,6 +219,27 @@ where
         let mut visitor = FieldValueVisitor::default();
         event.record(&mut visitor);
         let mut fields = visitor.fields;
+
+        // Tracker snapshots stream immediately (like mem_sample) so they
+        // survive OOM.
+        if let Some(payload) = fields.remove("tracker_snapshot_json") {
+            let q = fields
+                .get("query")
+                .cloned()
+                .or_else(|| query_from_scope(&ctx, event))
+                .unwrap_or_default();
+            let parsed: Value =
+                serde_json::from_str(&payload).unwrap_or_else(|_| Value::String(payload));
+            let entry = json!({
+                "kind": "tracker_snapshot",
+                "query": q,
+                "snapshot": parsed,
+            });
+            if let Ok(mut sink) = self.sink.lock() {
+                let _ = sink.write_entry(&entry);
+            }
+            return;
+        }
 
         if let Some(benchmark) = fields.remove("benchmark") {
             let case = fields.remove("case").unwrap_or_default();
@@ -158,19 +295,29 @@ where
         let Some(span) = ctx.span(&id) else {
             return;
         };
-        let extensions = span.extensions();
-        let Some(label) = extensions.get::<QueryLabel>() else {
-            return;
-        };
+        let query;
+        let memory_samples;
+        {
+            let mut extensions = span.extensions_mut();
+            let Some(label) = extensions.get_mut::<QueryLabel>() else {
+                return;
+            };
+            query = label.0.clone();
+            // Stop the sampler and drain its buffer before we lose the span.
+            memory_samples = extensions
+                .get_mut::<MemorySampler>()
+                .map(|s| s.stop_and_take())
+                .unwrap_or_default();
+        }
 
-        let query = label.0.clone();
         let record = self
             .pending_records
             .lock()
             .ok()
             .and_then(|mut pending_records| pending_records.remove(&query));
 
-        if let Some(record) = record {
+        if let Some(mut record) = record {
+            record.memory_samples = memory_samples;
             let entry = record.into_json();
             if let Ok(mut sink) = self.sink.lock()
                 && let Err(err) = sink.write_entry(&entry)
@@ -225,6 +372,7 @@ struct PendingBenchRecord {
     proof_size_crypto_breakdown: Map<String, Value>,
     proof_size_non_crypto_breakdown: Map<String, Value>,
     buckets: Option<Value>,
+    memory_samples: Vec<(u64, u64)>,
     extra: Map<String, Value>,
 }
 
@@ -242,6 +390,7 @@ impl PendingBenchRecord {
             proof_size_crypto_breakdown: Map::new(),
             proof_size_non_crypto_breakdown: Map::new(),
             buckets: None,
+            memory_samples: Vec::new(),
             extra: Map::new(),
         }
     }
@@ -345,6 +494,26 @@ impl PendingBenchRecord {
             && let Value::Object(ref mut map) = root
         {
             map.insert("sc_buckets".to_string(), buckets);
+        }
+        if !self.memory_samples.is_empty()
+            && let Value::Object(ref mut map) = root
+        {
+            let peak = self.memory_samples.iter().map(|(_, r)| *r).max().unwrap_or(0);
+            let samples_json: Vec<Value> = self
+                .memory_samples
+                .iter()
+                .map(|(t, r)| json!([*t, *r]))
+                .collect();
+            map.insert(
+                "memory".to_string(),
+                json!({
+                    "peak_rss_bytes": peak,
+                    "sample_count": samples_json.len(),
+                    "sample_interval_ms": MEMORY_SAMPLE_INTERVAL_MS,
+                    // Each entry: [wall_clock_ms_epoch, rss_bytes]
+                    "samples": samples_json,
+                }),
+            );
         }
         root
     }

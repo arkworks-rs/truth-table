@@ -4,7 +4,12 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::JoinHandle,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use chrono::Utc;
@@ -18,6 +23,95 @@ use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 const BENCH_STATS_TARGET: &str = "bench_stats";
 pub const BENCH_STATS_JSONL_PATH: &str = "../../tt-results/raw/bench_stats.jsonl";
+
+// See stats_jsonl.rs for docs on the memory-sampling design; this is a
+// duplicated copy for the bench-only subscriber.
+const MEMORY_SAMPLE_INTERVAL_MS: u64 = 10;
+
+#[cfg(target_os = "linux")]
+fn read_rss_bytes() -> Option<u64> {
+    let content = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in content.lines() {
+        let Some(rest) = line.strip_prefix("VmRSS:") else {
+            continue;
+        };
+        let mut parts = rest.split_whitespace();
+        let n: u64 = parts.next()?.parse().ok()?;
+        let unit = parts.next()?;
+        return match unit {
+            "kB" | "KB" => Some(n * 1024),
+            _ => None,
+        };
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_rss_bytes() -> Option<u64> {
+    None
+}
+
+fn wall_clock_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+struct MemorySampler {
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+    samples: Arc<Mutex<Vec<(u64, u64)>>>,
+}
+
+impl MemorySampler {
+    /// Each sample also gets streamed to `sink` immediately as a
+    /// `{"kind":"mem_sample",...}` line and flushed. This is what
+    /// survives an OOM kill: even though the aggregate bench_query
+    /// record is only written on span close (which never runs if the
+    /// process gets SIGKILL'd), the individual mem_sample lines are
+    /// already on disk by the time the killer fires. The dashboard
+    /// reconstructs the RSS curve for killed queries from those lines.
+    fn start(sink: Arc<Mutex<JsonlSink>>, query: String) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let samples: Arc<Mutex<Vec<(u64, u64)>>> = Arc::new(Mutex::new(Vec::new()));
+        let stop_thread = stop.clone();
+        let samples_thread = samples.clone();
+        let handle = std::thread::Builder::new()
+            .name("tt-mem-sampler".to_string())
+            .spawn(move || {
+                let interval = Duration::from_millis(MEMORY_SAMPLE_INTERVAL_MS);
+                while !stop_thread.load(Ordering::Relaxed) {
+                    if let Some(rss) = read_rss_bytes() {
+                        let ms = wall_clock_ms();
+                        if let Ok(mut v) = samples_thread.lock() {
+                            v.push((ms, rss));
+                        }
+                        let entry = json!({
+                            "kind": "mem_sample",
+                            "query": query,
+                            "wall_ms": ms,
+                            "rss_bytes": rss,
+                        });
+                        if let Ok(mut s) = sink.lock() {
+                            let _ = s.write_entry(&entry);
+                        }
+                    }
+                    std::thread::sleep(interval);
+                }
+            })
+            .ok();
+        Self { stop, handle, samples }
+    }
+
+    fn stop_and_take(&mut self) -> Vec<(u64, u64)> {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+        self.samples.lock().map(|v| v.clone()).unwrap_or_default()
+    }
+}
 
 pub struct BenchStatsJsonlLayer {
     sink: Arc<Mutex<JsonlSink>>,
@@ -62,7 +156,9 @@ where
         if let (Some(span), Some(query)) = (ctx.span(id), query)
             && !query.is_empty()
         {
-            span.extensions_mut().insert(QueryLabel(query));
+            let mut ext = span.extensions_mut();
+            ext.insert(QueryLabel(query.clone()));
+            ext.insert(MemorySampler::start(self.sink.clone(), query));
         }
     }
 
@@ -74,6 +170,30 @@ where
         let mut visitor = FieldValueVisitor::default();
         event.record(&mut visitor);
         let mut fields = visitor.fields;
+
+        // Tracker snapshots stream to disk immediately as their own JSONL
+        // records so they survive an OOM kill (the aggregate bench_query
+        // record never gets written if the span doesn't close). The
+        // dashboard picks them up via a `kind: "tracker_snapshot"`
+        // filter, same pattern as `mem_sample`.
+        if let Some(payload) = fields.remove("tracker_snapshot_json") {
+            let q = fields
+                .get("query")
+                .cloned()
+                .or_else(|| query_from_scope(&ctx, event))
+                .unwrap_or_default();
+            let parsed: Value =
+                serde_json::from_str(&payload).unwrap_or_else(|_| Value::String(payload));
+            let entry = json!({
+                "kind": "tracker_snapshot",
+                "query": q,
+                "snapshot": parsed,
+            });
+            if let Ok(mut sink) = self.sink.lock() {
+                let _ = sink.write_entry(&entry);
+            }
+            return;
+        }
 
         if let Some(benchmark) = fields.remove("benchmark") {
             let case = fields.remove("case").unwrap_or_default();
@@ -129,19 +249,28 @@ where
         let Some(span) = ctx.span(&id) else {
             return;
         };
-        let extensions = span.extensions();
-        let Some(label) = extensions.get::<QueryLabel>() else {
-            return;
-        };
+        let query;
+        let memory_samples;
+        {
+            let mut extensions = span.extensions_mut();
+            let Some(label) = extensions.get_mut::<QueryLabel>() else {
+                return;
+            };
+            query = label.0.clone();
+            memory_samples = extensions
+                .get_mut::<MemorySampler>()
+                .map(|s| s.stop_and_take())
+                .unwrap_or_default();
+        }
 
-        let query = label.0.clone();
         let record = self
             .pending_records
             .lock()
             .ok()
             .and_then(|mut pending_records| pending_records.remove(&query));
 
-        if let Some(record) = record {
+        if let Some(mut record) = record {
+            record.memory_samples = memory_samples;
             let entry = record.into_json();
             if let Ok(mut sink) = self.sink.lock()
                 && let Err(err) = sink.write_entry(&entry)
@@ -196,6 +325,7 @@ struct PendingBenchRecord {
     proof_size_crypto_breakdown: Map<String, Value>,
     proof_size_non_crypto_breakdown: Map<String, Value>,
     buckets: Option<Value>,
+    memory_samples: Vec<(u64, u64)>,
     extra: Map<String, Value>,
 }
 
@@ -213,6 +343,7 @@ impl PendingBenchRecord {
             proof_size_crypto_breakdown: Map::new(),
             proof_size_non_crypto_breakdown: Map::new(),
             buckets: None,
+            memory_samples: Vec::new(),
             extra: Map::new(),
         }
     }
@@ -387,6 +518,23 @@ impl PendingBenchRecord {
         }
         if let Some(buckets) = self.buckets {
             root.insert("sc_buckets".to_string(), buckets);
+        }
+        if !self.memory_samples.is_empty() {
+            let peak = self.memory_samples.iter().map(|(_, r)| *r).max().unwrap_or(0);
+            let samples_json: Vec<Value> = self
+                .memory_samples
+                .iter()
+                .map(|(t, r)| json!([*t, *r]))
+                .collect();
+            root.insert(
+                "memory".to_string(),
+                json!({
+                    "peak_rss_bytes": peak,
+                    "sample_count": samples_json.len(),
+                    "sample_interval_ms": MEMORY_SAMPLE_INTERVAL_MS,
+                    "samples": samples_json,
+                }),
+            );
         }
         if !self.extra.is_empty() {
             root.insert("extra".to_string(), Value::Object(self.extra));
