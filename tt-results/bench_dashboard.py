@@ -361,7 +361,7 @@ def render_stage_histograms(title: str, stage: dict[str, Any]) -> None:
                 st.info(f"No {metric_name} degrees.")
 
 
-def render_claims_section(claims: dict[str, Any]) -> None:
+def render_claims_section(claims: dict[str, Any], sc_buckets: Any = None) -> None:
     st.subheader("Claims")
     before = claims.get("before-degree-reduction", {})
     after = claims.get("after-degree-reduction", {})
@@ -397,7 +397,109 @@ def render_claims_section(claims: dict[str, Any]) -> None:
     render_stage_histograms("After ZeroChecker", after.get("after-zero-batching", {}))
     render_stage_histograms("After SumChecker", after.get("after-sum-batching", {}))
 
+    render_per_bucket_claim_counts(sc_buckets)
+
     render_lookup_claims_section(claims.get("lookups"))
+
+
+def _bucket_claims_to_aggregate_shape(bucket_claims: Any) -> dict[str, Any]:
+    """Reshape a per-bucket claims blob (snake_case, `non_zero_checks` etc.)
+    into the same hyphenated shape the aggregate Claims section renders, so
+    we can reuse `stage_count_row`, `render_grouped_bar_svg`, and
+    `render_stage_histograms` unchanged.
+    """
+    def stage(s: Any) -> dict[str, Any]:
+        if not isinstance(s, dict):
+            return {}
+        return {
+            "non-zero-checks": {
+                "count": (s.get("non_zero_checks") or {}).get("count"),
+                "degree_distribution": (s.get("non_zero_checks") or {}).get("degree_distribution"),
+            },
+            "zero-checks": {
+                "count": (s.get("zero_checks") or {}).get("count"),
+                "degree_distribution": (s.get("zero_checks") or {}).get("degree_distribution"),
+            },
+            "sum-checks": {
+                "count": (s.get("sum_checks") or {}).get("count"),
+                "degree_distribution": (s.get("sum_checks") or {}).get("degree_distribution"),
+            },
+        }
+
+    if not isinstance(bucket_claims, dict):
+        return {"before-degree-reduction": {}, "after-degree-reduction": {}}
+    before = bucket_claims.get("before_degree_reduction") or {}
+    after = bucket_claims.get("after_degree_reduction") or {}
+    return {
+        "before-degree-reduction": {
+            "initial": stage(before.get("initial")),
+            "after-nozero-batching": stage(before.get("after_nozero_batching")),
+            "after-zero-batching": stage(before.get("after_zero_batching")),
+            "after-sum-batching": stage(before.get("after_sum_batching")),
+        },
+        "after-degree-reduction": {
+            "initial": stage(after.get("initial")),
+            "after-zero-batching": stage(after.get("after_zero_batching")),
+            "after-sum-batching": stage(after.get("after_sum_batching")),
+        },
+    }
+
+
+def render_per_bucket_claim_counts(sc_buckets: Any) -> None:
+    """Full per-bucket claim breakdown — same structure as the aggregate
+    section above (Before/After Degree Reduction, per-stage grouped bars,
+    per-stage degree histograms), one collapsible group per bucket.
+    """
+    if not isinstance(sc_buckets, dict):
+        return
+    buckets = sc_buckets.get("buckets") or []
+    if not isinstance(buckets, list) or not buckets:
+        return
+
+    target_degree = sumcheck_term_degree_limit_label()
+    st.markdown("#### Per-Bucket Claims")
+
+    for b in buckets:
+        if not isinstance(b, dict):
+            continue
+        shaped = _bucket_claims_to_aggregate_shape(b.get("claims"))
+        before = shaped["before-degree-reduction"]
+        after = shaped["after-degree-reduction"]
+
+        header = (
+            f"Bucket {b.get('index')} — target_nv={b.get('target_nv')}, "
+            f"included_nvs={b.get('included_nvs')}, {b.get('n_claims_total')} claims"
+        )
+        with st.expander(header, expanded=True):
+            st.markdown(f"##### Before Degree Reduction ( Target Degree = {target_degree} )")
+            before_rows = [
+                stage_count_row("initial", before.get("initial", {})),
+                stage_count_row("after-nozero-batching", before.get("after-nozero-batching", {})),
+                stage_count_row("after-zero-batching", before.get("after-zero-batching", {})),
+                stage_count_row("after-sum-batching", before.get("after-sum-batching", {})),
+            ]
+            st.markdown(
+                render_grouped_bar_svg("Before Degree Reduction Claim Counts", before_rows),
+                unsafe_allow_html=True,
+            )
+            render_stage_histograms("Initial", before.get("initial", {}))
+            render_stage_histograms("After NonzeroChecker", before.get("after-nozero-batching", {}))
+            render_stage_histograms("After ZeroChecker", before.get("after-zero-batching", {}))
+            render_stage_histograms("After SumChecker", before.get("after-sum-batching", {}))
+
+            st.markdown(f"##### After Degree Reduction ( Target Degree = {target_degree} )")
+            after_rows = [
+                stage_count_row("initial", after.get("initial", {})),
+                stage_count_row("after-zero-batching", after.get("after-zero-batching", {})),
+                stage_count_row("after-sum-batching", after.get("after-sum-batching", {})),
+            ]
+            st.markdown(
+                render_grouped_bar_svg("After Degree Reduction Claim Counts", after_rows),
+                unsafe_allow_html=True,
+            )
+            render_stage_histograms("Initial", after.get("initial", {}))
+            render_stage_histograms("After ZeroChecker", after.get("after-zero-batching", {}))
+            render_stage_histograms("After SumChecker", after.get("after-sum-batching", {}))
 
 
 def render_lookup_claims_section(lookups: Any) -> None:
@@ -713,6 +815,99 @@ def render_prover_timing_section(record: dict[str, Any]) -> None:
     else:
         st.info("No numeric prover timing data found for this run.")
 
+    render_per_bucket_timing(record.get("sc_buckets"))
+
+
+def render_per_bucket_timing(sc_buckets: Any) -> None:
+    """One timing-breakdown pie per sumcheck bucket. Buckets with all-zero
+    timings are dropped rather than rendering an empty pie.
+    """
+    if not isinstance(sc_buckets, dict):
+        return
+    buckets = sc_buckets.get("buckets") or []
+    if not isinstance(buckets, list) or not buckets:
+        return
+
+    timing_keys = [
+        ("nozero batching", "nozerocheck_batching_time_s"),
+        ("1st batch zerocheck", "first_batch_zerocheck_time_s"),
+        ("1st zerocheck→sumcheck", "first_zerocheck_to_sumcheck_time_s"),
+        ("1st batch sumcheck", "first_batch_sumcheck_time_s"),
+        ("reduce sumcheck", "reduce_sumcheck_time_s"),
+        ("2nd batch zerocheck", "second_batch_zerocheck_time_s"),
+        ("2nd zerocheck→sumcheck", "second_zerocheck_to_sumcheck_time_s"),
+        ("sumcheck", "sumcheck_time_s"),
+    ]
+
+    st.markdown("#### Per-Bucket piop Breakdown")
+    if len(buckets) <= 2:
+        cols = st.columns(max(len(buckets), 1))
+    else:
+        cols = st.columns(2)
+    for idx, b in enumerate(buckets):
+        if not isinstance(b, dict):
+            continue
+        timing = b.get("timing", {}) if isinstance(b.get("timing"), dict) else {}
+        pie_rows: list[dict[str, Any]] = []
+        for label, key in timing_keys:
+            seconds = to_float(timing.get(key))
+            if seconds is not None and seconds > 0:
+                pie_rows.append({"pass": label, "seconds": seconds})
+        target = b.get("target_nv")
+        n_claims = b.get("n_claims_total")
+        header = f"Bucket {b.get('index')} — target_nv={target}, {n_claims} claims"
+        with cols[idx % len(cols)]:
+            st.markdown(f"##### {header}")
+            if pie_rows:
+                st.markdown(render_pie_svg(pie_rows), unsafe_allow_html=True)
+            else:
+                st.info("All timings were zero.")
+
+
+def render_buckets_section(record: dict[str, Any]) -> None:
+    """Summary table of the sumcheck bucket plan.
+
+    Per-bucket timing lives in the Prover Timing tab and per-bucket claim
+    counts live in the Claims tab, so this tab just shows the picker's
+    plan and the topline numbers per bucket. Absent for older JSONL runs
+    that predate per-bucket emission.
+    """
+    st.subheader("Sumcheck Buckets")
+    sc_buckets = record.get("sc_buckets")
+    if not isinstance(sc_buckets, dict):
+        st.info("No per-bucket sumcheck stats in this record (older JSONL).")
+        return
+    buckets = sc_buckets.get("buckets") or []
+    if not isinstance(buckets, list) or not buckets:
+        st.info("Bucket list is empty.")
+        return
+
+    count = sc_buckets.get("count", len(buckets))
+    st.markdown(f"**Plan:** {count} bucket(s).")
+
+    summary_rows: list[dict[str, Any]] = []
+    for b in buckets:
+        if not isinstance(b, dict):
+            continue
+        included = b.get("included_nvs")
+        included_str = ",".join(str(x) for x in included) if isinstance(included, list) else str(included)
+        timing = b.get("timing", {}) if isinstance(b.get("timing"), dict) else {}
+        summary_rows.append({
+            "idx": b.get("index"),
+            "target_nv": b.get("target_nv"),
+            "included_nvs": included_str,
+            "zerocheck claims": b.get("n_zerocheck_claims"),
+            "sumcheck claims": b.get("n_sumcheck_claims"),
+            "nozerocheck claims": b.get("n_nozerocheck_claims"),
+            "total claims": b.get("n_claims_total"),
+            "total time (s)": timing.get("total_time_s"),
+            "sumcheck time (s)": timing.get("sumcheck_time_s"),
+            "reduce sumcheck (s)": timing.get("reduce_sumcheck_time_s"),
+            "nozero batch (s)": timing.get("nozerocheck_batching_time_s"),
+        })
+    st.markdown("#### Summary")
+    st.dataframe(summary_rows, use_container_width=True, hide_index=True)
+
 
 def render_plans_section(record: dict[str, Any]) -> None:
     st.subheader("Plans")
@@ -760,8 +955,26 @@ def main() -> None:
     selected_timestamp = st.sidebar.selectbox("Run", timestamp_options)
     record = next(r for r in filtered_records if r.get("timestamp") == selected_timestamp)
 
-    overview_tab, results_tab, proof_size_tab, claims_tab, prover_timing_tab, plans_tab, extra_tab = st.tabs(
-        ["Overview", "Results", "Proof Size", "Claims", "Prover Timing", "Plans", "Extra"]
+    (
+        overview_tab,
+        results_tab,
+        proof_size_tab,
+        claims_tab,
+        prover_timing_tab,
+        buckets_tab,
+        plans_tab,
+        extra_tab,
+    ) = st.tabs(
+        [
+            "Overview",
+            "Results",
+            "Proof Size",
+            "Claims",
+            "Prover Timing",
+            "Buckets",
+            "Plans",
+            "Extra",
+        ]
     )
 
     with overview_tab:
@@ -781,12 +994,15 @@ def main() -> None:
     with claims_tab:
         claims = record.get("claims")
         if isinstance(claims, dict):
-            render_claims_section(claims)
+            render_claims_section(claims, record.get("sc_buckets"))
         else:
             st.info("No claims metadata found for this run.")
 
     with prover_timing_tab:
         render_prover_timing_section(record)
+
+    with buckets_tab:
+        render_buckets_section(record)
 
     with plans_tab:
         render_plans_section(record)

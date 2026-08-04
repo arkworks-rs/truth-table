@@ -195,6 +195,7 @@ struct PendingBenchRecord {
     proof_size_fields: Map<String, Value>,
     proof_size_crypto_breakdown: Map<String, Value>,
     proof_size_non_crypto_breakdown: Map<String, Value>,
+    buckets: Option<Value>,
     extra: Map<String, Value>,
 }
 
@@ -211,12 +212,22 @@ impl PendingBenchRecord {
             proof_size_fields: Map::new(),
             proof_size_crypto_breakdown: Map::new(),
             proof_size_non_crypto_breakdown: Map::new(),
+            buckets: None,
             extra: Map::new(),
         }
     }
 
     fn merge(&mut self, fields: Map<String, Value>) {
         let mut fields = fields;
+
+        // Per-bucket sumcheck stats arrive as a JSON blob in one field.
+        // Parse and hoist it into `self.buckets`; last write wins.
+        if let Some(Value::String(blob)) = fields.remove("sc_buckets_json") {
+            match serde_json::from_str::<Value>(&blob) {
+                Ok(parsed) => self.buckets = Some(parsed),
+                Err(err) => eprintln!("failed to parse sc_buckets_json: {err}"),
+            }
+        }
 
         if let (Some(Value::String(plan_name)), Some(plan_graphviz)) =
             (fields.remove("plan_name"), fields.remove("plan_graphviz"))
@@ -373,6 +384,9 @@ impl PendingBenchRecord {
                     }
                 }),
             );
+        }
+        if let Some(buckets) = self.buckets {
+            root.insert("sc_buckets".to_string(), buckets);
         }
         if !self.extra.is_empty() {
             root.insert("extra".to_string(), Value::Object(self.extra));
