@@ -16,39 +16,36 @@ use indexmap::IndexMap;
 use serde_json::{Value, json};
 use tracing::{debug, info};
 
-/// Lift a side-col data poly (native u8 or u32 storage) into a transient
-/// `MLE<F>`. Caller is expected to drop the returned Arc as soon as the
-/// MSM / proof-binding consuming it returns, so the F-form never persists
-/// past the operation that needs it.
+/// Build a side-col data `MLE<F>` that keeps the native small-scalar storage.
+///
+/// The returned MLE uses `MLEStorage::U8` for byte columns and `MLEStorage::U32`
+/// for u32 columns — 32× and 8× smaller than the equivalent field-element
+/// representation. The storage survives across the tracker's Arc clone and the
+/// PCS commit (which materializes transiently for MSM only).
 fn materialize_side_data_mle<F: PrimeField>(
     data: &arithmetic::encoding::SideColData,
     log_size: usize,
 ) -> Arc<MLE<F>> {
     debug_assert_eq!(data.len(), 1usize << log_size);
-    let evals: Vec<F> = match data {
+    let mle = match data {
         arithmetic::encoding::SideColData::Bytes(bytes) => {
-            bytes.iter().map(|&b| F::from(b as u64)).collect()
+            MLE::<F>::from_u8s(bytes.clone(), log_size)
         }
         arithmetic::encoding::SideColData::U32(vals) => {
-            vals.iter().map(|&v| F::from(v as u64)).collect()
+            MLE::<F>::from_u32s(vals.clone(), log_size)
         }
     };
-    Arc::new(MLE::from_evaluations_vec(log_size, evals))
+    Arc::new(mle)
 }
 
-/// Build the contiguous-one activator MLE for a side col from its
-/// `active_len`. Same drop-promptly contract as `materialize_side_data_mle`.
+/// Build the contiguous-one activator MLE for a side col as bit-packed
+/// storage. `MLEStorage::Bit` gives a 256× reduction over the field-element
+/// form for a mask of arbitrary size.
 fn materialize_side_activator_mle<F: PrimeField>(
     log_size: usize,
     active_len: usize,
 ) -> Arc<MLE<F>> {
-    let size = 1usize << log_size;
-    debug_assert!(active_len <= size);
-    let mut evals = vec![F::zero(); size];
-    for slot in evals.iter_mut().take(active_len) {
-        *slot = F::one();
-    }
-    Arc::new(MLE::from_evaluations_vec(log_size, evals))
+    Arc::new(MLE::<F>::from_prefix_activator(active_len, log_size))
 }
 
 use crate::ctx_oracles::CtxOracles;

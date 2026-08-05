@@ -204,6 +204,10 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
 // `ArgProver` / `ArgVerifier` reference).
 // -----------------------------------------------------------------------------
 
+/// Commits an evaluation vector. Storage compression is applied inside
+/// ark-piop's `track_and_commit_mat_mv_p` (auto-classifies into the tightest
+/// `MLEStorage` variant), so callers here don't need to know the semantic
+/// type of `evals`.
 fn commit_prover<B: SnarkBackend>(
     tracker_rc: &Rc<RefCell<ProverTracker<B>>>,
     log_size: usize,
