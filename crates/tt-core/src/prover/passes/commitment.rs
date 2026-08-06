@@ -302,11 +302,45 @@ fn arith_to_oracle<B: SnarkBackend>(
     mv_pcs_param: &Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
     cache: &CommitmentCache<B>,
 ) -> ArithTableOracle<B> {
+    // Apply structural-redundancy detection (Constant / Rle) at the
+    // commitment boundary. Rows here are ingested arithmetized columns
+    // that will live in the tracker for the rest of the query and be
+    // committed via MSM — collapsing an all-zeros or few-runs shape into
+    // its compact form now saves storage across every subsequent poly
+    // read AND lets `commit_impl_inner` take its Constant/Rle fast path
+    // (no Vec<F> materialization, one scalar mul instead of a full MSM).
+    //
+    // Cost is one native-scan-with-early-bail per column; benefit is that
+    // activator-shaped columns, all-null columns, and prefix / suffix
+    // patterns land in their smallest possible form before the tracker
+    // Arc-shares them across the whole pass pipeline.
+    //
+    // We intentionally do NOT run this inside ark-piop's `.compressed()`
+    // (which the tracker calls at every registration): small gadget polys
+    // registered in tight inner loops get called hundreds of times per
+    // query, and even a cheap native scan there measurably regresses
+    // small-table benches. Doing it once at the commitment boundary hits
+    // the columns that matter and skips the hot short-lived ones.
     let entries: Vec<(usize, _, _)> = arith_table
         .polynomials()
         .iter()
         .enumerate()
-        .map(|(idx, (field_ref, mle_arc))| (idx, field_ref.clone(), Arc::clone(mle_arc)))
+        .map(|(idx, (field_ref, mle_arc))| {
+            // Only rebuild if the Arc is uniquely owned OR the redundancy
+            // scan finds a compressible shape — otherwise keep the same
+            // Arc and avoid disturbing sharing with the tracker.
+            let compressed = mle_arc.as_ref().clone().detect_redundancy();
+            let arc = if matches!(
+                compressed.storage(),
+                ark_piop::arithmetic::mat_poly::mle::MLEStorage::Constant { .. }
+                    | ark_piop::arithmetic::mat_poly::mle::MLEStorage::Rle { .. }
+            ) {
+                Arc::new(compressed)
+            } else {
+                Arc::clone(mle_arc)
+            };
+            (idx, field_ref.clone(), arc)
+        })
         .collect();
     let mut commitments = IndexMap::with_capacity(entries.len());
 

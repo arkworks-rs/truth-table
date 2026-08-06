@@ -109,6 +109,15 @@ impl<F: PrimeField> EncodedBacking<F> {
     /// the compressed shape and virtual repetition kicks in for indices
     /// beyond the physical length.
     ///
+    /// Redundancy detection (Constant / Rle) is intentionally NOT run here:
+    /// the tracker calls [`MLE::compressed`] on every registration, which
+    /// itself chains through [`MLEStorage::detect_redundancy`], so an
+    /// arithmetization-side scan would be a wasted duplicate pass and
+    /// showed up as a real (~50%) slowdown on small-table benches (nation
+    /// LIKE 185 ms → 285 ms) before this call was removed. Columns still
+    /// collapse to `Constant`/`Rle` where applicable — just once, at the
+    /// tracker boundary, when we're about to hold them long-term.
+    ///
     /// # Panics
     ///
     /// Passing `num_vars < ilog2(len).ceil()` will panic through the
