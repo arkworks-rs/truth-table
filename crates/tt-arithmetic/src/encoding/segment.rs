@@ -1,10 +1,144 @@
 use ark_ff::PrimeField;
+use ark_piop::arithmetic::mat_poly::mle::MLE;
 use datafusion::arrow::datatypes::{DataType, IntervalUnit};
 
 use super::strings::{string_row_segment_suffixes, string_segment_base, string_side_segment_suffixes};
 use super::util::field_element_byte_capacity;
 
 // --- Segment value types --------------------------------------------------
+
+/// Native-typed backing for a row-domain encoded segment. Carries the
+/// smallest representation that faithfully encodes the source column: a
+/// boolean column becomes `Bits`, a `u8` column becomes `U8s`, `Int32` with
+/// only non-negative values becomes `U32s`, and anything else (signed
+/// with negatives, floats, decimals, string hashes, computed field-elements)
+/// falls back to `Fs`.
+///
+/// This is the lazy-MLE layer: the encoder chooses the variant at ingest
+/// time and stashes the raw arrow buffer in it; only when the value must
+/// actually flow through field arithmetic (sumcheck, evaluation at a
+/// challenge point) does anything lift to `F`. Commitment goes through the
+/// storage-aware small-scalar MSMs in `pst13`, so a `Bits`-backed column
+/// is never materialized to `Vec<F>` on that path either.
+///
+/// Contract: every variant has exactly `len()` elements when read
+/// via `get_as_field(i)`, matching how the same values would appear in a
+/// `Vec<F>` after eager encoding. `into_mle(num_vars)` is a straight
+/// forward to the matching `MLE::from_*` constructor, so the resulting
+/// MLE's evaluations are bit-for-bit identical to the eager path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EncodedBacking<F: PrimeField> {
+    /// Packed booleans, one bit per value, little-endian per byte.
+    /// `len` is the count of logical values; `bits.len()` is `len.div_ceil(8)`.
+    /// Used for `BooleanArray`.
+    Bits { bits: Vec<u8>, len: usize },
+    /// One `u8` per value. Used for `UInt8Array` and small char domains.
+    U8s(Vec<u8>),
+    /// One `u16` per value. Used for `UInt16Array`. `into_mle` promotes to
+    /// `MLE::U32s` storage — `MLEStorage` has no `U16` variant, and the 2×
+    /// promotion is still 8× smaller than `Field` at rest.
+    U16s(Vec<u16>),
+    /// One `u32` per value. Used for `UInt32Array`, `Date32Array`, and
+    /// non-negative `Int{8,16,32}Array` (encoder peeks at signs).
+    U32s(Vec<u32>),
+    /// One `u64` per value. Used for `UInt64Array`, `Date64Array`,
+    /// non-negative `Int64Array`, timestamps, times, durations that fit.
+    U64s(Vec<u64>),
+    /// Fallback: full-fat field elements. Used for signed columns with
+    /// negative values (the field-side representation `MODULUS - abs(v)` is
+    /// a 254-bit scalar that no small variant can hold), decimals, and any
+    /// derived value that is intrinsically field-native (string hashes,
+    /// `IntervalDayTime`/`MonthDayNano` limb packings). Also the safety
+    /// escape hatch when we haven't taught a specific arrow type its
+    /// native backing yet.
+    Fs(Vec<F>),
+}
+
+impl<F: PrimeField> EncodedBacking<F> {
+    /// Number of logical values (rows for row-domain segments, character
+    /// slots for side-domain segments).
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Bits { len, .. } => *len,
+            Self::U8s(v) => v.len(),
+            Self::U16s(v) => v.len(),
+            Self::U32s(v) => v.len(),
+            Self::U64s(v) => v.len(),
+            Self::Fs(v) => v.len(),
+        }
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Lift the `i`-th element to `F`. This is the "encoder" semantics —
+    /// the same computation the eager path applied at ingest, just done on
+    /// demand.
+    #[inline]
+    pub fn get_as_field(&self, i: usize) -> F {
+        match self {
+            Self::Bits { bits, .. } => {
+                if (bits[i >> 3] >> (i & 7)) & 1 == 1 {
+                    F::one()
+                } else {
+                    F::zero()
+                }
+            }
+            Self::U8s(v) => F::from(v[i] as u64),
+            Self::U16s(v) => F::from(v[i] as u64),
+            Self::U32s(v) => F::from(v[i] as u64),
+            Self::U64s(v) => F::from(v[i]),
+            Self::Fs(v) => v[i],
+        }
+    }
+
+    /// Materialize every element as `F`. Escape hatch for callers that
+    /// legitimately need a `Vec<F>` (e.g. the LIKE gadget's length column
+    /// consumer, `scalar_to_field` for one-shot literals, tests).
+    /// The refactored arithmetization pass does NOT call this — it uses
+    /// [`into_mle`] to build the compressed MLE directly.
+    pub fn to_evaluations_vec(&self) -> Vec<F> {
+        (0..self.len()).map(|i| self.get_as_field(i)).collect()
+    }
+
+    /// Consume the backing and build the corresponding [`MLE`], preserving
+    /// the native storage variant. `num_vars` is the outer (virtually
+    /// padded) size the poly should present as; the inner storage stays
+    /// the compressed shape and virtual repetition kicks in for indices
+    /// beyond the physical length.
+    ///
+    /// # Panics
+    ///
+    /// Passing `num_vars < ilog2(len).ceil()` will panic through the
+    /// underlying `MLE::from_*` constructor. Callers should ensure
+    /// `num_vars >= len.ilog2().ceil()`, matching the eager
+    /// `MLE::from_evaluations_vec` contract.
+    pub fn into_mle(self, num_vars: usize) -> MLE<F> {
+        match self {
+            Self::Bits { bits, .. } => MLE::from_bit_backing(bits, num_vars),
+            Self::U8s(v) => MLE::from_u8s(v, num_vars),
+            // Promote u16 → u32 at MLE-construction time. `MLEStorage` has no
+            // `U16` variant; the 2× hit is still 8× smaller than Field storage
+            // and lets us reuse the existing U32 commit / lift paths.
+            Self::U16s(v) => MLE::from_u32s(v.into_iter().map(|x| x as u32).collect(), num_vars),
+            Self::U32s(v) => MLE::from_u32s(v, num_vars),
+            Self::U64s(v) => MLE::from_u64s(v, num_vars),
+            Self::Fs(v) => MLE::from_evaluations_vec(num_vars, v),
+        }
+    }
+
+    // --- Constructors used by encoders ------------------------------------
+
+    /// Convenience: convert a `Vec<F>` into an `Fs`-variant backing.
+    /// Used by encoders that intrinsically produce field elements (string
+    /// hashes, binary hashes, decimal `from_le_bytes_mod_order`).
+    #[inline]
+    pub fn from_fs(values: Vec<F>) -> Self {
+        Self::Fs(values)
+    }
+}
 
 /// A named slice of a column's encoded representation. A single Arrow column
 /// may expand into multiple `EncodedSegment`s — e.g. strings become
@@ -19,10 +153,15 @@ use super::util::field_element_byte_capacity;
 /// **side domain** by setting `side: Some(SideSegmentInfo)`; side segments
 /// live on their own multilinear domain with their own contiguous-one
 /// activator, derived from `active_len` (see [`SideSegmentInfo`]).
+///
+/// Row-domain values are carried in [`EncodedBacking`] rather than a raw
+/// `Vec<F>` so small-int columns stay compressed all the way from ingest
+/// to commit. See [`EncodedBacking::into_mle`] for the materialization
+/// path used by arithmetization.
 #[derive(Debug, Clone)]
 pub struct EncodedSegment<F: PrimeField> {
     pub suffix: String,
-    pub values: Vec<F>,
+    pub backing: EncodedBacking<F>,
     pub side: Option<SideSegmentInfo>,
 }
 
@@ -66,25 +205,59 @@ impl SideColData {
 }
 
 impl<F: PrimeField> EncodedSegment<F> {
+    /// Row-domain primary segment (empty suffix) from an already-`F` payload.
+    /// Reserved for encoders whose output is intrinsically field-valued
+    /// (`NullArray` all-zeros, existing test helpers). Prefer
+    /// [`primary_backed`] when the encoder knows a smaller native shape.
     pub fn primary(values: Vec<F>) -> Self {
+        Self::primary_backed(EncodedBacking::Fs(values))
+    }
+
+    /// Row-domain primary segment with an explicit native backing.
+    pub fn primary_backed(backing: EncodedBacking<F>) -> Self {
         Self {
             suffix: String::new(),
-            values,
+            backing,
             side: None,
         }
     }
 
+    /// Row-domain named segment from an already-`F` payload. Same
+    /// `Fs`-fallback bias as [`primary`]; use [`named_backed`] when a
+    /// smaller variant fits.
     pub fn named(suffix: impl Into<String>, values: Vec<F>) -> Self {
+        Self::named_backed(suffix, EncodedBacking::Fs(values))
+    }
+
+    /// Row-domain named segment with an explicit native backing.
+    pub fn named_backed(suffix: impl Into<String>, backing: EncodedBacking<F>) -> Self {
         Self {
             suffix: suffix.into(),
-            values,
+            backing,
             side: None,
         }
+    }
+
+    /// Read-only iterator over this segment's values as `F`. Preserves the
+    /// eager-encoding contract without materializing a `Vec<F>` for backing
+    /// types that stay compressed. Row-domain segments only.
+    pub fn iter_values(&self) -> impl Iterator<Item = F> + '_ {
+        (0..self.backing.len()).map(|i| self.backing.get_as_field(i))
+    }
+
+    /// Number of logical row-domain values in this segment. For side
+    /// segments this is 0 (the payload lives in `side.data`).
+    pub fn len(&self) -> usize {
+        self.backing.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.backing.is_empty()
     }
 
     /// Construct a byte-valued side-domain segment. `bytes` is pow2-padded
     /// by the caller; `active_len` is the count of active leading entries.
-    /// The row-domain `values` field is left empty for side segments.
+    /// The row-domain backing is left empty for side segments.
     pub fn side_bytes(suffix: impl Into<String>, bytes: Vec<u8>, active_len: usize) -> Self {
         debug_assert!(
             active_len <= bytes.len(),
@@ -94,7 +267,7 @@ impl<F: PrimeField> EncodedSegment<F> {
         );
         Self {
             suffix: suffix.into(),
-            values: Vec::new(),
+            backing: EncodedBacking::Fs(Vec::new()),
             side: Some(SideSegmentInfo {
                 data: SideColData::Bytes(bytes),
                 active_len,
@@ -113,7 +286,7 @@ impl<F: PrimeField> EncodedSegment<F> {
         );
         Self {
             suffix: suffix.into(),
-            values: Vec::new(),
+            backing: EncodedBacking::Fs(Vec::new()),
             side: Some(SideSegmentInfo {
                 data: SideColData::U32(values),
                 active_len,
@@ -134,12 +307,27 @@ impl<F: PrimeField> EncodedSegment<F> {
 
 /// Wrap a `Vec<Vec<F>>` (one inner Vec per column) into auto-named segments.
 /// The default naming when an encoder does not assign role-specific names.
+///
+/// Field payloads flow through the `Fs` backing — this helper is for encoders
+/// that intrinsically produce field elements (hashes, decimal / interval limb
+/// packings). Encoders that know a smaller native shape use
+/// [`auto_segments_backed`] instead.
 pub(crate) fn auto_segments<F: PrimeField>(cols: Vec<Vec<F>>) -> Vec<EncodedSegment<F>> {
+    auto_segments_backed(cols.into_iter().map(EncodedBacking::Fs).collect())
+}
+
+/// Like [`auto_segments`], but each per-column payload is an already-tagged
+/// [`EncodedBacking`]. Encoders for native-typed columns (bool/u{8,16,32,64}/
+/// non-negative signed) call this so `arithmetization::into_mle` never has to
+/// materialize a `Vec<F>` for compressible columns.
+pub(crate) fn auto_segments_backed<F: PrimeField>(
+    cols: Vec<EncodedBacking<F>>,
+) -> Vec<EncodedSegment<F>> {
     cols.into_iter()
         .enumerate()
-        .map(|(i, values)| EncodedSegment {
+        .map(|(i, backing)| EncodedSegment {
             suffix: auto_suffix_at(i),
-            values,
+            backing,
             side: None,
         })
         .collect()

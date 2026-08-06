@@ -50,7 +50,7 @@ pub use dispatch::{encode_arrow_array_to_field, scalar_to_field, scalar_to_field
 pub use encodable::Encodable;
 pub use segment::{
     is_segment_of, segment_base_name, segment_suffixes_for_type, side_segment_suffixes_for_type,
-    EncodedSegment, SideColData, SideSegmentInfo,
+    EncodedBacking, EncodedSegment, SideColData, SideSegmentInfo,
 };
 pub use strings::{
     CHAR_LEVEL_SIDE_POLYS_ENABLED, STRING_BND_SUFFIX, STRING_CHARS_SUFFIX, STRING_INT_IND_SUFFIX,
@@ -79,8 +79,11 @@ mod tests {
         assert_eq!(encoded.len(), expected_len);
         assert_eq!(encoded[0].suffix, "");
         assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);
-        let hash_col = &encoded[0].values;
-        let length_col = &encoded[1].values;
+        // Materialize through the new accessor so the test survives whatever
+        // native backing the encoder picks (string hashes stay Fs; the
+        // length column may compress to U8s).
+        let hash_col: Vec<Fr> = encoded[0].iter_values().collect();
+        let length_col: Vec<Fr> = encoded[1].iter_values().collect();
         assert_eq!(hash_col.len(), array.len());
         assert_eq!(length_col.len(), array.len());
         assert_eq!(hash_col[0], Fr::from(97u64));
@@ -102,8 +105,8 @@ mod tests {
         assert_eq!(encoded.len(), expected_len);
         assert_eq!(encoded[0].suffix, "");
         assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);
-        let hash_col = &encoded[0].values;
-        let length_col = &encoded[1].values;
+        let hash_col: Vec<Fr> = encoded[0].iter_values().collect();
+        let length_col: Vec<Fr> = encoded[1].iter_values().collect();
         assert_eq!(hash_col.len(), array.len());
         assert_eq!(length_col.len(), array.len());
         assert_eq!(hash_col[0], encode_hashed_bytes::<Fr>(b"foo")[0]);
@@ -123,7 +126,10 @@ mod tests {
         assert_eq!(segments.len(), 2);
         assert_eq!(segments[0].suffix, "");
         assert_eq!(segments[1].suffix, STRING_LENGTH_SUFFIX);
-        assert_eq!(segments[1].values, vec![Fr::from(5u64)]);
+        assert_eq!(
+            segments[1].iter_values().collect::<Vec<_>>(),
+            vec![Fr::from(5u64)]
+        );
         // scalar_to_field's single-field convenience refuses multi-segment scalars
         assert!(scalar_to_field::<Fr>(&scalar).is_none());
     }

@@ -39,7 +39,7 @@ pub fn scalar_to_fields<F: PrimeField>(scalar: &ScalarValue) -> Option<Vec<Encod
         return None;
     }
     for segment in &row_segments {
-        if segment.values.len() != 1 {
+        if segment.len() != 1 {
             return None;
         }
     }
@@ -54,7 +54,8 @@ pub fn scalar_to_field<F: PrimeField>(scalar: &ScalarValue) -> Option<F> {
     if segments.len() != 1 {
         return None;
     }
-    segments.into_iter().next()?.values.into_iter().next()
+    let seg = segments.into_iter().next()?;
+    (seg.len() == 1).then(|| seg.backing.get_as_field(0))
 }
 
 #[tracing::instrument(

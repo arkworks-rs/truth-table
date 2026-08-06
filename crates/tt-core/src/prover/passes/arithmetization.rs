@@ -109,7 +109,15 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
     // entries after row encoding completes. Side segments carry native small
     // ints (bytes or u32) so the in-memory side-col storage stays much
     // smaller than the field-element form.
-    let mut row_segments_by_col: Vec<Vec<(FieldRef, Vec<F>)>> = Vec::with_capacity(num_total_cols);
+    //
+    // The row-domain path carries `EncodedBacking<F>` — the native-typed
+    // backing chosen by the encoder (bool → Bits, u8 → U8s, non-negative
+    // i32 → U32s, …). No `Vec<F>` materialization happens here for
+    // compressible columns; each backing is handed straight to
+    // `MLE::from_*` at the tracker boundary below.
+    let mut row_segments_by_col: Vec<
+        Vec<(FieldRef, arithmetic::encoding::EncodedBacking<F>)>,
+    > = Vec::with_capacity(num_total_cols);
     let mut side_segments_by_col: Vec<
         Vec<(FieldRef, arithmetic::encoding::SideColData, usize /* active_len */)>,
     > = Vec::with_capacity(num_total_cols);
@@ -121,7 +129,7 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
         )
         .expect("arrow encoding should succeed");
 
-        let mut row_for_col: Vec<(FieldRef, Vec<F>)> = Vec::new();
+        let mut row_for_col: Vec<(FieldRef, arithmetic::encoding::EncodedBacking<F>)> = Vec::new();
         let mut side_for_col: Vec<(FieldRef, arithmetic::encoding::SideColData, usize)> =
             Vec::new();
         for segment in encoded {
@@ -140,7 +148,7 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
                 Arc::new(field)
             };
             match segment.side {
-                None => row_for_col.push((field_ref, segment.values)),
+                None => row_for_col.push((field_ref, segment.backing)),
                 Some(info) => {
                     side_for_col.push((field_ref, info.data, info.active_len));
                 }
@@ -151,18 +159,24 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
     }
 
     let mut flattened_fields: Vec<FieldRef> = Vec::new();
-    let mut flattened_values: Vec<(FieldRef, Vec<F>)> = Vec::new();
+    let mut flattened_backings: Vec<(FieldRef, arithmetic::encoding::EncodedBacking<F>)> =
+        Vec::new();
     for column_group in row_segments_by_col {
-        for (field_ref, values) in column_group {
+        for (field_ref, backing) in column_group {
             flattened_fields.push(field_ref.clone());
-            flattened_values.push((field_ref, values));
+            flattened_backings.push((field_ref, backing));
         }
     }
 
-    let tracked_polys: IndexMap<FieldRef, Arc<MLE<F>>> = flattened_values
+    // `into_mle` picks the correct `MLE::from_*` constructor per backing
+    // variant — no `Vec<F>` intermediate. For a lineitem `u8`-typed column
+    // this is a direct handoff of the arrow-shaped `Vec<u8>` into
+    // `MLE::from_u8s`, saving ~2 GiB of transient heap per column at
+    // 2^26 rows.
+    let tracked_polys: IndexMap<FieldRef, Arc<MLE<F>>> = flattened_backings
         .into_iter()
-        .map(|(field_ref, values)| {
-            let mle = Arc::new(MLE::from_evaluations_slice(log_vars, &values));
+        .map(|(field_ref, backing)| {
+            let mle = Arc::new(backing.into_mle(log_vars));
             (field_ref, mle)
         })
         .collect();

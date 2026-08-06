@@ -10,7 +10,7 @@ use datafusion::arrow::array::{
 use crate::errors::EncodeError;
 
 use super::encodable::{impl_col_adapter_unsupported, Encodable};
-use super::segment::{auto_segments, EncodedSegment};
+use super::segment::{auto_segments, EncodedBacking, EncodedSegment};
 use super::util::{collect_by_columns, encode_bytes_to_fields, encode_hashed_bytes};
 
 impl<F: PrimeField> Encodable<F> for BinaryArray {
@@ -97,7 +97,17 @@ impl<F: PrimeField> Encodable<F> for FixedSizeBinaryArray {
 
 impl<F: PrimeField> Encodable<F> for NullArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        Ok(vec![EncodedSegment::primary(vec![F::zero(); self.len()])])
+        // NullArray is all-zeros in F. The cheapest possible backing is
+        // packed bits with every bit clear: `len.div_ceil(8)` bytes total,
+        // 256× smaller than the prior `vec![F::zero(); len]` (which was
+        // 32 B per zero). `MLEStorage::Bit` lifts an unset bit to
+        // `F::zero()`, so semantics stay identical.
+        let len = self.len();
+        let byte_len = len.div_ceil(8).max(1);
+        Ok(vec![EncodedSegment::primary_backed(EncodedBacking::Bits {
+            bits: vec![0u8; byte_len],
+            len,
+        })])
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
