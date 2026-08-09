@@ -14,7 +14,10 @@ use crate::{
     paths::workspace_artifacts_dir,
     prove::ProveBuilder,
     runtime,
-    setup::{DEFAULT_TEST_LOG_SIZE, SetupBuilder, default_pk_filename, default_vk_filename},
+    setup::{
+        DEFAULT_BENCH_LOG_SIZE, DEFAULT_TEST_LOG_SIZE, SetupBuilder, default_pk_filename,
+        default_vk_filename,
+    },
     verify::VerifyBuilder,
 };
 use tpch_data::{bench_data_path, test_data_path};
@@ -25,6 +28,58 @@ type B = BenchBackend;
 /// query by delegating to the CLI runners defined in `prove` and `verify`.
 /// The helper resolves the TPCH parquet and oracle assets for the supplied
 /// `table_names`, generating them on the fly when missing.
+/// Prove + verify a query against **bench-data** parquets using the
+/// bench-size proving/verifying keys (`DEFAULT_BENCH_LOG_SIZE`). Used
+/// by peak-RSS A/B benchmarks that need larger char-domain side polys
+/// than test-data provides. Otherwise identical to
+/// [`prove_and_verify_query`].
+pub async fn prove_and_verify_query_bench(
+    query: &str,
+    table_names: &[&str],
+    proof_output_path: Option<PathBuf>,
+) -> Result<()> {
+    init_subscriber();
+    let parquet_paths = table_names
+        .iter()
+        .map(|name| {
+            let path = bench_data_path(format!("{name}.parquet"));
+            if !path.exists() {
+                return Err(anyhow!(
+                    "bench-data parquet for table '{name}' not found at {}",
+                    path.display()
+                ));
+            }
+            Ok(path)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let (pk_path, vk_path) = resolve_key_paths(DEFAULT_BENCH_LOG_SIZE)?;
+    let mut oracle_paths = Vec::with_capacity(parquet_paths.len());
+    for parquet_path in &parquet_paths {
+        let oracle = resolve_oracle_path(parquet_path, &pk_path).await?;
+        oracle_paths.push(oracle);
+    }
+
+    let outputs = ProveBuilder::new()
+        .with_query(query.to_owned())
+        .with_parquet_paths(parquet_paths.clone())
+        .with_oracle_paths(oracle_paths.clone())
+        .with_pk_path(pk_path)
+        .with_output_path(proof_output_path.clone())
+        .build()?
+        .run()
+        .await?;
+
+    VerifyBuilder::new()
+        .with_query(query.to_owned())
+        .with_oracle_paths(oracle_paths)
+        .with_proof_path(outputs.proof_path)
+        .with_result_path(outputs.result_path)
+        .with_vk_path(vk_path)
+        .build()?
+        .run()
+        .await
+}
+
 pub async fn prove_and_verify_query(
     query: &str,
     table_names: &[&str],

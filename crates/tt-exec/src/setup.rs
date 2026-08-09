@@ -10,7 +10,16 @@ use anyhow::{Context, Result, anyhow};
 use ark_piop::setup::KeyGenerator;
 use ark_serialize::CanonicalSerialize;
 
-pub const DEFAULT_TEST_LOG_SIZE: usize = 19;
+// Test SRS size. Sized to fit the largest char-domain side polynomial for
+// test-scale TPC-H tables when `CHAR_LEVEL_SIDE_POLYS_ENABLED` is on:
+// lineitem.l_comment at 2^19 rows × ~15 avg active chars → 7.9M active
+// chars → next_pow2 = 2^23. The pre-string-support baseline was 19 (row-
+// domain only); when the char-level toggle was flipped on the tests broke
+// with `TooLargePolynomial` until this was bumped. If you enlarge the
+// test parquet files or add columns with longer strings, bump again and
+// regenerate the test keys (they auto-regenerate on the next test run
+// via `resolve_key_paths`).
+pub const DEFAULT_TEST_LOG_SIZE: usize = 23;
 // Bench SRS size. The pre-string-support baseline of 21 covers all TPC-H
 // row-domain polynomials at bench scale. When `CHAR_LEVEL_SIDE_POLYS_ENABLED`
 // is flipped on for string PIOPs, this must be bumped (to ~25 for
