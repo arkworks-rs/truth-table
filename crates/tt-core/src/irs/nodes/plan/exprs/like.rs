@@ -1375,14 +1375,15 @@ impl<B: SnarkBackend> ExprNode<B> {
         let segments: Vec<EncodedSegment<B::F>> =
             encoding::encode_arrow_array_to_field::<B::F>(&string_column).ok()?;
 
-        // Row-domain segment: length column. The length backing is a
-        // native small-int (bytes) but this LIKE-gadget site needs a
+        // Row-domain segment: length column. The length MLE keeps a
+        // native small-int storage but this LIKE-gadget site needs a
         // `Vec<F>` for the field-arithmetic that follows, so we materialize
         // once here — the tracker never sees this expanded form.
         let l_evals: Vec<B::F> = segments
             .iter()
             .find(|seg| seg.suffix == STRING_LENGTH_SUFFIX)
-            .map(|seg| seg.backing.to_evaluations_vec())?;
+            .and_then(|seg| seg.mle.as_ref())
+            .map(|mle| mle.evaluations())?;
 
         // Side segments: chars, orig_ind, int_ind, bnd.
         let chars_bytes: Vec<u8> = segments
@@ -1449,7 +1450,8 @@ impl<B: SnarkBackend> ExprNode<B> {
             let segs = encoding::encode_arrow_array_to_field::<B::F>(&arr.clone()).ok()?;
             segs.into_iter()
                 .find(|seg| seg.suffix.is_empty())
-                .map(|seg| seg.backing.to_evaluations_vec())?
+                .and_then(|seg| seg.mle)
+                .map(|mle| mle.evaluations())?
         } else {
             (0..n_rows).map(|i| B::F::from(i as u64)).collect()
         };
@@ -1464,7 +1466,8 @@ impl<B: SnarkBackend> ExprNode<B> {
             let segs = encoding::encode_arrow_array_to_field::<B::F>(&arr.clone()).ok()?;
             segs.into_iter()
                 .find(|seg| seg.suffix.is_empty())
-                .map(|seg| seg.backing.to_evaluations_vec())?
+                .and_then(|seg| seg.mle)
+                .map(|mle| mle.evaluations())?
         } else {
             vec![B::F::from(1u64); n_rows]
         };

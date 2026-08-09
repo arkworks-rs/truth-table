@@ -1,4 +1,5 @@
 use ark_ff::PrimeField;
+use ark_piop::arithmetic::mat_poly::mle::MLE;
 use datafusion::arrow::array::{
     Array, BinaryArray, BinaryViewArray, DictionaryArray, FixedSizeBinaryArray,
     FixedSizeListArray, Float16Array, Float32Array, Float64Array, Int16RunArray, Int32RunArray,
@@ -10,7 +11,7 @@ use datafusion::arrow::array::{
 use crate::errors::EncodeError;
 
 use super::encodable::{impl_col_adapter_unsupported, Encodable};
-use super::segment::{auto_segments, EncodedBacking, EncodedSegment};
+use super::segment::{auto_segments, EncodedSegment};
 use super::util::{collect_by_columns, encode_bytes_to_fields, encode_hashed_bytes};
 
 impl<F: PrimeField> Encodable<F> for BinaryArray {
@@ -97,17 +98,19 @@ impl<F: PrimeField> Encodable<F> for FixedSizeBinaryArray {
 
 impl<F: PrimeField> Encodable<F> for NullArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        // NullArray is all-zeros in F. The cheapest possible backing is
-        // packed bits with every bit clear: `len.div_ceil(8)` bytes total,
-        // 256× smaller than the prior `vec![F::zero(); len]` (which was
-        // 32 B per zero). `MLEStorage::Bit` lifts an unset bit to
-        // `F::zero()`, so semantics stay identical.
+        // NullArray is all-zeros in F. Cheapest representation is a
+        // bit-packed MLE with every bit clear: `len.div_ceil(8)` bytes total,
+        // 256× smaller than a `vec![F::zero(); len]`. `MLEStorage::Bit`
+        // lifts an unset bit to `F::zero()`, so semantics stay identical.
         let len = self.len();
         let byte_len = len.div_ceil(8).max(1);
-        Ok(vec![EncodedSegment::primary_backed(EncodedBacking::Bits {
-            bits: vec![0u8; byte_len],
-            len,
-        })])
+        let num_vars = len.max(1).trailing_zeros() as usize;
+        assert!(
+            len == 0 || len.is_power_of_two(),
+            "NullArray encoder: len {len} must be 0 or a power of two"
+        );
+        let mle = MLE::<F>::from_bit_backing(vec![0u8; byte_len], num_vars);
+        Ok(vec![EncodedSegment::primary_mle(mle)])
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {

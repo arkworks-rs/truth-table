@@ -55,7 +55,7 @@ pub fn scalar_to_field<F: PrimeField>(scalar: &ScalarValue) -> Option<F> {
         return None;
     }
     let seg = segments.into_iter().next()?;
-    (seg.len() == 1).then(|| seg.backing.get_as_field(0))
+    (seg.len() == 1).then(|| seg.value_as_field(0))
 }
 
 #[tracing::instrument(

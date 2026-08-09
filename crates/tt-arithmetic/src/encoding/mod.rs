@@ -50,7 +50,7 @@ pub use dispatch::{encode_arrow_array_to_field, scalar_to_field, scalar_to_field
 pub use encodable::Encodable;
 pub use segment::{
     is_segment_of, segment_base_name, segment_suffixes_for_type, side_segment_suffixes_for_type,
-    EncodedBacking, EncodedSegment, SideColData, SideSegmentInfo,
+    EncodedSegment, SideColData, SideSegmentInfo,
 };
 pub use strings::{
     CHAR_LEVEL_SIDE_POLYS_ENABLED, STRING_BND_SUFFIX, STRING_CHARS_SUFFIX, STRING_INT_IND_SUFFIX,

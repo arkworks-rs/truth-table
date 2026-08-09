@@ -71,14 +71,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         let mut columns = IndexMap::new();
         for segment in literal_segments {
             // Literals encode to exactly one value per segment (guaranteed by
-            // `scalar_to_fields`). Read it through the backing's field
+            // `scalar_to_fields`). Read it through the segment's field
             // accessor so we work regardless of whether the encoder chose
-            // Fs or a native small-int backing (e.g. bool → Bits).
+            // Field storage or a native small-int MLE (e.g. bool → Bit).
             assert!(
                 segment.len() == 1,
                 "literal segment should carry one value"
             );
-            let value = segment.backing.get_as_field(0);
+            let value = segment.value_as_field(0);
             let segment_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
                 Either::Right(value),
                 log_size,
@@ -245,14 +245,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         let mut columns = IndexMap::new();
         for segment in literal_segments {
             // Literals encode to exactly one value per segment (guaranteed by
-            // `scalar_to_fields`). Read it through the backing's field
+            // `scalar_to_fields`). Read it through the segment's field
             // accessor so we work regardless of whether the encoder chose
-            // Fs or a native small-int backing (e.g. bool → Bits).
+            // Field storage or a native small-int MLE (e.g. bool → Bit).
             assert!(
                 segment.len() == 1,
                 "literal segment should carry one value"
             );
-            let value = segment.backing.get_as_field(0);
+            let value = segment.value_as_field(0);
             let segment_oracle = ark_piop::verifier::structs::oracle::TrackedOracle::new(
                 Either::Right(value),
                 tracker.clone(),
