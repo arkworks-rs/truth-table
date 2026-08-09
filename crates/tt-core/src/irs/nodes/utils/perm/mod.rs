@@ -78,8 +78,45 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .get(RIGHT_LABEL)
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
-        let fxs = fold_table_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL);
-        let gxs = fold_table_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL);
+        // The two sides may carry different arithmetization-segment
+        // sets — e.g. LEFT (the Filter's input) carries every
+        // Utf8-side segment for every source column (primary, __length,
+        // __chars, __orig_ind, __int_ind, __bnd), while RIGHT (the
+        // compacted output) only carries primary + __length. Folding
+        // each side with `[1..num_data_self]` would then use different
+        // random linear combinations, and the resulting single-column
+        // folds would compare non-comparable multisets even for
+        // structurally-equal inputs. Compute the *intersection* of
+        // data-column names and fold both sides over that shared name
+        // set with the same `[1..num_shared]` challenges — but only
+        // when the two sides *actually* diverge in column count. Same
+        // count on both sides means the original per-side fold produces
+        // structurally-comparable output (columns line up positionally
+        // even if field labels happen to differ), so we keep the old
+        // behaviour for that case. Guarding on the divergent-count
+        // branch also protects the LIKE path, whose LEFT/RIGHT carry
+        // differently-labelled columns with the same positional
+        // meaning — intersecting by name would collapse to an empty set
+        // there and produce an empty fold.
+        let (fxs, gxs) =
+            if left.num_data_tracked_cols() == right.num_data_tracked_cols() {
+                (
+                    fold_table_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL),
+                    fold_table_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL),
+                )
+            } else {
+                let shared_names = shared_data_field_names(left, right);
+                assert!(
+                    !shared_names.is_empty(),
+                    "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
+                    left.num_data_tracked_cols(),
+                    right.num_data_tracked_cols(),
+                );
+                (
+                    fold_table_by_names::<B>(left, &shared_names, keyed_sumcheck::FXS_LABEL),
+                    fold_table_by_names::<B>(right, &shared_names, keyed_sumcheck::GXS_LABEL),
+                )
+            };
         let mfxs = constant_one_table::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
         let mgxs = constant_one_table::<B>(&gxs, keyed_sumcheck::MGXS_LABEL);
 
@@ -133,8 +170,37 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .get(RIGHT_LABEL)
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
-        let fxs = fold_table_oracle_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL);
-        let gxs = fold_table_oracle_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL);
+        // See prover-side comment for rationale — fold both sides over
+        // the intersection of their data-column names when counts
+        // diverge; otherwise keep the positional-fold path.
+        let (fxs, gxs) = if left.num_data_tracked_col_oracles()
+            == right.num_data_tracked_col_oracles()
+        {
+            (
+                fold_table_oracle_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL),
+                fold_table_oracle_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL),
+            )
+        } else {
+            let shared_names = shared_oracle_data_field_names(left, right);
+            assert!(
+                !shared_names.is_empty(),
+                "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
+                left.num_data_tracked_col_oracles(),
+                right.num_data_tracked_col_oracles(),
+            );
+            (
+                fold_table_oracle_by_names::<B>(
+                    left,
+                    &shared_names,
+                    keyed_sumcheck::FXS_LABEL,
+                ),
+                fold_table_oracle_by_names::<B>(
+                    right,
+                    &shared_names,
+                    keyed_sumcheck::GXS_LABEL,
+                ),
+            )
+        };
         let mfxs = constant_one_table_oracle::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
         let mgxs = constant_one_table_oracle::<B>(&gxs, keyed_sumcheck::MGXS_LABEL);
 
@@ -257,6 +323,10 @@ fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
     Arc::new(Field::new(label, DataType::UInt64, false))
 }
 
+/// Original positional per-side fold — folds `table`'s data columns
+/// with `[1..num_data_self]`. Preserved for the equal-count branch of
+/// `initialize_gadgets` where both sides carry the same number of data
+/// columns and positional alignment already yields comparable folds.
 fn fold_table_to_single_col<B: SnarkBackend>(
     table: &TrackedTable<B>,
     label: &str,
@@ -278,6 +348,7 @@ fn fold_table_to_single_col<B: SnarkBackend>(
     TrackedTable::new(Some(Schema::new(fields)), tracked_polys, table.log_size())
 }
 
+/// Verifier mirror of `fold_table_to_single_col`.
 fn fold_table_oracle_to_single_col<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     label: &str,
@@ -285,6 +356,136 @@ fn fold_table_oracle_to_single_col<B: SnarkBackend>(
     let num_data = table.num_data_tracked_col_oracles();
     let challenges = folding_challenges::<B::F>(num_data);
     let folded_col = table.fold_all_data_oracles(&challenges);
+
+    let data_field = folded_field_from_schema(table.schema_ref(), label);
+    let mut fields = vec![data_field.as_ref().clone()];
+    let mut tracked_oracles = IndexMap::new();
+    tracked_oracles.insert(data_field, folded_col.data_tracked_oracle());
+
+    if let Some(activator) = table.activator_tracked_poly() {
+        fields.push(ACTIVATOR_FIELD.as_ref().clone());
+        tracked_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
+    }
+
+    TrackedTableOracle::new(Some(Schema::new(fields)), tracked_oracles, table.log_size())
+}
+
+/// Compute the intersection of data-column names between LEFT and
+/// RIGHT, ordered by RIGHT's tracked_polys flat-view order. RIGHT is
+/// treated as the reference because for the rematerialize permutation
+/// it is always a (non-strict) subset of LEFT — the compacted output's
+/// tracked columns are a subset of the filter's input's tracked columns.
+///
+/// Returns an empty vector when RIGHT has no data columns (would be a
+/// degenerate perm anyway). If RIGHT names a column that LEFT does not
+/// carry (defensive, shouldn't happen for rematerialize), that name is
+/// silently dropped — the resulting fold still gives comparable
+/// multisets over the columns both sides do share.
+fn shared_data_field_names<B: SnarkBackend>(
+    left: &TrackedTable<B>,
+    right: &TrackedTable<B>,
+) -> Vec<String> {
+    let left_names: std::collections::HashSet<String> = left
+        .tracked_polys()
+        .keys()
+        .filter(|f| !is_system_column(f.name()))
+        .map(|f| f.name().to_string())
+        .collect();
+    right
+        .tracked_polys()
+        .keys()
+        .filter(|f| !is_system_column(f.name()))
+        .filter(|f| left_names.contains(f.name()))
+        .map(|f| f.name().to_string())
+        .collect()
+}
+
+fn shared_oracle_data_field_names<B: SnarkBackend>(
+    left: &TrackedTableOracle<B>,
+    right: &TrackedTableOracle<B>,
+) -> Vec<String> {
+    let left_names: std::collections::HashSet<String> = left
+        .tracked_oracles()
+        .keys()
+        .filter(|f| !is_system_column(f.name()))
+        .map(|f| f.name().to_string())
+        .collect();
+    right
+        .tracked_oracles()
+        .keys()
+        .filter(|f| !is_system_column(f.name()))
+        .filter(|f| left_names.contains(f.name()))
+        .map(|f| f.name().to_string())
+        .collect()
+}
+
+/// Fold `table`'s data columns whose names appear in `names` (in
+/// `names` order) with challenges `[1..=names.len()]`. Both LEFT and
+/// RIGHT sides of the permutation use the same `names` slice so the
+/// resulting folded polys are structurally comparable.
+fn fold_table_by_names<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    names: &[String],
+    label: &str,
+) -> TrackedTable<B> {
+    // Resolve `names` → flat-view indices in this side's tracked_polys.
+    let flat = table.tracked_polys();
+    let indices: Vec<usize> = names
+        .iter()
+        .filter_map(|n| {
+            flat.keys()
+                .enumerate()
+                .find(|(_, f)| f.name() == n)
+                .map(|(i, _)| i)
+        })
+        .collect();
+    assert_eq!(
+        indices.len(),
+        names.len(),
+        "fold_table_by_names: perm side missing shared column(s) — LEFT/RIGHT diverged unexpectedly"
+    );
+    let challenges = folding_challenges::<B::F>(indices.len());
+    let folded_col = table.fold(&indices, &challenges);
+
+    let data_field = folded_field_from_schema(table.schema_ref(), label);
+    let mut fields = vec![data_field.as_ref().clone()];
+    let mut tracked_polys = IndexMap::new();
+    tracked_polys.insert(data_field, folded_col.data_tracked_poly());
+
+    if let Some(activator) = table.activator_tracked_poly() {
+        fields.push(ACTIVATOR_FIELD.as_ref().clone());
+        tracked_polys.insert(ACTIVATOR_FIELD.clone(), activator);
+    }
+
+    TrackedTable::new(Some(Schema::new(fields)), tracked_polys, table.log_size())
+}
+
+/// Verifier mirror of `fold_table_by_names`. Same rationale: fold both
+/// sides over the intersection of data-column names with matching
+/// challenges so the folded oracles are structurally comparable at the
+/// keyed-sumcheck stage.
+fn fold_table_oracle_by_names<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    names: &[String],
+    label: &str,
+) -> TrackedTableOracle<B> {
+    let flat = table.tracked_oracles();
+    let indices: Vec<usize> = names
+        .iter()
+        .filter_map(|n| {
+            flat.keys()
+                .enumerate()
+                .find(|(_, f)| f.name() == n)
+                .map(|(i, _)| i)
+        })
+        .collect();
+    assert_eq!(
+        indices.len(),
+        names.len(),
+        "fold_table_oracle_by_names: perm side missing shared column(s) — LEFT/RIGHT diverged unexpectedly"
+    );
+    let challenges = folding_challenges::<B::F>(indices.len());
+    let folded_col = table.fold(&indices, &challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];
