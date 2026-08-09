@@ -12,6 +12,12 @@ end_to_end_tests!(&["nation"] => [
     simple_like_infix_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%haggle%'"#,
 ]);
 
+// Small-scale equality-filter reproducer on `part` (16k rows → nv=14).
+// Fast enough for brute-force sumcheck-consistency diagnostics.
+end_to_end_tests!(&["part"] => [
+    equality_filter_part => r#"SELECT p_name FROM part WHERE p_brand = 'Brand#13'"#,
+]);
+
 end_to_end_tests!(&["lineitem"] => [
     simple_like_infix_lineitem => r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%green%'"#,
 ]);
