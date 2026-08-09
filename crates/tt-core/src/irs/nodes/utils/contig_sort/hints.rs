@@ -366,15 +366,28 @@ fn diff_input_on_ordered_via_windows(
             })
             .alias(name.to_string())
         } else {
-            // For non-numeric types, emit a sign-only diff via comparisons.
+            // For non-numeric types, emit a sign-only diff as `{0, 1, 2}`
+            // shifted from the natural `{-1, 0, 1}` by +1. The shifted
+            // encoding fits in `u8` and is non-negative, which lets the
+            // arithmetization encoder route it to the compact `MLE::U8`
+            // storage variant (16 MiB at nv=24) instead of falling back
+            // to `Vec<F>` (512 MiB at nv=24) via the negative-value
+            // Field-fallback path in `encode_arrow_array_to_field`.
+            //
+            // The consumer in `populate_sign_payloads_prover`
+            // subtracts `1` from the tracked diff to recover the sign
+            // semantics — see `is_sign_only_diff` in the parent module.
+            //   gt → 2   (original +1 shifted)
+            //   eq → 1   (original 0 shifted)
+            //   lt → 0   (original -1 shifted)
             let (left, right) = if is_asc {
                 (rotated_expr.clone(), col(name))
             } else {
                 (col(name), rotated_expr.clone())
             };
-            when(left.clone().gt(right.clone()), lit(1_i64))
-                .when(left.lt(right), lit(-1_i64))
-                .otherwise(lit(0_i64))?
+            when(left.clone().gt(right.clone()), lit(ScalarValue::UInt8(Some(2))))
+                .when(left.lt(right), lit(ScalarValue::UInt8(Some(0))))
+                .otherwise(lit(ScalarValue::UInt8(Some(1))))?
                 .alias(name.to_string())
         };
         diff_cols.push(diff_expr);
@@ -628,6 +641,12 @@ fn diff_date32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<Array
 }
 
 fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    // Emits the sign of `lhs - rhs` shifted from `{-1, 0, 1}` to `{0, 1, 2}`
+    // as `UInt8`. See the parallel branch in `diff_input_on_ordered_via_windows`
+    // for the rationale — the shift lets the encoder route to `MLE::U8`
+    // storage (16 MiB at nv=24) instead of the Field fallback (512 MiB).
+    // The consumer subtracts `1` to recover the sign semantics; see
+    // `is_sign_only_diff` in the parent module.
     let values = (0..lhs.len())
         .map(|idx| {
             if lhs.is_null(idx) || rhs.is_null(idx) {
@@ -635,16 +654,16 @@ fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<Ar
             } else {
                 let left = ScalarValue::try_from_array(lhs, idx)?;
                 let right = ScalarValue::try_from_array(rhs, idx)?;
-                let sign = match left.partial_cmp(&right) {
-                    Some(std::cmp::Ordering::Greater) => 1_i64,
-                    Some(std::cmp::Ordering::Less) => -1_i64,
-                    _ => 0_i64,
+                let shifted: u8 = match left.partial_cmp(&right) {
+                    Some(std::cmp::Ordering::Greater) => 2,
+                    Some(std::cmp::Ordering::Less) => 0,
+                    _ => 1,
                 };
-                Ok(Some(sign))
+                Ok(Some(shifted))
             }
         })
         .collect::<DataFusionResult<Vec<_>>>()?;
-    Ok(std::sync::Arc::new(Int64Array::from(values)))
+    Ok(std::sync::Arc::new(datafusion::arrow::array::UInt8Array::from(values)))
 }
 
 // Keep diff materialization on numeric types to avoid invalid arithmetic in DataFusion.
