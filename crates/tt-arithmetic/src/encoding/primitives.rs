@@ -322,10 +322,59 @@ impl_col_adapter_map!(DurationMicrosecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(DurationNanosecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(IntervalYearMonthArray, |v| F::from(v as i128));
 
-// Decimals: intrinsically field-native (mod-order reduction), so field MLE.
-impl_col_adapter_map!(Decimal128Array, |v: <datafusion::arrow::datatypes::Decimal128Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
-    &v.to_le_bytes()
-));
+// Decimal128: sign-peek like Int64. Non-negative → PackedDecimal storage
+// (16 B/row via parallel high/low u64 vectors; commit path reuses `msm_u64`
+// twice — see `pcs/pst13/mod.rs`). Any negative row → fall back to the
+// eager field-native path via `from_le_bytes_mod_order`, because negative
+// values in `F` become `MODULUS − |v|`, a full 254-bit scalar that a
+// 128-bit packed backing can't represent.
+//
+// TPC-H's `l_extendedprice`, `l_discount`, `l_tax`, `o_totalprice`,
+// `ps_supplycost`, `p_retailprice`, `c_acctbal`, `s_acctbal`, and
+// `n_regionkey`-adjacent decimals are all naturally non-negative, so the
+// common case takes the packed path.
+impl<F: PrimeField> Encodable<F> for Decimal128Array {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        let all_non_negative =
+            (0..self.len()).all(|i| self.is_null(i) || self.value(i) >= 0);
+        if all_non_negative {
+            let n = self.len();
+            let mut high: Vec<u64> = Vec::with_capacity(n);
+            let mut low: Vec<u64> = Vec::with_capacity(n);
+            for i in 0..n {
+                let v: u128 = if self.is_null(i) {
+                    0
+                } else {
+                    self.value(i) as u128
+                };
+                high.push((v >> 64) as u64);
+                low.push(v as u64);
+            }
+            // `scale()` is the fixed-point exponent from the source
+            // DataType metadata (e.g. TPC-H's `l_extendedprice` is
+            // Decimal128(15,2) → scale=2). Cast to u8 fits every
+            // spec-permitted precision (0..=38).
+            let scale_u8 = self.scale() as u8;
+            let mle = MLE::<F>::from_packed_decimal(high, low, scale_u8, num_vars_of(n));
+            return Ok(vec![EncodedSegment::primary_mle(mle)]);
+        }
+        // Negative-mixed fallback — same encoding as before this variant
+        // existed, so historical Field-backed decimals stay bit-identical.
+        let cols = collect_by_columns(self.len(), |i| {
+            if self.is_null(i) {
+                vec![F::zero()]
+            } else {
+                vec![F::from_le_bytes_mod_order(&self.value(i).to_le_bytes())]
+            }
+        });
+        Ok(auto_segments(cols))
+    }
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!("Decoding Decimal128Array is not implemented yet")
+    }
+}
+// Decimal256 has no 128-bit packing available; stays field-native. TPC-H
+// doesn't use Decimal256 in practice.
 impl_col_adapter_map!(Decimal256Array, |v: <datafusion::arrow::datatypes::Decimal256Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
     &v.to_le_bytes()
 ));

@@ -18,31 +18,42 @@ end_to_end_tests!(&["part"] => [
     equality_filter_part => r#"SELECT p_name FROM part WHERE p_brand = 'Brand#13'"#,
 ]);
 
-/// Regression guard for the residual equality-filter bug —
-/// `SELECT o_comment FROM orders WHERE o_orderstatus = 'F'` on
-/// orders (131k rows → nv=17). Currently fails with `Sumcheck's
-/// deferred checks failed in round 0`, same as
-/// `simple_equality_filter` / `simple_equality_filter_and` on
-/// lineitem (nv=19).
+/// Regression guard for the equality-filter bug on `orders`
+/// (`SELECT o_comment FROM orders WHERE o_orderstatus = 'F'`,
+/// 131k rows → nv=17). Now fails with a `VerifierTracker` prover-comm
+/// ID mismatch (e.g. `31 vs 10`) at `verifier/tracker/tracking.rs:47`,
+/// not the previously-observed sumcheck round-0 mismatch.
 ///
-/// Bisected in the 2026-08-09 session: this bug is
-/// **scale-dependent**, not shape-dependent. `equality_filter_part`
-/// on `part` (nv=14) — same shape but smaller — passes with the
-/// same fixes (see ark-piop@e45baae, tt-core@31a31aae). The residual
-/// only triggers at nv >= 16, and instrumented brute-force at
-/// nv <= 16 confirms the aggregated sumcheck poly's actual
-/// hypercube sum equals the recorded claim at those scales.
-/// Something in the pipeline changes behavior at the nv=16
-/// threshold. `reduce_sumcheck_dgree` disabled → still fails, so
-/// that's not it. Prover/verifier claim values and orderings match
-/// step-by-step across all bucketing/equalize/batch stages —
-/// yet `msg[0]+msg[1] != asserted_sum` for the second bucket.
+/// **History**:
+/// - Prior symptom (before ark-piop@<task-3-fix>): "Sumcheck's
+///   deferred checks failed in round 0". The 2026-08-09 session
+///   bisected this to scale-dependent behavior at nv >= 16 without
+///   root-causing it.
+/// - Root cause found and fixed (2026-08-09, follow-up):
+///   `equalize_sumcheck_claims` on the verifier was re-reading
+///   `equalize_mat_com_nv()` LIVE inside every bucket while the
+///   prover snapshotted `global_max_for_recording` ONCE before the
+///   bucket loop. In multi-bucket plans (which the cost model
+///   produces at nv >= 16 for this shape), chunk commits added by
+///   earlier buckets' `batch_nozero_check_claims` /
+///   `reduce_sumcheck_dgree` pushed the verifier's live value
+///   strictly above the prover's frozen snapshot, so bucket 1's
+///   recorded claims were divided by a larger factor than the
+///   prover multiplied by. Fixed by threading the outer snapshot
+///   into `equalize_sumcheck_claims`.
+/// - Residual after that fix (this test): a distinct, pre-existing
+///   `VerifierTracker` prover-comm ID mismatch — the same failure
+///   mode that `project_returns_quantity_extprice` (a decimal
+///   projection with no filter) hits on baseline. The tracker
+///   itself is diverging between prover and verifier for these
+///   query shapes; not a sumcheck-side issue. See `#[ignore]`'d
+///   companion tests below.
 ///
 /// Kept as `#[ignore]` so `cargo test` stays green; run with
 /// `cargo test -- --ignored equality_filter_orders` when
 /// investigating.
 #[tokio::test]
-#[ignore = "residual round-0 mismatch at nv>=16 — needs its own debug session"]
+#[ignore = "residual: pre-existing VerifierTracker ID mismatch, unrelated to the fixed sumcheck-scale bug"]
 async fn equality_filter_orders() {
     tt_exec::test_utils::prove_and_verify_query(
         r#"SELECT o_comment FROM orders WHERE o_orderstatus = 'F'"#,
