@@ -360,17 +360,40 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         oracle.log_size(),
         "commitment oracle log_size should match arith table"
     );
-    let schema = tracked_schema_with_oracle_metadata(
-        arith_table.schema(),
-        oracle.schema_ref(),
-        tracked_polys.keys().map(|f| f.as_ref().clone()).collect(),
-    );
-    TrackedTable::new_with_side_cols(
-        schema,
+    // Build the TrackedTable first, then derive the schema from the
+    // POST-REGROUP row-domain field order (`tracked.tracked_polys()` after
+    // `regroup_flat_into_tracked_cols` groups primary+aux per source col).
+    //
+    // Rationale: `arith_table.polynomials()` may interleave a source column's
+    // aux row-domain segments after other primary columns (e.g. the string
+    // encoder emits `[primary_A, primary_B, aux_A_len, aux_B_len]`), but the
+    // regroup pulls each aux under its owning primary and the verifier's
+    // `TrackedTableOracle::from_tracked_table` walks the post-regroup order
+    // (`all_tracked_cols`) when populating its data_map. If the schema were
+    // built from the pre-regroup insertion order, its field-per-position
+    // would diverge from the data_map's field-per-position and
+    // `TrackedTableOracle::check_new_args` would trip
+    // `Schema fields must match the tracked oracle fields`. Deriving from
+    // the post-regroup iterator guarantees agreement in both directions.
+    let table = TrackedTable::new_with_side_cols(
+        None,
         tracked_polys,
         arith_table.log_size(),
         tracked_side_cols,
-    )
+    );
+    let post_regroup_fields: Vec<Field> = table
+        .tracked_polys()
+        .keys()
+        .map(|f| f.as_ref().clone())
+        .collect();
+    let schema = tracked_schema_with_oracle_metadata(
+        arith_table.schema(),
+        oracle.schema_ref(),
+        post_regroup_fields,
+    );
+    let mut table = table;
+    table.set_schema(schema);
+    table
 }
 
 fn tracked_schema_with_oracle_metadata(

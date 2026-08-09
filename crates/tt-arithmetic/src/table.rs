@@ -359,6 +359,15 @@ impl<B: SnarkBackend> TrackedTable<B> {
         self.schema.as_ref()
     }
 
+    /// Overwrite this table's schema. Used by builders that need to compute
+    /// the field order AFTER constructing the table — e.g. the tt-core
+    /// tracking pass builds the flat-schema fields from the post-regroup
+    /// `tracked_polys()` order so it agrees with the verifier's
+    /// `all_tracked_cols` walk in `TrackedTableOracle::from_tracked_table`.
+    pub fn set_schema(&mut self, schema: Option<Schema>) {
+        self.schema = schema;
+    }
+
     /// Returns the log size of the table
     pub fn log_size(&self) -> usize {
         self.log_size
