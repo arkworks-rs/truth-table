@@ -213,16 +213,28 @@ impl<B: SnarkBackend> TrackedTable<B> {
             TrackedCol::SingleSegment {
                 poly_bundle,
                 field_ref,
-            } => TrackedCol::new_multi(poly_bundle, vec![(suffix, side)], field_ref),
+            } => TrackedCol::new_multi_split(
+                poly_bundle,
+                Vec::new(),
+                vec![(suffix, side)],
+                field_ref,
+            ),
             TrackedCol::MultiSegment {
                 primary_poly_bundle,
                 mut aux_poly_bundles,
+                mut side_aux_suffixes,
                 field_ref,
             } => {
-                aux_poly_bundles.insert(suffix, side);
+                // `insert_side_col` is by definition adding a side segment,
+                // so mark it as such in the marker set (see the enum
+                // docstring in col.rs for why the log_size heuristic was
+                // insufficient).
+                aux_poly_bundles.insert(suffix.clone(), side);
+                side_aux_suffixes.insert(suffix);
                 TrackedCol::MultiSegment {
                     primary_poly_bundle,
                     aux_poly_bundles,
+                    side_aux_suffixes,
                     field_ref,
                 }
             }
@@ -710,7 +722,8 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
             continue;
         }
         let primary_name = field.name();
-        let mut aux_poly_bundles: Vec<(String, PolyBundle<B>)> = Vec::new();
+        let mut row_aux_bundles: Vec<(String, PolyBundle<B>)> = Vec::new();
+        let mut side_aux_bundles: Vec<(String, PolyBundle<B>)> = Vec::new();
         // Row-domain aux (from `tracked_polys`): activator inherited
         // from the shared table activator (must exist when there is aux).
         for (aux_field, aux_poly) in tracked_polys.iter() {
@@ -721,7 +734,7 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
                 && base == primary_name
             {
                 let suffix = &aux_field.name()[primary_name.len()..];
-                aux_poly_bundles.push((
+                row_aux_bundles.push((
                     suffix.to_string(),
                     PolyBundle::new(aux_poly.clone(), shared_activator.clone()),
                 ));
@@ -733,15 +746,23 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
                 && base == primary_name
             {
                 let suffix = &side_field.name()[primary_name.len()..];
-                aux_poly_bundles.push((suffix.to_string(), side.clone()));
+                side_aux_bundles.push((suffix.to_string(), side.clone()));
             }
         }
-        let col = if aux_poly_bundles.is_empty() {
+        let col = if row_aux_bundles.is_empty() && side_aux_bundles.is_empty() {
             TrackedCol::new(poly.clone(), shared_activator.clone(), Some(field.clone()))
         } else {
-            TrackedCol::new_multi(
+            // Preserve the row-vs-side classification the caller already
+            // knows (tracked_polys → row, side_cols → side) rather than
+            // rediscovering it downstream via a log_size heuristic that
+            // silently misclassifies side segments whose pow2-padded
+            // domain happens to match the row size. See TrackedCol's
+            // enum docstring for the concrete misclassification that
+            // motivated the explicit split.
+            TrackedCol::new_multi_split(
                 PolyBundle::new(poly.clone(), shared_activator.clone()),
-                aux_poly_bundles,
+                row_aux_bundles,
+                side_aux_bundles,
                 Some(field.clone()),
             )
         };

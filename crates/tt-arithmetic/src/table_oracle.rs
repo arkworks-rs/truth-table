@@ -190,16 +190,24 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             TrackedColOracle::SingleSegment {
                 oracle_bundle,
                 field_ref,
-            } => TrackedColOracle::new_multi(oracle_bundle, vec![(suffix, side)], field_ref),
+            } => TrackedColOracle::new_multi_split(
+                oracle_bundle,
+                Vec::new(),
+                vec![(suffix, side)],
+                field_ref,
+            ),
             TrackedColOracle::MultiSegment {
                 primary_oracle_bundle,
                 mut aux_oracle_bundles,
+                mut side_aux_suffixes,
                 field_ref,
             } => {
-                aux_oracle_bundles.insert(suffix, side);
+                aux_oracle_bundles.insert(suffix.clone(), side);
+                side_aux_suffixes.insert(suffix);
                 TrackedColOracle::MultiSegment {
                     primary_oracle_bundle,
                     aux_oracle_bundles,
+                    side_aux_suffixes,
                     field_ref,
                 }
             }
@@ -598,7 +606,8 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
             continue;
         }
         let primary_name = field.name();
-        let mut aux_oracle_bundles: Vec<(String, OracleBundle<B>)> = Vec::new();
+        let mut row_aux_bundles: Vec<(String, OracleBundle<B>)> = Vec::new();
+        let mut side_aux_bundles: Vec<(String, OracleBundle<B>)> = Vec::new();
         for (aux_field, aux_oracle) in tracked_oracles.iter() {
             if aux_field.name() == primary_name {
                 continue;
@@ -607,7 +616,7 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
                 && base == primary_name
             {
                 let suffix = &aux_field.name()[primary_name.len()..];
-                aux_oracle_bundles.push((
+                row_aux_bundles.push((
                     suffix.to_string(),
                     OracleBundle::new(aux_oracle.clone(), shared_activator.clone()),
                 ));
@@ -618,19 +627,23 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
                 && base == primary_name
             {
                 let suffix = &side_field.name()[primary_name.len()..];
-                aux_oracle_bundles.push((suffix.to_string(), side.clone()));
+                side_aux_bundles.push((suffix.to_string(), side.clone()));
             }
         }
-        let col = if aux_oracle_bundles.is_empty() {
+        let col = if row_aux_bundles.is_empty() && side_aux_bundles.is_empty() {
             TrackedColOracle::new(
                 oracle.clone(),
                 shared_activator.clone(),
                 Some(field.clone()),
             )
         } else {
-            TrackedColOracle::new_multi(
+            // Preserve the row-vs-side split the caller already knows
+            // (tracked_oracles → row, side_cols → side). See prover-side
+            // regroup_flat_into_tracked_cols for the equivalent rationale.
+            TrackedColOracle::new_multi_split(
                 OracleBundle::new(oracle.clone(), shared_activator.clone()),
-                aux_oracle_bundles,
+                row_aux_bundles,
+                side_aux_bundles,
                 Some(field.clone()),
             )
         };

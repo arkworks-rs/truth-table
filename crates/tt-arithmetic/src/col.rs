@@ -69,9 +69,17 @@ impl<B: SnarkBackend> PolyBundle<B> {
 /// activator). Multi-aspect encodings (like strings) expand into
 /// `MultiSegment`, which carries a primary polynomial plus a map of
 /// auxiliary polynomials. Row-domain aux and side-domain aux live in
-/// the same map — distinguished by comparing `aux.data.log_size()`
-/// against the primary's log_size (row-domain aux match; side-domain
-/// aux have their own smaller domain).
+/// the same map; the set `side_aux_suffixes` marks which suffixes
+/// belong to the side domain.
+///
+/// **Previous heuristic** (removed): row-vs-side was derived by
+/// comparing `aux.data.log_size()` against the primary's. That
+/// heuristic silently misclassified side segments whose domain
+/// happened to match the primary — e.g. lineitem's `l_returnflag`
+/// (values 'A'/'R'/'N'/'F', one char each → chars-side log_size ==
+/// row log_size), which then leaked into `segments_iter` and made
+/// the `Eq` gadget see 6 data cols on one side vs 2 on the other.
+/// Storing the row/side split explicitly avoids the ambiguity.
 pub enum TrackedCol<B: SnarkBackend> {
     SingleSegment {
         /// The column's data polynomial + its (optional) activator.
@@ -83,8 +91,20 @@ pub enum TrackedCol<B: SnarkBackend> {
         primary_poly_bundle: PolyBundle<B>,
         /// All auxiliary polynomial bundles belonging to this column,
         /// keyed by segment suffix (e.g. `__length`, `__chars`,
-        /// `__orig_ind`, `__bnd`).
+        /// `__orig_ind`, `__bnd`). Row-domain aux (e.g. `__length`)
+        /// and side-domain aux (e.g. `__chars`) share this map;
+        /// `side_aux_suffixes` marks which entries are side.
         aux_poly_bundles: IndexMap<String, PolyBundle<B>>,
+        /// Subset of `aux_poly_bundles` keys that are side-domain.
+        /// Populated at construction time from the row/side split
+        /// carried by upstream `arith_table.polynomials()` vs
+        /// `arith_table.side_cols()`. `segments_iter` /
+        /// `side_segments_iter` consult this set instead of comparing
+        /// `log_size`, which is unreliable when the side domain
+        /// happens to be pow2-padded to the same size as the row
+        /// domain (see enum-level docstring for the concrete
+        /// misclassification that prompted this field).
+        side_aux_suffixes: IndexSet<String>,
         field_ref: Option<FieldRef>,
     },
 }
@@ -102,14 +122,14 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedCol<B> {
                 .field("field_ref", field_ref)
                 .finish(),
             Self::MultiSegment {
-                primary_poly_bundle,
+                primary_poly_bundle: _,
                 aux_poly_bundles,
+                side_aux_suffixes,
                 field_ref,
             } => {
-                let primary_log_size = primary_poly_bundle.log_size();
                 let (side_ids, row_ids): (Vec<_>, Vec<_>) = aux_poly_bundles
                     .iter()
-                    .partition(|(_, aux)| aux.log_size() != primary_log_size);
+                    .partition(|(sid, _)| side_aux_suffixes.contains(sid.as_str()));
                 f.debug_struct("TrackedCol::MultiSegment")
                     .field("num_segments", &(1 + aux_poly_bundles.len()))
                     .field(
@@ -200,6 +220,7 @@ impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
             Self::MultiSegment {
                 primary_poly_bundle,
                 aux_poly_bundles,
+                side_aux_suffixes,
                 ..
             } => {
                 writeln!(f, "{} (multi-segment):", field_name)?;
@@ -209,9 +230,8 @@ impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
                     data_repr(&primary_poly_bundle.data),
                     activator_repr(&primary_poly_bundle.activator),
                 )?;
-                let primary_log_size = primary_poly_bundle.log_size();
                 for (sid, aux) in aux_poly_bundles.iter() {
-                    if aux.log_size() != primary_log_size {
+                    if side_aux_suffixes.contains(sid.as_str()) {
                         writeln!(
                             f,
                             "  {} (side): log_size={}",
@@ -253,17 +273,50 @@ impl<B: SnarkBackend> TrackedCol<B> {
 
     /// Constructs a multi-segment tracked column: one required primary
     /// poly bundle plus zero or more named aux poly bundles. Aux ids must
-    /// be non-empty (the primary owns the empty id by convention). Row-
-    /// and side-domain aux polys live in the same map — distinguished
-    /// downstream by comparing `aux.data.log_size()` against primary's.
+    /// be non-empty (the primary owns the empty id by convention).
+    ///
+    /// **Domain classification**: prefer [`Self::new_multi_split`] over
+    /// this constructor when you have the row-vs-side split at hand.
+    /// This one auto-classifies each aux by log_size against the primary
+    /// — a HEURISTIC that misclassifies side segments whose domain
+    /// happens to match the primary (see the enum docstring for the
+    /// concrete failure). Kept as a compatibility shim for callers that
+    /// still hand in a merged list; `regroup_flat_into_tracked_cols`
+    /// switched to `new_multi_split` to avoid the misclassification.
     pub fn new_multi(
         primary_poly_bundle: PolyBundle<B>,
         aux_poly_bundles_input: Vec<(String, PolyBundle<B>)>,
         field_ref: Option<FieldRef>,
     ) -> Self {
-        let mut aux_poly_bundles: IndexMap<String, PolyBundle<B>> =
-            IndexMap::with_capacity(aux_poly_bundles_input.len());
+        let primary_log_size = primary_poly_bundle.log_size();
+        let mut row_aux: Vec<(String, PolyBundle<B>)> = Vec::new();
+        let mut side_aux: Vec<(String, PolyBundle<B>)> = Vec::new();
         for (sid, aux) in aux_poly_bundles_input {
+            if aux.log_size() == primary_log_size {
+                row_aux.push((sid, aux));
+            } else {
+                side_aux.push((sid, aux));
+            }
+        }
+        Self::new_multi_split(primary_poly_bundle, row_aux, side_aux, field_ref)
+    }
+
+    /// Constructs a multi-segment tracked column with explicit row-vs-side
+    /// classification. Preferred over [`Self::new_multi`] whenever the
+    /// caller already knows the split — typically because it built the
+    /// column from an upstream `arith_table.polynomials()` (row) vs
+    /// `arith_table.side_cols()` (side) pair.
+    pub fn new_multi_split(
+        primary_poly_bundle: PolyBundle<B>,
+        row_aux_input: Vec<(String, PolyBundle<B>)>,
+        side_aux_input: Vec<(String, PolyBundle<B>)>,
+        field_ref: Option<FieldRef>,
+    ) -> Self {
+        let mut aux_poly_bundles: IndexMap<String, PolyBundle<B>> =
+            IndexMap::with_capacity(row_aux_input.len() + side_aux_input.len());
+        let mut side_aux_suffixes: IndexSet<String> =
+            IndexSet::with_capacity(side_aux_input.len());
+        for (sid, aux) in row_aux_input {
             assert!(
                 !sid.is_empty(),
                 "MultiSegment aux segment id must be non-empty (primary owns the empty id)"
@@ -274,9 +327,22 @@ impl<B: SnarkBackend> TrackedCol<B> {
             );
             aux_poly_bundles.insert(sid, aux);
         }
+        for (sid, aux) in side_aux_input {
+            assert!(
+                !sid.is_empty(),
+                "MultiSegment aux segment id must be non-empty (primary owns the empty id)"
+            );
+            assert!(
+                !aux_poly_bundles.contains_key(&sid),
+                "duplicate aux segment id '{sid}' in MultiSegment column"
+            );
+            aux_poly_bundles.insert(sid.clone(), aux);
+            side_aux_suffixes.insert(sid);
+        }
         Self::MultiSegment {
             primary_poly_bundle,
             aux_poly_bundles,
+            side_aux_suffixes,
             field_ref,
         }
     }
@@ -356,10 +422,10 @@ impl<B: SnarkBackend> TrackedCol<B> {
     }
 
     /// Iterate `(id, data, activator)` over ROW-domain segments only:
-    /// primary yields `id = None`, row-aux yields `id = Some(sid)`. Side-
-    /// domain aux (those whose `data.log_size()` differs from the
-    /// primary's) are excluded — use
-    /// [`side_segments_iter`](Self::side_segments_iter) for those.
+    /// primary yields `id = None`, row-aux yields `id = Some(sid)`.
+    /// Side-domain aux are excluded via the explicit
+    /// `side_aux_suffixes` marker set (see the enum docstring for why
+    /// the historical `log_size` heuristic was insufficient).
     pub fn segments_iter(
         &self,
     ) -> Box<dyn Iterator<Item = (Option<&str>, &TrackedPoly<B>, Option<&TrackedPoly<B>>)> + '_>
@@ -373,9 +439,9 @@ impl<B: SnarkBackend> TrackedCol<B> {
             Self::MultiSegment {
                 primary_poly_bundle,
                 aux_poly_bundles,
+                side_aux_suffixes,
                 ..
             } => {
-                let primary_log_size = primary_poly_bundle.log_size();
                 let primary = std::iter::once((
                     None,
                     &primary_poly_bundle.data,
@@ -383,7 +449,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
                 ));
                 let aux = aux_poly_bundles
                     .iter()
-                    .filter(move |(_, aux)| aux.data.log_size() == primary_log_size)
+                    .filter(move |(sid, _)| !side_aux_suffixes.contains(sid.as_str()))
                     .map(|(sid, aux)| (Some(sid.as_str()), &aux.data, aux.activator.as_ref()));
                 Box::new(primary.chain(aux))
             }
@@ -406,9 +472,20 @@ impl<B: SnarkBackend> TrackedCol<B> {
     /// id resolves to a row-domain aux). Convenience over `aux_segment`
     /// for callers that assert side-ness.
     pub fn side_segment(&self, side_id: &str) -> Option<&PolyBundle<B>> {
-        let primary_log_size = self.log_size();
-        self.aux_segment(side_id)
-            .filter(|aux| aux.data.log_size() != primary_log_size)
+        match self {
+            Self::SingleSegment { .. } => None,
+            Self::MultiSegment {
+                aux_poly_bundles,
+                side_aux_suffixes,
+                ..
+            } => {
+                if side_aux_suffixes.contains(side_id) {
+                    aux_poly_bundles.get(side_id)
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     /// Iterate `(suffix, aux)` over every side-domain segment in this
@@ -419,18 +496,15 @@ impl<B: SnarkBackend> TrackedCol<B> {
         match self {
             Self::SingleSegment { .. } => Box::new(std::iter::empty()),
             Self::MultiSegment {
-                primary_poly_bundle,
                 aux_poly_bundles,
+                side_aux_suffixes,
                 ..
-            } => {
-                let primary_log_size = primary_poly_bundle.log_size();
-                Box::new(
-                    aux_poly_bundles
-                        .iter()
-                        .filter(move |(_, aux)| aux.data.log_size() != primary_log_size)
-                        .map(|(sid, aux)| (sid.as_str(), aux)),
-                )
-            }
+            } => Box::new(
+                aux_poly_bundles
+                    .iter()
+                    .filter(move |(sid, _)| side_aux_suffixes.contains(sid.as_str()))
+                    .map(|(sid, aux)| (sid.as_str(), aux)),
+            ),
         }
     }
 
@@ -574,6 +648,7 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
             Self::MultiSegment {
                 primary_poly_bundle,
                 aux_poly_bundles,
+                side_aux_suffixes,
                 field_ref,
             } => Self::MultiSegment {
                 primary_poly_bundle: PolyBundle {
@@ -598,6 +673,7 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
                         )
                     })
                     .collect(),
+                side_aux_suffixes: side_aux_suffixes.clone(),
                 field_ref: field_ref.clone(),
             },
         }

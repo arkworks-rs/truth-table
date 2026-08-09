@@ -3,40 +3,10 @@
 mod support;
 
 end_to_end_tests!(&["lineitem"] => [
+    simple_equality_filter_and => r#"SELECT l_returnflag, l_linestatus FROM lineitem WHERE l_returnflag = 'R' AND l_linestatus= 'F'"#,
+    simple_equality_filter => r#"SELECT l_returnflag, l_linestatus FROM lineitem WHERE l_returnflag = 'R'"#,
     simple_inequality_filter => r#"SELECT l_returnflag, l_linestatus FROM lineitem WHERE l_shipdate < DATE '1998-09-01'"#,
 ]);
-
-// `simple_equality_filter` and `simple_equality_filter_and` extracted from the
-// macro so we can `#[ignore]` them individually — they hit the same
-// pre-existing `Eq` gadget input-arity mismatch documented on
-// `equality_filter_orders` below (three separate bugs are stacked on this
-// query shape; the first two are fixed, the third remains and is out of
-// scope for the current session). Extracted from the `end_to_end_tests!`
-// batch immediately above so the passing `simple_inequality_filter` still
-// runs while these stay quarantined.
-#[tokio::test]
-#[ignore = "residual: Eq gadget input-arity mismatch on multi-segment string columns"]
-async fn simple_equality_filter_and() {
-    tt_exec::test_utils::prove_and_verify_query(
-        r#"SELECT l_returnflag, l_linestatus FROM lineitem WHERE l_returnflag = 'R' AND l_linestatus= 'F'"#,
-        &["lineitem"],
-        None,
-    )
-    .await
-    .expect("end-to-end: simple_equality_filter_and");
-}
-
-#[tokio::test]
-#[ignore = "residual: Eq gadget input-arity mismatch on multi-segment string columns"]
-async fn simple_equality_filter() {
-    tt_exec::test_utils::prove_and_verify_query(
-        r#"SELECT l_returnflag, l_linestatus FROM lineitem WHERE l_returnflag = 'R'"#,
-        &["lineitem"],
-        None,
-    )
-    .await
-    .expect("end-to-end: simple_equality_filter");
-}
 
 end_to_end_tests!(&["nation"] => [
     simple_like_infix_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%haggle%'"#,
@@ -48,15 +18,14 @@ end_to_end_tests!(&["part"] => [
     equality_filter_part => r#"SELECT p_name FROM part WHERE p_brand = 'Brand#13'"#,
 ]);
 
-/// Regression guard for the equality-filter bug on `orders`
+/// Historical regression pin for the equality-filter bug on `orders`
 /// (`SELECT o_comment FROM orders WHERE o_orderstatus = 'F'`,
-/// 131k rows → nv=17). Currently fails with an `Eq` gadget input-arity
-/// mismatch at `tt-core/src/irs/nodes/utils/eq/mod.rs:126` — the
-/// two sides of the equality (`l_returnflag` column view vs the
-/// `'R'` scalar constant) end up with different data-column counts.
+/// 131k rows → nv=17). Now passes end-to-end after four separate
+/// fixes landed in sequence; kept in the suite as a regression
+/// guard on that specific query shape.
 ///
-/// **History** — three separate bugs used to fire on this shape;
-/// each fix uncovered the next:
+/// **History** — four stacked bugs on this shape, each fix
+/// uncovered the next:
 /// 1. "Sumcheck's deferred checks failed in round 0" — fixed by
 ///    threading the outer `global_max_for_recording` snapshot into
 ///    the verifier's `equalize_sumcheck_claims` (ark-piop@e0c6808).
@@ -66,19 +35,22 @@ end_to_end_tests!(&["part"] => [
 ///    ID, which fails whenever a subset-transfer caller
 ///    (`TrackedTableOracle::from_tracked_table`) visits polys in
 ///    a non-contiguous order. Fixed by registering commits under
-///    the caller-supplied ID directly + rebuilding the tracked
-///    schema in post-regroup order.
-/// 3. Current residual — `Eq` gadget expects same #cols on both
-///    sides. Distinct bug from the above two; only fires at
-///    query shapes where the column view has multiple row-domain
-///    segments (e.g. string columns with `__length` aux) but the
-///    scalar RHS wasn't expanded to the same shape.
-///
-/// Kept as `#[ignore]` so `cargo test` stays green; run with
-/// `cargo test -- --ignored equality_filter_orders` when
-/// investigating.
+///    the caller-supplied ID directly (ark-piop@7f305ab).
+/// 3. `TrackedTable` schema-order mismatch — the data owner's
+///    schema listed fields in prover-tracking order, but
+///    `all_tracked_cols` walks post-regroup order. Fixed by
+///    building the schema from post-regroup order (truth-table@5f44f724).
+/// 4. `Eq` gadget input-arity mismatch (left=6, right=2) — the
+///    row-vs-side classification of `TrackedCol::MultiSegment` aux
+///    was inferred by comparing `data.log_size()` against the
+///    primary's, which silently misclassifies side segments whose
+///    pow2-padded domain matches the row size (e.g. lineitem's
+///    `l_returnflag` — every value is one char, so `__chars` side
+///    log_size == row log_size and side segments leaked into
+///    `segments_iter`). Fixed by storing the row/side split
+///    explicitly as `side_aux_suffixes: IndexSet<String>` on both
+///    `TrackedCol::MultiSegment` and `TrackedColOracle::MultiSegment`.
 #[tokio::test]
-#[ignore = "residual: Eq gadget input-arity mismatch on multi-segment string columns"]
 async fn equality_filter_orders() {
     tt_exec::test_utils::prove_and_verify_query(
         r#"SELECT o_comment FROM orders WHERE o_orderstatus = 'F'"#,
