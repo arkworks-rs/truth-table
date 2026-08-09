@@ -335,6 +335,34 @@ impl UserDefinedLogicalNode for ResultCheckLogicalNode {
         Vec::new()
     }
 
+    /// ResultCheck is a pure pass-through: its output schema equals the
+    /// child's schema and every output column IS the child's
+    /// same-indexed column (no reordering, dropping, or synthesis). So
+    /// the child needs exactly the same column indices the parent asks
+    /// this node for.
+    ///
+    /// This override lets DataFusion's projection-pushdown optimizer
+    /// see through the `AddResultCheck` wrapper. In the current
+    /// prove-path plan shape
+    /// (`ResultCheck > Projection(SELECT cols) > Filter > TableScan`)
+    /// the user's `Projection` already sits below `ResultCheck` and
+    /// blocks the walk on its own — the `TableScan.projection` ends
+    /// up with just the referenced columns even without this override.
+    /// But if a future plan rewrite ever puts `ResultCheck` directly
+    /// above a `TableScan` or a table-shape-preserving node (any
+    /// shape where the row-count and columns are the source table's),
+    /// the default `None` return would block pushdown and force the
+    /// TableScan to load every column of the source table. Overriding
+    /// to `Some(vec![output_columns])` — the identity mapping — makes
+    /// the pushdown work through this node regardless of what sits
+    /// below it, at zero cost to the current shape.
+    fn necessary_children_exprs(
+        &self,
+        output_columns: &[usize],
+    ) -> Option<Vec<Vec<usize>>> {
+        Some(vec![output_columns.to_vec()])
+    }
+
     fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "ResultCheck")
     }

@@ -452,6 +452,20 @@ impl UserDefinedLogicalNode for RematerializeLogicalNode {
         Vec::new()
     }
 
+    /// Rematerialize is a pure pass-through on the logical plan level
+    /// (input.schema() == self.schema()); each output column IS the
+    /// child's same-indexed column. So route parent's requirements to
+    /// the child unchanged. Without this override, the default `None`
+    /// stops projection-pushdown at this boundary — see the parallel
+    /// `necessary_children_exprs` on `ResultCheckLogicalNode` for the
+    /// full rationale and consequence.
+    fn necessary_children_exprs(
+        &self,
+        output_columns: &[usize],
+    ) -> Option<Vec<Vec<usize>>> {
+        Some(vec![output_columns.to_vec()])
+    }
+
     fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "Rematerialize")
     }
