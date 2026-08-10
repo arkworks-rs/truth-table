@@ -909,6 +909,35 @@ def render_buckets_section(record: dict[str, Any]) -> None:
     st.dataframe(summary_rows, use_container_width=True, hide_index=True)
 
 
+def _describe_phase(phase: str) -> str:
+    """Translate a `tracker_snapshot.phase` wire-format string into a
+    human-readable label for the memory-plot marker. Bucket-scoped
+    phases (`bucket_{N}_start` / `bucket_{N}_end`) get the index
+    interpolated; the fixed set of pipeline milestones is looked up in
+    a small dispatch table.
+    """
+    # Fixed pipeline milestones — ark-piop emits these at the top of
+    # compile_sc_subproof, and after each of the SC / MV-PCS / UV-PCS
+    # subproof compile stages.
+    fixed = {
+        "compile_start": "Compile begins (start of SC subproof)",
+        "after_compile_sc_subproof": "Sumcheck subproof compiled",
+        "after_compile_mv_pcs_subproof": "Multivariate PCS subproof compiled",
+        "after_compile_uv_pcs_subproof": "Univariate PCS subproof compiled",
+    }
+    if phase in fixed:
+        return fixed[phase]
+    if phase.startswith("bucket_") and phase.endswith("_start"):
+        idx = phase[len("bucket_") : -len("_start")]
+        return f"Bucket {idx} begins (sumcheck compile of this bucket)"
+    if phase.startswith("bucket_") and phase.endswith("_end"):
+        idx = phase[len("bucket_") : -len("_end")]
+        return f"Bucket {idx} ends (sumcheck of this bucket done)"
+    # Unknown phase name — spell out the raw string so it's obvious a
+    # translation is missing.
+    return f"Phase: {phase}"
+
+
 def render_memory_section(
     record: dict[str, Any],
     tracker_snapshots: list[dict[str, Any]] | None = None,
@@ -1013,13 +1042,15 @@ def render_memory_section(
                 continue
             if 0 <= x <= duration_ms:
                 bucket_markers.append(
-                    (x, f"b{b.get('index')} nv={b.get('target_nv')}")
+                    (x, f"Sumcheck bucket {b.get('index')} begins (target num_vars={b.get('target_nv')})")
                 )
 
     # (2) Pipeline phases — from tracker_snapshot.wall_ms, filtered to
     # this run's mem-sample time window (streamed snapshots aren't
     # per-run-scoped otherwise). Deduplicate identical (elapsed_ms,
     # phase) pairs so double-emitted phases don't overlap their labels.
+    # Phase names are translated to human-readable descriptions here so
+    # the plot doesn't force the reader to know the wire-format vocabulary.
     phase_markers: list[tuple[int, str]] = []
     if tracker_snapshots:
         run_start = t0
@@ -1038,12 +1069,12 @@ def render_memory_section(
             if key in seen_pairs:
                 continue
             seen_pairs.add(key)
-            phase_markers.append((x, phase))
+            phase_markers.append((x, _describe_phase(phase)))
         phase_markers.sort(key=lambda p: p[0])
 
     # (3) Sumcheck decisions — from record.stream_decisions (already
-    # per-run-scoped). Label with nv + decision so the type of
-    # invocation is obvious at a glance.
+    # per-run-scoped). Label spells out each field so the reader
+    # doesn't need to know the wire format.
     stream_markers_eager: list[tuple[int, str]] = []
     stream_markers_streaming: list[tuple[int, str]] = []
     for dec in record.get("stream_decisions") or []:
@@ -1058,7 +1089,21 @@ def render_memory_section(
         nv = dec.get("num_variables")
         k = dec.get("stream_k_effective")
         decision = str(dec.get("decision") or "")
-        label = f"sc nv={nv} k={k}"
+        compressed = dec.get("compressed_factor_count")
+        total_factors = dec.get("factors_total")
+        # Human-readable phrasing of what happened: what the sumcheck
+        # decided and what the shape of the polynomial was.
+        if decision == "streaming":
+            mode = "full streaming"
+        elif decision == "eager":
+            mode = "eager (materialize every factor up front)"
+        else:
+            mode = f"partial streaming (k={k})"
+        label = (
+            f"Sumcheck prover_init — {mode} — "
+            f"num_variables={nv}, stream_k={k}, "
+            f"factors={total_factors} (compressed={compressed})"
+        )
         if decision == "streaming":
             stream_markers_streaming.append((x, label))
         else:
@@ -1066,10 +1111,9 @@ def render_memory_section(
 
     # (4) Prover passes — from record.prover_pass_spans (embedded per
     # run by the tt-front-end emitter). Each pass has wall_start_ms /
-    # wall_end_ms / duration_s; drop two markers per pass (start + end)
-    # so the tab can highlight where a pass began AND how long it took.
-    # Anchor at the START event only to keep the marker count down —
-    # the duration is already in the label.
+    # wall_end_ms / duration_s. Anchor at the pass start; duration
+    # goes in the label since the end marker would double the pin
+    # count without adding information.
     pass_markers: list[tuple[int, str]] = []
     for span in record.get("prover_pass_spans") or []:
         if not isinstance(span, dict):
@@ -1083,10 +1127,13 @@ def render_memory_section(
         pass_name = str(span.get("pass") or "?")
         dur = span.get("duration_s")
         try:
-            dur_label = f"{float(dur):.2f}s"
+            dur_label = f" ({float(dur):.2f} seconds)"
         except (TypeError, ValueError):
             dur_label = ""
-        pass_markers.append((x, f"pass:{pass_name} {dur_label}"))
+        pretty_pass = pass_name.replace("_", " ")
+        pass_markers.append(
+            (x, f"Prover pass begins — {pretty_pass}{dur_label}")
+        )
 
     # --- Marker layer toggles -----------------------------------------
     st.markdown("**Layers**")
@@ -1193,26 +1240,33 @@ def render_memory_section(
             "**Numbered pins**, colored by source layer, run 1..N in "
             "wall-time order across all enabled layers. Pin numbers "
             "match the `#` column in the Marker details table above. "
-            "Hover any pin (or its vertical dashed line) for the label "
-            "and exact elapsed_ms.\n\n"
-            "- 🔴 **Bucket** — sumcheck bucket transitions "
-            "(`sc_buckets.wall_start_ms`). Label: `bN nv=X`.\n"
-            "- 🟢 **Compile phase** — `tracker_snapshot.phase` events: "
-            "`compile_start`, `after_compile_sc_subproof`, "
-            "`after_compile_mv_pcs_subproof`, "
-            "`after_compile_uv_pcs_subproof`, `bucket_N_start`, "
-            "`bucket_N_end`.\n"
-            "- 🟣 **Prover pass** — end of each tt-front-end prover "
-            "pass (`arithmetization`, `commitment`, "
-            "`gadget_initialization`, `gadget_planning`, "
-            "`materialization`, `output_planning`, `proving_pass`, "
-            "`tracking`, `virtualization`). Anchored at pass start "
-            "(back-derived from end - duration). Label: "
-            "`pass:NAME DURATIONs`.\n"
-            "- 🟠 **Sumcheck streaming** — `prover_init` calls where "
-            "the effective `k > 0`. Label: `sc nv=X k=Y`.\n"
-            "- 🔵 **Sumcheck eager** — `prover_init` calls where "
-            "`k == 0`. Off by default (typically many; usually cheap)."
+            "Hover any pin (or its vertical dashed line) for the full "
+            "label and exact elapsed_ms.\n\n"
+            "- 🔴 **Sumcheck bucket** — records when each bucket "
+            "begins its aggregated sumcheck. Same wall-clock event "
+            "as the corresponding 🟢 `Bucket N begins` phase pin "
+            "(one comes from `sc_buckets`, the other from "
+            "`tracker_snapshot` — redundant by design). Turn one off "
+            "to reduce clutter.\n"
+            "- 🟢 **Compile phase** — pipeline milestones from the "
+            "ark-piop compiler. Includes the sumcheck-subproof entry "
+            "point, per-bucket begin/end, and the completion of each "
+            "of the sumcheck / multivariate-PCS / univariate-PCS "
+            "subproof compiles.\n"
+            "- 🟣 **Prover pass** — each tt-front-end pass "
+            "(arithmetization, commitment, gadget initialization, "
+            "gadget planning, materialization, output planning, "
+            "proving pass, tracking, virtualization). Anchored at "
+            "pass start (back-derived from end minus duration).\n"
+            "- 🟠 **Sumcheck (streaming)** — a `prover_init` call "
+            "where the effective streaming window `k > 0`. This is "
+            "where the sumcheck prover chose to keep the polynomial "
+            "in its compressed form for the streamed rounds rather "
+            "than lifting every factor to a dense field vector.\n"
+            "- 🔵 **Sumcheck (eager)** — a `prover_init` call where "
+            "`k == 0`. Off by default because these are usually many "
+            "and individually cheap. Turn on to see every "
+            "prover_init boundary."
         )
 
     with st.expander("Raw samples", expanded=False):
