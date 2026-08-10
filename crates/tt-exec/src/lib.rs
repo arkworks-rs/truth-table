@@ -20,5 +20,7 @@ pub mod paths;
 pub mod prove;
 pub(crate) mod runtime;
 pub mod setup;
+pub mod stats_jsonl;
 pub mod test_utils;
+pub mod tracing_setup;
 pub mod verify;

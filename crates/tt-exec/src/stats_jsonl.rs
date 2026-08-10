@@ -241,6 +241,31 @@ where
             return;
         }
 
+        // Sumcheck stream-policy decisions: one event per `prover_init`
+        // call, streamed to its own JSONL line so the whole
+        // per-invocation history survives an OOM kill (aggregating into
+        // the pending bench_query record would lose them if the process
+        // never reaches span-close). The dashboard groups them back by
+        // query at read time.
+        if let Some(payload) = fields.remove("sumcheck_stream_decision_json") {
+            let q = fields
+                .get("query")
+                .cloned()
+                .or_else(|| query_from_scope(&ctx, event))
+                .unwrap_or_default();
+            let parsed: Value =
+                serde_json::from_str(&payload).unwrap_or_else(|_| Value::String(payload));
+            let entry = json!({
+                "kind": "sumcheck_stream_decision",
+                "query": q,
+                "decision": parsed,
+            });
+            if let Ok(mut sink) = self.sink.lock() {
+                let _ = sink.write_entry(&entry);
+            }
+            return;
+        }
+
         if let Some(benchmark) = fields.remove("benchmark") {
             let case = fields.remove("case").unwrap_or_default();
             let timestamp = now_utc_rfc3339_ms();

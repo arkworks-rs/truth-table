@@ -1116,6 +1116,122 @@ def collect_mem_samples_by_query(records: list[dict[str, Any]]) -> dict[str, lis
     return by_query
 
 
+def collect_stream_decisions_by_query(
+    records: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Group `sumcheck_stream_decision` records by query, sorted by
+    `wall_ms`. Each record is one `prover_init` call — the JSONL emitter
+    streams them independently (like `mem_sample`) so they survive an
+    OOM kill, and this helper is what the Streaming tab reads.
+    """
+    by_query: dict[str, list[dict[str, Any]]] = {}
+    for r in records:
+        if r.get("kind") != "sumcheck_stream_decision":
+            continue
+        q = r.get("query")
+        if not isinstance(q, str) or not q:
+            continue
+        decision = r.get("decision")
+        if not isinstance(decision, dict):
+            continue
+        by_query.setdefault(q, []).append(decision)
+    for series in by_query.values():
+        series.sort(key=lambda d: to_float(d.get("wall_ms")) or 0.0)
+    return by_query
+
+
+def render_stream_decisions_section(decisions: list[dict[str, Any]]) -> None:
+    """Per-`prover_init` sumcheck streaming-policy log.
+
+    Reads the streamed `sumcheck_stream_decision` records for the
+    selected query and shows: (1) summary metrics (invocation count,
+    eager/streaming/partial split, unique nv bucket), (2) an
+    aggregate-factors-by-kind table across every invocation, (3) the
+    full per-invocation table so a single mispicked round is
+    inspectable.
+    """
+    st.subheader("Sumcheck Streaming")
+    st.caption(
+        "One row per `prover_init` call. `stream_k_effective = 0` → eager fold; "
+        "`= num_variables` → full streaming; anything between → partial. "
+        "`policy_source` records which branch of `TT_SUMCHECK_STREAM_K` fired "
+        "(`auto` = default heuristic, `eager` = env `0`, `explicit` = env positive int)."
+    )
+    if not decisions:
+        st.info(
+            "No `sumcheck_stream_decision` records for this query. "
+            "Either the run predates the streaming-decision emitter, or "
+            "the query never invoked the sumcheck prover."
+        )
+        return
+
+    n_total = len(decisions)
+    n_eager = sum(1 for d in decisions if d.get("decision") == "eager")
+    n_streaming = sum(1 for d in decisions if d.get("decision") == "streaming")
+    n_partial = sum(1 for d in decisions if d.get("decision") == "partial")
+    nvs = Counter(int(d.get("num_variables") or 0) for d in decisions)
+    policies = Counter(str(d.get("policy_source") or "?") for d in decisions)
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Invocations", str(n_total))
+    col2.metric("Streaming", f"{n_streaming} ({100.0 * n_streaming / n_total:.0f}%)")
+    col3.metric("Eager", f"{n_eager} ({100.0 * n_eager / n_total:.0f}%)")
+    col4.metric("Partial", f"{n_partial} ({100.0 * n_partial / n_total:.0f}%)")
+
+    nv_summary = ", ".join(
+        f"nv={nv}: {count}" for nv, count in sorted(nvs.items(), reverse=True)
+    )
+    policy_summary = ", ".join(
+        f"{name}: {count}" for name, count in sorted(policies.items())
+    )
+    st.markdown(f"**By `num_variables`:** {nv_summary}")
+    st.markdown(f"**By `policy_source`:** {policy_summary}")
+
+    # Aggregate factors-by-kind roll-up across every invocation. Handy
+    # for spotting the workload's compressed-storage mix at a glance.
+    kind_totals: Counter[str] = Counter()
+    for d in decisions:
+        by_kind = d.get("factors_by_kind") or {}
+        if isinstance(by_kind, dict):
+            for k, v in by_kind.items():
+                try:
+                    kind_totals[str(k)] += int(v)
+                except (TypeError, ValueError):
+                    continue
+    if kind_totals:
+        st.markdown("#### Factors by storage kind (summed across invocations)")
+        kind_rows = [
+            {"kind": k, "unique-arc count": v}
+            for k, v in sorted(kind_totals.items(), key=lambda kv: -kv[1])
+        ]
+        st.dataframe(kind_rows, use_container_width=True, hide_index=True)
+
+    # Per-invocation table. Ordered by wall_ms so the row order matches
+    # the prove-phase timeline.
+    st.markdown("#### Per-invocation decisions")
+    rows: list[dict[str, Any]] = []
+    for idx, d in enumerate(decisions):
+        by_kind = d.get("factors_by_kind") or {}
+        by_kind_str = ", ".join(
+            f"{k}:{v}" for k, v in sorted((by_kind or {}).items())
+        ) if isinstance(by_kind, dict) else ""
+        rows.append({
+            "#": idx,
+            "wall_ms": d.get("wall_ms"),
+            "policy": d.get("policy_source"),
+            "policy_raw_k": d.get("policy_raw_k"),
+            "decision": d.get("decision"),
+            "nv": d.get("num_variables"),
+            "max_degree": d.get("max_degree"),
+            "factors_total": d.get("factors_total"),
+            "compressed": d.get("compressed_factor_count"),
+            "auto_would_pick_k": d.get("auto_would_pick_k"),
+            "stream_k_effective": d.get("stream_k_effective"),
+            "factors_by_kind": by_kind_str,
+        })
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 def synthesize_oom_record(query: str, samples: list[tuple[int, int]]) -> dict[str, Any]:
     """Build a minimal bench_query-shaped record for a query that only
     has streaming mem_samples on disk (i.e. it OOM'd before the span
@@ -1178,6 +1294,8 @@ def main() -> None:
     if record.get("_oom_reconstructed"):
         st.sidebar.warning("This run OOM'd — only memory samples survived.")
 
+    stream_decisions_by_query = collect_stream_decisions_by_query(records)
+
     (
         overview_tab,
         results_tab,
@@ -1185,6 +1303,7 @@ def main() -> None:
         claims_tab,
         prover_timing_tab,
         buckets_tab,
+        streaming_tab,
         memory_tab,
         plans_tab,
         extra_tab,
@@ -1196,6 +1315,7 @@ def main() -> None:
             "Claims",
             "Prover Timing",
             "Buckets",
+            "Streaming",
             "Memory",
             "Plans",
             "Extra",
@@ -1228,6 +1348,9 @@ def main() -> None:
 
     with buckets_tab:
         render_buckets_section(record)
+
+    with streaming_tab:
+        render_stream_decisions_section(stream_decisions_by_query.get(selected_query, []))
 
     with memory_tab:
         render_memory_section(record)

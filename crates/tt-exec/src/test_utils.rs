@@ -3,11 +3,10 @@ use std::path::{Path, PathBuf};
 use crate::backend::{BACKEND_NAME, BenchBackend};
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
-use ark_piop::test_utils::init_subscriber;
 use ark_serialize::CanonicalDeserialize;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;
-use tracing::warn;
+use tracing::{Instrument, warn};
 
 use crate::{
     commit::CommitBuilder,
@@ -18,9 +17,21 @@ use crate::{
         DEFAULT_BENCH_LOG_SIZE, DEFAULT_TEST_LOG_SIZE, SetupBuilder, default_pk_filename,
         default_vk_filename,
     },
+    stats_jsonl::{jsonl_stats_enabled_from_env, query_stats_span},
+    tracing_setup::init_test_tracing,
     verify::VerifyBuilder,
 };
 use tpch_data::{bench_data_path, test_data_path};
+
+/// Init tracing for the test harness. When `TT_JSONL_STATS=1`, the
+/// JSONL statistics layer is installed on top of the standard subscriber
+/// so events on the `bench_stats` target (tracker snapshots, sumcheck
+/// stream-decision logs, per-bucket stats) land in
+/// `tt-results/raw/bench_stats.jsonl`. Otherwise falls back to the plain
+/// subscriber — matches the historical behavior.
+fn init_test_harness_tracing() {
+    init_test_tracing(jsonl_stats_enabled_from_env());
+}
 
 type B = BenchBackend;
 
@@ -38,7 +49,7 @@ pub async fn prove_and_verify_query_bench(
     table_names: &[&str],
     proof_output_path: Option<PathBuf>,
 ) -> Result<()> {
-    init_subscriber();
+    init_test_harness_tracing();
     let parquet_paths = table_names
         .iter()
         .map(|name| {
@@ -59,25 +70,34 @@ pub async fn prove_and_verify_query_bench(
         oracle_paths.push(oracle);
     }
 
-    let outputs = ProveBuilder::new()
-        .with_query(query.to_owned())
-        .with_parquet_paths(parquet_paths.clone())
-        .with_oracle_paths(oracle_paths.clone())
-        .with_pk_path(pk_path)
-        .with_output_path(proof_output_path.clone())
-        .build()?
-        .run()
-        .await?;
+    // Wrap prove+verify in a `bench_query` span so the JSONL layer can
+    // key events (tracker snapshots, sumcheck stream-decision logs,
+    // per-bucket stats) back to this specific query. No-op when the
+    // JSONL layer isn't installed (span is just an inert info-level
+    // span).
+    async move {
+        let outputs = ProveBuilder::new()
+            .with_query(query.to_owned())
+            .with_parquet_paths(parquet_paths.clone())
+            .with_oracle_paths(oracle_paths.clone())
+            .with_pk_path(pk_path)
+            .with_output_path(proof_output_path.clone())
+            .build()?
+            .run()
+            .await?;
 
-    VerifyBuilder::new()
-        .with_query(query.to_owned())
-        .with_oracle_paths(oracle_paths)
-        .with_proof_path(outputs.proof_path)
-        .with_result_path(outputs.result_path)
-        .with_vk_path(vk_path)
-        .build()?
-        .run()
-        .await
+        VerifyBuilder::new()
+            .with_query(query.to_owned())
+            .with_oracle_paths(oracle_paths)
+            .with_proof_path(outputs.proof_path)
+            .with_result_path(outputs.result_path)
+            .with_vk_path(vk_path)
+            .build()?
+            .run()
+            .await
+    }
+    .instrument(query_stats_span(query))
+    .await
 }
 
 pub async fn prove_and_verify_query(
@@ -85,7 +105,7 @@ pub async fn prove_and_verify_query(
     table_names: &[&str],
     proof_output_path: Option<PathBuf>,
 ) -> Result<()> {
-    init_subscriber();
+    init_test_harness_tracing();
     let parquet_paths = table_names
         .iter()
         .map(|name| resolve_parquet_path(name))
@@ -97,25 +117,29 @@ pub async fn prove_and_verify_query(
         oracle_paths.push(oracle);
     }
 
-    let outputs = ProveBuilder::new()
-        .with_query(query.to_owned())
-        .with_parquet_paths(parquet_paths.clone())
-        .with_oracle_paths(oracle_paths.clone())
-        .with_pk_path(pk_path)
-        .with_output_path(proof_output_path.clone())
-        .build()?
-        .run()
-        .await?;
+    async move {
+        let outputs = ProveBuilder::new()
+            .with_query(query.to_owned())
+            .with_parquet_paths(parquet_paths.clone())
+            .with_oracle_paths(oracle_paths.clone())
+            .with_pk_path(pk_path)
+            .with_output_path(proof_output_path.clone())
+            .build()?
+            .run()
+            .await?;
 
-    VerifyBuilder::new()
-        .with_query(query.to_owned())
-        .with_oracle_paths(oracle_paths)
-        .with_proof_path(outputs.proof_path)
-        .with_result_path(outputs.result_path)
-        .with_vk_path(vk_path)
-        .build()?
-        .run()
-        .await
+        VerifyBuilder::new()
+            .with_query(query.to_owned())
+            .with_oracle_paths(oracle_paths)
+            .with_proof_path(outputs.proof_path)
+            .with_result_path(outputs.result_path)
+            .with_vk_path(vk_path)
+            .build()?
+            .run()
+            .await
+    }
+    .instrument(query_stats_span(query))
+    .await
 }
 
 pub fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
