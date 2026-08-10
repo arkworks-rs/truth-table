@@ -242,11 +242,11 @@ where
         }
 
         // Sumcheck stream-policy decisions: one event per `prover_init`
-        // call, streamed to its own JSONL line so the whole
-        // per-invocation history survives an OOM kill (aggregating into
-        // the pending bench_query record would lose them if the process
-        // never reaches span-close). The dashboard groups them back by
-        // query at read time.
+        // call. Streamed to its own JSONL line for OOM survival AND
+        // aggregated into the pending bench_query record so multiple
+        // runs of the same query can be told apart in the dashboard
+        // (streamed lines only carry the query name, not the run's
+        // timestamp, so they'd merge across runs otherwise).
         if let Some(payload) = fields.remove("sumcheck_stream_decision_json") {
             let q = fields
                 .get("query")
@@ -257,11 +257,19 @@ where
                 serde_json::from_str(&payload).unwrap_or_else(|_| Value::String(payload));
             let entry = json!({
                 "kind": "sumcheck_stream_decision",
-                "query": q,
-                "decision": parsed,
+                "query": q.clone(),
+                "decision": parsed.clone(),
             });
             if let Ok(mut sink) = self.sink.lock() {
                 let _ = sink.write_entry(&entry);
+            }
+            if !q.is_empty()
+                && let Ok(mut pending_records) = self.pending_records.lock()
+            {
+                let record = pending_records
+                    .entry(q.clone())
+                    .or_insert_with(|| PendingBenchRecord::new(q));
+                record.stream_decisions.push(parsed);
             }
             return;
         }
@@ -398,6 +406,7 @@ struct PendingBenchRecord {
     proof_size_non_crypto_breakdown: Map<String, Value>,
     buckets: Option<Value>,
     memory_samples: Vec<(u64, u64)>,
+    stream_decisions: Vec<Value>,
     extra: Map<String, Value>,
 }
 
@@ -416,6 +425,7 @@ impl PendingBenchRecord {
             proof_size_non_crypto_breakdown: Map::new(),
             buckets: None,
             memory_samples: Vec::new(),
+            stream_decisions: Vec::new(),
             extra: Map::new(),
         }
     }
@@ -538,6 +548,14 @@ impl PendingBenchRecord {
                     // Each entry: [wall_clock_ms_epoch, rss_bytes]
                     "samples": samples_json,
                 }),
+            );
+        }
+        if !self.stream_decisions.is_empty()
+            && let Value::Object(ref mut map) = root
+        {
+            map.insert(
+                "stream_decisions".to_string(),
+                Value::Array(self.stream_decisions),
             );
         }
         root

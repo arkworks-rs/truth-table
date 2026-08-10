@@ -1350,7 +1350,18 @@ def main() -> None:
         render_buckets_section(record)
 
     with streaming_tab:
-        render_stream_decisions_section(stream_decisions_by_query.get(selected_query, []))
+        # Prefer per-record decisions embedded at span-close — those are
+        # correctly scoped to this run. Fall back to the global streamed
+        # list (grouped by query only) when the record lacks the field —
+        # that covers OOM-reconstructed runs and older records emitted
+        # before per-record aggregation shipped.
+        embedded = record.get("stream_decisions")
+        if isinstance(embedded, list) and embedded:
+            render_stream_decisions_section(embedded)
+        else:
+            render_stream_decisions_section(
+                stream_decisions_by_query.get(selected_query, [])
+            )
 
     with memory_tab:
         render_memory_section(record)
