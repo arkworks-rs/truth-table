@@ -1279,12 +1279,14 @@ def render_line_chart_svg(
     x_max = max(x_min + 1, min(x_max, duration_ms))
     window_ms = x_max - x_min
 
-    # Wider chart. Modest top gutter for the numbered pin rows;
-    # bottom gutter just holds the x-tick labels — labels themselves
-    # moved to the always-readable marker table under the chart.
+    # Wider chart. Minimal top gutter for a single row of numbered
+    # pins; bottom gutter just holds the x-tick labels — labels
+    # themselves moved to the always-readable marker table below the
+    # plot. All pins sit on the same vertical level even when they
+    # collide: the X-range slider is the intended separation tool.
     chart_left = 60
     chart_right_pad = 20
-    top_gutter = 60        # room for numbered pin rows (up to `max_pin_rows`)
+    top_gutter = 26        # room for a single pin row
     bottom_gutter = 30     # x-tick labels only
     tick_pad = 20          # space between chart bottom edge and x-tick labels
     chart_top = top_gutter
@@ -1363,16 +1365,12 @@ def render_line_chart_svg(
             f'text-anchor="middle" font-size="11" fill="#555">{value_ms:.0f} ms</text>'
         )
 
-    # --- Marker rendering: numbered pins + dashed vertical lines -----
-    # Flatten all layers into a single time-ordered list so pins get
-    # a consistent 1..N numbering across layers. Then assign each pin
-    # a row in the top gutter with pixel-level collision avoidance:
-    # if a pin would land within min_pin_gap_px of a prior pin *in
-    # the same row*, push it to the next row down.
+    # --- Marker rendering: numbered pins on a single row ------------
+    # All pins sit at the same vertical anchor, even when they
+    # overlap horizontally — the X-range slider is the primary tool
+    # for separating dense clusters. Pins get consistent 1..N
+    # numbering in wall-time order across all enabled layers.
     pin_radius = 8
-    min_pin_gap_px = pin_radius * 2 + 2   # so circle edges don't touch
-    max_pin_rows = 3
-    row_pitch = pin_radius * 2 + 4        # vertical distance between rows
     flat: list[tuple[float, int, str, str]] = []   # (x_px, x_ms, label, color)
     for layer in layers:
         color = layer.get("color", "#e11d48")
@@ -1386,29 +1384,8 @@ def render_line_chart_svg(
     # Time-order the pins so pin #1 is the earliest event.
     flat.sort(key=lambda t: t[0])
 
-    # Row assignment (Datadog/Grafana-style annotation lanes). A new
-    # pin claims the topmost row whose "last pin x" is more than
-    # min_pin_gap_px to its left. If every row is too close, it
-    # snaps to the deepest row (max_pin_rows-1) and just packs.
-    row_last_x: list[float] = []   # last pin's x per row (extended lazily)
-    row_assignments: list[int] = []
-    for x_px, _, _, _ in flat:
-        placed_row = None
-        for r_idx in range(min(len(row_last_x), max_pin_rows)):
-            if x_px - row_last_x[r_idx] >= min_pin_gap_px:
-                placed_row = r_idx
-                break
-        if placed_row is None:
-            if len(row_last_x) < max_pin_rows:
-                placed_row = len(row_last_x)
-                row_last_x.append(0.0)
-            else:
-                placed_row = max_pin_rows - 1  # pack the last row
-        row_assignments.append(placed_row)
-        row_last_x[placed_row] = x_px
-
     # Draw the dashed vertical lines first, with hover tooltips.
-    for (x_px, x_ms, label, color), _row in zip(flat, row_assignments):
+    for x_px, x_ms, label, color in flat:
         parts.append(
             f'<line x1="{x_px:.2f}" y1="{chart_top}" x2="{x_px:.2f}" '
             f'y2="{chart_top + chart_height}" stroke="{color}" '
@@ -1416,14 +1393,14 @@ def render_line_chart_svg(
             f'<title>{escape(label)} @ {x_ms} ms</title>'
             f'</line>'
         )
-    # Then draw the numbered pins on top.
-    for pin_num, ((x_px, x_ms, label, color), row) in enumerate(zip(flat, row_assignments), start=1):
-        cy = chart_top - pin_radius - 4 - row * row_pitch
+    # Then draw the numbered pins on top, all on the same row.
+    pin_cy = chart_top - pin_radius - 4
+    for pin_num, (x_px, x_ms, label, color) in enumerate(flat, start=1):
         parts.append(
             f'<g><title>{escape(label)} @ {x_ms} ms</title>'
-            f'<circle cx="{x_px:.2f}" cy="{cy:.2f}" r="{pin_radius}" '
+            f'<circle cx="{x_px:.2f}" cy="{pin_cy:.2f}" r="{pin_radius}" '
             f'fill="{color}" opacity="0.95" stroke="#fff" stroke-width="1.5" />'
-            f'<text x="{x_px:.2f}" y="{cy + 3.5:.2f}" text-anchor="middle" '
+            f'<text x="{x_px:.2f}" y="{pin_cy + 3.5:.2f}" text-anchor="middle" '
             f'font-size="10" font-weight="bold" fill="#fff">{pin_num}</text>'
             f'</g>'
         )
