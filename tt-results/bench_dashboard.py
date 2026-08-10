@@ -1112,6 +1112,50 @@ def render_memory_section(
         unsafe_allow_html=True,
     )
 
+    # Always-readable marker table. Even when the chart's rotated
+    # labels overlap in dense clusters, the full label list sits right
+    # below the plot for reference. Rows are filtered by the same
+    # layer toggles + X-range window as the chart so the table and
+    # the plot stay in sync.
+    marker_rows: list[dict[str, Any]] = []
+    for layer in layers:
+        color = layer.get("color", "#000")
+        layer_name = {
+            "#e11d48": "bucket",
+            "#059669": "phase",
+            "#ea580c": "sc(streaming)",
+            "#2563eb": "sc(eager)",
+        }.get(color, "marker")
+        for marker in layer.get("markers") or []:
+            if not isinstance(marker, tuple) or len(marker) != 2:
+                continue
+            x_ms, label = marker
+            if not (x_min <= x_ms <= x_max):
+                continue
+            marker_rows.append({
+                "layer": layer_name,
+                "elapsed_ms": x_ms,
+                "label": label,
+            })
+    marker_rows.sort(key=lambda r: (r["elapsed_ms"], r["layer"]))
+    if marker_rows:
+        with st.expander(
+            f"Marker details ({len(marker_rows)} in window)",
+            expanded=True,
+        ):
+            st.dataframe(
+                marker_rows,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "layer": st.column_config.TextColumn("layer", width="small"),
+                    "elapsed_ms": st.column_config.NumberColumn(
+                        "elapsed_ms", width="small"
+                    ),
+                    "label": st.column_config.TextColumn("label", width="large"),
+                },
+            )
+
     with st.expander("Marker legend", expanded=False):
         st.markdown(
             "- 🔴 **Bucket boundaries** — sumcheck bucket transitions "
@@ -1149,9 +1193,18 @@ def render_line_chart_svg(
     x_max: int | None = None,
     min_positive_bytes: int = 1,
 ) -> str:
-    """Inline SVG line chart. RSS on Y, elapsed ms on X. Vertical dashed
-    lines at each marker with a small text label; labels alternate
-    top/bottom within a layer to reduce overlap.
+    """Inline SVG line chart. RSS on Y, elapsed ms on X.
+
+    Marker labels are drawn **rotated -90°** (vertical, reading
+    bottom-to-top) so each takes ~12px of horizontal room instead of
+    the ~40–80px an inline label needs. That keeps 25+ markers
+    readable in a single view. Where two markers in the same layer
+    still collide horizontally (within ~9px), the second label gets a
+    small vertical offset so its text lane doesn't overlap the first.
+
+    An inline hover tooltip is attached to each vertical line via
+    `<title>` so any label the eye can't parse from the chart alone
+    is still one hover away.
 
     Parameters:
       * `layers` — either a list of `{color, label_pos, markers}` dicts
@@ -1179,12 +1232,19 @@ def render_line_chart_svg(
     x_max = max(x_min + 1, min(x_max, duration_ms))
     window_ms = x_max - x_min
 
+    # Wider chart + generous top/bottom padding for the rotated-label
+    # gutters. Labels above the chart run upward from `chart_top`;
+    # labels below run downward from `chart_top + chart_height + tick_pad`.
     chart_left = 60
     chart_right_pad = 20
-    chart_top = 20
-    chart_height = 260
-    chart_width = 900
+    top_gutter = 140       # room for upward-rotated labels
+    bottom_gutter = 140    # room for downward-rotated labels + x-tick text
+    tick_pad = 20          # space between chart bottom edge and x-tick labels
+    chart_top = top_gutter
+    chart_height = 300
+    chart_width = 1100
     inner_w = chart_width - chart_left - chart_right_pad
+    svg_height = top_gutter + chart_height + tick_pad + bottom_gutter
 
     def x_of(t: float) -> float:
         return chart_left + ((t - x_min) / window_ms) * inner_w
@@ -1212,10 +1272,10 @@ def render_line_chart_svg(
 
     y_axis_title = "RSS (log)" if y_scale == "log" else "RSS"
     parts = [
-        f'<svg viewBox="0 0 {chart_width} {chart_top + chart_height + 60}" '
-        f'width="100%" height="{chart_top + chart_height + 60}" '
+        f'<svg viewBox="0 0 {chart_width} {svg_height}" '
+        f'width="100%" height="{svg_height}" '
         f'xmlns="http://www.w3.org/2000/svg">',
-        f'<text x="{chart_left}" y="14" font-size="14" font-weight="bold" fill="#222">'
+        f'<text x="{chart_left}" y="16" font-size="14" font-weight="bold" fill="#222">'
         f'{y_axis_title} over time — peak {peak_bytes / (1024 * 1024):.1f} MiB'
         f' — window [{x_min}, {x_max}] ms</text>',
         # Axes
@@ -1246,50 +1306,92 @@ def render_line_chart_svg(
         )
 
     # X ticks (6 columns, elapsed ms labels within the visible window).
+    x_tick_y = chart_top + chart_height + 16
     for tick_idx in range(6):
         frac = tick_idx / 5
         value_ms = x_min + window_ms * frac
         x = chart_left + inner_w * frac
         parts.append(
-            f'<text x="{x:.2f}" y="{chart_top + chart_height + 16}" '
+            f'<text x="{x:.2f}" y="{x_tick_y}" '
             f'text-anchor="middle" font-size="11" fill="#555">{value_ms:.0f} ms</text>'
         )
 
-    # Marker layers. Each layer picks its own color and top/bottom label
-    # anchor; within a layer, labels alternate top/bottom (or up/down
-    # from the anchor) to reduce overlap on tight clusters.
+    # --- Marker layers with rotated labels ----------------------------
+    # Layout: each marker gets a vertical dashed line plus a rotated
+    # label anchored just above (label_pos=top) or below (label_pos
+    # =bottom) the chart. Anti-collision: within each layer, sort by
+    # x-position and give successive labels within `stagger_px` of
+    # each other a step-down "lane" so their vertical text columns
+    # don't overlap.
+    stagger_px = 9         # min horizontal distance before we stagger
+    lane_step = 14         # per-lane vertical offset
+    max_lanes = 4          # cap lanes so we don't run out of gutter
     for layer in layers:
         color = layer.get("color", "#e11d48")
         label_pos = layer.get("label_pos", "top")
-        layer_markers = layer.get("markers") or []
-        # Anchor point for labels: top edge or bottom edge.
-        anchor_top = chart_top - 6
-        anchor_bot = chart_top + chart_height + 34
-        for idx, marker in enumerate(layer_markers):
+        # Keep only markers inside the visible X window.
+        visible: list[tuple[float, int, str]] = []
+        for marker in layer.get("markers") or []:
             if not isinstance(marker, tuple) or len(marker) != 2:
                 continue
             x_ms, label = marker
             if not (x_min <= x_ms <= x_max):
                 continue
-            x = x_of(x_ms)
+            visible.append((x_of(x_ms), x_ms, label))
+        # Sort by x-pixel so lane-assignment can see left→right order.
+        visible.sort(key=lambda t: t[0])
+        # Assign a lane to each visible marker. Lane 0 = closest to
+        # the chart; larger lanes push the label further into the
+        # gutter. A marker gets lane N if its x is within
+        # `stagger_px` of the previous marker whose lane is currently N-1.
+        lanes: list[int] = []
+        last_x_per_lane: dict[int, float] = {}
+        for x_px, _, _ in visible:
+            lane = 0
+            while (
+                lane < max_lanes - 1
+                and lane in last_x_per_lane
+                and abs(x_px - last_x_per_lane[lane]) < stagger_px
+            ):
+                lane += 1
+            lanes.append(lane)
+            last_x_per_lane[lane] = x_px
+
+        for (x_px, x_ms, label), lane in zip(visible, lanes):
+            # The full-height dashed vertical marker.
             parts.append(
-                f'<line x1="{x:.2f}" y1="{chart_top}" x2="{x:.2f}" '
+                f'<line x1="{x_px:.2f}" y1="{chart_top}" x2="{x_px:.2f}" '
                 f'y2="{chart_top + chart_height}" stroke="{color}" '
-                f'stroke-width="1.2" stroke-dasharray="4,3" opacity="0.8" />'
+                f'stroke-width="1.2" stroke-dasharray="4,3" opacity="0.75">'
+                f'<title>{escape(label)} @ {x_ms} ms</title>'
+                f'</line>'
             )
-            # Alternate the label position within a layer to reduce
-            # overlap: for a "top" anchor, half of the markers get a
-            # slightly lower text; same idea for "bottom".
+            # Rotated label. For top-anchored labels: put the text
+            # baseline near `chart_top - 6`, rotate -90° around that
+            # point so the text reads bottom-to-top and extends
+            # upward into the top gutter. text-anchor="start" means
+            # the string starts at the anchor and grows in its
+            # (post-rotation) forward direction — which is up.
             if label_pos == "bottom":
-                label_y = anchor_bot if idx % 2 == 0 else anchor_bot + 14
+                anchor_y = chart_top + chart_height + tick_pad + 10 + lane * lane_step
+                # rotate +90° around (x, anchor_y): forward direction
+                # after rotation points down.
+                transform = f"rotate(90 {x_px:.2f} {anchor_y:.2f})"
+                text_anchor = "start"
             else:
-                label_y = anchor_top if idx % 2 == 0 else anchor_top - 12
+                anchor_y = chart_top - 6 - lane * lane_step
+                # rotate -90° around (x, anchor_y): forward direction
+                # after rotation points up.
+                transform = f"rotate(-90 {x_px:.2f} {anchor_y:.2f})"
+                text_anchor = "start"
             parts.append(
-                f'<text x="{x:.2f}" y="{label_y:.2f}" text-anchor="middle" '
-                f'font-size="10" fill="{color}">{escape(label)}</text>'
+                f'<text x="{x_px:.2f}" y="{anchor_y:.2f}" '
+                f'text-anchor="{text_anchor}" font-size="10" fill="{color}" '
+                f'transform="{transform}">{escape(label)}</text>'
             )
 
-    # The RSS line itself last, so it draws on top of gridlines.
+    # The RSS line itself last, so it draws on top of gridlines and
+    # dashed marker lines.
     parts.append(
         f'<polyline points="{poly}" fill="none" stroke="#111" stroke-width="1.5" />'
     )
