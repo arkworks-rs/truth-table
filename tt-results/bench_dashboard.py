@@ -909,14 +909,30 @@ def render_buckets_section(record: dict[str, Any]) -> None:
     st.dataframe(summary_rows, use_container_width=True, hide_index=True)
 
 
-def render_memory_section(record: dict[str, Any]) -> None:
-    """RSS-over-time curve for the bench_query span.
+def render_memory_section(
+    record: dict[str, Any],
+    tracker_snapshots: list[dict[str, Any]] | None = None,
+) -> None:
+    """RSS-over-time curve for the bench_query span with pipeline-phase,
+    sumcheck-decision, and bucket-boundary annotations.
 
     Samples come from the tt-exec subscriber's background sampler thread
-    (10 ms interval on Linux; no-op elsewhere). x-axis is elapsed ms from
-    the first sample; y-axis is RSS in MiB. Vertical dashed markers show
-    per-bucket sumcheck boundaries so it's easy to attribute a memory
-    spike to a specific bucket.
+    (10 ms interval on Linux; no-op elsewhere). The chart has three
+    marker layers, each user-toggleable in the Layers row:
+
+      * **Bucket** boundaries (red/purple/…) — sumcheck bucket transitions
+        from `sc_buckets.buckets[].wall_start_ms`. Same info the plot has
+        always shown; kept as-is.
+      * **Phase** markers (green) — `tracker_snapshot.phase` values like
+        `compile_start`, `after_compile_sc_subproof`, `bucket_N_end`.
+        Filtered to the run's mem-sample time window.
+      * **Sumcheck decision** markers (orange for streaming, blue for
+        eager) — one per `prover_init` from
+        `record.stream_decisions[].wall_ms`. Labels show `nv` and
+        the effective `k`.
+
+    The Scale row exposes a Y-axis linear / log toggle and an X-range
+    slider for zooming into a specific stretch of the timeline.
     """
     st.subheader("Memory")
     memory = record.get("memory")
@@ -948,16 +964,44 @@ def render_memory_section(record: dict[str, Any]) -> None:
     points = [(t - t0, r) for t, r in typed]
     peak = max(r for _, r in points)
     duration_ms = points[-1][0]
+    # Non-zero floor so log scale doesn't crash on a sample of 0.
+    min_positive = max(1, min((r for _, r in points if r > 0), default=1))
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Peak RSS", f"{peak / (1024 * 1024):.1f} MiB")
     col2.metric("Samples", str(memory.get("sample_count", len(points))))
     col3.metric("Sample interval", f"{memory.get('sample_interval_ms', '?')} ms")
 
-    # Collect bucket boundaries (wall-clock ms → elapsed ms) so we can
-    # overlay dashed lines at bucket transitions.
-    sc_buckets = record.get("sc_buckets")
+    # --- Scale controls -----------------------------------------------
+    # Linear vs log Y (useful when a startup ramp dwarfs the plateau
+    # you're actually trying to inspect), plus an X-range slider for
+    # zooming into a specific stretch.
+    scale_col1, scale_col2 = st.columns([1, 3])
+    with scale_col1:
+        y_scale = st.radio(
+            "Y scale",
+            ("linear", "log"),
+            horizontal=True,
+            key=f"mem_yscale_{record.get('timestamp', '')}",
+        )
+    with scale_col2:
+        if duration_ms > 0:
+            x_range = st.slider(
+                "X range (elapsed ms)",
+                min_value=0,
+                max_value=int(duration_ms),
+                value=(0, int(duration_ms)),
+                step=max(1, int(duration_ms) // 100),
+                key=f"mem_xrange_{record.get('timestamp', '')}",
+            )
+        else:
+            x_range = (0, 0)
+    x_min, x_max = x_range
+
+    # --- Marker sources -----------------------------------------------
+    # (1) Bucket boundaries — from sc_buckets.wall_start_ms (existing).
     bucket_markers: list[tuple[int, str]] = []
+    sc_buckets = record.get("sc_buckets")
     if isinstance(sc_buckets, dict):
         for b in sc_buckets.get("buckets") or []:
             if not isinstance(b, dict):
@@ -968,9 +1012,120 @@ def render_memory_section(record: dict[str, Any]) -> None:
             except (TypeError, ValueError):
                 continue
             if 0 <= x <= duration_ms:
-                bucket_markers.append((x, f"b{b.get('index')} nv={b.get('target_nv')}"))
+                bucket_markers.append(
+                    (x, f"b{b.get('index')} nv={b.get('target_nv')}")
+                )
 
-    st.markdown(render_line_chart_svg(points, peak, duration_ms, bucket_markers), unsafe_allow_html=True)
+    # (2) Pipeline phases — from tracker_snapshot.wall_ms, filtered to
+    # this run's mem-sample time window (streamed snapshots aren't
+    # per-run-scoped otherwise). Deduplicate identical (elapsed_ms,
+    # phase) pairs so double-emitted phases don't overlap their labels.
+    phase_markers: list[tuple[int, str]] = []
+    if tracker_snapshots:
+        run_start = t0
+        run_end = t0 + duration_ms
+        seen_pairs: set[tuple[int, str]] = set()
+        for snap in tracker_snapshots:
+            wall_ms = to_float(snap.get("wall_ms"))
+            phase = str(snap.get("phase") or "")
+            if wall_ms is None or not phase:
+                continue
+            wall_i = int(wall_ms)
+            if not (run_start <= wall_i <= run_end):
+                continue
+            x = wall_i - t0
+            key = (x, phase)
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            phase_markers.append((x, phase))
+        phase_markers.sort(key=lambda p: p[0])
+
+    # (3) Sumcheck decisions — from record.stream_decisions (already
+    # per-run-scoped). Label with nv + decision so the type of
+    # invocation is obvious at a glance.
+    stream_markers_eager: list[tuple[int, str]] = []
+    stream_markers_streaming: list[tuple[int, str]] = []
+    for dec in record.get("stream_decisions") or []:
+        if not isinstance(dec, dict):
+            continue
+        wall_ms = to_float(dec.get("wall_ms"))
+        if wall_ms is None:
+            continue
+        x = int(wall_ms) - t0
+        if not (0 <= x <= duration_ms):
+            continue
+        nv = dec.get("num_variables")
+        k = dec.get("stream_k_effective")
+        decision = str(dec.get("decision") or "")
+        label = f"sc nv={nv} k={k}"
+        if decision == "streaming":
+            stream_markers_streaming.append((x, label))
+        else:
+            stream_markers_eager.append((x, label))
+
+    # --- Marker layer toggles -----------------------------------------
+    st.markdown("**Layers**")
+    layer_col1, layer_col2, layer_col3, layer_col4 = st.columns(4)
+    show_buckets = layer_col1.checkbox(
+        f"Bucket boundaries ({len(bucket_markers)})",
+        value=True,
+        key=f"mem_layer_buckets_{record.get('timestamp', '')}",
+    )
+    show_phases = layer_col2.checkbox(
+        f"Pipeline phases ({len(phase_markers)})",
+        value=True,
+        key=f"mem_layer_phases_{record.get('timestamp', '')}",
+    )
+    show_stream = layer_col3.checkbox(
+        f"Sumcheck (streaming, {len(stream_markers_streaming)})",
+        value=True,
+        key=f"mem_layer_stream_{record.get('timestamp', '')}",
+    )
+    show_eager = layer_col4.checkbox(
+        f"Sumcheck (eager, {len(stream_markers_eager)})",
+        value=False,
+        key=f"mem_layer_eager_{record.get('timestamp', '')}",
+    )
+
+    layers: list[dict[str, Any]] = []
+    if show_buckets and bucket_markers:
+        layers.append({"color": "#e11d48", "label_pos": "top", "markers": bucket_markers})
+    if show_phases and phase_markers:
+        layers.append({"color": "#059669", "label_pos": "bottom", "markers": phase_markers})
+    if show_stream and stream_markers_streaming:
+        layers.append({"color": "#ea580c", "label_pos": "top", "markers": stream_markers_streaming})
+    if show_eager and stream_markers_eager:
+        layers.append({"color": "#2563eb", "label_pos": "bottom", "markers": stream_markers_eager})
+
+    st.markdown(
+        render_line_chart_svg(
+            points,
+            peak,
+            duration_ms,
+            layers,
+            y_scale=y_scale,
+            x_min=x_min,
+            x_max=x_max,
+            min_positive_bytes=min_positive,
+        ),
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Marker legend", expanded=False):
+        st.markdown(
+            "- 🔴 **Bucket boundaries** — sumcheck bucket transitions "
+            "(`sc_buckets.wall_start_ms`). Label format: `bN nv=X`.\n"
+            "- 🟢 **Pipeline phases** — `tracker_snapshot.phase` events: "
+            "`compile_start`, `after_compile_sc_subproof`, "
+            "`after_compile_mv_pcs_subproof`, "
+            "`after_compile_uv_pcs_subproof`, `bucket_N_start`, "
+            "`bucket_N_end`. Fired at every pipeline-phase boundary.\n"
+            "- 🟠 **Sumcheck (streaming)** — `prover_init` calls where "
+            "the effective `k > 0`. Label: `sc nv=X k=Y`.\n"
+            "- 🔵 **Sumcheck (eager)** — `prover_init` calls where "
+            "`k == 0`. Off by default (typically many; usually cheap)."
+        )
 
     with st.expander("Raw samples", expanded=False):
         st.markdown(
@@ -988,12 +1143,42 @@ def render_line_chart_svg(
     points: list[tuple[int, int]],
     peak_bytes: int,
     duration_ms: int,
-    markers: list[tuple[int, str]],
+    layers: list[dict[str, Any]] | list[tuple[int, str]],
+    y_scale: str = "linear",
+    x_min: int | None = None,
+    x_max: int | None = None,
+    min_positive_bytes: int = 1,
 ) -> str:
-    """Inline SVG line chart. RSS in MiB on Y, elapsed ms on X. Vertical
-    dashed lines at each marker with a small text label at the top."""
+    """Inline SVG line chart. RSS on Y, elapsed ms on X. Vertical dashed
+    lines at each marker with a small text label; labels alternate
+    top/bottom within a layer to reduce overlap.
+
+    Parameters:
+      * `layers` — either a list of `{color, label_pos, markers}` dicts
+        (one per marker source) or, for backward compat, a flat
+        `[(x_ms, label), ...]` list that's treated as a single red layer.
+      * `y_scale` — "linear" or "log". Log needs a non-zero floor
+        (`min_positive_bytes`) to keep `log(0)` from crashing.
+      * `x_min`, `x_max` — clip the X axis to `[x_min, x_max]` elapsed
+        ms; the polyline and every marker outside this window are
+        dropped from the render. Defaults to `[0, duration_ms]`.
+    """
     if not points or duration_ms <= 0 or peak_bytes <= 0:
         return ""
+
+    # --- Backward compat: caller passed the old flat marker list -----
+    if layers and isinstance(layers[0], tuple):
+        layers = [{"color": "#e11d48", "label_pos": "top", "markers": list(layers)}]
+
+    # --- X-range clip -------------------------------------------------
+    if x_min is None:
+        x_min = 0
+    if x_max is None:
+        x_max = duration_ms
+    x_min = max(0, min(x_min, duration_ms))
+    x_max = max(x_min + 1, min(x_max, duration_ms))
+    window_ms = x_max - x_min
+
     chart_left = 60
     chart_right_pad = 20
     chart_top = 20
@@ -1001,18 +1186,38 @@ def render_line_chart_svg(
     chart_width = 900
     inner_w = chart_width - chart_left - chart_right_pad
 
-    x_of = lambda t: chart_left + (t / duration_ms) * inner_w if duration_ms > 0 else chart_left
-    y_of = lambda r: chart_top + chart_height - (r / peak_bytes) * chart_height
+    def x_of(t: float) -> float:
+        return chart_left + ((t - x_min) / window_ms) * inner_w
 
-    # Build polyline points.
-    poly = " ".join(f"{x_of(t):.2f},{y_of(r):.2f}" for t, r in points)
+    # Log-Y precomputes; guard the floor so log(0) never fires.
+    import math as _m
+    log_floor = max(1, min_positive_bytes)
+    log_lo = _m.log10(log_floor)
+    log_hi = _m.log10(max(log_floor + 1, peak_bytes))
 
+    def y_of(r: int) -> float:
+        if y_scale == "log":
+            val = max(log_floor, r)
+            frac = (_m.log10(val) - log_lo) / (log_hi - log_lo) if log_hi > log_lo else 0.0
+        else:
+            frac = r / peak_bytes if peak_bytes > 0 else 0.0
+        return chart_top + chart_height - frac * chart_height
+
+    # Clip polyline to the visible X window. Keep the first/last samples
+    # even if they land exactly on the boundaries.
+    visible_points = [(t, r) for t, r in points if x_min <= t <= x_max]
+    if not visible_points:
+        return ""
+    poly = " ".join(f"{x_of(t):.2f},{y_of(r):.2f}" for t, r in visible_points)
+
+    y_axis_title = "RSS (log)" if y_scale == "log" else "RSS"
     parts = [
         f'<svg viewBox="0 0 {chart_width} {chart_top + chart_height + 60}" '
         f'width="100%" height="{chart_top + chart_height + 60}" '
         f'xmlns="http://www.w3.org/2000/svg">',
         f'<text x="{chart_left}" y="14" font-size="14" font-weight="bold" fill="#222">'
-        f'RSS over time — peak {peak_bytes / (1024 * 1024):.1f} MiB</text>',
+        f'{y_axis_title} over time — peak {peak_bytes / (1024 * 1024):.1f} MiB'
+        f' — window [{x_min}, {x_max}] ms</text>',
         # Axes
         f'<line x1="{chart_left}" y1="{chart_top}" x2="{chart_left}" '
         f'y2="{chart_top + chart_height}" stroke="#555" />',
@@ -1020,10 +1225,16 @@ def render_line_chart_svg(
         f'x2="{chart_left + inner_w}" y2="{chart_top + chart_height}" stroke="#555" />',
     ]
 
-    # Y ticks (5 rows, MiB labels).
+    # Y ticks (5 rows). Log mode: label the value at each row's Y
+    # position (which itself is linearly spaced across the log range),
+    # so ticks like "1 GiB / 100 MiB / 10 MiB" appear naturally.
     for tick_idx in range(5):
         frac = (4 - tick_idx) / 4
-        value_bytes = peak_bytes * frac
+        if y_scale == "log":
+            log_v = log_lo + frac * (log_hi - log_lo)
+            value_bytes = 10.0 ** log_v
+        else:
+            value_bytes = peak_bytes * frac
         y = chart_top + chart_height * tick_idx / 4
         parts.append(
             f'<line x1="{chart_left}" y1="{y:.2f}" '
@@ -1031,40 +1242,56 @@ def render_line_chart_svg(
         )
         parts.append(
             f'<text x="{chart_left - 8}" y="{y + 4:.2f}" text-anchor="end" '
-            f'font-size="11" fill="#555">{value_bytes / (1024 * 1024):.0f} MiB</text>'
+            f'font-size="11" fill="#555">{value_bytes / (1024 * 1024):.1f} MiB</text>'
         )
 
-    # X ticks (5 columns, ms labels).
+    # X ticks (6 columns, elapsed ms labels within the visible window).
     for tick_idx in range(6):
         frac = tick_idx / 5
-        value_ms = duration_ms * frac
+        value_ms = x_min + window_ms * frac
         x = chart_left + inner_w * frac
         parts.append(
             f'<text x="{x:.2f}" y="{chart_top + chart_height + 16}" '
             f'text-anchor="middle" font-size="11" fill="#555">{value_ms:.0f} ms</text>'
         )
 
-    # Bucket boundary markers — vertical dashed lines with labels alternating
-    # top/bottom to avoid overlap.
-    marker_colors = ["#e11d48", "#7c3aed", "#0891b2", "#ca8a04", "#059669"]
-    for idx, (x_ms, label) in enumerate(markers):
-        x = x_of(x_ms)
-        color = marker_colors[idx % len(marker_colors)]
-        parts.append(
-            f'<line x1="{x:.2f}" y1="{chart_top}" x2="{x:.2f}" '
-            f'y2="{chart_top + chart_height}" stroke="{color}" '
-            f'stroke-width="1.5" stroke-dasharray="4,3" />'
-        )
-        # Alternate label y so overlapping markers stay readable.
-        label_y = chart_top - 6 if idx % 2 == 0 else chart_top + chart_height + 34
-        parts.append(
-            f'<text x="{x:.2f}" y="{label_y:.2f}" text-anchor="middle" '
-            f'font-size="10" fill="{color}">{escape(label)}</text>'
-        )
+    # Marker layers. Each layer picks its own color and top/bottom label
+    # anchor; within a layer, labels alternate top/bottom (or up/down
+    # from the anchor) to reduce overlap on tight clusters.
+    for layer in layers:
+        color = layer.get("color", "#e11d48")
+        label_pos = layer.get("label_pos", "top")
+        layer_markers = layer.get("markers") or []
+        # Anchor point for labels: top edge or bottom edge.
+        anchor_top = chart_top - 6
+        anchor_bot = chart_top + chart_height + 34
+        for idx, marker in enumerate(layer_markers):
+            if not isinstance(marker, tuple) or len(marker) != 2:
+                continue
+            x_ms, label = marker
+            if not (x_min <= x_ms <= x_max):
+                continue
+            x = x_of(x_ms)
+            parts.append(
+                f'<line x1="{x:.2f}" y1="{chart_top}" x2="{x:.2f}" '
+                f'y2="{chart_top + chart_height}" stroke="{color}" '
+                f'stroke-width="1.2" stroke-dasharray="4,3" opacity="0.8" />'
+            )
+            # Alternate the label position within a layer to reduce
+            # overlap: for a "top" anchor, half of the markers get a
+            # slightly lower text; same idea for "bottom".
+            if label_pos == "bottom":
+                label_y = anchor_bot if idx % 2 == 0 else anchor_bot + 14
+            else:
+                label_y = anchor_top if idx % 2 == 0 else anchor_top - 12
+            parts.append(
+                f'<text x="{x:.2f}" y="{label_y:.2f}" text-anchor="middle" '
+                f'font-size="10" fill="{color}">{escape(label)}</text>'
+            )
 
-    # The line itself last, so it draws on top of gridlines.
+    # The RSS line itself last, so it draws on top of gridlines.
     parts.append(
-        f'<polyline points="{poly}" fill="none" stroke="#2563eb" stroke-width="1.5" />'
+        f'<polyline points="{poly}" fill="none" stroke="#111" stroke-width="1.5" />'
     )
     parts.append("</svg>")
     return "".join(parts)
@@ -1113,6 +1340,31 @@ def collect_mem_samples_by_query(records: list[dict[str, Any]]) -> dict[str, lis
     # Sort each series so the dashboard sees them in wall-clock order.
     for series in by_query.values():
         series.sort(key=lambda p: p[0])
+    return by_query
+
+
+def collect_tracker_snapshots_by_query(
+    records: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Group `tracker_snapshot` records by query, sorted by `wall_ms`.
+    Each snapshot marks a pipeline-phase boundary (e.g. `compile_start`,
+    `after_compile_sc_subproof`, `bucket_2_end`). Used by the Memory
+    tab to overlay phase annotations on the RSS curve so a bump can be
+    attributed to a specific compile stage.
+    """
+    by_query: dict[str, list[dict[str, Any]]] = {}
+    for r in records:
+        if r.get("kind") != "tracker_snapshot":
+            continue
+        q = r.get("query")
+        if not isinstance(q, str) or not q:
+            continue
+        snapshot = r.get("snapshot")
+        if not isinstance(snapshot, dict):
+            continue
+        by_query.setdefault(q, []).append(snapshot)
+    for series in by_query.values():
+        series.sort(key=lambda d: to_float(d.get("wall_ms")) or 0.0)
     return by_query
 
 
@@ -1295,6 +1547,7 @@ def main() -> None:
         st.sidebar.warning("This run OOM'd — only memory samples survived.")
 
     stream_decisions_by_query = collect_stream_decisions_by_query(records)
+    tracker_snapshots_by_query = collect_tracker_snapshots_by_query(records)
 
     (
         overview_tab,
@@ -1364,7 +1617,7 @@ def main() -> None:
             )
 
     with memory_tab:
-        render_memory_section(record)
+        render_memory_section(record, tracker_snapshots_by_query.get(selected_query))
 
     with plans_tab:
         render_plans_section(record)
