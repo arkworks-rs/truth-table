@@ -360,6 +360,7 @@ struct PendingBenchRecord {
     buckets: Option<Value>,
     memory_samples: Vec<(u64, u64)>,
     stream_decisions: Vec<Value>,
+    prover_pass_spans: Vec<Value>,
     extra: Map<String, Value>,
 }
 
@@ -379,6 +380,7 @@ impl PendingBenchRecord {
             buckets: None,
             memory_samples: Vec::new(),
             stream_decisions: Vec::new(),
+            prover_pass_spans: Vec::new(),
             extra: Map::new(),
         }
     }
@@ -407,6 +409,28 @@ impl PendingBenchRecord {
         ) {
             self.prover
                 .insert(format!("prover_time_{pass_name}_s"), pass_seconds);
+        }
+
+        // `prover_pass_span` event — see stats_jsonl.rs for the shape
+        // and rationale. Accumulate into a per-record Vec that gets
+        // embedded in the bench_query JSON at span close.
+        if let (
+            Some(Value::String(span_name)),
+            Some(Value::String(start_ms)),
+            Some(Value::String(end_ms)),
+            Some(Value::String(duration_s)),
+        ) = (
+            fields.remove("prover_pass_span_name"),
+            fields.remove("prover_pass_span_wall_start_ms"),
+            fields.remove("prover_pass_span_wall_end_ms"),
+            fields.remove("prover_pass_span_duration_s"),
+        ) {
+            self.prover_pass_spans.push(json!({
+                "pass": span_name,
+                "wall_start_ms": start_ms.parse::<u64>().unwrap_or(0),
+                "wall_end_ms": end_ms.parse::<u64>().unwrap_or(0),
+                "duration_s": duration_s.parse::<f64>().unwrap_or(0.0),
+            }));
         }
 
         for (key, value) in fields {
@@ -575,6 +599,12 @@ impl PendingBenchRecord {
             root.insert(
                 "stream_decisions".to_string(),
                 Value::Array(self.stream_decisions),
+            );
+        }
+        if !self.prover_pass_spans.is_empty() {
+            root.insert(
+                "prover_pass_spans".to_string(),
+                Value::Array(self.prover_pass_spans),
             );
         }
         if !self.extra.is_empty() {

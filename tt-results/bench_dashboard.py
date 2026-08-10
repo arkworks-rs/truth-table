@@ -1064,39 +1064,72 @@ def render_memory_section(
         else:
             stream_markers_eager.append((x, label))
 
+    # (4) Prover passes — from record.prover_pass_spans (embedded per
+    # run by the tt-front-end emitter). Each pass has wall_start_ms /
+    # wall_end_ms / duration_s; drop two markers per pass (start + end)
+    # so the tab can highlight where a pass began AND how long it took.
+    # Anchor at the START event only to keep the marker count down —
+    # the duration is already in the label.
+    pass_markers: list[tuple[int, str]] = []
+    for span in record.get("prover_pass_spans") or []:
+        if not isinstance(span, dict):
+            continue
+        start_ms = to_float(span.get("wall_start_ms"))
+        if start_ms is None:
+            continue
+        x = int(start_ms) - t0
+        if not (0 <= x <= duration_ms):
+            continue
+        pass_name = str(span.get("pass") or "?")
+        dur = span.get("duration_s")
+        try:
+            dur_label = f"{float(dur):.2f}s"
+        except (TypeError, ValueError):
+            dur_label = ""
+        pass_markers.append((x, f"pass:{pass_name} {dur_label}"))
+
     # --- Marker layer toggles -----------------------------------------
     st.markdown("**Layers**")
-    layer_col1, layer_col2, layer_col3, layer_col4 = st.columns(4)
-    show_buckets = layer_col1.checkbox(
-        f"Bucket boundaries ({len(bucket_markers)})",
+    layer_row1_a, layer_row1_b, layer_row1_c = st.columns(3)
+    layer_row2_a, layer_row2_b, layer_row2_c = st.columns(3)
+    show_buckets = layer_row1_a.checkbox(
+        f"🔴 Bucket ({len(bucket_markers)})",
         value=True,
         key=f"mem_layer_buckets_{record.get('timestamp', '')}",
     )
-    show_phases = layer_col2.checkbox(
-        f"Pipeline phases ({len(phase_markers)})",
+    show_phases = layer_row1_b.checkbox(
+        f"🟢 Compile phase ({len(phase_markers)})",
         value=True,
         key=f"mem_layer_phases_{record.get('timestamp', '')}",
     )
-    show_stream = layer_col3.checkbox(
-        f"Sumcheck (streaming, {len(stream_markers_streaming)})",
+    show_passes = layer_row1_c.checkbox(
+        f"🟣 Prover pass ({len(pass_markers)})",
+        value=True,
+        key=f"mem_layer_passes_{record.get('timestamp', '')}",
+    )
+    show_stream = layer_row2_a.checkbox(
+        f"🟠 Sumcheck streaming ({len(stream_markers_streaming)})",
         value=True,
         key=f"mem_layer_stream_{record.get('timestamp', '')}",
     )
-    show_eager = layer_col4.checkbox(
-        f"Sumcheck (eager, {len(stream_markers_eager)})",
+    show_eager = layer_row2_b.checkbox(
+        f"🔵 Sumcheck eager ({len(stream_markers_eager)})",
         value=False,
         key=f"mem_layer_eager_{record.get('timestamp', '')}",
     )
+    # layer_row2_c intentionally unused — reserved for a future layer.
 
     layers: list[dict[str, Any]] = []
     if show_buckets and bucket_markers:
-        layers.append({"color": "#e11d48", "label_pos": "top", "markers": bucket_markers})
+        layers.append({"color": "#e11d48", "layer_name": "bucket", "markers": bucket_markers})
     if show_phases and phase_markers:
-        layers.append({"color": "#059669", "label_pos": "bottom", "markers": phase_markers})
+        layers.append({"color": "#059669", "layer_name": "phase", "markers": phase_markers})
+    if show_passes and pass_markers:
+        layers.append({"color": "#9333ea", "layer_name": "pass", "markers": pass_markers})
     if show_stream and stream_markers_streaming:
-        layers.append({"color": "#ea580c", "label_pos": "top", "markers": stream_markers_streaming})
+        layers.append({"color": "#ea580c", "layer_name": "sc(streaming)", "markers": stream_markers_streaming})
     if show_eager and stream_markers_eager:
-        layers.append({"color": "#2563eb", "label_pos": "bottom", "markers": stream_markers_eager})
+        layers.append({"color": "#2563eb", "layer_name": "sc(eager)", "markers": stream_markers_eager})
 
     st.markdown(
         render_line_chart_svg(
@@ -1112,35 +1145,33 @@ def render_memory_section(
         unsafe_allow_html=True,
     )
 
-    # Always-readable marker table. Even when the chart's rotated
-    # labels overlap in dense clusters, the full label list sits right
-    # below the plot for reference. Rows are filtered by the same
-    # layer toggles + X-range window as the chart so the table and
-    # the plot stay in sync.
-    marker_rows: list[dict[str, Any]] = []
+    # Always-readable marker table. Rows are ordered by elapsed_ms so
+    # the `#` column matches the pin numbers shown on the plot itself
+    # (the SVG renderer flattens layers and sorts by x-pixel, which is
+    # equivalent to sorting by elapsed_ms since x_of is monotonic).
+    # Filtered by the same layer toggles + X-range window as the chart.
+    marker_rows_unnumbered: list[dict[str, Any]] = []
     for layer in layers:
-        color = layer.get("color", "#000")
-        layer_name = {
-            "#e11d48": "bucket",
-            "#059669": "phase",
-            "#ea580c": "sc(streaming)",
-            "#2563eb": "sc(eager)",
-        }.get(color, "marker")
+        layer_name = layer.get("layer_name", "marker")
         for marker in layer.get("markers") or []:
             if not isinstance(marker, tuple) or len(marker) != 2:
                 continue
             x_ms, label = marker
             if not (x_min <= x_ms <= x_max):
                 continue
-            marker_rows.append({
+            marker_rows_unnumbered.append({
                 "layer": layer_name,
                 "elapsed_ms": x_ms,
                 "label": label,
             })
-    marker_rows.sort(key=lambda r: (r["elapsed_ms"], r["layer"]))
+    marker_rows_unnumbered.sort(key=lambda r: (r["elapsed_ms"], r["layer"]))
+    marker_rows = [
+        {"#": i, **row}
+        for i, row in enumerate(marker_rows_unnumbered, start=1)
+    ]
     if marker_rows:
         with st.expander(
-            f"Marker details ({len(marker_rows)} in window)",
+            f"Marker details ({len(marker_rows)} in window) — # column matches pin numbers on the plot",
             expanded=True,
         ):
             st.dataframe(
@@ -1148,6 +1179,7 @@ def render_memory_section(
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "#": st.column_config.NumberColumn("#", width="small"),
                     "layer": st.column_config.TextColumn("layer", width="small"),
                     "elapsed_ms": st.column_config.NumberColumn(
                         "elapsed_ms", width="small"
@@ -1158,16 +1190,28 @@ def render_memory_section(
 
     with st.expander("Marker legend", expanded=False):
         st.markdown(
-            "- 🔴 **Bucket boundaries** — sumcheck bucket transitions "
-            "(`sc_buckets.wall_start_ms`). Label format: `bN nv=X`.\n"
-            "- 🟢 **Pipeline phases** — `tracker_snapshot.phase` events: "
+            "**Numbered pins**, colored by source layer, run 1..N in "
+            "wall-time order across all enabled layers. Pin numbers "
+            "match the `#` column in the Marker details table above. "
+            "Hover any pin (or its vertical dashed line) for the label "
+            "and exact elapsed_ms.\n\n"
+            "- 🔴 **Bucket** — sumcheck bucket transitions "
+            "(`sc_buckets.wall_start_ms`). Label: `bN nv=X`.\n"
+            "- 🟢 **Compile phase** — `tracker_snapshot.phase` events: "
             "`compile_start`, `after_compile_sc_subproof`, "
             "`after_compile_mv_pcs_subproof`, "
             "`after_compile_uv_pcs_subproof`, `bucket_N_start`, "
-            "`bucket_N_end`. Fired at every pipeline-phase boundary.\n"
-            "- 🟠 **Sumcheck (streaming)** — `prover_init` calls where "
+            "`bucket_N_end`.\n"
+            "- 🟣 **Prover pass** — end of each tt-front-end prover "
+            "pass (`arithmetization`, `commitment`, "
+            "`gadget_initialization`, `gadget_planning`, "
+            "`materialization`, `output_planning`, `proving_pass`, "
+            "`tracking`, `virtualization`). Anchored at pass start "
+            "(back-derived from end - duration). Label: "
+            "`pass:NAME DURATIONs`.\n"
+            "- 🟠 **Sumcheck streaming** — `prover_init` calls where "
             "the effective `k > 0`. Label: `sc nv=X k=Y`.\n"
-            "- 🔵 **Sumcheck (eager)** — `prover_init` calls where "
+            "- 🔵 **Sumcheck eager** — `prover_init` calls where "
             "`k == 0`. Off by default (typically many; usually cheap)."
         )
 
@@ -1195,21 +1239,24 @@ def render_line_chart_svg(
 ) -> str:
     """Inline SVG line chart. RSS on Y, elapsed ms on X.
 
-    Marker labels are drawn **rotated -90°** (vertical, reading
-    bottom-to-top) so each takes ~12px of horizontal room instead of
-    the ~40–80px an inline label needs. That keeps 25+ markers
-    readable in a single view. Where two markers in the same layer
-    still collide horizontally (within ~9px), the second label gets a
-    small vertical offset so its text lane doesn't overlap the first.
+    **Markers are numbered pins, not text labels.** Overlapping text
+    was unreadable no matter how we rotated or staggered it, so the
+    chart now shows a small colored numbered circle at the top of each
+    marker's vertical dashed line — 1, 2, 3, … in wall-time order
+    across ALL layers. Numbers correspond to rows in the marker-details
+    table below the chart, where the full label is always readable.
+    Every marker line also carries an SVG `<title>` tooltip so hover
+    gives the label without leaving the plot.
 
-    An inline hover tooltip is attached to each vertical line via
-    `<title>` so any label the eye can't parse from the chart alone
-    is still one hover away.
+    Pins get horizontal collision avoidance: if a pin would land
+    within `min_pin_gap_px` of a prior pin, it shifts to a lower
+    "row" so the two circles don't overlap.
 
     Parameters:
-      * `layers` — either a list of `{color, label_pos, markers}` dicts
-        (one per marker source) or, for backward compat, a flat
-        `[(x_ms, label), ...]` list that's treated as a single red layer.
+      * `layers` — either a list of
+        `{color, layer_name, markers}` dicts (one per marker source)
+        or, for backward compat, a flat `[(x_ms, label), ...]` list
+        that's treated as a single red layer.
       * `y_scale` — "linear" or "log". Log needs a non-zero floor
         (`min_positive_bytes`) to keep `log(0)` from crashing.
       * `x_min`, `x_max` — clip the X axis to `[x_min, x_max]` elapsed
@@ -1232,16 +1279,16 @@ def render_line_chart_svg(
     x_max = max(x_min + 1, min(x_max, duration_ms))
     window_ms = x_max - x_min
 
-    # Wider chart + generous top/bottom padding for the rotated-label
-    # gutters. Labels above the chart run upward from `chart_top`;
-    # labels below run downward from `chart_top + chart_height + tick_pad`.
+    # Wider chart. Modest top gutter for the numbered pin rows;
+    # bottom gutter just holds the x-tick labels — labels themselves
+    # moved to the always-readable marker table under the chart.
     chart_left = 60
     chart_right_pad = 20
-    top_gutter = 140       # room for upward-rotated labels
-    bottom_gutter = 140    # room for downward-rotated labels + x-tick text
+    top_gutter = 60        # room for numbered pin rows (up to `max_pin_rows`)
+    bottom_gutter = 30     # x-tick labels only
     tick_pad = 20          # space between chart bottom edge and x-tick labels
     chart_top = top_gutter
-    chart_height = 300
+    chart_height = 320
     chart_width = 1100
     inner_w = chart_width - chart_left - chart_right_pad
     svg_height = top_gutter + chart_height + tick_pad + bottom_gutter
@@ -1316,79 +1363,70 @@ def render_line_chart_svg(
             f'text-anchor="middle" font-size="11" fill="#555">{value_ms:.0f} ms</text>'
         )
 
-    # --- Marker layers with rotated labels ----------------------------
-    # Layout: each marker gets a vertical dashed line plus a rotated
-    # label anchored just above (label_pos=top) or below (label_pos
-    # =bottom) the chart. Anti-collision: within each layer, sort by
-    # x-position and give successive labels within `stagger_px` of
-    # each other a step-down "lane" so their vertical text columns
-    # don't overlap.
-    stagger_px = 9         # min horizontal distance before we stagger
-    lane_step = 14         # per-lane vertical offset
-    max_lanes = 4          # cap lanes so we don't run out of gutter
+    # --- Marker rendering: numbered pins + dashed vertical lines -----
+    # Flatten all layers into a single time-ordered list so pins get
+    # a consistent 1..N numbering across layers. Then assign each pin
+    # a row in the top gutter with pixel-level collision avoidance:
+    # if a pin would land within min_pin_gap_px of a prior pin *in
+    # the same row*, push it to the next row down.
+    pin_radius = 8
+    min_pin_gap_px = pin_radius * 2 + 2   # so circle edges don't touch
+    max_pin_rows = 3
+    row_pitch = pin_radius * 2 + 4        # vertical distance between rows
+    flat: list[tuple[float, int, str, str]] = []   # (x_px, x_ms, label, color)
     for layer in layers:
         color = layer.get("color", "#e11d48")
-        label_pos = layer.get("label_pos", "top")
-        # Keep only markers inside the visible X window.
-        visible: list[tuple[float, int, str]] = []
         for marker in layer.get("markers") or []:
             if not isinstance(marker, tuple) or len(marker) != 2:
                 continue
             x_ms, label = marker
             if not (x_min <= x_ms <= x_max):
                 continue
-            visible.append((x_of(x_ms), x_ms, label))
-        # Sort by x-pixel so lane-assignment can see left→right order.
-        visible.sort(key=lambda t: t[0])
-        # Assign a lane to each visible marker. Lane 0 = closest to
-        # the chart; larger lanes push the label further into the
-        # gutter. A marker gets lane N if its x is within
-        # `stagger_px` of the previous marker whose lane is currently N-1.
-        lanes: list[int] = []
-        last_x_per_lane: dict[int, float] = {}
-        for x_px, _, _ in visible:
-            lane = 0
-            while (
-                lane < max_lanes - 1
-                and lane in last_x_per_lane
-                and abs(x_px - last_x_per_lane[lane]) < stagger_px
-            ):
-                lane += 1
-            lanes.append(lane)
-            last_x_per_lane[lane] = x_px
+            flat.append((x_of(x_ms), x_ms, label, color))
+    # Time-order the pins so pin #1 is the earliest event.
+    flat.sort(key=lambda t: t[0])
 
-        for (x_px, x_ms, label), lane in zip(visible, lanes):
-            # The full-height dashed vertical marker.
-            parts.append(
-                f'<line x1="{x_px:.2f}" y1="{chart_top}" x2="{x_px:.2f}" '
-                f'y2="{chart_top + chart_height}" stroke="{color}" '
-                f'stroke-width="1.2" stroke-dasharray="4,3" opacity="0.75">'
-                f'<title>{escape(label)} @ {x_ms} ms</title>'
-                f'</line>'
-            )
-            # Rotated label. For top-anchored labels: put the text
-            # baseline near `chart_top - 6`, rotate -90° around that
-            # point so the text reads bottom-to-top and extends
-            # upward into the top gutter. text-anchor="start" means
-            # the string starts at the anchor and grows in its
-            # (post-rotation) forward direction — which is up.
-            if label_pos == "bottom":
-                anchor_y = chart_top + chart_height + tick_pad + 10 + lane * lane_step
-                # rotate +90° around (x, anchor_y): forward direction
-                # after rotation points down.
-                transform = f"rotate(90 {x_px:.2f} {anchor_y:.2f})"
-                text_anchor = "start"
+    # Row assignment (Datadog/Grafana-style annotation lanes). A new
+    # pin claims the topmost row whose "last pin x" is more than
+    # min_pin_gap_px to its left. If every row is too close, it
+    # snaps to the deepest row (max_pin_rows-1) and just packs.
+    row_last_x: list[float] = []   # last pin's x per row (extended lazily)
+    row_assignments: list[int] = []
+    for x_px, _, _, _ in flat:
+        placed_row = None
+        for r_idx in range(min(len(row_last_x), max_pin_rows)):
+            if x_px - row_last_x[r_idx] >= min_pin_gap_px:
+                placed_row = r_idx
+                break
+        if placed_row is None:
+            if len(row_last_x) < max_pin_rows:
+                placed_row = len(row_last_x)
+                row_last_x.append(0.0)
             else:
-                anchor_y = chart_top - 6 - lane * lane_step
-                # rotate -90° around (x, anchor_y): forward direction
-                # after rotation points up.
-                transform = f"rotate(-90 {x_px:.2f} {anchor_y:.2f})"
-                text_anchor = "start"
-            parts.append(
-                f'<text x="{x_px:.2f}" y="{anchor_y:.2f}" '
-                f'text-anchor="{text_anchor}" font-size="10" fill="{color}" '
-                f'transform="{transform}">{escape(label)}</text>'
-            )
+                placed_row = max_pin_rows - 1  # pack the last row
+        row_assignments.append(placed_row)
+        row_last_x[placed_row] = x_px
+
+    # Draw the dashed vertical lines first, with hover tooltips.
+    for (x_px, x_ms, label, color), _row in zip(flat, row_assignments):
+        parts.append(
+            f'<line x1="{x_px:.2f}" y1="{chart_top}" x2="{x_px:.2f}" '
+            f'y2="{chart_top + chart_height}" stroke="{color}" '
+            f'stroke-width="1" stroke-dasharray="4,3" opacity="0.55">'
+            f'<title>{escape(label)} @ {x_ms} ms</title>'
+            f'</line>'
+        )
+    # Then draw the numbered pins on top.
+    for pin_num, ((x_px, x_ms, label, color), row) in enumerate(zip(flat, row_assignments), start=1):
+        cy = chart_top - pin_radius - 4 - row * row_pitch
+        parts.append(
+            f'<g><title>{escape(label)} @ {x_ms} ms</title>'
+            f'<circle cx="{x_px:.2f}" cy="{cy:.2f}" r="{pin_radius}" '
+            f'fill="{color}" opacity="0.95" stroke="#fff" stroke-width="1.5" />'
+            f'<text x="{x_px:.2f}" y="{cy + 3.5:.2f}" text-anchor="middle" '
+            f'font-size="10" font-weight="bold" fill="#fff">{pin_num}</text>'
+            f'</g>'
+        )
 
     # The RSS line itself last, so it draws on top of gridlines and
     # dashed marker lines.

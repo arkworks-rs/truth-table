@@ -178,13 +178,40 @@ impl<B: SnarkBackend> TTProver<B> {
         Ok(output)
     }
 
-    /// Emit a prover pass timing sample to the bench-stats tracing stream.
+    /// Emit a prover pass timing sample to the bench-stats tracing
+    /// stream. Two events fire per call:
+    ///   * `prover_time` — the existing per-pass duration used by
+    ///     the dashboard's Prover Timing tab. Format unchanged.
+    ///   * `prover_pass_span` — a NEW event carrying wall-clock
+    ///     start / end / duration so the dashboard's Memory tab can
+    ///     overlay pass boundaries as timeline markers. The start
+    ///     wall_ms is back-derived from `end - duration` (we don't
+    ///     hold a wall_ms at Instant sample time — Instant is a
+    ///     monotonic offset), which is accurate to within the
+    ///     sub-microsecond clock skew that the sampling grid
+    ///     doesn't care about.
     fn emit_pass_timing(&self, pass_name: &str, started_at: Instant) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let duration_s = started_at.elapsed().as_secs_f64();
         info!(
             target: "bench_stats",
             prover_time_pass = pass_name,
-            prover_time_seconds = started_at.elapsed().as_secs_f64(),
+            prover_time_seconds = duration_s,
             "prover_time"
+        );
+        let end_wall_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let duration_ms = (duration_s * 1000.0) as u64;
+        let start_wall_ms = end_wall_ms.saturating_sub(duration_ms);
+        info!(
+            target: "bench_stats",
+            prover_pass_span_name = pass_name,
+            prover_pass_span_wall_start_ms = start_wall_ms,
+            prover_pass_span_wall_end_ms = end_wall_ms,
+            prover_pass_span_duration_s = duration_s,
+            "prover_pass_span"
         );
     }
 
