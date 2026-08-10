@@ -205,6 +205,22 @@ impl ProveRunner {
     pub async fn run(&self) -> Result<ProveOutputs> {
         let prover: TTProver<B> = self.build_tt_prover().await?;
         let (output_memtable, proof) = prover.prove(&self.query).await?;
+        // Fire the proof-size + results emitters BEFORE the writes
+        // consume `proof` / `output_memtable`. Populates the dashboard's
+        // Proof Size and Results tabs — same accounting as the divan
+        // bench harness so the two producers land in a compatible
+        // JSONL layout. Failures are non-fatal (log and continue) —
+        // stats are diagnostic, not a proving-correctness concern.
+        if let Err(err) = crate::stats_jsonl::emit_prove_stats(
+            &self.query,
+            &proof,
+            &output_memtable,
+            &self.result_output_path,
+        )
+        .await
+        {
+            tracing::warn!(target: "bench_stats", ?err, "emit_prove_stats failed");
+        }
         self.write_proof(&proof)?;
         self.write_result_parquet(output_memtable).await?;
         Ok(ProveOutputs {
@@ -219,6 +235,16 @@ impl ProveRunner {
         let start = Instant::now();
         let (output_memtable, proof) = prover.prove(&self.query).await?;
         let elapsed = start.elapsed();
+        if let Err(err) = crate::stats_jsonl::emit_prove_stats(
+            &self.query,
+            &proof,
+            &output_memtable,
+            &self.result_output_path,
+        )
+        .await
+        {
+            tracing::warn!(target: "bench_stats", ?err, "emit_prove_stats failed");
+        }
         self.write_proof(&proof)?;
         self.write_result_parquet(output_memtable).await?;
         Ok((

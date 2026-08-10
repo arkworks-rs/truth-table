@@ -466,7 +466,10 @@ impl PendingBenchRecord {
                     let normalized = key.strip_prefix("plan_").unwrap_or(&key).to_string();
                     self.plans.insert(normalized, value);
                 }
-                "results_rows_count" | "results_schema" | "results_size_bytes" => {
+                "results_rows_count"
+                | "results_schema"
+                | "results_size_bytes"
+                | "results_parquet_path" => {
                     let normalized = key.strip_prefix("results_").unwrap_or(&key).to_string();
                     self.results.insert(normalized, value);
                 }
@@ -512,13 +515,26 @@ impl PendingBenchRecord {
         );
         let timestamp = self.timestamp_utc.clone();
 
+        // Reshape the flat `results_*` fields we merged in into the
+        // title-case object shape the dashboard's Results tab reads —
+        // it looks up "Rows Count" / "Size" / "Schema" / etc. Mirrors
+        // the divan bench harness's `into_json` reshape so both
+        // producers land in a compatible layout.
+        let results_shaped = json!({
+            "Rows Count": self.results.get("rows_count").cloned().unwrap_or(Value::Null),
+            "Schema": self.results.get("schema").cloned().unwrap_or(Value::Null),
+            "Size": self.results.get("size_bytes").cloned().unwrap_or(Value::Null),
+            "preview_rows": self.results.get("preview_rows").cloned().unwrap_or(Value::Null),
+            "parquet_path": self.results.get("parquet_path").cloned().unwrap_or(Value::Null),
+        });
+
         let mut root = json!({
             "timestamp": timestamp,
             "timestamp_utc": self.timestamp_utc,
             "kind": "bench_query",
             "query": self.query,
             "claims": claims,
-            "results": Value::Object(self.results),
+            "results": results_shaped,
             "prover": Value::Object(self.prover),
             "snark prover": Value::Object(self.snark_prover),
             "proof_size": proof_size,
@@ -795,6 +811,134 @@ pub fn breakdown_grandchild_size(breakdown: &SizeBreakdown, key: &str, child_key
         .and_then(|part| part.parts.get(child_key))
         .map(|part| part.size)
         .unwrap_or(0)
+}
+
+/// Compute all the proof-size + result-set metrics that
+/// [`emit_proof_size_bytes`] and [`emit_results_stats`] want and fire
+/// them under a single call. Uses the same accounting as the divan
+/// bench harness (`benches/support/mod.rs`) so a run driven through
+/// `test_utils::prove_and_verify_query{,_bench}` and one driven
+/// through the bench harness end up with byte-identical
+/// `proof_size.*` / `results.*` sections in the JSONL — the dashboard
+/// treats them interchangeably.
+///
+/// Called from `ProveRunner::run()` after `prover.prove()` while the
+/// `snark_proof` and `output_memtable` are still in scope (the write
+/// path drops the proof and consumes the memtable Arc). Async because
+/// `result_memtable_stats_async` reads the memtable via a datafusion
+/// `DataFrame` — calling the sync helper from an async caller would
+/// nest tokio runtimes (`Handle::block_on` inside a running runtime
+/// panics).
+pub async fn emit_prove_stats<B>(
+    query: &str,
+    proof: &front_end::structs::TTProof<B>,
+    output_memtable: &Arc<MemTable>,
+    result_parquet_path: &Path,
+) -> anyhow::Result<()>
+where
+    B: ark_piop::SnarkBackend,
+{
+    use front_end::structs::Artifact;
+
+    let snark_proof = proof.as_snark_proof();
+    let cryptographic_proof_size_bytes =
+        snark_proof.to_bytes().map(|b| b.len()).unwrap_or(0);
+    let non_cryptographic_proof_size_bytes =
+        bincode::serialize(proof.optimization_hints()).map(|b| b.len()).unwrap_or(0);
+    let full_proof_size_bytes =
+        cryptographic_proof_size_bytes + non_cryptographic_proof_size_bytes;
+    let full_compressed_proof_size_bytes =
+        proof.to_bytes().map(|b| b.len()).unwrap_or(0);
+    let mv_commitment_count = snark_proof.mv_pcs_subproof.unique_comitments.len();
+    let uv_commitment_count = snark_proof.uv_pcs_subproof.unique_comitments.len();
+    let crypto_breakdown = snark_proof
+        .size_breakdown()
+        .ok_or_else(|| anyhow::anyhow!("snark proof size breakdown returned None"))?;
+
+    emit_proof_size_bytes(
+        query,
+        cryptographic_proof_size_bytes,
+        non_cryptographic_proof_size_bytes,
+        full_proof_size_bytes,
+        full_compressed_proof_size_bytes,
+        breakdown_child_size(&crypto_breakdown, "sc_subproof"),
+        breakdown_child_size(&crypto_breakdown, "mv_pcs_subproof"),
+        breakdown_grandchild_size(&crypto_breakdown, "mv_pcs_subproof", "opening_proof"),
+        breakdown_grandchild_size(&crypto_breakdown, "mv_pcs_subproof", "commitments"),
+        mv_commitment_count,
+        breakdown_grandchild_size(&crypto_breakdown, "mv_pcs_subproof", "query_map"),
+        breakdown_child_size(&crypto_breakdown, "uv_pcs_subproof"),
+        breakdown_grandchild_size(&crypto_breakdown, "uv_pcs_subproof", "opening_proof"),
+        breakdown_grandchild_size(&crypto_breakdown, "uv_pcs_subproof", "commitments"),
+        uv_commitment_count,
+        breakdown_grandchild_size(&crypto_breakdown, "uv_pcs_subproof", "query_map"),
+        breakdown_child_size(&crypto_breakdown, "miscellaneous_field_elements"),
+    );
+
+    let (rows_count, schema, size_bytes) = result_memtable_stats_async(output_memtable).await?;
+    emit_results_stats_extended(
+        query,
+        rows_count,
+        &schema,
+        size_bytes,
+        &result_parquet_path.to_string_lossy(),
+    );
+    Ok(())
+}
+
+/// Extended results-stats emitter that also carries the parquet
+/// sidecar path. The dashboard's Results tab reads
+/// `results.parquet_path` — the bench harness emits it directly, so
+/// mirror that field name here too.
+pub fn emit_results_stats_extended(
+    query: &str,
+    rows_count: usize,
+    schema: &str,
+    size_bytes: usize,
+    parquet_path: &str,
+) {
+    tracing::info!(
+        target: JSONL_STATS_TARGET,
+        query,
+        results_rows_count = rows_count,
+        results_schema = schema,
+        results_size_bytes = size_bytes,
+        results_parquet_path = parquet_path,
+        "results"
+    );
+}
+
+/// Async version — safe to call from inside a tokio runtime (unlike
+/// [`result_memtable_stats`] which is fine only from a sync caller).
+pub async fn result_memtable_stats_async(
+    mem_table: &Arc<MemTable>,
+) -> anyhow::Result<(usize, String, usize)> {
+    use datafusion::arrow::ipc::writer::StreamWriter;
+
+    let ctx = SessionContext::new();
+    let table: Arc<dyn TableProvider> = mem_table.clone();
+    let df = ctx.read_table(table)?;
+    let batches = df.collect().await?;
+
+    let rows_count = batches.iter().map(|batch| batch.num_rows()).sum();
+    let schema = mem_table
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| format!("{}: {}", field.name(), field.data_type()))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut serialized = Vec::new();
+    {
+        let mut writer = StreamWriter::try_new(&mut serialized, &mem_table.schema())?;
+        for batch in &batches {
+            writer.write(batch)?;
+        }
+        writer.finish()?;
+    }
+
+    Ok((rows_count, schema, serialized.len()))
 }
 
 pub fn result_memtable_stats(mem_table: &Arc<MemTable>) -> anyhow::Result<(usize, String, usize)> {
