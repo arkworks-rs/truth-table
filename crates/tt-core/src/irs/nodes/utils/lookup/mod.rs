@@ -152,8 +152,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         // prover committed. Data values are placeholders — verifier
         // skips materialization, only the schema + should_materialize
         // flags matter here.
-        let multiplicities_hint = hints::build_multiplicity_hint_schema_only(super_hint)
-            .map_err(|e| {
+        let multiplicities_hint =
+            hints::build_multiplicity_hint_schema_only(super_hint).map_err(|e| {
                 ark_piop::errors::SnarkError::Artifact(format!(
                     "lookup multiplicity verifier hint failed: {e}"
                 ))
@@ -190,8 +190,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Some(super_table) = payload.get(SUPER_LABEL) else {
             return Ok(());
         };
-        let multiplicities =
-            multiplicities_from_runtime_tables_verifier(verifier, super_table)?;
+        let multiplicities = multiplicities_from_runtime_tables_verifier(verifier, super_table)?;
         payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
@@ -313,7 +312,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let super_active = active_row_mask(&super_table);
         let included_active = active_row_mask(&included_table);
         let multiplicity_values = multiplicity_column_values(&multiplicities_table);
-        let multiplicity_active = active_row_mask(&multiplicities_table);
 
         let active_super_keys: IndexSet<String> = (0..super_table.size())
             .filter(|&row| super_active[row])
@@ -349,24 +347,24 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             &included_active,
         );
 
-        if multiplicity_values.len() != expected.len()
-            || multiplicity_active.len() != expected.len()
-        {
+        if multiplicity_values.len() != expected.len() {
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::FalseClaim,
             )));
         }
 
+        // Only the multiplicity *values*, and only on rows the super table
+        // marks active, are part of the witness. `multiplicities_from_table`
+        // hands the PIOP the bare data poly, which becomes `mgxs` against
+        // `gxs = [super_col]`; the keyed-sumcheck identity sums over active
+        // `g` alone, so inactive rows drop out whatever their multiplicity
+        // holds. The multiplicity table's own activator is never read — it is
+        // materialized independently from the plan-time hint and legitimately
+        // differs from the super table's, so comparing the two masks rejected
+        // honest witnesses (Q1, Q5, Q8, Q12 all verify but failed here).
         for row in 0..expected.len() {
-            if multiplicity_active[row] != super_active[row] {
-                tracing::debug!(
-                    node_id = ?id,
-                    row,
-                    "lookup honest check found multiplicity activator mismatch"
-                );
-                return Err(SnarkError::ProverError(ProverError::HonestProverError(
-                    HonestProverError::FalseClaim,
-                )));
+            if !super_active[row] {
+                continue;
             }
             if multiplicity_values[row] != expected[row] {
                 tracing::debug!(

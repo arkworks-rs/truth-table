@@ -66,8 +66,17 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         let mut tracked_polys = IndexMap::new();
         let mut schema_fields = Vec::new();
         let mut primary_base: Option<String> = None;
+        let mut in_aliased_run = false;
 
         for (field, poly) in expr_table.tracked_polys_iter() {
+            // `tracked_polys_iter` yields each source column's primary
+            // followed by that column's own segments, contiguously, so the
+            // aliased column's segments are exactly the run right after it.
+            // Matching segments by name alone would instead re-base a
+            // same-named column's segments too — an un-aliased self-join
+            // (TPC-H Q7's two `nation`s) would give n2's `n_name__length`
+            // n1's alias.
+
             // Apply alias to the first non-system column, preserving qualifier
             // metadata. Re-base any auxiliary segments of that same primary
             // (e.g. `n_name__length`) under the alias too, so the alias output
@@ -79,6 +88,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                 && field.name() != ROW_ID_COL_NAME
             {
                 primary_base = Some(field.name().to_string());
+                in_aliased_run = true;
                 let mut updated = Field::new(
                     alias_name.clone(),
                     field.data_type().clone(),
@@ -88,7 +98,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                     updated = updated.with_metadata(field.metadata().clone());
                 }
                 Arc::new(updated)
-            } else if let Some(base) = primary_base.as_deref()
+            } else if in_aliased_run
+                && let Some(base) = primary_base.as_deref()
                 && field.name() != base
                 && is_segment_of(field.name(), base)
             {
@@ -103,6 +114,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                 }
                 Arc::new(updated)
             } else {
+                in_aliased_run = false;
                 field.clone()
             };
             schema_fields.push(new_field.clone());
@@ -238,6 +250,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                     let mut tracked_oracles = IndexMap::new();
                     let mut schema_fields = Vec::new();
                     let mut primary_base: Option<String> = None;
+                    let mut in_aliased_run = false;
 
                     for (field, oracle) in table.tracked_oracles_iter() {
                         // Mirror prover: rename primary AND auxiliary segments
@@ -248,6 +261,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                             && field.name() != ROW_ID_COL_NAME
                         {
                             primary_base = Some(field.name().to_string());
+                            in_aliased_run = true;
                             let mut updated = Field::new(
                                 alias_name.clone(),
                                 field.data_type().clone(),
@@ -257,7 +271,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                                 updated = updated.with_metadata(field.metadata().clone());
                             }
                             Arc::new(updated)
-                        } else if let Some(base) = primary_base.as_deref()
+                        } else if in_aliased_run
+                            && let Some(base) = primary_base.as_deref()
                             && field.name() != base
                             && is_segment_of(field.name(), base)
                         {
@@ -272,6 +287,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                             }
                             Arc::new(updated)
                         } else {
+                            in_aliased_run = false;
                             field.clone()
                         };
                         schema_fields.push(new_field.clone());

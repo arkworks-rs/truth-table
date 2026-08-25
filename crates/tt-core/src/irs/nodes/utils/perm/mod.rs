@@ -22,6 +22,9 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+#[cfg(test)]
+mod tests;
+
 pub const LEFT_LABEL: &str = "__left__";
 pub const RIGHT_LABEL: &str = "__right__";
 pub struct GadgetNode<B: SnarkBackend> {
@@ -78,45 +81,28 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .get(RIGHT_LABEL)
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
-        // The two sides may carry different arithmetization-segment
-        // sets — e.g. LEFT (the Filter's input) carries every
-        // Utf8-side segment for every source column (primary, __length,
-        // __chars, __orig_ind, __int_ind, __bnd), while RIGHT (the
-        // compacted output) only carries primary + __length. Folding
-        // each side with `[1..num_data_self]` would then use different
-        // random linear combinations, and the resulting single-column
-        // folds would compare non-comparable multisets even for
-        // structurally-equal inputs. Compute the *intersection* of
-        // data-column names and fold both sides over that shared name
-        // set with the same `[1..num_shared]` challenges — but only
-        // when the two sides *actually* diverge in column count. Same
-        // count on both sides means the original per-side fold produces
-        // structurally-comparable output (columns line up positionally
-        // even if field labels happen to differ), so we keep the old
-        // behaviour for that case. Guarding on the divergent-count
-        // branch also protects the LIKE path, whose LEFT/RIGHT carry
-        // differently-labelled columns with the same positional
-        // meaning — intersecting by name would collapse to an empty set
-        // there and produce an empty fold.
-        let (fxs, gxs) =
-            if left.num_data_tracked_cols() == right.num_data_tracked_cols() {
-                (
-                    fold_table_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL),
-                    fold_table_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL),
-                )
-            } else {
-                let shared_names = shared_data_field_names(left, right);
-                assert!(
-                    !shared_names.is_empty(),
-                    "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
-                    left.num_data_tracked_cols(),
-                    right.num_data_tracked_cols(),
-                );
-                (
-                    fold_table_by_names::<B>(left, &shared_names, keyed_sumcheck::FXS_LABEL),
-                    fold_table_by_names::<B>(right, &shared_names, keyed_sumcheck::GXS_LABEL),
-                )
-            };
+        let shared_names = shared_data_field_names(left, right);
+        let (fxs, gxs) = if should_fold_by_names(
+            left.num_data_tracked_cols(),
+            right.num_data_tracked_cols(),
+            &shared_names,
+        ) {
+            assert!(
+                !shared_names.is_empty(),
+                "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
+                left.num_data_tracked_cols(),
+                right.num_data_tracked_cols(),
+            );
+            (
+                fold_table_by_names::<B>(left, &shared_names, keyed_sumcheck::FXS_LABEL),
+                fold_table_by_names::<B>(right, &shared_names, keyed_sumcheck::GXS_LABEL),
+            )
+        } else {
+            (
+                fold_table_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL),
+                fold_table_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL),
+            )
+        };
         let mfxs = constant_one_table::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
         let mgxs = constant_one_table::<B>(&gxs, keyed_sumcheck::MGXS_LABEL);
 
@@ -170,18 +156,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .get(RIGHT_LABEL)
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
-        // See prover-side comment for rationale — fold both sides over
-        // the intersection of their data-column names when counts
-        // diverge; otherwise keep the positional-fold path.
-        let (fxs, gxs) = if left.num_data_tracked_col_oracles()
-            == right.num_data_tracked_col_oracles()
-        {
-            (
-                fold_table_oracle_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL),
-                fold_table_oracle_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL),
-            )
-        } else {
-            let shared_names = shared_oracle_data_field_names(left, right);
+        let shared_names = shared_oracle_data_field_names(left, right);
+        let (fxs, gxs) = if should_fold_by_names(
+            left.num_data_tracked_col_oracles(),
+            right.num_data_tracked_col_oracles(),
+            &shared_names,
+        ) {
             assert!(
                 !shared_names.is_empty(),
                 "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
@@ -189,16 +169,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 right.num_data_tracked_col_oracles(),
             );
             (
-                fold_table_oracle_by_names::<B>(
-                    left,
-                    &shared_names,
-                    keyed_sumcheck::FXS_LABEL,
-                ),
-                fold_table_oracle_by_names::<B>(
-                    right,
-                    &shared_names,
-                    keyed_sumcheck::GXS_LABEL,
-                ),
+                fold_table_oracle_by_names::<B>(left, &shared_names, keyed_sumcheck::FXS_LABEL),
+                fold_table_oracle_by_names::<B>(right, &shared_names, keyed_sumcheck::GXS_LABEL),
+            )
+        } else {
+            (
+                fold_table_oracle_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL),
+                fold_table_oracle_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL),
             )
         };
         let mfxs = constant_one_table_oracle::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
@@ -257,12 +234,20 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .cloned()
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
-        let left_counts = active_row_multiset::<B>(&left);
-        let right_counts = active_row_multiset::<B>(&right);
+        // Key rows in whichever column order the fold will use, else a
+        // legitimately-reordered side reads as a different multiset.
+        let shared_names = shared_data_field_names(&left, &right);
+        let names = should_fold_by_names(
+            left.num_data_tracked_cols(),
+            right.num_data_tracked_cols(),
+            &shared_names,
+        )
+        .then_some(shared_names.as_slice());
+        let left_counts = active_row_multiset::<B>(&left, names);
+        let right_counts = active_row_multiset::<B>(&right, names);
         if left_counts == right_counts {
             return Ok(());
         }
-
         Err(ark_piop::errors::SnarkError::ProverError(
             ark_piop::prover::errors::ProverError::HonestProverError(
                 ark_piop::prover::errors::HonestProverError::FalseClaim,
@@ -304,6 +289,36 @@ impl<B: SnarkBackend> GadgetNode<B> {
         )));
         Self { keyed_sumcheck }
     }
+}
+
+/// Whether the two perm sides must be folded over `shared_names`
+/// instead of positionally.
+///
+/// Positional folding pairs challenge `k` with each side's `k`-th data
+/// column, so it is only valid when the sides agree column-for-column
+/// by position. Two situations break that:
+///
+/// - divergent column counts — one side carries arithmetization
+///   segments the other dropped;
+/// - equal counts but different flat orders — e.g. a group-by output
+///   lists its key columns first while its input lists them after the
+///   aggregates. `align_table_to_reference_order` is meant to reconcile
+///   this, but `tracked_subtable_by_indices` rebuilds the table in its
+///   own `tracked_cols` order, so the reordering does not survive.
+///
+/// Both are handled by folding each side over the same *names*.
+/// Positional folding is kept for equal counts whose names do not
+/// correspond — the LIKE path, where the sides use different labels for
+/// positionally-equivalent columns and a name intersection would be
+/// empty or partial. Duplicate names also fall back, since
+/// `fold_table_by_names` resolves a name to its first match and would
+/// otherwise fold one column twice.
+fn should_fold_by_names(left_count: usize, right_count: usize, shared_names: &[String]) -> bool {
+    if left_count != right_count {
+        return true;
+    }
+    let mut seen = std::collections::HashSet::with_capacity(shared_names.len());
+    shared_names.len() == left_count && shared_names.iter().all(|n| seen.insert(n))
 }
 
 fn folding_challenges<F: ark_ff::PrimeField>(count: usize) -> Vec<F> {
@@ -541,10 +556,25 @@ fn constant_one_table_oracle<B: SnarkBackend>(
     )
 }
 
+/// Multiset of this table's active rows, each row rendered as a string
+/// key. When `names` is given, columns are read in that order (and only
+/// those columns); otherwise the table's own flat data order is used.
 fn active_row_multiset<B: SnarkBackend>(
     table: &TrackedTable<B>,
+    names: Option<&[String]>,
 ) -> std::collections::HashMap<String, usize> {
-    let data_indices = table.data_tracked_polys_indices();
+    let flat = table.tracked_polys();
+    let data_indices = match names {
+        Some(names) => names
+            .iter()
+            .map(|n| {
+                flat.keys()
+                    .position(|f| f.name() == n)
+                    .expect("active_row_multiset: perm side missing shared column")
+            })
+            .collect(),
+        None => table.data_tracked_polys_indices(),
+    };
     let data_evals: Vec<Vec<B::F>> = data_indices
         .iter()
         .copied()

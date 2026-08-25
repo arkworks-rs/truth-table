@@ -465,22 +465,45 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     /// intact.
     pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTableOracle<B> {
         let flat = self.tracked_oracles();
-        let mut retained_source_names: indexmap::IndexSet<String> = indexmap::IndexSet::new();
-        for &idx in indices {
-            let (field, _) = flat.get_index(idx).expect("column oracle index out of bounds");
-            let base = crate::encoding::segment_base_name(field.name())
-                .unwrap_or_else(|| field.name());
-            retained_source_names.insert(base.to_string());
+        // Verifier mirror of `TrackedTable::tracked_subtable_by_indices` —
+        // retain by source-column identity, not by name, so a self-join's two
+        // same-named columns stay distinguishable.
+        let owners: Vec<FieldRef> = self
+            .tracked_col_oracles
+            .iter()
+            .flat_map(|(field, col)| col.segments_iter().map(move |_| field.clone()))
+            .collect();
+        let mut retained: indexmap::IndexSet<FieldRef> = indexmap::IndexSet::new();
+        if owners.len() == flat.len() {
+            for &idx in indices {
+                retained.insert(
+                    owners
+                        .get(idx)
+                        .expect("column oracle index out of bounds")
+                        .clone(),
+                );
+            }
+        } else {
+            for &idx in indices {
+                let (field, _) = flat.get_index(idx).expect("column oracle index out of bounds");
+                let base = crate::encoding::segment_base_name(field.name())
+                    .unwrap_or_else(|| field.name());
+                for (f, _) in self.tracked_col_oracles.iter() {
+                    if f.name() == base {
+                        retained.insert(f.clone());
+                    }
+                }
+            }
         }
         for (field, _) in self.tracked_col_oracles.iter() {
             if crate::is_system_column(field.name()) {
-                retained_source_names.insert(field.name().to_string());
+                retained.insert(field.clone());
             }
         }
 
         let mut sub_cols: IndexMap<FieldRef, TrackedColOracle<B>> = IndexMap::new();
         for (field, col) in self.tracked_col_oracles.iter() {
-            if retained_source_names.contains(field.name()) {
+            if retained.contains(field) {
                 sub_cols.insert(field.clone(), col.clone());
             }
         }
@@ -495,10 +518,29 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
                     })
                 })
                 .collect();
+            let name_is_unique =
+                |n: &str| schema.fields().iter().filter(|g| g.name() == n).count() == 1;
+            let sub_flat_fields: Vec<Field> = sub_cols
+                .iter()
+                .flat_map(|(f, c)| {
+                    c.segments_iter().map(move |(suffix, _, _)| match suffix {
+                        None => f.as_ref().clone(),
+                        Some(sid) => Field::new(
+                            format!("{}{}", f.name(), sid),
+                            f.data_type().clone(),
+                            f.is_nullable(),
+                        )
+                        .with_metadata(f.metadata().clone()),
+                    })
+                })
+                .collect();
             let fields = schema
                 .fields()
                 .iter()
-                .filter(|f| sub_flat_names.contains(f.name()))
+                .filter(|f| {
+                    sub_flat_fields.iter().any(|sf| sf == f.as_ref())
+                        || (sub_flat_names.contains(f.name()) && name_is_unique(f.name()))
+                })
                 .map(|f| f.as_ref().clone())
                 .collect::<Vec<Field>>();
             Schema::new_with_metadata(fields, schema.metadata().clone())
@@ -589,6 +631,17 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
         .filter(|f| crate::encoding::segment_base_name(f.name()).is_none())
         .map(|f| f.name().to_string())
         .collect();
+    // Mirror of the prover-side `ambiguous_primaries`; see
+    // `crate::table::regroup_flat_into_tracked_cols`.
+    let ambiguous_primaries: std::collections::HashSet<String> = {
+        let mut seen = std::collections::HashSet::new();
+        tracked_oracles
+            .keys()
+            .filter(|f| crate::encoding::segment_base_name(f.name()).is_none())
+            .filter(|f| !seen.insert(f.name().to_string()))
+            .map(|f| f.name().to_string())
+            .collect()
+    };
     let mut out = IndexMap::with_capacity(tracked_oracles.len());
     for (field, oracle) in tracked_oracles.iter() {
         if let Some(base) = crate::encoding::segment_base_name(field.name()) {
@@ -612,9 +665,7 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
             if aux_field.name() == primary_name {
                 continue;
             }
-            if let Some(base) = crate::encoding::segment_base_name(aux_field.name())
-                && base == primary_name
-            {
+            if crate::table::aux_belongs_to(aux_field, field, &ambiguous_primaries) {
                 let suffix = &aux_field.name()[primary_name.len()..];
                 row_aux_bundles.push((
                     suffix.to_string(),
@@ -623,9 +674,7 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
             }
         }
         for (side_field, side) in side_cols.iter() {
-            if let Some(base) = crate::encoding::segment_base_name(side_field.name())
-                && base == primary_name
-            {
+            if crate::table::aux_belongs_to(side_field, field, &ambiguous_primaries) {
                 let suffix = &side_field.name()[primary_name.len()..];
                 side_aux_bundles.push((suffix.to_string(), side.clone()));
             }

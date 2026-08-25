@@ -521,14 +521,24 @@ impl<B: SnarkBackend> TrackedTable<B> {
         // future caller renames an aux entry, extend this to rewrite
         // aux_segment_map keys accordingly.
 
-        if let Some(schema) = &self.schema {
+        // Locate the schema entry by *name*, not by `idx`. `idx` indexes the
+        // flat view from `tracked_polys()`, which expands every tracked col
+        // into its segments (`__length`, ...), while `schema` is supplied
+        // separately via `set_schema` and holds only user-visible fields.
+        // The two index spaces are unrelated: an internal column such as
+        // `__activator__` occupies a flat slot but no schema field at all,
+        // and indexing the schema by a flat position panicked whenever the
+        // two widths differed.
+        if let Some(schema) = &self.schema
+            && let Some(pos) = schema.fields().iter().position(|f| f.name() == &old_name)
+        {
             let metadata = schema.metadata().clone();
             let mut fields = schema
                 .fields()
                 .iter()
                 .map(|f| f.as_ref().clone())
                 .collect::<Vec<_>>();
-            fields[idx] = new_field_ref.as_ref().clone();
+            fields[pos] = new_field_ref.as_ref().clone();
             self.schema = Some(Schema::new_with_metadata(fields, metadata));
         }
     }
@@ -539,23 +549,49 @@ impl<B: SnarkBackend> TrackedTable<B> {
     /// intact.
     pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTable<B> {
         let flat = self.tracked_polys();
-        let mut retained_source_names: indexmap::IndexSet<String> = indexmap::IndexSet::new();
-        for &idx in indices {
-            let (field, _) = flat.get_index(idx).expect("column index out of bounds");
-            let base = crate::encoding::segment_base_name(field.name())
-                .unwrap_or_else(|| field.name());
-            retained_source_names.insert(base.to_string());
+        // Resolve each flat index back to the *source column* that produced
+        // it. `tracked_polys()` emits every source column's segments
+        // consecutively in `tracked_cols` order, so a parallel walk recovers the
+        // owner. Retaining by name instead would be ambiguous: an un-aliased
+        // self-join puts two same-named columns in one table (TPC-H Q7's two
+        // `nation`s), and asking for the second `n_name` would pull in the
+        // first as well.
+        let owners: Vec<FieldRef> = self
+            .tracked_cols
+            .iter()
+            .flat_map(|(field, col)| col.segments_iter().map(move |_| field.clone()))
+            .collect();
+        let mut retained: indexmap::IndexSet<FieldRef> = indexmap::IndexSet::new();
+        if owners.len() == flat.len() {
+            for &idx in indices {
+                retained.insert(owners.get(idx).expect("column index out of bounds").clone());
+            }
+        } else {
+            // Two segments produced an identical field, so `tracked_polys()`
+            // collapsed them and the parallel walk no longer lines up. Such a
+            // table cannot distinguish its duplicates anyway — fall back to
+            // matching on name.
+            for &idx in indices {
+                let (field, _) = flat.get_index(idx).expect("column index out of bounds");
+                let base = crate::encoding::segment_base_name(field.name())
+                    .unwrap_or_else(|| field.name());
+                for (f, _) in self.tracked_cols.iter() {
+                    if f.name() == base {
+                        retained.insert(f.clone());
+                    }
+                }
+            }
         }
         // System columns propagate implicitly.
         for (field, _) in self.tracked_cols.iter() {
             if crate::is_system_column(field.name()) {
-                retained_source_names.insert(field.name().to_string());
+                retained.insert(field.clone());
             }
         }
 
         let mut sub_cols: IndexMap<FieldRef, TrackedCol<B>> = IndexMap::new();
         for (field, col) in self.tracked_cols.iter() {
-            if retained_source_names.contains(field.name()) {
+            if retained.contains(field) {
                 sub_cols.insert(field.clone(), col.clone());
             }
         }
@@ -570,10 +606,33 @@ impl<B: SnarkBackend> TrackedTable<B> {
                     })
                 })
                 .collect();
+            // Prefer an exact field match so a retained `n_name` does not
+            // also drag in a same-named sibling's schema entry. Fall back to
+            // the name only where the schema has no duplicate of it, since
+            // some builders emit schema fields without the primary's metadata.
+            let name_is_unique =
+                |n: &str| schema.fields().iter().filter(|g| g.name() == n).count() == 1;
+            let sub_flat_fields: Vec<Field> = sub_cols
+                .iter()
+                .flat_map(|(f, c)| {
+                    c.segments_iter().map(move |(suffix, _, _)| match suffix {
+                        None => f.as_ref().clone(),
+                        Some(sid) => Field::new(
+                            format!("{}{}", f.name(), sid),
+                            f.data_type().clone(),
+                            f.is_nullable(),
+                        )
+                        .with_metadata(f.metadata().clone()),
+                    })
+                })
+                .collect();
             let fields = schema
                 .fields()
                 .iter()
-                .filter(|f| sub_flat_names.contains(f.name()))
+                .filter(|f| {
+                    sub_flat_fields.iter().any(|sf| sf == f.as_ref())
+                        || (sub_flat_names.contains(f.name()) && name_is_unique(f.name()))
+                })
                 .map(|f| f.as_ref().clone())
                 .collect::<Vec<Field>>();
             Schema::new_with_metadata(fields, schema.metadata().clone())
@@ -681,6 +740,36 @@ impl<B: SnarkBackend> TrackedTable<B> {
     }
 }
 
+/// Whether `aux` is a segment of the source column `primary`.
+///
+/// The base case is a name match: `n_name__length` belongs to `n_name`.
+/// That is ambiguous only when several primaries share a name, which
+/// `ambiguous` lists. There we additionally require the two fields to
+/// agree on data type, nullability and metadata — `TrackedTable::tracked_polys`
+/// derives each segment field from its primary with exactly those three
+/// carried over, so the agreement is an equality test against how the
+/// segment was built, not a heuristic. Pairing duplicates positionally
+/// instead would risk attaching one nation's `__length` to the other
+/// nation's `n_name` and turning a crash into a silently wrong proof.
+pub(crate) fn aux_belongs_to(
+    aux: &FieldRef,
+    primary: &FieldRef,
+    ambiguous: &std::collections::HashSet<String>,
+) -> bool {
+    let Some(base) = crate::encoding::segment_base_name(aux.name()) else {
+        return false;
+    };
+    if base != primary.name() {
+        return false;
+    }
+    if !ambiguous.contains(base) {
+        return true;
+    }
+    aux.data_type() == primary.data_type()
+        && aux.is_nullable() == primary.is_nullable()
+        && aux.metadata() == primary.metadata()
+}
+
 /// Regroup a flat `IndexMap<FieldRef, TrackedPoly<B>>` (schema-order row
 /// polys) + a flat `IndexMap<FieldRef, PolyBundle<B>>` (schema-order
 /// side polys) into the source-column-keyed shape stored by
@@ -707,6 +796,22 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
         .filter(|f| crate::encoding::segment_base_name(f.name()).is_none())
         .map(|f| f.name().to_string())
         .collect();
+    // Primary names that occur more than once — an un-aliased self-join
+    // (TPC-H Q7 joins `nation` twice) puts two `n_name` primaries and two
+    // `n_name__length` aux fields in the same flat view. Matching aux to
+    // primary by name alone would then hand *both* lengths to the first
+    // `n_name`, which trips the duplicate-suffix assert in
+    // `new_multi_split`. For those names we disambiguate by full field
+    // identity instead; see `aux_belongs_to` below.
+    let ambiguous_primaries: std::collections::HashSet<String> = {
+        let mut seen = std::collections::HashSet::new();
+        tracked_polys
+            .keys()
+            .filter(|f| crate::encoding::segment_base_name(f.name()).is_none())
+            .filter(|f| !seen.insert(f.name().to_string()))
+            .map(|f| f.name().to_string())
+            .collect()
+    };
     let mut out = IndexMap::with_capacity(tracked_polys.len());
     for (field, poly) in tracked_polys.iter() {
         if let Some(base) = crate::encoding::segment_base_name(field.name()) {
@@ -730,9 +835,7 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
             if aux_field.name() == primary_name {
                 continue;
             }
-            if let Some(base) = crate::encoding::segment_base_name(aux_field.name())
-                && base == primary_name
-            {
+            if aux_belongs_to(aux_field, field, &ambiguous_primaries) {
                 let suffix = &aux_field.name()[primary_name.len()..];
                 row_aux_bundles.push((
                     suffix.to_string(),
@@ -742,9 +845,7 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
         }
         // Side-domain aux (from `side_cols`): already have their own activator.
         for (side_field, side) in side_cols.iter() {
-            if let Some(base) = crate::encoding::segment_base_name(side_field.name())
-                && base == primary_name
-            {
+            if aux_belongs_to(side_field, field, &ambiguous_primaries) {
                 let suffix = &side_field.name()[primary_name.len()..];
                 side_aux_bundles.push((suffix.to_string(), side.clone()));
             }
