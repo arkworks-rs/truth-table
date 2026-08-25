@@ -6,8 +6,7 @@ use datafusion_common::tree_node::Transformed;
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use proof_planner::data_dependent_lp_optimizer::{OptimizationHints, apply_optimization_hints};
-use std::time::Instant;
-use tracing::{debug, info};
+use tracing::{Instrument, Span, debug, info, info_span};
 #[cfg(feature = "honest-prover")]
 use tt_core::prover::passes::honest_prover::HonestProverPass;
 use tt_core::{
@@ -35,6 +34,32 @@ use crate::{shared::TTSharedConfig, structs::TTProof};
 use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion_expr::{col, logical_plan::Filter};
 use std::future::Future;
+
+/// Tracing target for spans and events the bench-stats subscriber consumes.
+pub const BENCH_STATS_TARGET: &str = "bench_stats";
+
+/// Span wrapping one prover pass. Its `pass` field names the pass, and its
+/// open→close lifetime is that pass's duration.
+///
+/// The subscriber turns each one into both halves of what two hand-rolled
+/// events used to carry: the `prover_time_<pass>_s` entry the dashboard's
+/// Prover Timing tab reads, and the `prover_pass_spans` marker its Memory
+/// tab overlays on the RSS curve.
+pub const PROVER_PASS_SPAN: &str = "prover_pass";
+
+/// Name of the field on [`PROVER_PASS_SPAN`] carrying the pass name.
+pub const PROVER_PASS_FIELD: &str = "pass";
+
+/// Build the span for one prover pass.
+///
+/// The pass boundaries used to be measured with an `Instant` and shipped as
+/// events, which forced the start timestamp to be back-derived as
+/// `end - duration` — the `Instant` is a monotonic offset with no epoch to
+/// report. A span has two real endpoints, so the subscriber can stamp both
+/// directly and the overlay stops being an approximation.
+pub fn pass_span(pass_name: &str) -> Span {
+    info_span!(target: BENCH_STATS_TARGET, "prover_pass", pass = pass_name)
+}
 
 pub struct TTProverConfig<B: SnarkBackend> {
     phantom: std::marker::PhantomData<B>,
@@ -147,20 +172,17 @@ impl<B: SnarkBackend> TTProver<B> {
         self.emit_plan_graphviz(name, graphviz);
     }
 
-    /// Record the timing and Graphviz output for a completed IR stage.
-    fn record_ir_stage(
-        &self,
-        pass_name: &str,
-        plan_name: &str,
-        started_at: Instant,
-        graphviz: String,
-    ) {
-        self.emit_pass_timing(pass_name, started_at);
+    /// Record the Graphviz output for a completed IR stage. The stage's
+    /// duration is not recorded here — see [`pass_span`].
+    fn record_ir_stage(&self, plan_name: &str, graphviz: String) {
         debug!("{plan_name}:\n{graphviz}");
         self.emit_ir_graphviz(plan_name, graphviz);
     }
 
-    /// Run an IR stage, time it, and emit its rendered Graphviz view.
+    /// Run an IR stage inside its [`pass_span`] and emit its rendered
+    /// Graphviz view. The span closes at the end of the `run(...).await`
+    /// statement, so it brackets exactly the stage and not the Graphviz
+    /// rendering that follows.
     async fn timed_ir_stage<T, F, Fut>(
         &self,
         pass_name: &str,
@@ -172,47 +194,9 @@ impl<B: SnarkBackend> TTProver<B> {
         F: FnOnce() -> Fut,
         Fut: Future<Output = TTResult<T>>,
     {
-        let started_at = Instant::now();
-        let output = run().await?;
-        self.record_ir_stage(pass_name, plan_name, started_at, graphviz(&output));
+        let output = run().instrument(pass_span(pass_name)).await?;
+        self.record_ir_stage(plan_name, graphviz(&output));
         Ok(output)
-    }
-
-    /// Emit a prover pass timing sample to the bench-stats tracing
-    /// stream. Two events fire per call:
-    ///   * `prover_time` — the existing per-pass duration used by
-    ///     the dashboard's Prover Timing tab. Format unchanged.
-    ///   * `prover_pass_span` — a NEW event carrying wall-clock
-    ///     start / end / duration so the dashboard's Memory tab can
-    ///     overlay pass boundaries as timeline markers. The start
-    ///     wall_ms is back-derived from `end - duration` (we don't
-    ///     hold a wall_ms at Instant sample time — Instant is a
-    ///     monotonic offset), which is accurate to within the
-    ///     sub-microsecond clock skew that the sampling grid
-    ///     doesn't care about.
-    fn emit_pass_timing(&self, pass_name: &str, started_at: Instant) {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let duration_s = started_at.elapsed().as_secs_f64();
-        info!(
-            target: "bench_stats",
-            prover_time_pass = pass_name,
-            prover_time_seconds = duration_s,
-            "prover_time"
-        );
-        let end_wall_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        let duration_ms = (duration_s * 1000.0) as u64;
-        let start_wall_ms = end_wall_ms.saturating_sub(duration_ms);
-        info!(
-            target: "bench_stats",
-            prover_pass_span_name = pass_name,
-            prover_pass_span_wall_start_ms = start_wall_ms,
-            prover_pass_span_wall_end_ms = end_wall_ms,
-            prover_pass_span_duration_s = duration_s,
-            "prover_pass_span"
-        );
     }
 
     /// Run the logical-plan pipeline and return the optimized plan together with
@@ -403,12 +387,13 @@ impl<B: SnarkBackend> TTProver<B> {
             honest_prover_pass.take_result()?;
         }
         // 11. Proving pass
-        let proving_started = Instant::now();
-        let proving_pass = ProvingPass::<B>::new(arg_prover.clone(), proving_ir_view);
-        let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
-        drop(gadget_ready_ir);
-        proving_pass.take_result()?;
-        self.emit_pass_timing("proving_pass", proving_started);
+        {
+            let _pass = pass_span("proving_pass").entered();
+            let proving_pass = ProvingPass::<B>::new(arg_prover.clone(), proving_ir_view);
+            let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+            drop(gadget_ready_ir);
+            proving_pass.take_result()?;
+        }
 
         Ok(())
     }
