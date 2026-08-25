@@ -4,7 +4,9 @@
 //! column `ind` with activator `ah` alongside a length column `l`, the
 //! gadget proves for every string row `i`:
 //!
-//!     #{ c : src[c] = ind[i], ac[c] = 1 } = ah[i] · l[i]
+//! ```text
+//! #{ c : src[c] = ind[i], ac[c] = 1 } = ah[i] · l[i]
+//! ```
 //!
 //! Payload structure:
 //! - `LHS_LABEL` (`"__lhs__"`) — char-level table with a single data column

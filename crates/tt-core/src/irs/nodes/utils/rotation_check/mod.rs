@@ -17,8 +17,10 @@
 //! Decomposition. The check reduces to a [`PrescribedPermutation`] on
 //! the shift permutation `π` defined by
 //!
-//!     π[i] = (i - s) mod n     (Direction::Right)
-//!     π[i] = (i + s) mod n     (Direction::Left)
+//! ```text
+//! π[i] = (i - s) mod n     (Direction::Right)
+//! π[i] = (i + s) mod n     (Direction::Left)
+//! ```
 //!
 //! since `PrescribedPermutation`'s core relation is `left[i] = right[π[i]]`,
 //! and the two rotation-direction formulations above make that identity

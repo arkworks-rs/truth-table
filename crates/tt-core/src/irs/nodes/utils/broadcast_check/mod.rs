@@ -4,7 +4,9 @@
 //! together with `src` (character → owning-string index) and `ind`
 //! (string identity), the gadget proves for every active character `c`:
 //!
-//!     x'[c] = x[src[c]]
+//! ```text
+//! x'[c] = x[src[c]]
+//! ```
 //!
 //! Payload structure:
 //! - `STR_LABEL` (`"__str__"`) — string-level table with data columns

@@ -117,7 +117,9 @@ pub fn build_multiplicity_hint(
     let mut included_counts: HashMap<Vec<ScalarValue>, i64> = HashMap::new();
     for (row, active) in included_active.iter().enumerate() {
         if *active {
-            *included_counts.entry(included_keys[row].clone()).or_insert(0) += 1;
+            *included_counts
+                .entry(included_keys[row].clone())
+                .or_insert(0) += 1;
         }
     }
     let mut seen_active_super: HashMap<Vec<ScalarValue>, ()> = HashMap::new();
@@ -139,9 +141,7 @@ pub fn build_multiplicity_hint(
 /// consumed by the verifier — the tracking pass just needs the schema
 /// + `should_materialize` flags to know which commit slot to consume
 /// from the proof. All-zero data is fine.
-pub fn build_multiplicity_hint_schema_only(
-    super_hint: &HintDF,
-) -> DataFusionResult<HintDF> {
+pub fn build_multiplicity_hint_schema_only(super_hint: &HintDF) -> DataFusionResult<HintDF> {
     // Verifier planning must not collect DataFrames (per convention);
     // use the super hint's schema to derive log_size only via row count
     // inference. We produce a placeholder DataFrame with all-zeros; the
@@ -239,7 +239,11 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
     );
     let row_count = multiplicities.len();
     // Pad to a power-of-two so downstream MLE construction has a clean domain.
-    let target = if row_count <= 1 { 2 } else { row_count.next_power_of_two() };
+    let target = if row_count <= 1 {
+        2
+    } else {
+        row_count.next_power_of_two()
+    };
     let pad = target - row_count;
     let mut m_vals = multiplicities;
     m_vals.extend(std::iter::repeat_n(0i64, pad));
@@ -257,9 +261,7 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
 
     let m_arr: ArrayRef = Arc::new(Int64Array::from(m_vals));
     let a_arr: ArrayRef = Arc::new(BooleanArray::from(a_vals));
-    let r_arr: ArrayRef = Arc::new(Int64Array::from_iter_values(
-        (0..target).map(|i| i as i64),
-    ));
+    let r_arr: ArrayRef = Arc::new(Int64Array::from_iter_values((0..target).map(|i| i as i64)));
 
     let batch = RecordBatch::try_new(schema.clone(), vec![m_arr, a_arr, r_arr])?;
     let mem_table = MemTable::try_new(schema, vec![vec![batch]])?;
