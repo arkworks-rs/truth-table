@@ -3,8 +3,10 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::plan::exprs::aggregate_function::gadget::{OUTPUT_LABEL, input_label};
-use crate::irs::nodes::utils::geq;
+use crate::irs::nodes::plan::exprs::aggregate_function::gadget::{
+    INPUT_RLC_LABEL, OUTPUT_LABEL, OUTPUT_RLC_LABEL, extremum, input_label,
+};
+use crate::irs::nodes::utils::{geq, lookup};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
@@ -12,6 +14,8 @@ use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
 pub struct GadgetNode<B: SnarkBackend> {
     geq: Arc<Node<B>>,
+    broadcast_lookup: Arc<Node<B>>,
+    attainment_lookup: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -33,7 +37,11 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.geq.clone()]
+        vec![
+            self.geq.clone(),
+            self.broadcast_lookup.clone(),
+            self.attainment_lookup.clone(),
+        ]
     }
 }
 
@@ -67,6 +75,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .get(&input_0_label)
             .cloned()
             .unwrap_or_else(|| panic!("Max Aggregate Function missing payload {}", input_0_label));
+        let input_groups = payload
+            .get(INPUT_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Max Aggregate Function missing input group payload"));
+        let output_groups = payload
+            .get(OUTPUT_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Max Aggregate Function missing output group payload"));
 
         debug_assert_eq!(
             output.data_tracked_polys_indices().len(),
@@ -97,11 +113,40 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             _ => IndexMap::new(),
         };
         geq_payload.insert(geq::LEFT_LABEL.to_string(), left_table);
-        geq_payload.insert(geq::RIGHT_LABEL.to_string(), input_0);
+        geq_payload.insert(geq::RIGHT_LABEL.to_string(), input_0.clone());
         virtualized_ir.set_payload_for_node(
             self.geq.id(),
             Some(PayloadStructure::GadgetPayload(geq_payload)),
         );
+
+        let tables = extremum::prover_tables(&input_groups, &output_groups, &input_0, &output);
+        let mut broadcast_payload =
+            match virtualized_ir.payload_for_node(&self.broadcast_lookup.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        broadcast_payload.insert(lookup::INCLUDED_LABEL.to_string(), tables.broadcast_input);
+        broadcast_payload.insert(
+            lookup::SUPER_LABEL.to_string(),
+            tables.output_claims.clone(),
+        );
+        virtualized_ir.set_payload_for_node(
+            self.broadcast_lookup.id(),
+            Some(PayloadStructure::GadgetPayload(broadcast_payload)),
+        );
+
+        let mut attainment_payload =
+            match virtualized_ir.payload_for_node(&self.attainment_lookup.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        attainment_payload.insert(lookup::INCLUDED_LABEL.to_string(), tables.output_claims);
+        attainment_payload.insert(lookup::SUPER_LABEL.to_string(), tables.raw_input);
+        virtualized_ir.set_payload_for_node(
+            self.attainment_lookup.id(),
+            Some(PayloadStructure::GadgetPayload(attainment_payload)),
+        );
+
         Ok(())
     }
 
@@ -143,6 +188,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .get(&input_0_label)
             .cloned()
             .unwrap_or_else(|| panic!("Max Aggregate Function missing payload {}", input_0_label));
+        let input_groups = payload
+            .get(INPUT_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Max Aggregate Function missing input group payload"));
+        let output_groups = payload
+            .get(OUTPUT_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Max Aggregate Function missing output group payload"));
 
         debug_assert_eq!(
             output.data_tracked_oracles_indices().len(),
@@ -173,11 +226,40 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             _ => IndexMap::new(),
         };
         geq_payload.insert(geq::LEFT_LABEL.to_string(), left_table);
-        geq_payload.insert(geq::RIGHT_LABEL.to_string(), input_0);
+        geq_payload.insert(geq::RIGHT_LABEL.to_string(), input_0.clone());
         virtualized_ir.set_payload_for_node(
             self.geq.id(),
             Some(PayloadStructure::GadgetPayload(geq_payload)),
         );
+
+        let tables = extremum::verifier_tables(&input_groups, &output_groups, &input_0, &output);
+        let mut broadcast_payload =
+            match virtualized_ir.payload_for_node(&self.broadcast_lookup.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        broadcast_payload.insert(lookup::INCLUDED_LABEL.to_string(), tables.broadcast_input);
+        broadcast_payload.insert(
+            lookup::SUPER_LABEL.to_string(),
+            tables.output_claims.clone(),
+        );
+        virtualized_ir.set_payload_for_node(
+            self.broadcast_lookup.id(),
+            Some(PayloadStructure::GadgetPayload(broadcast_payload)),
+        );
+
+        let mut attainment_payload =
+            match virtualized_ir.payload_for_node(&self.attainment_lookup.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        attainment_payload.insert(lookup::INCLUDED_LABEL.to_string(), tables.output_claims);
+        attainment_payload.insert(lookup::SUPER_LABEL.to_string(), tables.raw_input);
+        virtualized_ir.set_payload_for_node(
+            self.attainment_lookup.id(),
+            Some(PayloadStructure::GadgetPayload(attainment_payload)),
+        );
+
         Ok(())
     }
 
@@ -197,7 +279,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // TODO: implement gadget proof
         Ok(())
     }
 
@@ -237,6 +318,12 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         let geq = Arc::new(Node::<B>::Gadget(Arc::new(geq::GadgetNode::new())));
-        Self { geq }
+        let broadcast_lookup = Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
+        let attainment_lookup = Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
+        Self {
+            geq,
+            broadcast_lookup,
+            attainment_lookup,
+        }
     }
 }
