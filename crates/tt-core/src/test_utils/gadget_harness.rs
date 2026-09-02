@@ -313,18 +313,28 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
 }
 
 /// Pre-order walk (parent → children → grandchildren …) starting from
-/// the tree root. Follows `Node::children()`.
+/// the tree root. Follows `Node::children()`, visiting each `NodeId` once —
+/// `Tree` supports DAG shapes, and a shared sub-node must not be
+/// initialized/proved twice.
 fn collect_pre_order<B: SnarkBackend>(
     tree: &Tree<B>,
 ) -> Vec<(NodeId, Arc<Node<B>>)> {
     use crate::irs::nodes::IsNode;
-    fn walk<B: SnarkBackend>(node: Arc<Node<B>>, out: &mut Vec<(NodeId, Arc<Node<B>>)>) {
+    fn walk<B: SnarkBackend>(
+        node: Arc<Node<B>>,
+        out: &mut Vec<(NodeId, Arc<Node<B>>)>,
+        seen: &mut std::collections::HashSet<NodeId>,
+    ) {
+        if !seen.insert(node.id()) {
+            return;
+        }
         out.push((node.id(), node.clone()));
         for child in <Node<B> as IsNode<B>>::children(&node) {
-            walk(child, out);
+            walk(child, out, seen);
         }
     }
     let mut out = Vec::with_capacity(tree.arena().len());
-    walk(tree.root().clone(), &mut out);
+    let mut seen = std::collections::HashSet::new();
+    walk(tree.root().clone(), &mut out, &mut seen);
     out
 }

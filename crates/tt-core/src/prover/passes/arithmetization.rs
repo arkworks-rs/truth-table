@@ -42,16 +42,12 @@ where
         _id: NodeId,
         payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
-        // Side-domain string columns are gated by the workspace-level
-        // `CHAR_LEVEL_SIDE_POLYS_ENABLED` toggle AND restricted to base
-        // tables (TableScan). The workspace toggle is currently off so this
-        // whole path is inert; when we flip it on for string PIOPs, the
-        // TableScan restriction still applies — intermediate operators
-        // denormalize string columns across join fan-outs, which would
-        // produce char-level polys sized to (joined_rows × avg_len) and
-        // blow past both the SRS ceiling and available memory.
-        let emit_side = node.name() == "TableScan"
-            && arithmetic::encoding::CHAR_LEVEL_SIDE_POLYS_ENABLED;
+        // Side-domain string columns are restricted to base tables
+        // (TableScan): intermediate operators denormalize string columns
+        // across join fan-outs, which would produce char-level polys sized
+        // to (joined_rows × avg_len) and blow past both the SRS ceiling and
+        // available memory.
+        let emit_side = node.name() == "TableScan";
         match payload? {
             MaterializedPayload::PlanPayload(mat) => {
                 let arithmetized_table = arithmetize_materialized_table(mat, emit_side);
@@ -124,8 +120,9 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
 
     for col_idx in 0..num_total_cols {
         let base_field = schema_ref.fields()[col_idx].clone();
-        let encoded = arithmetic::encoding::encode_arrow_array_to_field::<F>(
+        let encoded = arithmetic::encoding::encode_arrow_array_to_field_with_side::<F>(
             combined_batch.column(col_idx),
+            emit_side_segments,
         )
         .expect("arrow encoding should succeed");
 
@@ -199,9 +196,9 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
     // materialize transient `MLE<F>` views (for both data and the
     // contiguous-one activator) only at the moment of MSM / proof-binding.
     //
-    // When `emit_side_segments` is false (intermediate operators), we skip
-    // building these entirely — the raw bytes were already computed by the
-    // encoder but we just drop them here. See caller for rationale.
+    // When `emit_side_segments` is false (intermediate operators), the
+    // encoder was told not to build side segments at all, so this list is
+    // empty and the guard is belt-and-suspenders. See caller for rationale.
     let mut side_cols: IndexMap<FieldRef, arithmetic::table::ArithSideCol> = IndexMap::new();
     if emit_side_segments {
         for column_group in side_segments_by_col {

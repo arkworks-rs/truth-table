@@ -186,7 +186,7 @@ fn active_mask_from_batches(batches: &[RecordBatch]) -> Vec<bool> {
                         out.push(!bool_col.is_null(i) && bool_col.value(i));
                     }
                 } else {
-                    // Non-boolean activator: treat non-null/non-zero as active.
+                    // Non-boolean activator: treat any non-null value as active.
                     for i in 0..col.len() {
                         let is_active = !col.is_null(i)
                             && !ScalarValue::try_from_array(col.as_ref(), i)
@@ -268,7 +268,10 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
     let ctx = SessionContext::new();
     let df = ctx.read_table(Arc::new(mem_table))?;
 
-    // multiplicity: materialize. Activator + row_id: system columns, don't materialize.
+    // multiplicity: materialize. Activator + row_id: system columns, don't
+    // materialize — inactive super rows already carry multiplicity 0 (see
+    // the `!super_active[row]` skip above), so the masking is baked into the
+    // committed values and a separate activator poly would be redundant.
     let multiplicity_fref: FieldRef = Arc::new(multiplicity_field);
     let activator_fref: FieldRef = Arc::new(activator_field);
     let row_id_fref: FieldRef = Arc::new(row_id_field);

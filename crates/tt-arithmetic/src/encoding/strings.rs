@@ -26,24 +26,6 @@ pub const STRING_LENGTH_SUFFIX: &str = "__length";
 /// with `active_len = sum of active string byte lengths`.
 pub const STRING_CHARS_SUFFIX: &str = "__chars";
 
-/// Master toggle for the character-level side polynomials of paper §3.2.
-///
-/// When `true`, string base tables emit the full `{__chars, __orig_ind,
-/// __int_ind, __bnd}` side-column bundle at arithmetization time, and both
-/// the prover commit/track passes and the verifier tracking pass consume
-/// those commitments. When `false`, string columns arithmetize to only
-/// their `{hash, __length}` row-domain segments (same behavior as `main`),
-/// keeping the prover memory footprint identical to a no-char-level build.
-///
-/// This is a workspace-level compile-time gate because it must be flipped
-/// in lockstep on both prover and verifier: the two must agree on how many
-/// commitments enter the transcript per string column. When we start
-/// implementing white-box string PIOPs (Broadcast Check, Length Filter,
-/// Prefix/Suffix Check, Multi-Char Pattern Match), flip this to `true` and
-/// re-generate the bench SRS at the higher `log_size` that the char-level
-/// polys need.
-pub const CHAR_LEVEL_SIDE_POLYS_ENABLED: bool = true;
-
 /// Suffix for the per-string-column **origin index** side polynomial (paper
 /// §3.2): `orig-ind[c]` is the row index of the source string that character
 /// slot `c` belongs to. Lives on the same character-level domain as
@@ -72,13 +54,9 @@ pub(super) fn string_row_segment_suffixes<F: PrimeField>() -> Vec<String> {
 }
 
 /// Side-domain segment suffixes emitted by the string encoder, in the exact
-/// order `encode_utf8_like` produces them. Empty when
-/// `CHAR_LEVEL_SIDE_POLYS_ENABLED` is off. Do not reorder — prover and
+/// order `encode_utf8_like` produces them. Do not reorder — prover and
 /// verifier tracking passes walk this sequence.
 pub(super) fn string_side_segment_suffixes() -> Vec<String> {
-    if !CHAR_LEVEL_SIDE_POLYS_ENABLED {
-        return Vec::new();
-    }
     vec![
         STRING_CHARS_SUFFIX.to_string(),
         STRING_ORIG_IND_SUFFIX.to_string(),
@@ -112,6 +90,7 @@ pub(super) fn string_segment_base(field_name: &str) -> Option<&str> {
 fn encode_utf8_like<F, A, GetValue>(
     array: &A,
     short_string_threshold: usize,
+    emit_side: bool,
     value_fn: GetValue,
 ) -> Result<Vec<EncodedSegment<F>>, EncodeError>
 where
@@ -145,11 +124,9 @@ where
         .collect();
     let mut length_col: Vec<F> = Vec::with_capacity(rows);
 
-    // Character-level side polynomials (paper §3.2) — only built when the
-    // workspace-level toggle is on. When off, this encoder produces only
-    // the row-domain `{hash, __length}` segments (same as pre-string-support
-    // main) so the prover memory footprint is unchanged.
-    if CHAR_LEVEL_SIDE_POLYS_ENABLED {
+    // Character-level side polynomials (paper §3.2) — skipped when the
+    // caller asked for row-domain segments only (`emit_side = false`).
+    if emit_side {
         // All four share the same character-level domain and the same
         // `active_len` = total active byte count. Native storage is kept
         // small: chars/bnd → Vec<u8>, orig_ind/int_ind → Vec<u32>. Commit
@@ -241,7 +218,7 @@ where
         return Ok(segments);
     }
 
-    // Char-level toggle off: only build row-domain segments.
+    // Row-domain-only path (`emit_side = false`).
     for idx in 0..rows {
         if array.is_null(idx) {
             for col in &mut hash_cols {
@@ -274,7 +251,11 @@ where
 
 impl<F: PrimeField> Encodable<F> for StringArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
+        self.encode_with_side(true)
+    }
+
+    fn encode_with_side(&self, emit_side: bool) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        encode_utf8_like::<F, _, _>(self, 32, emit_side, |array, idx| array.value(idx))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -287,7 +268,11 @@ impl<F: PrimeField> Encodable<F> for StringArray {
 
 impl<F: PrimeField> Encodable<F> for LargeStringArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
+        self.encode_with_side(true)
+    }
+
+    fn encode_with_side(&self, emit_side: bool) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        encode_utf8_like::<F, _, _>(self, 32, emit_side, |array, idx| array.value(idx))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -300,7 +285,11 @@ impl<F: PrimeField> Encodable<F> for LargeStringArray {
 
 impl<F: PrimeField> Encodable<F> for StringViewArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
+        self.encode_with_side(true)
+    }
+
+    fn encode_with_side(&self, emit_side: bool) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        encode_utf8_like::<F, _, _>(self, 32, emit_side, |array, idx| array.value(idx))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {

@@ -28,9 +28,8 @@ mod primitives;
 // `LargeStringArray`, `StringViewArray` (via the shared `encode_utf8_like`
 // core) plus the string-specific suffix constants and dispatcher helpers
 // (`STRING_LENGTH_SUFFIX`, `STRING_CHARS_SUFFIX`, `STRING_ORIG_IND_SUFFIX`,
-// `STRING_INT_IND_SUFFIX`, `STRING_BND_SUFFIX`, and the
-// `CHAR_LEVEL_SIDE_POLYS_ENABLED` toggle). Emits row-domain
-// `{hash, __length}` segments and (when the toggle is on) side-domain
+// `STRING_INT_IND_SUFFIX`, `STRING_BND_SUFFIX`). Emits row-domain
+// `{hash, __length}` segments and side-domain
 // `{__chars, __orig_ind, __int_ind, __bnd}` segments.
 mod strings;
 
@@ -46,14 +45,17 @@ mod other;
 // `scalar_to_fields` / `scalar_to_field` helpers for encoding literals.
 mod dispatch;
 
-pub use dispatch::{encode_arrow_array_to_field, scalar_to_field, scalar_to_fields};
+pub use dispatch::{
+    encode_arrow_array_to_field, encode_arrow_array_to_field_with_side, scalar_to_field,
+    scalar_to_fields,
+};
 pub use encodable::Encodable;
 pub use segment::{
     is_segment_of, segment_base_name, segment_suffixes_for_type, side_segment_suffixes_for_type,
     EncodedSegment, SideColData, SideSegmentInfo,
 };
 pub use strings::{
-    CHAR_LEVEL_SIDE_POLYS_ENABLED, STRING_BND_SUFFIX, STRING_CHARS_SUFFIX, STRING_INT_IND_SUFFIX,
+    STRING_BND_SUFFIX, STRING_CHARS_SUFFIX, STRING_INT_IND_SUFFIX,
     STRING_LENGTH_SUFFIX, STRING_ORIG_IND_SUFFIX,
 };
 
@@ -75,7 +77,7 @@ mod tests {
         // char-level toggle is on, 4 side-domain segments (chars,
         // orig_ind, int_ind, bnd). This test asserts only the row-domain
         // shape; the side-domain shape is exercised elsewhere.
-        let expected_len = if CHAR_LEVEL_SIDE_POLYS_ENABLED { 6 } else { 2 };
+        let expected_len = 6; // {hash, __length} + 4 side segments
         assert_eq!(encoded.len(), expected_len);
         assert_eq!(encoded[0].suffix, "");
         assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);
@@ -101,7 +103,7 @@ mod tests {
         let array = StringArray::from(vec![Some("foo"), Some("bar"), None, Some("baz")]);
         let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();
 
-        let expected_len = if CHAR_LEVEL_SIDE_POLYS_ENABLED { 6 } else { 2 };
+        let expected_len = 6; // {hash, __length} + 4 side segments
         assert_eq!(encoded.len(), expected_len);
         assert_eq!(encoded[0].suffix, "");
         assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);

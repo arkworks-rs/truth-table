@@ -917,11 +917,11 @@ def _describe_phase(phase: str) -> str:
     a small dispatch table.
     """
     # Fixed pipeline milestones — ark-piop emits these at the top of
-    # compile_sc_subproof, and after each of the SC / MV-PCS / UV-PCS
+    # compile_piop_subproof, and after each of the SC / MV-PCS / UV-PCS
     # subproof compile stages.
     fixed = {
         "compile_start": "Compile begins (start of SC subproof)",
-        "after_compile_sc_subproof": "Sumcheck subproof compiled",
+        "after_compile_piop_subproof": "Sumcheck subproof compiled",
         "after_compile_mv_pcs_subproof": "Multivariate PCS subproof compiled",
         "after_compile_uv_pcs_subproof": "Univariate PCS subproof compiled",
     }
@@ -953,7 +953,7 @@ def render_memory_section(
         from `sc_buckets.buckets[].wall_start_ms`. Same info the plot has
         always shown; kept as-is.
       * **Phase** markers (green) — `tracker_snapshot.phase` values like
-        `compile_start`, `after_compile_sc_subproof`, `bucket_N_end`.
+        `compile_start`, `after_compile_piop_subproof`, `bucket_N_end`.
         Filtered to the run's mem-sample time window.
       * **Sumcheck decision** markers (orange for streaming, blue for
         eager) — one per `prover_init` from
@@ -1519,7 +1519,7 @@ def collect_tracker_snapshots_by_query(
 ) -> dict[str, list[dict[str, Any]]]:
     """Group `tracker_snapshot` records by query, sorted by `wall_ms`.
     Each snapshot marks a pipeline-phase boundary (e.g. `compile_start`,
-    `after_compile_sc_subproof`, `bucket_2_end`). Used by the Memory
+    `after_compile_piop_subproof`, `bucket_2_end`). Used by the Memory
     tab to overlay phase annotations on the RSS curve so a bump can be
     attributed to a specific compile stage.
     """

@@ -138,9 +138,8 @@ fn bench_filter_verifier(bencher: Bencher, case: BenchCase) {
 
 // -----------------------------------------------------------------------------
 // SQL LIKE benchmarks — routed through the MCPM gadget via
-// `crates/tt-core/src/irs/nodes/plan/exprs/like.rs`. Requires
-// `CHAR_LEVEL_SIDE_POLYS_ENABLED = true` at encoding time (currently
-// on) and an SRS sized for the char-level side segments (bench SRS at
+// `crates/tt-core/src/irs/nodes/plan/exprs/like.rs`. Requires an SRS
+// sized for the char-level side segments (bench SRS at
 // `log_size = 25` is typically sufficient for lineitem.l_comment;
 // smaller SRS will fail at commit time).
 

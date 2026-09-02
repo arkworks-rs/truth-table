@@ -137,11 +137,15 @@ echo "Warmup threads: $WARMUP_THREADS (QEDB only, output discarded)"
 echo "Measured threads: $NUM_THREADS"
 echo "Results dir: $RESULTS_DIR"
 
-warmup_qedb
+# Set MICRO_ONLY_TT=1 to rerun only the TruthTable passes; the third-party
+# systems keep their existing third_party_*.json files for parse_micro.py.
+if [[ "${MICRO_ONLY_TT:-0}" != "1" ]]; then
+    warmup_qedb
 
-for b in "${BENCHES[@]}"; do
-    run_bench "$b"
-done
+    for b in "${BENCHES[@]}"; do
+        run_bench "$b"
+    done
+fi
 
 # TruthTable: one pass per SNARK backend. BN254 is the default; the
 # `bls12-381` feature swaps the type alias in tt-exec. Each pass writes to a

@@ -7,6 +7,16 @@ use super::segment::EncodedSegment;
 /// A trait for encoding types into PrimeField elements.
 pub trait Encodable<F: PrimeField>: Sized {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError>;
+
+    /// Like [`Encodable::encode`], but lets the caller suppress side-domain
+    /// segments (`emit_side = false`) so encoders never even *build* the
+    /// char-level buffers. Only string encoders produce side segments, so
+    /// the default ignores the flag.
+    fn encode_with_side(&self, emit_side: bool) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        let _ = emit_side;
+        self.encode()
+    }
+
     fn decode(field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError>;
 }
 

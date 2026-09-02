@@ -6,9 +6,7 @@
 //!    into an ordered `Vec<(literal, Mode)>` factor list.
 //! 2. Pull the string column's char-level side segments (`__chars`,
 //!    `__orig_ind`, `__int_ind`, `__bnd`) from the scope's tracked
-//!    table. These are only present when
-//!    `CHAR_LEVEL_SIDE_POLYS_ENABLED = true` at the TableScan
-//!    encoding site.
+//!    table. These are emitted at the TableScan encoding site.
 //! 3. Read plaintext evaluations back on the prover, compute every
 //!    MCPM/SweepFactors witness column via
 //!    `sweep_factors::witness::compute_mcpm_witness`, commit each as a
@@ -270,8 +268,7 @@ impl<B: SnarkBackend> ExprNode<B> {
 
         let base_name = Self::find_string_column_base_name_side_prover(&scope_table).expect(
             "Like: no Utf8 side segments found in scope. \
-             Requires CHAR_LEVEL_SIDE_POLYS_ENABLED = true and the \
-             string column to bind directly to a TableScan.",
+             Requires the string column to bind directly to a TableScan.",
         );
         let chars_side = scope_table
             .side_segment(&base_name, STRING_CHARS_SUFFIX)
@@ -388,9 +385,8 @@ impl<B: SnarkBackend> ExprNode<B> {
 
         let base_name = Self::find_string_column_base_name_side_prover(&scope_table).expect(
             "Like: no Utf8 side segments found in scope. \
-             Requires CHAR_LEVEL_SIDE_POLYS_ENABLED = true and the \
-             string column to bind directly to a TableScan (side \
-             polys are not propagated through intermediate ops).",
+             Requires the string column to bind directly to a TableScan \
+             (side polys are not propagated through intermediate ops).",
         );
         let chars_side = scope_table
             .side_segment(&base_name, STRING_CHARS_SUFFIX)
@@ -841,8 +837,7 @@ impl<B: SnarkBackend> ExprNode<B> {
 
         let base_name = Self::find_string_column_base_name_side_verifier(&scope_table).expect(
             "Like: no Utf8 side oracles found in scope. \
-             Requires CHAR_LEVEL_SIDE_POLYS_ENABLED = true and \
-             direct binding to a TableScan.",
+             Requires direct binding to a TableScan.",
         );
         let chars_side = scope_table
             .side_segment(&base_name, STRING_CHARS_SUFFIX)

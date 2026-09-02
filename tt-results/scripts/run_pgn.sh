@@ -98,7 +98,15 @@ done
 
 # ───────────────────────────────────────────────────────────────────
 # Part B — PoneglyphDB on its own KZG queries
+# Set PGN_SKIP_PONEGLYPH=1 to run only the TruthTable side (Part A);
+# existing poneglyph_q*_k*.log files are then reused by parse_pgn.py.
 # ───────────────────────────────────────────────────────────────────
+if [[ "${PGN_SKIP_PONEGLYPH:-0}" == "1" ]]; then
+    echo ""
+    echo "=== PGN_SKIP_PONEGLYPH=1 — skipping PoneglyphDB part ==="
+    exit 0
+fi
+
 PGN_BIN="$REPO_ROOT/target/release/tt-poneglyph-bench"
 
 echo ""

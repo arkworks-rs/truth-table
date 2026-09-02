@@ -1,27 +1,14 @@
 use ark_ff::PrimeField;
+use sha2::{Digest, Sha256};
 
+/// Compress arbitrary bytes to a 32-byte digest that serves as the canonical
+/// field encoding for long strings and opaque binary values. Must be
+/// collision-resistant: two inputs hashing equal are indistinguishable to
+/// every downstream constraint (equality, joins, group-by), so a collision
+/// would let a prover change query semantics while satisfying the proof.
 #[inline]
 pub(crate) fn hash_to_32_bytes(data: &[u8]) -> [u8; 32] {
-    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
-
-    fn fnv1a_with_seed(data: &[u8], seed: u64) -> u64 {
-        let mut hash = seed;
-        for &byte in data {
-            hash ^= byte as u64;
-            hash = hash.wrapping_mul(FNV_PRIME);
-        }
-        hash
-    }
-
-    let mut out = [0u8; 32];
-    let mut seed = FNV_OFFSET_BASIS;
-    for i in 0..4 {
-        let hash = fnv1a_with_seed(data, seed);
-        out[i * 8..(i + 1) * 8].copy_from_slice(&hash.to_le_bytes());
-        seed ^= hash.rotate_left(13);
-    }
-    out
+    Sha256::digest(data).into()
 }
 
 #[inline]
