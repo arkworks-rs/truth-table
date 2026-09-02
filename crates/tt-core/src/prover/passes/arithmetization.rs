@@ -15,20 +15,30 @@ use crate::{
     },
     prover::payloads::{ArithPayload, MaterializedPayload, MaterializedTable},
 };
+use std::collections::BTreeSet;
 /// An arithmetization pass that arithmetizes the prover's materialized in-memory tables
 ///
 /// This pass converts an IR with materialized in-memory tables into an IR with arithmetized tables, meaning that each column is encoded and represented as multilinear extensions (MLEs) over a finite field.
-pub struct ArithmetizationPass<B>(std::marker::PhantomData<B>);
+pub struct ArithmetizationPass<B> {
+    /// Columns some white-box string gadget will consume char-level side
+    /// polys for (from `Tree::required_side_columns`). Every other string
+    /// column skips side-poly encoding entirely.
+    side_columns: BTreeSet<String>,
+    _phantom: std::marker::PhantomData<B>,
+}
 
 impl<B> ArithmetizationPass<B> {
-    pub fn new() -> Self {
-        Self(std::marker::PhantomData)
+    pub fn new(side_columns: BTreeSet<String>) -> Self {
+        Self {
+            side_columns,
+            _phantom: std::marker::PhantomData,
+        }
     }
 }
 
 impl<B> Default for ArithmetizationPass<B> {
     fn default() -> Self {
-        Self::new()
+        Self::new(BTreeSet::new())
     }
 }
 
@@ -46,18 +56,19 @@ where
         // (TableScan): intermediate operators denormalize string columns
         // across join fan-outs, which would produce char-level polys sized
         // to (joined_rows × avg_len) and blow past both the SRS ceiling and
-        // available memory.
-        let emit_side = node.name() == "TableScan";
+        // available memory. Within a TableScan, only columns some white-box
+        // string gadget actually consumes get side polys.
+        let side_filter = (node.name() == "TableScan").then_some(&self.side_columns);
         match payload? {
             MaterializedPayload::PlanPayload(mat) => {
-                let arithmetized_table = arithmetize_materialized_table(mat, emit_side);
+                let arithmetized_table = arithmetize_materialized_table(mat, side_filter);
                 tracing::debug!( node = %node.name(), typ= "plan", num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), side_cols= arithmetized_table.side_cols().len(), "Arithmetized");
                 Some(ArithPayload::PlanPayload(arithmetized_table))
             }
             MaterializedPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (k, mat) in map {
-                    let arithmetized_table = arithmetize_materialized_table(mat, emit_side);
+                    let arithmetized_table = arithmetize_materialized_table(mat, side_filter);
                     tracing::debug!( node = %node.name(), typ= "plan", key = %k, num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), side_cols= arithmetized_table.side_cols().len(), "Arithmetized");
                     out.insert(k.clone(), arithmetized_table);
                 }
@@ -75,9 +86,13 @@ where
     }
 }
 
+/// Arithmetize one materialized table. `side_columns` gates char-level
+/// side-poly emission per column: `None` (intermediate operators, output
+/// table) emits none; `Some(set)` (TableScan) emits side polys only for
+/// columns in the set — those a white-box string gadget will consume.
 pub fn arithmetize_materialized_table<F: PrimeField>(
     mat: &MaterializedTable,
-    emit_side_segments: bool,
+    side_columns: Option<&std::collections::BTreeSet<String>>,
 ) -> ArithTable<F> {
     let batches = mat
         .batches()
@@ -112,17 +127,21 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
     // `MLEStorage` variant is smallest for the source arrow type. No
     // `Vec<F>` intermediate for compressible columns; no separate
     // "backing" type to bridge encoders and this pass.
-    let mut row_segments_by_col: Vec<Vec<(FieldRef, MLE<F>)>> =
-        Vec::with_capacity(num_total_cols);
+    let mut row_segments_by_col: Vec<Vec<(FieldRef, MLE<F>)>> = Vec::with_capacity(num_total_cols);
     let mut side_segments_by_col: Vec<
-        Vec<(FieldRef, arithmetic::encoding::SideColData, usize /* active_len */)>,
+        Vec<(
+            FieldRef,
+            arithmetic::encoding::SideColData,
+            usize, /* active_len */
+        )>,
     > = Vec::with_capacity(num_total_cols);
 
     for col_idx in 0..num_total_cols {
         let base_field = schema_ref.fields()[col_idx].clone();
+        let emit_side = side_columns.is_some_and(|columns| columns.contains(base_field.name()));
         let encoded = arithmetic::encoding::encode_arrow_array_to_field_with_side::<F>(
             combined_batch.column(col_idx),
-            emit_side_segments,
+            emit_side,
         )
         .expect("arrow encoding should succeed");
 
@@ -146,9 +165,7 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
             };
             match segment.side {
                 None => {
-                    let mle = segment
-                        .mle
-                        .expect("row-domain segment must carry an MLE");
+                    let mle = segment.mle.expect("row-domain segment must carry an MLE");
                     // Row-domain segments come out of the encoder sized to
                     // arrow_len == total_rows == 2^log_vars, so the MLE's
                     // num_vars already matches the table's. Assert to
@@ -195,38 +212,34 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
     // pow2-padded byte buffer plus `active_len`; commit/track passes
     // materialize transient `MLE<F>` views (for both data and the
     // contiguous-one activator) only at the moment of MSM / proof-binding.
-    //
-    // When `emit_side_segments` is false (intermediate operators), the
-    // encoder was told not to build side segments at all, so this list is
-    // empty and the guard is belt-and-suspenders. See caller for rationale.
+    // For columns the per-column filter excluded, the encoder was told not
+    // to build side segments at all, so their groups are empty here.
     let mut side_cols: IndexMap<FieldRef, arithmetic::table::ArithSideCol> = IndexMap::new();
-    if emit_side_segments {
-        for column_group in side_segments_by_col {
-            for (field_ref, data, active_len) in column_group {
-                let side_size = data.len();
-                assert!(
-                    side_size.is_power_of_two(),
-                    "side segment must be pow2-padded by encoder (field={}, len={})",
-                    field_ref.name(),
-                    side_size
-                );
-                let side_log_size = side_size.trailing_zeros() as usize;
-                tracing::info!(
-                    field = %field_ref.name(),
-                    log_size = side_log_size,
-                    active_len = active_len,
-                    approx_f_mle_bytes = (1usize << side_log_size) * 32,
-                    "side col emitted"
-                );
-                side_cols.insert(
-                    field_ref,
-                    arithmetic::table::ArithSideCol {
-                        data,
-                        log_size: side_log_size,
-                        active_len,
-                    },
-                );
-            }
+    for column_group in side_segments_by_col {
+        for (field_ref, data, active_len) in column_group {
+            let side_size = data.len();
+            assert!(
+                side_size.is_power_of_two(),
+                "side segment must be pow2-padded by encoder (field={}, len={})",
+                field_ref.name(),
+                side_size
+            );
+            let side_log_size = side_size.trailing_zeros() as usize;
+            tracing::info!(
+                field = %field_ref.name(),
+                log_size = side_log_size,
+                active_len = active_len,
+                approx_f_mle_bytes = (1usize << side_log_size) * 32,
+                "side col emitted"
+            );
+            side_cols.insert(
+                field_ref,
+                arithmetic::table::ArithSideCol {
+                    data,
+                    log_size: side_log_size,
+                    active_len,
+                },
+            );
         }
     }
 

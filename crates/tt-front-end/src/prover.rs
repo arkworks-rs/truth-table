@@ -90,9 +90,15 @@ impl<B: SnarkBackend> TTProverConfig<B> {
         MaterializationPass::new()
     }
 
-    /// Build the arithmetization pass.
-    pub fn arithmetization_pass(&self) -> ArithmetizationPass<B> {
-        ArithmetizationPass::new()
+    /// Build the arithmetization pass. `side_columns` is the set of columns
+    /// white-box string gadgets consume char-level side polys for (from
+    /// `Tree::required_side_columns`); all other string columns skip
+    /// side-poly emission.
+    pub fn arithmetization_pass(
+        &self,
+        side_columns: std::collections::BTreeSet<String>,
+    ) -> ArithmetizationPass<B> {
+        ArithmetizationPass::new(side_columns)
     }
 
     /// Build the commitment pass using the prover PCS parameters and context oracles.
@@ -289,14 +295,20 @@ impl<B: SnarkBackend> TTProver<B> {
             )
             .await?;
         drop(gadget_planned_ir);
-        // 5. Arithmetization pass
+        // 5. Arithmetization pass. Char-level side polys are emitted only
+        // for columns some white-box string gadget (e.g. LIKE) consumes —
+        // derived from the shared IR tree, so the verifier reaches the same
+        // decision without a wire hint.
+        let side_columns = materialized_ir.tree().required_side_columns();
+        info!(?side_columns, "columns receiving char-level side polys");
         let arithmetized_ir = self
             .timed_ir_stage(
                 "arithmetization",
                 "arithmetized_ir",
                 || async {
-                    Ok(materialized_ir
-                        .apply_local_pass_parallel(&self.prover_config().arithmetization_pass()))
+                    Ok(materialized_ir.apply_local_pass_parallel(
+                        &self.prover_config().arithmetization_pass(side_columns),
+                    ))
                 },
                 |ir| ir.display_graphviz(true),
             )

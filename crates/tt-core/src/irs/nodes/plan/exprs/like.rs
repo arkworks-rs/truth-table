@@ -194,6 +194,20 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
         }
         kids
     }
+
+    fn required_side_columns(&self) -> Vec<String> {
+        // Wildcard-only patterns short-circuit in add_virtual_witness
+        // without ever touching side segments.
+        if self.factors.is_empty() {
+            return Vec::new();
+        }
+        self.like
+            .expr
+            .column_refs()
+            .into_iter()
+            .map(|column| column.name.clone())
+            .collect()
+    }
 }
 
 // -----------------------------------------------------------------------------

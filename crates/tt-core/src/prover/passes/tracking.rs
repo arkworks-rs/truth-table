@@ -1,9 +1,6 @@
 use ark_ff::PrimeField;
 use ark_piop::{
-    SnarkBackend,
-    arithmetic::mat_poly::mle::MLE,
-    prover::ArgProver,
-    types::CommitmentBinding,
+    SnarkBackend, arithmetic::mat_poly::mle::MLE, prover::ArgProver, types::CommitmentBinding,
 };
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion::{
@@ -50,9 +47,7 @@ fn materialize_side_data_mle<F: PrimeField>(
         arithmetic::encoding::SideColData::Bytes(bytes) => {
             MLE::<F>::from_u8s(bytes.clone(), log_size)
         }
-        arithmetic::encoding::SideColData::U32(vals) => {
-            MLE::<F>::from_u32s(vals.clone(), log_size)
-        }
+        arithmetic::encoding::SideColData::U32(vals) => MLE::<F>::from_u32s(vals.clone(), log_size),
     };
     Arc::new(mle)
 }
@@ -104,7 +99,7 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
         let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         // Final output table: no side segments — no downstream PIOP consumes them.
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, false);
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None);
         let tracked_table = Self::track_arith_table_without_commitment(&arith_table, &self.prover)?;
         let gadget_id = root
             .children()
@@ -337,8 +332,7 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
                 CommitmentBinding::ProofEmitted,
             )
             .expect("failed to track side data polynomial with commitment");
-        let act_mle =
-            materialize_side_activator_mle::<B::F>(side.log_size, side.active_len);
+        let act_mle = materialize_side_activator_mle::<B::F>(side.log_size, side.active_len);
         let activator_poly = prover_borrow
             .track_mat_mv_poly_with_commitment(
                 &act_mle,

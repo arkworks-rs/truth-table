@@ -133,6 +133,15 @@ where
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         self.children().into_iter().map(|_| None).collect()
     }
+    /// Base-table string columns whose char-level side polys (`__chars`,
+    /// `__orig_ind`, `__int_ind`, `__bnd`) this node's proof machinery
+    /// consumes. Default: none. White-box string nodes (e.g. `Like`)
+    /// override this; the union over a tree (see
+    /// [`crate::irs::tree::Tree::required_side_columns`]) decides which
+    /// columns get side polys emitted at all.
+    fn required_side_columns(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 pub(crate) fn display_with_inputs<B: SnarkBackend>(name: &str, inputs: &[Arc<Node<B>>]) -> String {
@@ -503,6 +512,13 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.child_edge_labels(),
         }
     }
+
+    fn required_side_columns(&self) -> Vec<String> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.required_side_columns(),
+            Node::Gadget(gadget_node) => gadget_node.required_side_columns(),
+        }
+    }
 }
 
 impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
@@ -701,6 +717,13 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
 
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         PlanNode::child_edge_labels(self)
+    }
+
+    fn required_side_columns(&self) -> Vec<String> {
+        match &self {
+            PlanNode::LpBased(node) => node.required_side_columns(),
+            PlanNode::ExprBased(node) => node.required_side_columns(),
+        }
     }
 }
 
