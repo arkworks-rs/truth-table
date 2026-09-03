@@ -120,7 +120,16 @@ mod proof_stats {
             let size = std::fs::metadata(result_path)
                 .map(|m| m.len() as usize)
                 .unwrap_or(0);
-            super::stats_layer::emit_results_stats(query, rows, &schema_str, size);
+            // No in-memory result here to preview; the dashboard reads the
+            // preview from the parquet path when it needs one.
+            super::stats_layer::emit_results_stats(
+                query,
+                rows,
+                &schema_str,
+                size,
+                "",
+                &result_path.to_string_lossy(),
+            );
         }
     }
 

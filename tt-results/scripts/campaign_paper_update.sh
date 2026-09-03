@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # One-shot campaign to refresh every TruthTable number that feeds the paper:
-#   1. TT TPC-H (_tt, all 17 queries)  at SF {0.05, 0.1} x threads {4, 1}
-#   2. TT-on-pgn (6 _pgn variants)     at SF {0.01, 0.02, 0.04} x 1 thread
+#   1. TT-on-pgn (6 _pgn variants)     at SF {0.01, 0.02, 0.04} x 1 thread
 #      (PoneglyphDB itself is NOT rerun: PGN_SKIP_PONEGLYPH=1)
+#      — runs FIRST: small SFs finish fast and give early feedback.
+#   2. TT TPC-H (_tt, all 17 queries)  at SF {0.05, 0.1} x threads {4, 1}
 #   3. Micro suite, TruthTable only (BN254 + BLS12-381): MICRO_ONLY_TT=1
 # then rebuilds the three tidy CSVs and re-renders every figure.
 #
@@ -26,11 +27,11 @@ stage() {
     echo "############################################################"
 }
 
-stage "1/3 run_tt_tpch.sh — 17 _tt queries, SF {0.05,0.1} x {4,1} threads"
-"$SCRIPT_DIR/run_tt_tpch.sh" || echo "  !! run_tt_tpch.sh failed (continuing)"
-
-stage "2/3 run_pgn.sh (TT side only) — 6 _pgn queries, SF {0.01,0.02,0.04} x 1 thread"
+stage "1/3 run_pgn.sh (TT side only) — 6 _pgn queries, SF {0.01,0.02,0.04} x 1 thread"
 PGN_SKIP_PONEGLYPH=1 "$SCRIPT_DIR/run_pgn.sh" || echo "  !! run_pgn.sh failed (continuing)"
+
+stage "2/3 run_tt_tpch.sh — 17 _tt queries, SF {0.05,0.1} x {4,1} threads"
+"$SCRIPT_DIR/run_tt_tpch.sh" || echo "  !! run_tt_tpch.sh failed (continuing)"
 
 stage "3/3 run_micro.sh (TT only, both backends)"
 MICRO_ONLY_TT=1 "$SCRIPT_DIR/run_micro.sh" || echo "  !! run_micro.sh failed (continuing)"

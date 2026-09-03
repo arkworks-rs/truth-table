@@ -214,15 +214,42 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         // assumption is that proof inputs are already added to the tracker
         let gamma = verifier.get_and_append_challenge(b"gamma")?;
         // iterate over vector elements and generate subclaims:
-        let max_nv_f = fxs.iter().map(|x| x.log_size()).max().unwrap();
-        let max_nv_g = gxs.iter().map(|x| x.log_size()).max().unwrap();
+        // Un-scale each recorded sum by the *claim poly's* nv (max over phat =
+        // col nv, activator, multiplicity — mirroring `track_virt_poly`), not
+        // the col's own nv: an nv-0 col with an nv-1 multiplicity/activator
+        // registers (and is recorded) at nv 1, and col-nv accounting drifts by
+        // a power of two.
+        let claim_nv = |col: &arithmetic::col_oracle::TrackedColOracle<B>,
+                        m: &Option<TrackedOracle<B>>|
+         -> usize {
+            let mut nv = col.log_size();
+            if let Some(activator) = col.activator_tracked_oracle() {
+                nv = nv.max(activator.log_size());
+            }
+            if let Some(m) = m {
+                nv = nv.max(m.log_size());
+            }
+            nv
+        };
+        let max_nv_f = fxs
+            .iter()
+            .zip(&mfxs)
+            .map(|(x, m)| claim_nv(x, m))
+            .max()
+            .unwrap();
+        let max_nv_g = gxs
+            .iter()
+            .zip(&mgxs)
+            .map(|(x, m)| claim_nv(x, m))
+            .max()
+            .unwrap();
         let max_nv = max_nv_f.max(max_nv_g);
         let mut lhs_v: B::F = B::F::zero();
         let mut rhs_v: B::F = B::F::zero();
         for i in 0..fxs.len() {
             let sum_claim_v =
                 Self::verify_generate_subclaims(verifier, fxs[i].clone(), mfxs[i].clone(), gamma)?;
-            let ratio = 2_usize.pow((max_nv - fxs[i].log_size()) as u32);
+            let ratio = 2_usize.pow((max_nv - claim_nv(&fxs[i], &mfxs[i])) as u32);
             let sum_claim_v_adj = sum_claim_v / B::F::from(ratio as u64);
             lhs_v += sum_claim_v_adj;
         }
@@ -230,7 +257,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         for i in 0..gxs.len() {
             let sum_claim_v =
                 Self::verify_generate_subclaims(verifier, gxs[i].clone(), mgxs[i].clone(), gamma)?;
-            let ratio = 2_usize.pow((max_nv - gxs[i].log_size()) as u32);
+            let ratio = 2_usize.pow((max_nv - claim_nv(&gxs[i], &mgxs[i])) as u32);
             let sum_claim_v_adj = sum_claim_v / B::F::from(ratio as u64);
             rhs_v += sum_claim_v_adj;
         }
