@@ -121,9 +121,36 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
         // create challenges and commitments in same fashion as prover
         // assumption is that proof inputs are already added to the tracker
         let gamma = verifier.get_and_append_challenge(b"gamma")?;
-        // iterate over vector elements and generate subclaims:
-        let max_nv_f = input.fxs.iter().map(|x| x.log_size()).max().unwrap();
-        let max_nv_g = input.gxs.iter().map(|x| x.log_size()).max().unwrap();
+        // The proof records each subclaim's sum rescaled by the *claim poly's*
+        // registered nv (max over its factors: phat at the col's nv, plus the
+        // activator and multiplicity polys — see `track_virt_poly`). The col's
+        // own nv can be smaller (e.g. an nv-0 col whose multiplicity table is
+        // materialized at nv 1), so the un-scaling here must mirror that same
+        // max-of-factors nv or the comparison drifts by a power of two.
+        let claim_nv = |col: &TrackedColOracle<B>, m: &Option<TrackedOracle<B>>| -> usize {
+            let mut nv = col.log_size();
+            if let Some(activator) = col.activator_tracked_oracle() {
+                nv = nv.max(activator.log_size());
+            }
+            if let Some(m) = m {
+                nv = nv.max(m.log_size());
+            }
+            nv
+        };
+        let max_nv_f = input
+            .fxs
+            .iter()
+            .zip(&input.mfxs)
+            .map(|(x, m)| claim_nv(x, m))
+            .max()
+            .unwrap();
+        let max_nv_g = input
+            .gxs
+            .iter()
+            .zip(&input.mgxs)
+            .map(|(x, m)| claim_nv(x, m))
+            .max()
+            .unwrap();
         let max_nv = max_nv_f.max(max_nv_g);
         let mut lhs_v: B::F = B::F::zero();
         let mut rhs_v: B::F = B::F::zero();
@@ -134,7 +161,7 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
                 input.mfxs[i].clone(),
                 gamma,
             )?;
-            let ratio = 2_usize.pow((max_nv - input.fxs[i].log_size()) as u32);
+            let ratio = 2_usize.pow((max_nv - claim_nv(&input.fxs[i], &input.mfxs[i])) as u32);
             let sum_claim_v_adj = sum_claim_v / B::F::from(ratio as u64);
             lhs_v += sum_claim_v_adj;
         }
@@ -146,7 +173,7 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
                 input.mgxs[i].clone(),
                 gamma,
             )?;
-            let ratio = 2_usize.pow((max_nv - input.gxs[i].log_size()) as u32);
+            let ratio = 2_usize.pow((max_nv - claim_nv(&input.gxs[i], &input.mgxs[i])) as u32);
             let sum_claim_v_adj = sum_claim_v / B::F::from(ratio as u64);
             rhs_v += sum_claim_v_adj;
         }

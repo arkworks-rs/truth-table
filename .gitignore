@@ -330,3 +330,4 @@ TSWLatexianTemp*
 
 /crates/artifacts/
 /third-party-bench/artifact/**
+__pycache__/

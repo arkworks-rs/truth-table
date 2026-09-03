@@ -1,13 +1,12 @@
 //! Three-config ablation benchmark crossing the pp_optimizer (PK-FK join
 //! specialization) and the data_dependent_lp_optimizer (rematerialize):
 //!
-//!   - `..._all_off`           — both empty. Every join stays `MANY_TO_MANY`
-//!                               and no rematerialize wrappers are emitted.
+//!   - `..._all_off` — both empty. Every join stays `MANY_TO_MANY` and no
+//!     rematerialize wrappers are emitted.
 //!   - `..._pkfk_on_remat_off` — pp_optimizer enabled, data-dependent LP
-//!                               optimizer empty (isolates PK-FK gain).
+//!     optimizer empty (isolates PK-FK gain).
 //!   - `..._pkfk_off_remat_on` — pp_optimizer empty, data-dependent LP
-//!                               optimizer enabled (isolates rematerialize
-//!                               gain).
+//!     optimizer enabled (isolates rematerialize gain).
 //!
 //! `all_on` is intentionally omitted: it is identical to the production
 //! wiring, so the baseline `tpch` bench already covers it.

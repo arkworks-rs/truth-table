@@ -52,14 +52,16 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
     }
 
     /// Build the verifier tracking pass using the verifier state, context oracles,
-    /// and optional query result table.
+    /// optional query result table, and the set of columns whose char-level
+    /// side commitments the prover emits (from `Tree::required_side_columns`).
     pub fn tracking_pass(
         &self,
         arg_verifier: ArgVerifier<B>,
         ctx_oracles: CtxOracles<B>,
         output_memtable: Option<Arc<MemTable>>,
+        side_columns: std::collections::BTreeSet<String>,
     ) -> VerifierTrackingPass<B> {
-        VerifierTrackingPass::new(arg_verifier, ctx_oracles, output_memtable)
+        VerifierTrackingPass::new(arg_verifier, ctx_oracles, output_memtable, side_columns)
     }
 }
 
@@ -122,11 +124,15 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let mut arg_verifier = self.arg_verifier().fork();
         arg_verifier.set_proof_ref(snark_proof);
 
-        // Step 2: Apply the tracking pass
+        // Step 2: Apply the tracking pass. The side-column set is derived
+        // from the same IR tree the prover used, so both sides expect the
+        // same per-column side commitments without a wire hint.
+        let side_columns = gadget_planned_ir.tree().required_side_columns();
         let verifier_tracking_pass = self.verifier_config().tracking_pass(
             arg_verifier.clone(),
             self.shared_config().ctx_oracles().clone(),
             output_memtable,
+            side_columns,
         );
         let mut tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
         verifier_tracking_pass.finish(&mut tracked_ir).await?;

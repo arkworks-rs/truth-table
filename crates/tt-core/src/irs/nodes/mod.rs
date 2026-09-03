@@ -37,7 +37,7 @@ use crate::{
             plan::{
                 exprs::{
                     aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
-                    in_subquery, literal, scalar_function,
+                    in_subquery, like, literal, scalar_function,
                 },
                 lps::{
                     aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan,
@@ -132,6 +132,15 @@ where
     /// Optional human-readable labels for each child edge.
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         self.children().into_iter().map(|_| None).collect()
+    }
+    /// Base-table string columns whose char-level side polys (`__chars`,
+    /// `__orig_ind`, `__int_ind`, `__bnd`) this node's proof machinery
+    /// consumes. Default: none. White-box string nodes (e.g. `Like`)
+    /// override this; the union over a tree (see
+    /// [`crate::irs::tree::Tree::required_side_columns`]) decides which
+    /// columns get side polys emitted at all.
+    fn required_side_columns(&self) -> Vec<String> {
+        Vec::new()
     }
 }
 
@@ -450,6 +459,15 @@ impl<B: SnarkBackend> Node<B> {
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
+            Expr::Like(_) => Arc::new_cyclic(|weak_self| {
+                let node = like::ExprNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
 
             _ => todo!(),
         }
@@ -492,6 +510,13 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
         match &self {
             Node::Plan(plan_node) => plan_node.child_edge_labels(),
             Node::Gadget(gadget_node) => gadget_node.child_edge_labels(),
+        }
+    }
+
+    fn required_side_columns(&self) -> Vec<String> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.required_side_columns(),
+            Node::Gadget(gadget_node) => gadget_node.required_side_columns(),
         }
     }
 }
@@ -692,6 +717,13 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
 
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         PlanNode::child_edge_labels(self)
+    }
+
+    fn required_side_columns(&self) -> Vec<String> {
+        match &self {
+            PlanNode::LpBased(node) => node.required_side_columns(),
+            PlanNode::ExprBased(node) => node.required_side_columns(),
+        }
     }
 }
 

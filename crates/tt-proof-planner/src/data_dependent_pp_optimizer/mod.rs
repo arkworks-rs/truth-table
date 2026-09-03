@@ -90,7 +90,7 @@ pub fn apply_proof_plan_optimization_hints<B: SnarkBackend>(
     ir: InitialIr<B>,
     hints: &ProofPlanOptimizationHints,
 ) -> InitialIr<B> {
-    for hint in &hints.hints {
+    if let Some(hint) = hints.hints.first() {
         // `ProofPlanOptimizationHint` is uninhabited today — this match is
         // exhaustive with zero arms. Add a variant + dispatch when a rule
         // is introduced.

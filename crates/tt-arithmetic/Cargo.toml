@@ -38,6 +38,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 indexmap = { workspace = true }
 once_cell = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 ark-test-curves = { workspace = true }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use indexmap::IndexMap;
 
 use crate::{
@@ -263,7 +263,7 @@ fn populate_perm_payloads_prover<B: SnarkBackend>(
     output: &TrackedTable<B>,
     virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let aligned_output = align_table_to_reference_order(output, input);
+    let aligned_output = restrict_table_to_reference_columns(output, input);
     let mut perm_payload = match virtualized_ir.payload_for_node(&perm_gadget.id()) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
@@ -283,7 +283,7 @@ fn populate_perm_payloads_verifier<B: SnarkBackend>(
     output: &TrackedTableOracle<B>,
     virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let aligned_output = align_table_oracle_to_reference_order(output, input);
+    let aligned_output = restrict_table_oracle_to_reference_columns(output, input);
     let mut perm_payload = match virtualized_ir.payload_for_node(&perm_gadget.id()) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
@@ -297,42 +297,61 @@ fn populate_perm_payloads_verifier<B: SnarkBackend>(
     Ok(())
 }
 
-fn align_table_to_reference_order<B: SnarkBackend>(
+/// Restrict `table` to the columns `reference` carries.
+///
+/// Note this selects columns; it does not reorder them.
+/// `tracked_subtable_by_indices` rebuilds the subtable in the table's own
+/// `tracked_cols` order, so any permutation expressed here is discarded.
+/// Downstream that is fine: the permutation gadget folds both sides by name
+/// (see `utils::perm::should_fold_by_names`), so it no longer depends on the
+/// two sides sharing a column order.
+fn restrict_table_to_reference_columns<B: SnarkBackend>(
     table: &TrackedTable<B>,
     reference: &TrackedTable<B>,
 ) -> TrackedTable<B> {
-    let indices = alignment_indices(
-        table.schema_ref(),
-        reference.schema_ref(),
+    let table_fields: Vec<FieldRef> = table.tracked_polys().keys().cloned().collect();
+    let reference_fields: Vec<FieldRef> = reference.tracked_polys().keys().cloned().collect();
+    let indices = reference_column_indices(
+        &table_fields,
+        &reference_fields,
         table.data_tracked_polys_indices(),
     );
     table.tracked_subtable_by_indices(&indices)
 }
 
-fn align_table_oracle_to_reference_order<B: SnarkBackend>(
+/// Verifier mirror of [`restrict_table_to_reference_columns`].
+fn restrict_table_oracle_to_reference_columns<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     reference: &TrackedTableOracle<B>,
 ) -> TrackedTableOracle<B> {
-    let indices = alignment_indices(
-        table.schema_ref(),
-        reference.schema_ref(),
+    let table_fields: Vec<FieldRef> = table.tracked_oracles().keys().cloned().collect();
+    let reference_fields: Vec<FieldRef> = reference.tracked_oracles().keys().cloned().collect();
+    let indices = reference_column_indices(
+        &table_fields,
+        &reference_fields,
         table.data_tracked_oracles_indices(),
     );
     table.tracked_subtable_by_indices(&indices)
 }
 
-fn alignment_indices(
-    table_schema: Option<&Schema>,
-    reference_schema: Option<&Schema>,
+/// Locate each of `reference`'s data columns within `table`, as indices into
+/// `table`'s flat view.
+///
+/// Both inputs are flat views (`tracked_polys` / `tracked_oracles` key order),
+/// which is the index space `tracked_subtable_by_indices` expects and the same
+/// space `fallback_indices` lives in. Taking schemas here instead would mix two
+/// index spaces: a schema lists only user-visible fields, while the flat view
+/// also expands every arithmetization segment (`__length`, ...) and carries
+/// `__activator__`.
+///
+/// Falls back to `fallback_indices` — keep every data column — whenever the
+/// correspondence is not unambiguous.
+fn reference_column_indices(
+    table_fields: &[FieldRef],
+    reference_fields: &[FieldRef],
     fallback_indices: Vec<usize>,
 ) -> Vec<usize> {
-    let (Some(table_schema), Some(reference_schema)) = (table_schema, reference_schema) else {
-        return fallback_indices;
-    };
-
-    let table_fields: Vec<_> = table_schema.fields().iter().cloned().collect();
-    let reference_data_fields: Vec<_> = reference_schema
-        .fields()
+    let reference_data_fields: Vec<_> = reference_fields
         .iter()
         .filter(|field| !arithmetic::is_system_column(field.name()))
         .cloned()

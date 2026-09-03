@@ -38,6 +38,11 @@ pub struct TrackingPass<B: SnarkBackend> {
     verifier: RefCell<ArgVerifier<B>>,
     ctx_oracles: CtxOracles<B>,
     output_memtable: Option<Arc<MemTable>>,
+    /// Columns some white-box string gadget consumes char-level side polys
+    /// for (from `Tree::required_side_columns`). The prover emits side
+    /// commitments only for these columns, so the verifier must expect
+    /// exactly the same set to keep the transcript in sync.
+    side_columns: std::collections::BTreeSet<String>,
 }
 
 impl<B: SnarkBackend> TrackingPass<B> {
@@ -45,11 +50,13 @@ impl<B: SnarkBackend> TrackingPass<B> {
         verifier: ArgVerifier<B>,
         ctx_oracles: CtxOracles<B>,
         output_memtable: Option<Arc<MemTable>>,
+        side_columns: std::collections::BTreeSet<String>,
     ) -> Self {
         Self {
             verifier: RefCell::new(verifier),
             ctx_oracles,
             output_memtable,
+            side_columns,
         }
     }
 
@@ -66,7 +73,8 @@ impl<B: SnarkBackend> TrackingPass<B> {
         }
 
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
+        // Final output table: no side segments — no downstream PIOP consumes them.
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None);
         let tracked_table = Self::track_output_table_oracle(&arith_table, &self.verifier);
         let gadget_id = root
             .children()
@@ -120,17 +128,27 @@ where
                     if let Some(oracle) = oracle {
                         // TableScan commitments are public input and must come from the oracle
                         // files, not from prover-selected proof commitments.
-                        return track_hint_df_from_oracle(hint_df, oracle, &self.verifier)
-                            .map(TrackedPayload::PlanPayload);
+                        return track_hint_df_from_oracle(
+                            hint_df,
+                            oracle,
+                            &self.verifier,
+                            &self.side_columns,
+                        )
+                        .map(TrackedPayload::PlanPayload);
                     }
-                    return track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload);
+                    // TableScan without cached oracle: prover emits side commits
+                    // for the gadget-consumed columns, verifier must consume them.
+                    return track_hint_df(hint_df, &self.verifier, Some(&self.side_columns))
+                        .map(TrackedPayload::PlanPayload);
                 }
-                track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload)
+                // Intermediate operator: prover skips side segments (see
+                // ArithmetizationPass), so verifier must skip them too.
+                track_hint_df(hint_df, &self.verifier, None).map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (key, hint_df) in map.iter() {
-                    if let Some(table) = track_hint_df(hint_df, &self.verifier) {
+                    if let Some(table) = track_hint_df(hint_df, &self.verifier, None) {
                         out.insert(key.clone(), table);
                     }
                 }
@@ -152,45 +170,86 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     hint_df: &crate::irs::nodes::hints::HintDF,
     oracle: &ArithTableOracle<B>,
     verifier: &RefCell<ArgVerifier<B>>,
+    side_columns: &std::collections::BTreeSet<String>,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let qualified_fields = qualify_fields(df_schema_ref);
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
+    let mut side_cols: IndexMap<FieldRef, arithmetic::col_oracle::OracleBundle<B>> =
+        IndexMap::new();
     let mut log_size = 0usize;
 
-    let verifier = verifier.borrow_mut();
-    for (field, should_mat) in hint_df.field_materialization_iter() {
-        if !*should_mat {
+    let mut verifier = verifier.borrow_mut();
+    // Mirror prover order: all row-domain segments first, then all
+    // side-domain segments. Side commitments are always proof-emitted (even
+    // when row commitments come from ctx_oracle) so they consume IDs after
+    // the row pass is done.
+    let materialized: Vec<FieldRef> = hint_df
+        .field_materialization_iter()
+        .filter(|&(_field, should_mat)| *should_mat)
+        .map(|(field, _should_mat)| {
+            qualified_fields
+                .get(field)
+                .cloned()
+                .unwrap_or_else(|| field.clone())
+        })
+        .collect();
+
+    for qualified_field in &materialized {
+        for segment_field in segment_fields::<B>(qualified_field) {
+            let commitment = oracle
+                .commitments()
+                .get(&segment_field)
+                .cloned()
+                .or_else(|| {
+                    oracle
+                        .commitments()
+                        .iter()
+                        .find(|(oracle_field, _)| oracle_field.name() == segment_field.name())
+                        .map(|(_, commitment)| commitment.clone())
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "ctx_oracle missing commitment for field {}",
+                        segment_field.name()
+                    )
+                });
+            // Mirror prover-side external tracking for base-table commitments
+            // loaded from context instead of from the proof's serialized
+            // commitment map.
+            let tracked_oracle = verifier
+                .track_mat_mv_com_with_binding(commitment, CommitmentBinding::External)
+                .expect("verifier should track ctx_oracle commitment");
+            if log_size == 0 {
+                log_size = tracked_oracle.log_size();
+            } else {
+                debug_assert_eq!(log_size, tracked_oracle.log_size());
+            }
+            tracked_oracles.insert(segment_field, tracked_oracle);
+        }
+    }
+    for qualified_field in &materialized {
+        if !side_columns.contains(qualified_field.name()) {
             continue;
         }
-        let qualified_field = qualified_fields
-            .get(field)
-            .cloned()
-            .unwrap_or_else(|| field.clone());
-        let commitment = oracle
-            .commitments()
-            .get(field)
-            .cloned()
-            .or_else(|| {
-                oracle
-                    .commitments()
-                    .iter()
-                    .find(|(oracle_field, _)| oracle_field.name() == field.name())
-                    .map(|(_, commitment)| commitment.clone())
-            })
-            .unwrap_or_else(|| panic!("ctx_oracle missing commitment for field {}", field.name()));
-        // Mirror prover-side external tracking for base-table commitments loaded
-        // from context instead of from the proof's serialized commitment map.
-        let tracked_oracle = verifier
-            .track_mat_mv_com_with_binding(commitment, CommitmentBinding::External)
-            .expect("verifier should track ctx_oracle commitment");
-        if log_size == 0 {
-            log_size = tracked_oracle.log_size();
-        } else {
-            debug_assert_eq!(log_size, tracked_oracle.log_size());
+        for side_field in side_segment_fields::<B>(qualified_field) {
+            let data = verifier
+                .track_next_mv_com()
+                .expect("verifier should track side data commitment");
+            let activator = verifier
+                .track_next_mv_com()
+                .expect("verifier should track side activator commitment");
+            debug_assert_eq!(
+                data.log_size(),
+                activator.log_size(),
+                "side data/activator must share log_size"
+            );
+            side_cols.insert(
+                side_field,
+                arithmetic::col_oracle::OracleBundle::new(data, Some(activator)),
+            );
         }
-        tracked_oracles.insert(qualified_field, tracked_oracle);
     }
 
     if tracked_oracles.is_empty() {
@@ -201,41 +260,84 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
             tracked_oracles.keys(),
             oracle.schema_ref(),
         ));
-        Some(TrackedTableOracle::new(schema, tracked_oracles, log_size))
+        Some(TrackedTableOracle::new_with_side_cols(
+            schema,
+            tracked_oracles,
+            log_size,
+            side_cols,
+        ))
     }
 }
 
 fn track_hint_df<B: SnarkBackend>(
     hint_df: &crate::irs::nodes::hints::HintDF,
     verifier: &RefCell<ArgVerifier<B>>,
+    side_columns: Option<&std::collections::BTreeSet<String>>,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let qualified_fields = qualify_fields(df_schema_ref);
     // Initialize some variables
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
+    let mut side_cols: IndexMap<FieldRef, arithmetic::col_oracle::OracleBundle<B>> =
+        IndexMap::new();
     let mut log_size = 0usize;
 
     let mut verifier = verifier.borrow_mut();
-    // Iterate through each field that needs materialization
-    for (field, should_mat) in hint_df.field_materialization_iter() {
-        if !*should_mat {
-            continue;
+    // Prover commits ALL row-domain segments first, then ALL side-domain
+    // segments. The verifier must consume commitments in the same order, so
+    // walk hint fields TWICE: once for row segments, once for side segments.
+    let materialized: Vec<FieldRef> = hint_df
+        .field_materialization_iter()
+        .filter(|&(_field, should_mat)| *should_mat)
+        .map(|(field, _should_mat)| {
+            qualified_fields
+                .get(field)
+                .cloned()
+                .unwrap_or_else(|| field.clone())
+        })
+        .collect();
+
+    for qualified_field in &materialized {
+        for segment_field in segment_fields::<B>(qualified_field) {
+            // Use the next expected id so the verifier's tracker stays in
+            // sync with the proof. The prover commits one polynomial per
+            // segment (e.g. hash + __length for strings), so the verifier
+            // must consume the same number of proof commitments here.
+            let oracle = verifier
+                .track_next_mv_com()
+                .expect("verifier should track prover commitment by id");
+            if log_size == 0 {
+                log_size = oracle.log_size();
+            } else {
+                debug_assert_eq!(log_size, oracle.log_size());
+            }
+            tracked_oracles.insert(segment_field, oracle);
         }
-        let qualified_field = qualified_fields
-            .get(field)
-            .cloned()
-            .unwrap_or_else(|| field.clone());
-        // Use the next expected id so the verifier's tracker stays in sync with the proof
-        let oracle = verifier
-            .track_next_mv_com()
-            .expect("verifier should track prover commitment by id");
-        if log_size == 0 {
-            log_size = oracle.log_size();
-        } else {
-            debug_assert_eq!(log_size, oracle.log_size());
+    }
+    if let Some(side_columns) = side_columns {
+        for qualified_field in &materialized {
+            if !side_columns.contains(qualified_field.name()) {
+                continue;
+            }
+            for side_field in side_segment_fields::<B>(qualified_field) {
+                let data = verifier
+                    .track_next_mv_com()
+                    .expect("verifier should track side data commitment");
+                let activator = verifier
+                    .track_next_mv_com()
+                    .expect("verifier should track side activator commitment");
+                debug_assert_eq!(
+                    data.log_size(),
+                    activator.log_size(),
+                    "side data/activator must share log_size"
+                );
+                side_cols.insert(
+                    side_field,
+                    arithmetic::col_oracle::OracleBundle::new(data, Some(activator)),
+                );
+            }
         }
-        tracked_oracles.insert(qualified_field, oracle);
     }
     // If there was no columns to be materialized, return None
     if tracked_oracles.is_empty() {
@@ -246,8 +348,63 @@ fn track_hint_df<B: SnarkBackend>(
             tracked_oracles.keys(),
             None,
         ));
-        Some(TrackedTableOracle::new(schema, tracked_oracles, log_size))
+        Some(TrackedTableOracle::new_with_side_cols(
+            schema,
+            tracked_oracles,
+            log_size,
+            side_cols,
+        ))
     }
+}
+
+/// Expand a hint-df field into the list of segment fields the prover-side
+/// arithmetization will produce (e.g. a Utf8 column expands to
+/// `[col, col__length]`). The first segment uses the unchanged field; later
+/// segments inherit `metadata` and nullability but rename to `<col>{suffix}`.
+fn segment_fields<B: SnarkBackend>(field: &FieldRef) -> Vec<FieldRef> {
+    let suffixes = arithmetic::encoding::segment_suffixes_for_type::<B::F>(field.data_type());
+    if suffixes.len() <= 1 {
+        return vec![field.clone()];
+    }
+    suffixes
+        .into_iter()
+        .map(|suffix| {
+            if suffix.is_empty() {
+                field.clone()
+            } else {
+                let mut new_field = datafusion::arrow::datatypes::Field::new(
+                    format!("{}{}", field.name(), suffix),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                );
+                if !field.metadata().is_empty() {
+                    new_field = new_field.with_metadata(field.metadata().clone());
+                }
+                Arc::new(new_field)
+            }
+        })
+        .collect()
+}
+
+/// Expand a hint-df field into the list of **side-domain** segment fields the
+/// prover-side encoder will emit (e.g. a Utf8 column produces a
+/// `<col>__chars` side segment).
+fn side_segment_fields<B: SnarkBackend>(field: &FieldRef) -> Vec<FieldRef> {
+    let suffixes = arithmetic::encoding::side_segment_suffixes_for_type::<B::F>(field.data_type());
+    suffixes
+        .into_iter()
+        .map(|suffix| {
+            let mut new_field = datafusion::arrow::datatypes::Field::new(
+                format!("{}{}", field.name(), suffix),
+                field.data_type().clone(),
+                field.is_nullable(),
+            );
+            if !field.metadata().is_empty() {
+                new_field = new_field.with_metadata(field.metadata().clone());
+            }
+            Arc::new(new_field)
+        })
+        .collect()
 }
 
 fn build_tracked_schema<'a>(

@@ -50,8 +50,12 @@ WARMUP_THREADS=16   # threads for the unmeasured QEDB warmup (see below)
 # by sxt's bench and read by the other two. Wipe stale ones so downstream
 # benches don't read mismatched data. Filter / Aggregate / Limit parquets
 # are independent and reused.
+#
+# Under MICRO_ONLY_TT=1 the sxt bench that regenerates the Join layout is
+# skipped, so keep the existing (deterministic) parquets instead of wiping —
+# wiping would strand the TT Join cases with no data source.
 ARTIFACT_ROOT="$TPB_DIR/artifact"
-if [[ -d "$ARTIFACT_ROOT" ]]; then
+if [[ "${MICRO_ONLY_TT:-0}" != "1" ]] && [[ -d "$ARTIFACT_ROOT" ]]; then
     find "$ARTIFACT_ROOT" -type d \( -name Join -o -name Join_PK_FK \) -prune -print0 \
         | xargs -0 -I {} rm -rf {}
 fi
@@ -137,11 +141,15 @@ echo "Warmup threads: $WARMUP_THREADS (QEDB only, output discarded)"
 echo "Measured threads: $NUM_THREADS"
 echo "Results dir: $RESULTS_DIR"
 
-warmup_qedb
+# Set MICRO_ONLY_TT=1 to rerun only the TruthTable passes; the third-party
+# systems keep their existing third_party_*.json files for parse_micro.py.
+if [[ "${MICRO_ONLY_TT:-0}" != "1" ]]; then
+    warmup_qedb
 
-for b in "${BENCHES[@]}"; do
-    run_bench "$b"
-done
+    for b in "${BENCHES[@]}"; do
+        run_bench "$b"
+    done
+fi
 
 # TruthTable: one pass per SNARK backend. BN254 is the default; the
 # `bls12-381` feature swaps the type alias in tt-exec. Each pass writes to a

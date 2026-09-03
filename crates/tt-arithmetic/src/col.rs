@@ -12,7 +12,7 @@ use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::common::Column;
 use datafusion_expr::Expr;
 use derivative::Derivative;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use once_cell::sync::Lazy;
 
 pub const ACTIVATOR_COL_NAME: &str = "__activator__";
@@ -29,106 +29,228 @@ pub fn is_system_column(name: &str) -> bool {
     name == ACTIVATOR_COL_NAME || name == ROW_ID_COL_NAME
 }
 
+/// An auxiliary polynomial belonging to a tracked column: its own data
+/// poly plus the activator paired with that data.
+///
+/// - Row-domain aux (e.g. `__length` for strings): activator mirrors the
+///   primary's activator (Some if the primary has one, None otherwise —
+///   base tables without a filter have neither).
+/// - Side-domain aux (e.g. `__chars`, `__orig_ind`): activator is a
+///   contiguous-one polynomial over the smaller side domain — always
+///   `Some`.
+///
+/// The row-vs-side distinction is not stored — it's derived by comparing
+/// `data.log_size()` against the owning column's primary log_size. See
+/// [`TrackedCol::side_segments_iter`].
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
+pub struct PolyBundle<B: SnarkBackend> {
+    pub data: TrackedPoly<B>,
+    pub activator: Option<TrackedPoly<B>>,
+}
+
+impl<B: SnarkBackend> PolyBundle<B> {
+    /// Constructs an aux polynomial from its data and (optional) activator.
+    pub fn new(data: TrackedPoly<B>, activator: Option<TrackedPoly<B>>) -> Self {
+        Self { data, activator }
+    }
+
+    /// Multilinear domain size of this aux polynomial.
+    pub fn log_size(&self) -> usize {
+        self.data.log_size()
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
-/// An abstraction of tracked arithmetized column in dbSNARK
-/// a tracked arithmetized column is represented by two polynomials: A data
-/// tracked polynomial, an activator tracked polynomial If the activator
-/// tracked polynomial is None, all the rows are active, and an optional
-/// FieldRef
-pub struct TrackedCol<B: SnarkBackend> {
-    /// A tracked polynomial representing the column values
-    data_tracked_poly: TrackedPoly<B>,
-
-    /// A tracked (supposedly) polynomial representing the activator of the
-    /// column If None, all the rows are active
-    /// If some, only the rows where the activator polynomial is one are active
-    activator_tracked_poly: Option<TrackedPoly<B>>,
-
-    /// The field reference of the column in the original schema, if any
-    field_ref: Option<FieldRef>,
+/// An abstraction of a tracked arithmetized column in dbSNARK.
+///
+/// Most columns are `SingleSegment` (one data polynomial + an optional
+/// activator). Multi-aspect encodings (like strings) expand into
+/// `MultiSegment`, which carries a primary polynomial plus a map of
+/// auxiliary polynomials. Row-domain aux and side-domain aux live in
+/// the same map; the set `side_aux_suffixes` marks which suffixes
+/// belong to the side domain.
+///
+/// **Previous heuristic** (removed): row-vs-side was derived by
+/// comparing `aux.data.log_size()` against the primary's. That
+/// heuristic silently misclassified side segments whose domain
+/// happened to match the primary — e.g. lineitem's `l_returnflag`
+/// (values 'A'/'R'/'N'/'F', one char each → chars-side log_size ==
+/// row log_size), which then leaked into `segments_iter` and made
+/// the `Eq` gadget see 6 data cols on one side vs 2 on the other.
+/// Storing the row/side split explicitly avoids the ambiguity.
+pub enum TrackedCol<B: SnarkBackend> {
+    SingleSegment {
+        /// The column's data polynomial + its (optional) activator.
+        poly_bundle: PolyBundle<B>,
+        field_ref: Option<FieldRef>,
+    },
+    MultiSegment {
+        /// The primary (canonical) data polynomial + its activator.
+        primary_poly_bundle: PolyBundle<B>,
+        /// All auxiliary polynomial bundles belonging to this column,
+        /// keyed by segment suffix (e.g. `__length`, `__chars`,
+        /// `__orig_ind`, `__bnd`). Row-domain aux (e.g. `__length`)
+        /// and side-domain aux (e.g. `__chars`) share this map;
+        /// `side_aux_suffixes` marks which entries are side.
+        aux_poly_bundles: IndexMap<String, PolyBundle<B>>,
+        /// Subset of `aux_poly_bundles` keys that are side-domain.
+        /// Populated at construction time from the row/side split
+        /// carried by upstream `arith_table.polynomials()` vs
+        /// `arith_table.side_cols()`. `segments_iter` /
+        /// `side_segments_iter` consult this set instead of comparing
+        /// `log_size`, which is unreliable when the side domain
+        /// happens to be pow2-padded to the same size as the row
+        /// domain (see enum-level docstring for the concrete
+        /// misclassification that prompted this field).
+        side_aux_suffixes: IndexSet<String>,
+        field_ref: Option<FieldRef>,
+    },
 }
 
 impl<B: SnarkBackend> core::fmt::Debug for TrackedCol<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TrackedCol")
-            .field("log_size", &self.log_size())
-            .field("has_activator", &self.activator_tracked_poly.is_some())
-            .field("field_ref", &self.field_ref)
-            .finish()
+        match self {
+            Self::SingleSegment {
+                poly_bundle,
+                field_ref,
+            } => f
+                .debug_struct("TrackedCol::SingleSegment")
+                .field("log_size", &poly_bundle.log_size())
+                .field("has_activator", &poly_bundle.activator.is_some())
+                .field("field_ref", field_ref)
+                .finish(),
+            Self::MultiSegment {
+                primary_poly_bundle: _,
+                aux_poly_bundles,
+                side_aux_suffixes,
+                field_ref,
+            } => {
+                let (side_ids, row_ids): (Vec<_>, Vec<_>) = aux_poly_bundles
+                    .iter()
+                    .partition(|(sid, _)| side_aux_suffixes.contains(sid.as_str()));
+                f.debug_struct("TrackedCol::MultiSegment")
+                    .field("num_segments", &(1 + aux_poly_bundles.len()))
+                    .field(
+                        "row_aux_segments",
+                        &row_ids.iter().map(|(k, _)| k).collect::<Vec<_>>(),
+                    )
+                    .field(
+                        "side_segments",
+                        &side_ids.iter().map(|(k, _)| k).collect::<Vec<_>>(),
+                    )
+                    .field("field_ref", field_ref)
+                    .finish()
+            }
+        }
     }
 }
 
 impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let field_name = self
-            .field_ref
-            .as_ref()
+            .field_ref()
             .map(|field| field.name().to_string())
             .unwrap_or_else(|| "<unnamed>".to_string());
 
-        let data_evals = self.data_tracked_poly.evaluations();
-        let data_repr = if data_evals.is_empty() {
-            "[]".to_string()
-        } else if data_evals.len() <= 2 {
-            format!(
-                "[{}]",
-                data_evals
-                    .iter()
-                    .map(|v| format!("{:?}", v))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        } else {
-            format!(
-                "{:?} ... {:?}",
-                data_evals.first().unwrap(),
-                data_evals.last().unwrap()
-            )
-        };
-
-        let activator_repr = match &self.activator_tracked_poly {
-            Some(poly) => {
-                let evals = poly.evaluations();
-                if evals.len() <= 10 {
-                    format!(
-                        "[{}]",
-                        evals
-                            .iter()
-                            .map(|v| format!("{:?}", v))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                } else {
-                    let mut values = Vec::with_capacity(11);
-                    values.extend(evals.iter().take(5).map(|val| format!("{:?}", val)));
-                    values.push("...".to_string());
-                    values.extend(
-                        evals
-                            .iter()
-                            .rev()
-                            .take(5)
-                            .collect::<Vec<_>>()
-                            .into_iter()
-                            .rev()
-                            .map(|val| format!("{:?}", val)),
-                    );
-                    format!("[{}]", values.join(", "))
-                }
+        let data_repr = |poly: &TrackedPoly<B>| -> String {
+            let evals = poly.evaluations();
+            if evals.is_empty() {
+                "[]".to_string()
+            } else if evals.len() <= 2 {
+                format!(
+                    "[{}]",
+                    evals
+                        .iter()
+                        .map(|v| format!("{:?}", v))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            } else {
+                format!(
+                    "{:?} ... {:?}",
+                    evals.first().unwrap(),
+                    evals.last().unwrap()
+                )
             }
-            None => "none".to_string(),
+        };
+        let activator_repr = |poly: &Option<TrackedPoly<B>>| -> String {
+            match poly {
+                Some(activator) => {
+                    let evals = activator.evaluations();
+                    if evals.len() <= 10 {
+                        format!(
+                            "[{}]",
+                            evals
+                                .iter()
+                                .map(|v| format!("{:?}", v))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    } else {
+                        let mut values = Vec::with_capacity(11);
+                        values.extend(evals.iter().take(5).map(|val| format!("{:?}", val)));
+                        values.push("...".to_string());
+                        values.extend(
+                            evals
+                                .iter()
+                                .rev()
+                                .take(5)
+                                .collect::<Vec<_>>()
+                                .into_iter()
+                                .rev()
+                                .map(|val| format!("{:?}", val)),
+                        );
+                        format!("[{}]", values.join(", "))
+                    }
+                }
+                None => "none".to_string(),
+            }
         };
 
-        write!(
-            f,
-            "{}: data={}, activator={}",
-            field_name, data_repr, activator_repr
-        )
+        match self {
+            Self::SingleSegment { poly_bundle, .. } => write!(
+                f,
+                "{}: data={}, activator={}",
+                field_name,
+                data_repr(&poly_bundle.data),
+                activator_repr(&poly_bundle.activator),
+            ),
+            Self::MultiSegment {
+                primary_poly_bundle,
+                aux_poly_bundles,
+                side_aux_suffixes,
+                ..
+            } => {
+                writeln!(f, "{} (multi-segment):", field_name)?;
+                writeln!(
+                    f,
+                    "  <primary>: data={}, activator={}",
+                    data_repr(&primary_poly_bundle.data),
+                    activator_repr(&primary_poly_bundle.activator),
+                )?;
+                for (sid, aux) in aux_poly_bundles.iter() {
+                    if side_aux_suffixes.contains(sid.as_str()) {
+                        writeln!(f, "  {} (side): log_size={}", sid, aux.log_size(),)?;
+                    } else {
+                        writeln!(
+                            f,
+                            "  {}: data={}, activator={}",
+                            sid,
+                            data_repr(&aux.data),
+                            activator_repr(&aux.activator),
+                        )?;
+                    }
+                }
+                Ok(())
+            }
+        }
     }
 }
 
 impl<B: SnarkBackend> TrackedCol<B> {
-    /// Creates a new tracked column
+    /// Constructs a single-segment tracked column.
     pub fn new(
         data_tracked_poly: TrackedPoly<B>,
         activator_tracked_poly: Option<TrackedPoly<B>>,
@@ -138,9 +260,83 @@ impl<B: SnarkBackend> TrackedCol<B> {
         {
             Self::check_new_args(&data_tracked_poly, &activator_tracked_poly, &field_ref);
         }
-        Self {
-            data_tracked_poly,
-            activator_tracked_poly,
+        Self::SingleSegment {
+            poly_bundle: PolyBundle::new(data_tracked_poly, activator_tracked_poly),
+            field_ref,
+        }
+    }
+
+    /// Constructs a multi-segment tracked column: one required primary
+    /// poly bundle plus zero or more named aux poly bundles. Aux ids must
+    /// be non-empty (the primary owns the empty id by convention).
+    ///
+    /// **Domain classification**: prefer [`Self::new_multi_split`] over
+    /// this constructor when you have the row-vs-side split at hand.
+    /// This one auto-classifies each aux by log_size against the primary
+    /// — a HEURISTIC that misclassifies side segments whose domain
+    /// happens to match the primary (see the enum docstring for the
+    /// concrete failure). Kept as a compatibility shim for callers that
+    /// still hand in a merged list; `regroup_flat_into_tracked_cols`
+    /// switched to `new_multi_split` to avoid the misclassification.
+    pub fn new_multi(
+        primary_poly_bundle: PolyBundle<B>,
+        aux_poly_bundles_input: Vec<(String, PolyBundle<B>)>,
+        field_ref: Option<FieldRef>,
+    ) -> Self {
+        let primary_log_size = primary_poly_bundle.log_size();
+        let mut row_aux: Vec<(String, PolyBundle<B>)> = Vec::new();
+        let mut side_aux: Vec<(String, PolyBundle<B>)> = Vec::new();
+        for (sid, aux) in aux_poly_bundles_input {
+            if aux.log_size() == primary_log_size {
+                row_aux.push((sid, aux));
+            } else {
+                side_aux.push((sid, aux));
+            }
+        }
+        Self::new_multi_split(primary_poly_bundle, row_aux, side_aux, field_ref)
+    }
+
+    /// Constructs a multi-segment tracked column with explicit row-vs-side
+    /// classification. Preferred over [`Self::new_multi`] whenever the
+    /// caller already knows the split — typically because it built the
+    /// column from an upstream `arith_table.polynomials()` (row) vs
+    /// `arith_table.side_cols()` (side) pair.
+    pub fn new_multi_split(
+        primary_poly_bundle: PolyBundle<B>,
+        row_aux_input: Vec<(String, PolyBundle<B>)>,
+        side_aux_input: Vec<(String, PolyBundle<B>)>,
+        field_ref: Option<FieldRef>,
+    ) -> Self {
+        let mut aux_poly_bundles: IndexMap<String, PolyBundle<B>> =
+            IndexMap::with_capacity(row_aux_input.len() + side_aux_input.len());
+        let mut side_aux_suffixes: IndexSet<String> = IndexSet::with_capacity(side_aux_input.len());
+        for (sid, aux) in row_aux_input {
+            assert!(
+                !sid.is_empty(),
+                "MultiSegment aux segment id must be non-empty (primary owns the empty id)"
+            );
+            assert!(
+                !aux_poly_bundles.contains_key(&sid),
+                "duplicate aux segment id '{sid}' in MultiSegment column"
+            );
+            aux_poly_bundles.insert(sid, aux);
+        }
+        for (sid, aux) in side_aux_input {
+            assert!(
+                !sid.is_empty(),
+                "MultiSegment aux segment id must be non-empty (primary owns the empty id)"
+            );
+            assert!(
+                !aux_poly_bundles.contains_key(&sid),
+                "duplicate aux segment id '{sid}' in MultiSegment column"
+            );
+            aux_poly_bundles.insert(sid.clone(), aux);
+            side_aux_suffixes.insert(sid);
+        }
+        Self::MultiSegment {
+            primary_poly_bundle,
+            aux_poly_bundles,
+            side_aux_suffixes,
             field_ref,
         }
     }
@@ -153,78 +349,205 @@ impl<B: SnarkBackend> TrackedCol<B> {
     ) {
         if activator_tracked_poly.is_some() {
             let activator = activator_tracked_poly.as_ref().unwrap();
-            debug_assert_eq!(data_tracked_poly.log_size(), activator.log_size());
+            // A folded-constant poly evaluates identically on any hypercube,
+            // so its stored log_size is unconstrained. Only enforce the size
+            // match when both sides are non-constant.
+            if !data_tracked_poly.is_constant() && !activator.is_constant() {
+                debug_assert_eq!(data_tracked_poly.log_size(), activator.log_size());
+            }
             debug_assert!(data_tracked_poly.same_tracker(activator));
         }
     }
 
-    /// Returns the log size of the tracked polynomials
+    /// Returns the log size of the tracked polynomials. All row-domain
+    /// segments in a multi-segment column share the same log size by
+    /// construction.
     pub fn log_size(&self) -> usize {
-        self.data_tracked_poly.log_size()
-    }
-
-    /// Returns the data tracked polynomial of the column
-    pub fn data_tracked_poly(&self) -> TrackedPoly<B> {
-        self.data_tracked_poly.clone()
-    }
-
-    /// Returns the activator tracked polynomial of the column
-    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
-        self.activator_tracked_poly.clone()
-    }
-    /// Returns the field reference of the tracked column in the original
-    /// schema, if any
-    pub fn field_ref(&self) -> Option<FieldRef> {
-        self.field_ref.clone()
-    }
-
-    /// Returns a reference to the tracker of the tracked column
-    pub fn tracker_ref(&self) -> ArgProver<B> {
-        // We have the guarantee at construction that activator tracked also agrees
-        ArgProver::new_from_tracker_rc(self.data_tracked_poly.tracker())
-    }
-
-    /// Returns the effective tracked polynomial of the column, which is the
-    /// product of the activator and the column polynomial
-    /// Note that the non-activated elements are zeroed out, hence
-    /// indistinguishable from the actual zero elements
-    pub fn activated_data_tracked_poly(&self) -> TrackedPoly<B> {
-        match &self.activator_tracked_poly {
-            Some(activator) => &self.data_tracked_poly * activator,
-            None => self.data_tracked_poly.clone(),
+        match self {
+            Self::SingleSegment { poly_bundle, .. } => poly_bundle.log_size(),
+            Self::MultiSegment {
+                primary_poly_bundle,
+                ..
+            } => primary_poly_bundle.log_size(),
         }
     }
 
-    /// Returns an iterator over the activated data elements
-    /// Useful for testing and debugging
+    /// Returns the primary data polynomial — the unique poly for a single-
+    /// segment column, or the primary of a multi-segment column.
+    pub fn data_tracked_poly(&self) -> TrackedPoly<B> {
+        match self {
+            Self::SingleSegment { poly_bundle, .. } => poly_bundle.data.clone(),
+            Self::MultiSegment {
+                primary_poly_bundle,
+                ..
+            } => primary_poly_bundle.data.clone(),
+        }
+    }
+
+    /// Returns the activator polynomial paired with the primary data segment.
+    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
+        match self {
+            Self::SingleSegment { poly_bundle, .. } => poly_bundle.activator.clone(),
+            Self::MultiSegment {
+                primary_poly_bundle,
+                ..
+            } => primary_poly_bundle.activator.clone(),
+        }
+    }
+
+    /// Returns the field reference of the column, if any.
+    pub fn field_ref(&self) -> Option<FieldRef> {
+        match self {
+            Self::SingleSegment { field_ref, .. } | Self::MultiSegment { field_ref, .. } => {
+                field_ref.clone()
+            }
+        }
+    }
+
+    /// Total number of polynomials in this column (primary + all aux
+    /// segments, row-domain AND side-domain). Always >= 1.
+    pub fn num_segments(&self) -> usize {
+        match self {
+            Self::SingleSegment { .. } => 1,
+            Self::MultiSegment {
+                aux_poly_bundles, ..
+            } => 1 + aux_poly_bundles.len(),
+        }
+    }
+
+    /// Iterate `(id, data, activator)` over ROW-domain segments only:
+    /// primary yields `id = None`, row-aux yields `id = Some(sid)`.
+    /// Side-domain aux are excluded via the explicit
+    /// `side_aux_suffixes` marker set (see the enum docstring for why
+    /// the historical `log_size` heuristic was insufficient).
+    #[allow(clippy::type_complexity)]
+    pub fn segments_iter(
+        &self,
+    ) -> Box<dyn Iterator<Item = (Option<&str>, &TrackedPoly<B>, Option<&TrackedPoly<B>>)> + '_>
+    {
+        match self {
+            Self::SingleSegment { poly_bundle, .. } => Box::new(std::iter::once((
+                None,
+                &poly_bundle.data,
+                poly_bundle.activator.as_ref(),
+            ))),
+            Self::MultiSegment {
+                primary_poly_bundle,
+                aux_poly_bundles,
+                side_aux_suffixes,
+                ..
+            } => {
+                let primary = std::iter::once((
+                    None,
+                    &primary_poly_bundle.data,
+                    primary_poly_bundle.activator.as_ref(),
+                ));
+                let aux = aux_poly_bundles
+                    .iter()
+                    .filter(move |(sid, _)| !side_aux_suffixes.contains(sid.as_str()))
+                    .map(|(sid, aux)| (Some(sid.as_str()), &aux.data, aux.activator.as_ref()));
+                Box::new(primary.chain(aux))
+            }
+        }
+    }
+
+    /// Look up ANY aux segment (row-domain or side-domain) by id.
+    /// Returns `None` if the id is not registered (including for
+    /// `SingleSegment` columns, which have no aux).
+    pub fn aux_segment(&self, aux_id: &str) -> Option<&PolyBundle<B>> {
+        match self {
+            Self::SingleSegment { .. } => None,
+            Self::MultiSegment {
+                aux_poly_bundles, ..
+            } => aux_poly_bundles.get(aux_id),
+        }
+    }
+
+    /// Look up a side-domain segment specifically (returns `None` if the
+    /// id resolves to a row-domain aux). Convenience over `aux_segment`
+    /// for callers that assert side-ness.
+    pub fn side_segment(&self, side_id: &str) -> Option<&PolyBundle<B>> {
+        match self {
+            Self::SingleSegment { .. } => None,
+            Self::MultiSegment {
+                aux_poly_bundles,
+                side_aux_suffixes,
+                ..
+            } => {
+                if side_aux_suffixes.contains(side_id) {
+                    aux_poly_bundles.get(side_id)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Iterate `(suffix, aux)` over every side-domain segment in this
+    /// column, in insertion order. Empty for `SingleSegment` columns.
+    pub fn side_segments_iter(&self) -> Box<dyn Iterator<Item = (&str, &PolyBundle<B>)> + '_> {
+        match self {
+            Self::SingleSegment { .. } => Box::new(std::iter::empty()),
+            Self::MultiSegment {
+                aux_poly_bundles,
+                side_aux_suffixes,
+                ..
+            } => Box::new(
+                aux_poly_bundles
+                    .iter()
+                    .filter(move |(sid, _)| side_aux_suffixes.contains(sid.as_str()))
+                    .map(|(sid, aux)| (sid.as_str(), aux)),
+            ),
+        }
+    }
+
+    /// Returns a reference to the tracker shared by all polys in this column.
+    pub fn tracker_ref(&self) -> ArgProver<B> {
+        let poly = match self {
+            Self::SingleSegment { poly_bundle, .. } => &poly_bundle.data,
+            Self::MultiSegment {
+                primary_poly_bundle,
+                ..
+            } => &primary_poly_bundle.data,
+        };
+        ArgProver::new_from_tracker_rc(poly.tracker())
+    }
+
+    /// Returns the effective primary tracked polynomial: data * activator
+    /// (when an activator exists), otherwise just the data poly.
+    pub fn activated_data_tracked_poly(&self) -> TrackedPoly<B> {
+        match self.activator_tracked_poly() {
+            Some(activator) => &self.data_tracked_poly() * &activator,
+            None => self.data_tracked_poly(),
+        }
+    }
+
+    /// Returns a vec of the active-row primary data values.
     pub fn effective_iter(&self) -> impl IntoIterator<Item = B::F> + use<B> {
-        match &self.activator_tracked_poly {
-            Some(activator) => self
-                .data_tracked_poly
+        let data = self.data_tracked_poly();
+        match self.activator_tracked_poly() {
+            Some(activator) => data
                 .evaluations()
                 .into_iter()
                 .zip(activator.evaluations())
                 .filter(|(_, activator)| *activator != B::F::zero())
                 .map(|(data, _)| data)
                 .collect::<Vec<B::F>>(),
-            None => self.data_tracked_poly.evaluations(),
+            None => data.evaluations(),
         }
     }
 
-    /// Returns a hashset of the activated data elements
-    /// Useful for testing and debugging
+    /// Returns a hashset of the activated primary data elements (for tests).
     pub fn effective_hashset(&self) -> IndexSet<B::F> {
         self.effective_iter()
             .into_iter()
             .collect::<IndexSet<B::F>>()
     }
 
-    /// Pretty-print the tracked column, optionally showing the activator
-    /// column.
+    /// Pretty-print the tracked column (primary segment only, for brevity).
     pub fn pretty_string(&self) -> String {
         let base_name = self
-            .field_ref
-            .as_ref()
+            .field_ref()
             .map(|field| {
                 let name = field.name();
                 if name.is_empty() {
@@ -235,22 +558,24 @@ impl<B: SnarkBackend> TrackedCol<B> {
             })
             .unwrap_or_else(|| "-".to_string());
 
+        let data = self.data_tracked_poly();
+        let activator = self.activator_tracked_poly();
+
         let mut headers = Vec::with_capacity(3);
         let mut columns: Vec<Vec<String>> = Vec::with_capacity(3);
 
         headers.push(base_name.clone());
         columns.push(
-            self.data_tracked_poly
-                .evaluations()
+            data.evaluations()
                 .into_iter()
                 .map(|val| abbreviate_field_value(&format!("{}", val)))
                 .collect(),
         );
 
-        if let Some(activator) = &self.activator_tracked_poly {
+        if let Some(activator_poly) = &activator {
             headers.push(format!("{base_name} (activator)"));
             columns.push(
-                activator
+                activator_poly
                     .evaluations()
                     .into_iter()
                     .map(|val| abbreviate_field_value(&format!("{}", val)))
@@ -299,13 +624,51 @@ impl<B: SnarkBackend> TrackedCol<B> {
 
 impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
     fn deep_clone(&self, new_prover: ArgProver<B>) -> Self {
-        Self {
-            data_tracked_poly: self.data_tracked_poly.deep_clone(new_prover.clone()),
-            activator_tracked_poly: self
-                .activator_tracked_poly
-                .as_ref()
-                .map(|activator| activator.deep_clone(new_prover)),
-            field_ref: self.field_ref.clone(),
+        match self {
+            Self::SingleSegment {
+                poly_bundle,
+                field_ref,
+            } => Self::SingleSegment {
+                poly_bundle: PolyBundle {
+                    data: poly_bundle.data.deep_clone(new_prover.clone()),
+                    activator: poly_bundle
+                        .activator
+                        .as_ref()
+                        .map(|activator| activator.deep_clone(new_prover)),
+                },
+                field_ref: field_ref.clone(),
+            },
+            Self::MultiSegment {
+                primary_poly_bundle,
+                aux_poly_bundles,
+                side_aux_suffixes,
+                field_ref,
+            } => Self::MultiSegment {
+                primary_poly_bundle: PolyBundle {
+                    data: primary_poly_bundle.data.deep_clone(new_prover.clone()),
+                    activator: primary_poly_bundle
+                        .activator
+                        .as_ref()
+                        .map(|act| act.deep_clone(new_prover.clone())),
+                },
+                aux_poly_bundles: aux_poly_bundles
+                    .iter()
+                    .map(|(sid, aux)| {
+                        (
+                            sid.clone(),
+                            PolyBundle {
+                                data: aux.data.deep_clone(new_prover.clone()),
+                                activator: aux
+                                    .activator
+                                    .as_ref()
+                                    .map(|a| a.deep_clone(new_prover.clone())),
+                            },
+                        )
+                    })
+                    .collect(),
+                side_aux_suffixes: side_aux_suffixes.clone(),
+                field_ref: field_ref.clone(),
+            },
         }
     }
 }

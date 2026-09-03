@@ -47,10 +47,7 @@ pub fn init_cli_tracing(emit_jsonl_stats: bool) {
                     let _ = registry.with(stats_layer).try_init();
                 }
                 Err(err) => {
-                    eprintln!(
-                        "failed to initialize jsonl stats layer: {}",
-                        err
-                    );
+                    eprintln!("failed to initialize jsonl stats layer: {}", err);
                     let _ = registry.try_init();
                 }
             }

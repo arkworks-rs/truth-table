@@ -35,18 +35,23 @@ clap = { workspace = true }
 indexmap = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-tree = "0.4"
 parquet = { workspace = true }
+chrono = "0.4"
+serde_json = { workspace = true }
+bincode = { workspace = true }
 [dev-dependencies]
 ark-test-curves = { workspace = true }
 divan = { workspace = true }
 tpch-data = { package = "tt-tpch-data", path = "../tt-tpch-data" }
 tempfile = { workspace = true }
-tracing-subscriber = { workspace = true }
-tracing-tree = "0.4"
-chrono = "0.4"
-serde_json = { workspace = true }
-bincode = { workspace = true }
 zstd = { workspace = true }
+# jemalloc for the bench binary — lower fragmentation on many-large-Vec
+# workloads than glibc's malloc. Linux-only via cfg; harmless on macOS
+# (uses their built-in equivalent).
+[target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
+tikv-jemallocator = "0.6"
 
 [[bench]]
 name = "benches"

@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use arithmetic::ACTIVATOR_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, encoding::is_segment_of};
 use ark_piop::SnarkBackend;
 use datafusion_common::{Column, DFSchema, Statistics};
 
@@ -17,9 +17,11 @@ pub struct ExprNode<B: SnarkBackend> {
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub column: Column,
     // Cache the last successful scope binding for this Column node to avoid
-    // rescanning all scopes on every virtualization call.
-    prover_virtual_binding_cache: Mutex<Option<(NodeId, usize)>>,
-    verifier_virtual_binding_cache: Mutex<Option<(NodeId, usize)>>,
+    // rescanning all scopes on every virtualization call. Stores every
+    // segment index that belongs to the column (primary + auxiliary), so
+    // multi-segment columns like strings carry their `__length` segment.
+    prover_virtual_binding_cache: Mutex<Option<(NodeId, Vec<usize>)>>,
+    verifier_virtual_binding_cache: Mutex<Option<(NodeId, Vec<usize>)>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
@@ -54,14 +56,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fast path: reuse a previously resolved (scope_id, col_idx) binding
-        // when the scope still exists and the field at that index still matches
-        // this column (guards against stale indices after schema changes).
-        if let Some((scope_id, col_idx)) = *self
+        // Fast path: reuse a previously resolved (scope_id, indices) binding
+        // when the scope still exists and the field at the primary index still
+        // matches this column (guards against stale indices after schema
+        // changes). Indices cover every segment of the column.
+        let cached = self
             .prover_virtual_binding_cache
             .lock()
             .expect("cache lock poisoned")
-        {
+            .clone();
+        if let Some((scope_id, indices)) = cached {
             for scope_weak in &self.scope {
                 let scope = scope_weak
                     .upgrade()
@@ -70,14 +74,27 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                     continue;
                 }
                 let scope_payload = virtualized_ir.payload_for_node(&scope.id());
-                if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
-                    && col_idx < table.tracked_polys().len()
-                    && table
-                        .schema_ref()
-                        .and_then(|schema| schema.fields().get(col_idx))
-                        .is_some_and(|field| field_matches_column(field, &self.column))
-                {
-                    let subtable = table.tracked_subtable_by_indices(&[col_idx]);
+                let valid = matches!(scope_payload, Some(PayloadStructure::PlanPayload(_))) && {
+                    let table = match scope_payload {
+                        Some(PayloadStructure::PlanPayload(t)) => t,
+                        _ => unreachable!(),
+                    };
+                    let len = table.tracked_polys().len();
+                    let primary_ok = indices.first().is_some_and(|idx| {
+                        *idx < len
+                            && table
+                                .schema_ref()
+                                .and_then(|schema| schema.fields().get(*idx))
+                                .is_some_and(|field| field_matches_column(field, &self.column))
+                    });
+                    primary_ok && indices.iter().all(|idx| *idx < len)
+                };
+                if valid {
+                    let table = match virtualized_ir.payload_for_node(&scope.id()) {
+                        Some(PayloadStructure::PlanPayload(t)) => t,
+                        _ => unreachable!(),
+                    };
+                    let subtable = table.tracked_subtable_by_indices(&indices);
                     virtualized_ir
                         .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
                     return Ok(());
@@ -86,11 +103,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             }
         }
 
-        // Helper: try to pull the requested column (and activator) from a tracked table.
+        // Helper: try to pull the requested column (with all its segments,
+        // plus system columns implicitly added by `tracked_subtable_by_indices`)
+        // from a tracked table.
         let try_build_subtable =
             |table: &arithmetic::table::TrackedTable<B>, column: &Column| -> Option<_> {
-                let col_idx = tracked_table_index_of_column(table, column)?;
-                Some(table.tracked_subtable_by_indices(&[col_idx]))
+                let indices = tracked_table_indices_of_column_with_segments(table, column);
+                if indices.is_empty() {
+                    return None;
+                }
+                Some((indices.clone(), table.tracked_subtable_by_indices(&indices)))
             };
         // Probe scopes in order and take the first one that contains the column.
         for scope_weak in &self.scope {
@@ -99,15 +121,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                 .expect("Column scope should be available during witness generation");
             let scope_payload = virtualized_ir.payload_for_node(&scope.id());
             if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
-                && let Some(subtable) = try_build_subtable(table, &self.column)
+                && let Some((indices, subtable)) = try_build_subtable(table, &self.column)
             {
-                if let Some(col_idx) = tracked_table_index_of_column(table, &self.column) {
-                    // Record successful binding for the next call.
-                    *self
-                        .prover_virtual_binding_cache
-                        .lock()
-                        .expect("cache lock poisoned") = Some((scope.id(), col_idx));
-                }
+                // Record successful binding for the next call.
+                *self
+                    .prover_virtual_binding_cache
+                    .lock()
+                    .expect("cache lock poisoned") = Some((scope.id(), indices));
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
                 return Ok(());
@@ -440,6 +460,83 @@ fn schema_field_for_column(
         .cloned()
 }
 
+/// Returns every tracked-poly index that belongs to `column`: the primary
+/// segment plus every auxiliary segment (e.g. `__length` for strings),
+/// preserving original column order.
+fn tracked_table_indices_of_column_with_segments<B: SnarkBackend>(
+    table: &arithmetic::table::TrackedTable<B>,
+    column: &Column,
+) -> Vec<usize> {
+    let Some(primary_idx) = tracked_table_index_of_column(table, column) else {
+        return Vec::new();
+    };
+    let tracked = table.tracked_polys();
+    let primary_name = match tracked.get_index(primary_idx) {
+        Some((field, _)) => field.name().to_string(),
+        None => return vec![primary_idx],
+    };
+    let primary_qualifier = tracked
+        .get_index(primary_idx)
+        .and_then(|(field, _)| field.metadata().get(QUALIFIER_METADATA_KEY).cloned());
+
+    let mut out = Vec::with_capacity(2);
+    for (idx, (field, _)) in tracked.iter().enumerate() {
+        if !is_segment_of(field.name(), &primary_name) {
+            continue;
+        }
+        // Tie segments to the primary's qualifier when present so we don't
+        // accidentally hoover up segments belonging to a same-named column
+        // from a different table (self-joins).
+        if let Some(primary_q) = primary_qualifier.as_deref()
+            && let Some(seg_q) = field.metadata().get(QUALIFIER_METADATA_KEY)
+            && seg_q != primary_q
+        {
+            continue;
+        }
+        out.push(idx);
+    }
+    if out.is_empty() {
+        out.push(primary_idx);
+    }
+    out
+}
+
+/// Verifier mirror of `tracked_table_indices_of_column_with_segments`.
+fn tracked_table_oracle_indices_of_column_with_segments<B: SnarkBackend>(
+    table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    column: &Column,
+) -> Vec<usize> {
+    let Some(primary_idx) = tracked_table_oracle_index_of_column(table, column) else {
+        return Vec::new();
+    };
+    let tracked = table.tracked_oracles();
+    let primary_name = match tracked.get_index(primary_idx) {
+        Some((field, _)) => field.name().to_string(),
+        None => return vec![primary_idx],
+    };
+    let primary_qualifier = tracked
+        .get_index(primary_idx)
+        .and_then(|(field, _)| field.metadata().get(QUALIFIER_METADATA_KEY).cloned());
+
+    let mut out = Vec::with_capacity(2);
+    for (idx, (field, _)) in tracked.iter().enumerate() {
+        if !is_segment_of(field.name(), &primary_name) {
+            continue;
+        }
+        if let Some(primary_q) = primary_qualifier.as_deref()
+            && let Some(seg_q) = field.metadata().get(QUALIFIER_METADATA_KEY)
+            && seg_q != primary_q
+        {
+            continue;
+        }
+        out.push(idx);
+    }
+    if out.is_empty() {
+        out.push(primary_idx);
+    }
+    out
+}
+
 // Resolve by qualifier metadata when present to disambiguate self-joins.
 fn tracked_table_index_of_column<B: SnarkBackend>(
     table: &arithmetic::table::TrackedTable<B>,
@@ -536,11 +633,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Verifier-side equivalent of the prover fast path above.
-        if let Some((scope_id, col_idx)) = *self
+        let cached = self
             .verifier_virtual_binding_cache
             .lock()
             .expect("cache lock poisoned")
-        {
+            .clone();
+        if let Some((scope_id, indices)) = cached {
             for scope_weak in &self.scope {
                 let scope = scope_weak
                     .upgrade()
@@ -549,14 +647,27 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                     continue;
                 }
                 let scope_payload = virtualized_ir.payload_for_node(&scope.id());
-                if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
-                    && col_idx < table.tracked_oracles().len()
-                    && table
-                        .schema_ref()
-                        .and_then(|schema| schema.fields().get(col_idx))
-                        .is_some_and(|field| field_matches_column(field, &self.column))
-                {
-                    let subtable = table.tracked_subtable_by_indices(&[col_idx]);
+                let valid = matches!(scope_payload, Some(PayloadStructure::PlanPayload(_))) && {
+                    let table = match scope_payload {
+                        Some(PayloadStructure::PlanPayload(t)) => t,
+                        _ => unreachable!(),
+                    };
+                    let len = table.tracked_oracles().len();
+                    let primary_ok = indices.first().is_some_and(|idx| {
+                        *idx < len
+                            && table
+                                .schema_ref()
+                                .and_then(|schema| schema.fields().get(*idx))
+                                .is_some_and(|field| field_matches_column(field, &self.column))
+                    });
+                    primary_ok && indices.iter().all(|idx| *idx < len)
+                };
+                if valid {
+                    let table = match virtualized_ir.payload_for_node(&scope.id()) {
+                        Some(PayloadStructure::PlanPayload(t)) => t,
+                        _ => unreachable!(),
+                    };
+                    let subtable = table.tracked_subtable_by_indices(&indices);
                     virtualized_ir
                         .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
                     return Ok(());
@@ -565,11 +676,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             }
         }
 
-        // Helper: try to pull the requested column (and activator) from a tracked table oracle.
+        // Helper: try to pull the requested column (with all its segments) from
+        // a tracked table oracle.
         let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
                                   column: &Column| {
-            let col_idx = tracked_table_oracle_index_of_column(table, column)?;
-            Some(table.tracked_subtable_by_indices(&[col_idx]))
+            let indices = tracked_table_oracle_indices_of_column_with_segments(table, column);
+            if indices.is_empty() {
+                return None;
+            }
+            Some((indices.clone(), table.tracked_subtable_by_indices(&indices)))
         };
         // Probe scopes in order and take the first one that contains the column.
         for scope_weak in &self.scope {
@@ -578,15 +693,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 .expect("Column scope should be available during witness generation");
             let scope_payload = virtualized_ir.payload_for_node(&scope.id());
             if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
-                && let Some(subtable) = try_build_subtable(table, &self.column)
+                && let Some((indices, subtable)) = try_build_subtable(table, &self.column)
             {
-                if let Some(col_idx) = tracked_table_oracle_index_of_column(table, &self.column) {
-                    // Record successful binding for the next call.
-                    *self
-                        .verifier_virtual_binding_cache
-                        .lock()
-                        .expect("cache lock poisoned") = Some((scope.id(), col_idx));
-                }
+                *self
+                    .verifier_virtual_binding_cache
+                    .lock()
+                    .expect("cache lock poisoned") = Some((scope.id(), indices));
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
                 return Ok(());

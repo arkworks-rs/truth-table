@@ -47,13 +47,13 @@ impl<B: SnarkBackend> ProofPlanOptimizerRule<B> for PkFkSpecializationRule {
 fn specialize_in_place<B: SnarkBackend>(node: &Arc<Node<B>>, mutated: &mut bool) {
     if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref() {
         let any = lp_node.as_ref() as &dyn Any;
-        if let Some(join_lp_node) = any.downcast_ref::<JoinLpNode<B>>() {
-            if let LogicalPlan::Join(join) = lp_node.lp() {
-                let mode = decide_join_mode(&join);
-                if mode != JoinMode::MANY_TO_MANY {
-                    join_lp_node.set_join_mode(mode);
-                    *mutated = true;
-                }
+        if let Some(join_lp_node) = any.downcast_ref::<JoinLpNode<B>>()
+            && let LogicalPlan::Join(join) = lp_node.lp()
+        {
+            let mode = decide_join_mode(&join);
+            if mode != JoinMode::MANY_TO_MANY {
+                join_lp_node.set_join_mode(mode);
+                *mutated = true;
             }
         }
     }
