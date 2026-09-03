@@ -1,12 +1,17 @@
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
+    utils::remat as remat_gadget,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
+use crate::irs::payloads::PayloadStructure;
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
 use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use ark_std::One;
 
-use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, DFSchemaRef, DataFusionError, Result as DataFusionResult};
@@ -27,6 +32,10 @@ where
     B: SnarkBackend,
 {
     input: Arc<Node<B>>,
+    // The gadget node for proving the rematerialize (compaction) operation:
+    // it asserts that the output table is a permutation of the input's active
+    // rows (see TruthTable paper §6.4 "Compaction" / PIOP 13).
+    gadget: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -47,7 +56,7 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![self.input.clone()]
+        vec![self.input.clone(), self.gadget.clone()]
     }
 }
 
@@ -105,10 +114,36 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
+        id: crate::irs::nodes::NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id_tracked_table(table)),
+            _ => None,
+        };
+        let output_table =
+            virtualized_ir
+                .payload_for_node(&id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(strip_row_id_tracked_table(table)),
+                    _ => None,
+                });
+
+        let (Some(input), Some(output)) = (input_table, output_table) else {
+            return Ok(());
+        };
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(remat_gadget::INPUT_LABEL.to_string(), input);
+        gadget_payload.insert(remat_gadget::OUTPUT_LABEL.to_string(), output);
+        virtualized_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 
@@ -123,7 +158,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
 impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
-        None
+        Some(self.gadget.as_ref().clone())
     }
 }
 
@@ -262,10 +297,36 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     }
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
+        id: crate::irs::nodes::NodeId,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id_tracked_oracle(table)),
+            _ => None,
+        };
+        let output_table =
+            virtualized_ir
+                .payload_for_node(&id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(strip_row_id_tracked_oracle(table)),
+                    _ => None,
+                });
+
+        let (Some(input), Some(output)) = (input_table, output_table) else {
+            return Ok(());
+        };
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(remat_gadget::INPUT_LABEL.to_string(), input);
+        gadget_payload.insert(remat_gadget::OUTPUT_LABEL.to_string(), output);
+        virtualized_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 
@@ -280,8 +341,60 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
 impl<B: SnarkBackend> LpNode<B> {
     pub fn new(input: Arc<Node<B>>) -> Self {
-        Self { input }
+        // `contigous: true` — the output activator is a deterministic
+        // contig-one poly of weight s, so no separate contiguity check is
+        // needed beyond what the wrapped remat gadget provides.
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            remat_gadget::GadgetNode::new(true),
+        )));
+        Self { input, gadget }
     }
+}
+
+fn strip_row_id_tracked_table<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
+    let Some(schema) = table.schema_ref() else {
+        return table.clone();
+    };
+    if !schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        return table.clone();
+    }
+    let mut cols = IndexMap::new();
+    for (field, poly) in table.tracked_polys_iter() {
+        if field.name() != ROW_ID_COL_NAME {
+            cols.insert(field.clone(), poly.clone());
+        }
+    }
+    let fields: Vec<Field> = cols.keys().map(|field| field.as_ref().clone()).collect();
+    let schema = Some(Schema::new_with_metadata(fields, schema.metadata().clone()));
+    TrackedTable::new(schema, cols, table.log_size())
+}
+
+fn strip_row_id_tracked_oracle<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> TrackedTableOracle<B> {
+    let Some(schema) = table.schema_ref() else {
+        return table.clone();
+    };
+    if !schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        return table.clone();
+    }
+    let mut cols = IndexMap::new();
+    for (field, oracle) in table.tracked_oracles_iter() {
+        if field.name() != ROW_ID_COL_NAME {
+            cols.insert(field.clone(), oracle.clone());
+        }
+    }
+    let fields: Vec<Field> = cols.keys().map(|field| field.as_ref().clone()).collect();
+    let schema = Some(Schema::new_with_metadata(fields, schema.metadata().clone()));
+    TrackedTableOracle::new(schema, cols, table.log_size())
 }
 
 /// A logical plan node that indicates that its input should be rematerialized.
@@ -337,6 +450,20 @@ impl UserDefinedLogicalNode for RematerializeLogicalNode {
 
     fn expressions(&self) -> Vec<Expr> {
         Vec::new()
+    }
+
+    /// Rematerialize is a pure pass-through on the logical plan level
+    /// (input.schema() == self.schema()); each output column IS the
+    /// child's same-indexed column. So route parent's requirements to
+    /// the child unchanged. Without this override, the default `None`
+    /// stops projection-pushdown at this boundary — see the parallel
+    /// `necessary_children_exprs` on `ResultCheckLogicalNode` for the
+    /// full rationale and consequence.
+    fn necessary_children_exprs(
+        &self,
+        output_columns: &[usize],
+    ) -> Option<Vec<Vec<usize>>> {
+        Some(vec![output_columns.to_vec()])
     }
 
     fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

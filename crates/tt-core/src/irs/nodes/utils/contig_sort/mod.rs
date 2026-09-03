@@ -842,8 +842,23 @@ fn diff_output_type(data_type: &DataType) -> DataType {
     } else if is_numeric_diff_type(data_type) {
         data_type.clone()
     } else {
-        DataType::Int64
+        // Non-numeric input columns (Boolean, Utf8, Binary, …) get a
+        // sign-only diff shifted from `{-1, 0, 1}` to `{0, 1, 2}` — see
+        // `sign_only_diff_array` and the CASE-expression branch in
+        // `diff_input_on_ordered_via_windows`. The `u8` output lets the
+        // arithmetization encoder route to `MLE::U8` storage (16 MiB at
+        // nv=24) instead of the Field fallback the previous `Int64`
+        // encoding forced via its negative values.
+        DataType::UInt8
     }
+}
+
+/// True when the diff column for `data_type` is emitted as the
+/// `{0, 1, 2}` shifted sign-only encoding (see `diff_output_type`).
+/// Callers of the sign gadget must subtract `1` from the tracked diff
+/// to recover the natural `{-1, 0, 1}` sign semantics.
+pub(crate) fn is_sign_only_diff(data_type: &DataType) -> bool {
+    data_type != &DataType::Date32 && !is_numeric_diff_type(data_type)
 }
 
 fn build_verifier_diff_hint_from_ordered(
@@ -870,7 +885,11 @@ fn sort_specs_for_table_prover<B: SnarkBackend>(
                     .tracked_col_by_ind(*idx)
                     .field_ref()
                     .expect("Expected field ref for Sort input");
+                // Skip both __row_id__ and auxiliary segments (e.g. __length).
+                // The sort/neq machinery sees one tie indicator per logical
+                // sort key — only primary segments belong here.
                 field.name() != ROW_ID_COL_NAME
+                    && arithmetic::encoding::segment_base_name(field.name()).is_none()
             })
             .map(|idx| {
                 let field = input_table
@@ -898,6 +917,7 @@ fn sort_specs_for_table_verifier<B: SnarkBackend>(
                     .field_ref()
                     .expect("Expected field ref for Sort input");
                 field.name() != ROW_ID_COL_NAME
+                    && arithmetic::encoding::segment_base_name(field.name()).is_none()
             })
             .map(|idx| {
                 let field = input_table
@@ -1071,7 +1091,12 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
                 .and_then(|inds| inds.get(pos).copied())
                 .map(|idx| table.tracked_col_by_ind(idx))
         });
-        let (diff_poly, diff_field) = if let Some(diff_col) = diff_from_payload {
+        let input_field_type = input_col
+            .field_ref()
+            .expect("Expected field ref for Sort sign input")
+            .data_type()
+            .clone();
+        let (raw_diff_poly, diff_field) = if let Some(diff_col) = diff_from_payload {
             (
                 diff_col.data_tracked_poly(),
                 diff_col
@@ -1098,6 +1123,18 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
                     .as_ref()
                     .clone(),
             )
+        };
+
+        // Sign-only diff columns arrive as `{0, 1, 2}` shifted from the
+        // natural `{-1, 0, 1}` (see `diff_output_type` / `is_sign_only_diff`
+        // for the memory rationale). Undo the +1 shift before the sign
+        // gadget consumes them so the field-arithmetic sign semantics
+        // are recovered. Subtracting a scalar is O(1) after the
+        // `add_scalar` virtualization in `ark_piop::prover::tracker`.
+        let diff_poly = if is_sign_only_diff(&input_field_type) {
+            raw_diff_poly.sub_scalar_poly(B::F::one())
+        } else {
+            raw_diff_poly
         };
 
         let tie_poly = tie_col.data_tracked_poly();
@@ -1199,7 +1236,12 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
                 .and_then(|inds| inds.get(pos).copied())
                 .map(|idx| table.tracked_col_oracle_by_ind(idx))
         });
-        let (diff_oracle, diff_field) = if let Some(diff_col) = diff_from_payload {
+        let input_field_type = input_col
+            .field_ref()
+            .expect("Expected field ref for Sort sign input")
+            .data_type()
+            .clone();
+        let (raw_diff_oracle, diff_field) = if let Some(diff_col) = diff_from_payload {
             (
                 diff_col.data_tracked_oracle(),
                 diff_col
@@ -1226,6 +1268,15 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
                     .as_ref()
                     .clone(),
             )
+        };
+
+        // Mirror the prover: undo the +1 shift applied to sign-only diff
+        // columns at emission time. See `is_sign_only_diff` and the
+        // prover-side wiring in `populate_sign_payloads_prover`.
+        let diff_oracle = if is_sign_only_diff(&input_field_type) {
+            raw_diff_oracle.sub_scalar_oracle(B::F::one())
+        } else {
+            raw_diff_oracle
         };
 
         let tie_oracle = tie_col.data_tracked_oracle();

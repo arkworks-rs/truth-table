@@ -1,5 +1,8 @@
-use ark_piop::{SnarkBackend, prover::ArgProver, types::CommitmentBinding};
-use datafusion::arrow::datatypes::{Field, Schema};
+use ark_ff::PrimeField;
+use ark_piop::{
+    SnarkBackend, arithmetic::mat_poly::mle::MLE, prover::ArgProver, types::CommitmentBinding,
+};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion::{
     datasource::{MemTable, TableProvider},
     prelude::SessionContext,
@@ -29,6 +32,35 @@ use std::{
     sync::Arc,
 };
 use tracing::{debug, info};
+
+/// Build a side-col data `MLE<F>` that keeps the native small-scalar storage.
+///
+/// The returned MLE uses `MLEStorage::U8` for byte columns and `MLEStorage::U32`
+/// for u32 columns — 32× and 8× smaller than the equivalent field-element
+/// representation. The storage survives across the tracker's Arc clone.
+fn materialize_side_data_mle<F: PrimeField>(
+    data: &arithmetic::encoding::SideColData,
+    log_size: usize,
+) -> Arc<MLE<F>> {
+    debug_assert_eq!(data.len(), 1usize << log_size);
+    let mle = match data {
+        arithmetic::encoding::SideColData::Bytes(bytes) => {
+            MLE::<F>::from_u8s(bytes.clone(), log_size)
+        }
+        arithmetic::encoding::SideColData::U32(vals) => MLE::<F>::from_u32s(vals.clone(), log_size),
+    };
+    Arc::new(mle)
+}
+
+/// Build the contiguous-one activator MLE as bit-packed storage — 256×
+/// smaller than the field-element form.
+fn materialize_side_activator_mle<F: PrimeField>(
+    log_size: usize,
+    active_len: usize,
+) -> Arc<MLE<F>> {
+    Arc::new(MLE::<F>::from_prefix_activator(active_len, log_size))
+}
+
 /// A tracking pass that tracks the prover's arithmetized tables using commitments.
 ///
 /// This pass converts an IR with committed table oracles into an IR with tracked tables; i.e.
@@ -66,7 +98,8 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
 
         let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
+        // Final output table: no side segments — no downstream PIOP consumes them.
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None);
         let tracked_table = Self::track_arith_table_without_commitment(&arith_table, &self.prover)?;
         let gadget_id = root
             .children()
@@ -244,11 +277,12 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
 ) -> TrackedTable<B> {
     debug!(
         poly_count = arith_table.polynomials().len(),
+        side_count = arith_table.side_cols().len(),
         log_size = arith_table.log_size(),
         "tracking arithmetized polynomials with commitments"
     );
     let mut tracked_polys = IndexMap::with_capacity(arith_table.polynomials().len());
-    let mut prover = prover.borrow_mut();
+    let mut prover_borrow = prover.borrow_mut();
     for (field_ref, mle_arc) in arith_table.polynomials() {
         let commitment = oracle
             .commitments()
@@ -263,7 +297,10 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         } else {
             CommitmentBinding::ProofEmitted
         };
-        let tracked_poly = prover
+        // Compression is applied inside `track_mat_mv_p_with_commitment` in
+        // ark-piop — the ArgProver wrapper hands the poly through unchanged,
+        // and the tracker auto-classifies before storing.
+        let tracked_poly = prover_borrow
             .track_mat_mv_poly_with_commitment(mle_arc, commitment, binding)
             .expect("failed to track polynomial with commitment");
         tracked_polys.insert(field_ref.clone(), tracked_poly);
@@ -272,17 +309,85 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         }
     }
 
+    // Side-domain columns: each side col contributes (data, activator) tracked
+    // polys. Side commitments are always freshly emitted by the prover (even
+    // when the row-domain side came from a cached ctx oracle) so they bind as
+    // `ProofEmitted` regardless of `external_commitments`.
+    let mut tracked_side_cols: IndexMap<FieldRef, arithmetic::col::PolyBundle<B>> =
+        IndexMap::with_capacity(arith_table.side_cols().len());
+    for (field_ref, side) in arith_table.side_cols() {
+        let side_oracle = oracle
+            .side_commitments()
+            .get(field_ref)
+            .expect("commitment oracle missing side col entry");
+        // Materialize transient MLEs from raw bytes / active_len so the
+        // tracker can clone its own Arc. The local handles drop at the end
+        // of the loop body; the tracker keeps its clones for the proof
+        // lifetime.
+        let data_mle = materialize_side_data_mle::<B::F>(&side.data, side.log_size);
+        let data_poly = prover_borrow
+            .track_mat_mv_poly_with_commitment(
+                &data_mle,
+                side_oracle.data.clone(),
+                CommitmentBinding::ProofEmitted,
+            )
+            .expect("failed to track side data polynomial with commitment");
+        let act_mle = materialize_side_activator_mle::<B::F>(side.log_size, side.active_len);
+        let activator_poly = prover_borrow
+            .track_mat_mv_poly_with_commitment(
+                &act_mle,
+                side_oracle.activator.clone(),
+                CommitmentBinding::ProofEmitted,
+            )
+            .expect("failed to track side activator polynomial with commitment");
+        drop(data_mle);
+        drop(act_mle);
+        total_committed.set(total_committed.get() + 2);
+        tracked_side_cols.insert(
+            field_ref.clone(),
+            arithmetic::col::PolyBundle::new(data_poly, Some(activator_poly)),
+        );
+    }
+
     debug_assert_eq!(
         arith_table.log_size(),
         oracle.log_size(),
         "commitment oracle log_size should match arith table"
     );
+    // Build the TrackedTable first, then derive the schema from the
+    // POST-REGROUP row-domain field order (`tracked.tracked_polys()` after
+    // `regroup_flat_into_tracked_cols` groups primary+aux per source col).
+    //
+    // Rationale: `arith_table.polynomials()` may interleave a source column's
+    // aux row-domain segments after other primary columns (e.g. the string
+    // encoder emits `[primary_A, primary_B, aux_A_len, aux_B_len]`), but the
+    // regroup pulls each aux under its owning primary and the verifier's
+    // `TrackedTableOracle::from_tracked_table` walks the post-regroup order
+    // (`all_tracked_cols`) when populating its data_map. If the schema were
+    // built from the pre-regroup insertion order, its field-per-position
+    // would diverge from the data_map's field-per-position and
+    // `TrackedTableOracle::check_new_args` would trip
+    // `Schema fields must match the tracked oracle fields`. Deriving from
+    // the post-regroup iterator guarantees agreement in both directions.
+    let table = TrackedTable::new_with_side_cols(
+        None,
+        tracked_polys,
+        arith_table.log_size(),
+        tracked_side_cols,
+    );
+    let post_regroup_fields: Vec<Field> = table
+        .tracked_polys()
+        .keys()
+        .map(|f| f.as_ref().clone())
+        .collect();
     let schema = tracked_schema_with_oracle_metadata(
         arith_table.schema(),
         oracle.schema_ref(),
-        tracked_polys.keys().map(|f| f.as_ref().clone()).collect(),
+        post_regroup_fields,
     );
-    TrackedTable::new(schema, tracked_polys, arith_table.log_size())
+    let mut table = table;
+    table.set_schema(schema);
+    table
 }
 
 fn tracked_schema_with_oracle_metadata(

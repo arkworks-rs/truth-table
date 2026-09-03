@@ -93,6 +93,7 @@ pub struct VerifierFullBenchState {
 pub struct ProverBenchIteration {
     pub prover: TTProver<B>,
     pub query: String,
+    pub case_name: &'static str,
 }
 
 static PROOF_CACHE: OnceLock<Mutex<HashMap<&'static str, Arc<BenchProof>>>> = OnceLock::new();
@@ -226,6 +227,7 @@ pub fn prepare_prover_iteration(assets: &BenchAssets) -> ProverBenchIteration {
     ProverBenchIteration {
         prover,
         query: assets.case.query.to_string(),
+        case_name: assets.case.name,
     }
 }
 
@@ -252,6 +254,7 @@ pub fn prepare_prover_iteration_with_rules(
     ProverBenchIteration {
         prover,
         query: assets.case.query.to_string(),
+        case_name: assets.case.name,
     }
 }
 
@@ -298,13 +301,16 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, 
         .size_breakdown()
         .expect("snark proof size breakdown for bench");
 
-    let (result_rows_count, result_schema, result_size_bytes) =
+    let (result_rows_count, result_schema, result_size_bytes, result_preview_rows) =
         result_memtable_stats(&output_memtable).expect("compute result memtable stats for bench");
+    let (_proof_path, parquet_path) = bench_proof_cache_paths(iteration.case_name);
     stats_layer::emit_results_stats(
         &iteration.query,
         result_rows_count,
         &result_schema,
         result_size_bytes,
+        &result_preview_rows,
+        &parquet_path.to_string_lossy(),
     );
     stats_layer::emit_proof_size_bytes(
         &iteration.query,
@@ -343,7 +349,14 @@ fn breakdown_grandchild_size(breakdown: &SizeBreakdown, key: &str, child_key: &s
         .unwrap_or(0)
 }
 
-fn result_memtable_stats(mem_table: &Arc<MemTable>) -> Result<(usize, String, usize)> {
+/// Row cap for the JSONL preview embedded in results stats. Full
+/// results always live at the sidecar parquet (see
+/// `bench_proof_cache_paths`).
+const RESULTS_PREVIEW_ROW_CAP: usize = 100;
+
+fn result_memtable_stats(
+    mem_table: &Arc<MemTable>,
+) -> Result<(usize, String, usize, String)> {
     let ctx = SessionContext::new();
     let batches = block_on(async {
         let table: Arc<dyn TableProvider> = mem_table.clone();
@@ -369,7 +382,43 @@ fn result_memtable_stats(mem_table: &Arc<MemTable>) -> Result<(usize, String, us
         writer.finish()?;
     }
 
-    Ok((rows_count, schema, serialized.len()))
+    let preview_json = build_preview_json(&batches, RESULTS_PREVIEW_ROW_CAP)?;
+
+    Ok((rows_count, schema, serialized.len(), preview_json))
+}
+
+/// Serialize up to `row_cap` rows from `batches` as a JSON array of
+/// objects (via `arrow::json::ArrayWriter`). Empty result → `"[]"`.
+fn build_preview_json(
+    batches: &[datafusion::arrow::record_batch::RecordBatch],
+    row_cap: usize,
+) -> Result<String> {
+    use datafusion::arrow::json::ArrayWriter;
+
+    let mut remaining = row_cap;
+    let mut buf = Vec::new();
+    {
+        let mut writer = ArrayWriter::new(&mut buf);
+        for batch in batches {
+            if remaining == 0 {
+                break;
+            }
+            let take = remaining.min(batch.num_rows());
+            if take == batch.num_rows() {
+                writer.write(batch)?;
+            } else {
+                let sliced = batch.slice(0, take);
+                writer.write(&sliced)?;
+            }
+            remaining -= take;
+        }
+        writer.finish()?;
+    }
+    if buf.is_empty() {
+        return Ok("[]".to_string());
+    }
+    Ok(String::from_utf8(buf)
+        .with_context(|| "arrow json preview should be UTF-8")?)
 }
 
 pub fn ensure_proof(assets: &BenchAssets) -> Arc<BenchProof> {

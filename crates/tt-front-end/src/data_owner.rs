@@ -165,7 +165,9 @@ impl<B: SnarkBackend> TTDataOwner<B> {
             materialized_ir.display_graphviz(true)
         );
         let arithmetized_ir = materialized_ir.apply_local_pass_parallel(
-            &tt_core::prover::passes::arithmetization::ArithmetizationPass::new(),
+            &tt_core::prover::passes::arithmetization::ArithmetizationPass::new(
+                materialized_ir.tree().required_side_columns(),
+            ),
         );
         drop(materialized_ir);
         debug!(

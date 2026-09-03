@@ -4,7 +4,12 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::JoinHandle,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use chrono::Utc;
@@ -19,6 +24,95 @@ use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 const BENCH_STATS_TARGET: &str = "bench_stats";
 pub const BENCH_STATS_JSONL_PATH: &str = "../../tt-results/raw/bench_stats.jsonl";
 
+// See stats_jsonl.rs for docs on the memory-sampling design; this is a
+// duplicated copy for the bench-only subscriber.
+const MEMORY_SAMPLE_INTERVAL_MS: u64 = 10;
+
+#[cfg(target_os = "linux")]
+fn read_rss_bytes() -> Option<u64> {
+    let content = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in content.lines() {
+        let Some(rest) = line.strip_prefix("VmRSS:") else {
+            continue;
+        };
+        let mut parts = rest.split_whitespace();
+        let n: u64 = parts.next()?.parse().ok()?;
+        let unit = parts.next()?;
+        return match unit {
+            "kB" | "KB" => Some(n * 1024),
+            _ => None,
+        };
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_rss_bytes() -> Option<u64> {
+    None
+}
+
+fn wall_clock_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+struct MemorySampler {
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+    samples: Arc<Mutex<Vec<(u64, u64)>>>,
+}
+
+impl MemorySampler {
+    /// Each sample also gets streamed to `sink` immediately as a
+    /// `{"kind":"mem_sample",...}` line and flushed. This is what
+    /// survives an OOM kill: even though the aggregate bench_query
+    /// record is only written on span close (which never runs if the
+    /// process gets SIGKILL'd), the individual mem_sample lines are
+    /// already on disk by the time the killer fires. The dashboard
+    /// reconstructs the RSS curve for killed queries from those lines.
+    fn start(sink: Arc<Mutex<JsonlSink>>, query: String) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let samples: Arc<Mutex<Vec<(u64, u64)>>> = Arc::new(Mutex::new(Vec::new()));
+        let stop_thread = stop.clone();
+        let samples_thread = samples.clone();
+        let handle = std::thread::Builder::new()
+            .name("tt-mem-sampler".to_string())
+            .spawn(move || {
+                let interval = Duration::from_millis(MEMORY_SAMPLE_INTERVAL_MS);
+                while !stop_thread.load(Ordering::Relaxed) {
+                    if let Some(rss) = read_rss_bytes() {
+                        let ms = wall_clock_ms();
+                        if let Ok(mut v) = samples_thread.lock() {
+                            v.push((ms, rss));
+                        }
+                        let entry = json!({
+                            "kind": "mem_sample",
+                            "query": query,
+                            "wall_ms": ms,
+                            "rss_bytes": rss,
+                        });
+                        if let Ok(mut s) = sink.lock() {
+                            let _ = s.write_entry(&entry);
+                        }
+                    }
+                    std::thread::sleep(interval);
+                }
+            })
+            .ok();
+        Self { stop, handle, samples }
+    }
+
+    fn stop_and_take(&mut self) -> Vec<(u64, u64)> {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+        self.samples.lock().map(|v| v.clone()).unwrap_or_default()
+    }
+}
+
 pub struct BenchStatsJsonlLayer {
     sink: Arc<Mutex<JsonlSink>>,
     pending_records: Arc<Mutex<BTreeMap<String, PendingBenchRecord>>>,
@@ -26,6 +120,56 @@ pub struct BenchStatsJsonlLayer {
 
 #[derive(Clone)]
 struct QueryLabel(String);
+
+/// Open timestamp of an ark-piop prover span we derive a timing from,
+/// stored per-span so nested / repeated spans each keep their own clock.
+///
+/// ark-piop used to measure these regions with its own `Instant`s and ship
+/// the durations as `bench_stats` events, duplicating clocks that
+/// `#[instrument]` already ran over the same code. The spans are now the
+/// only measurement. ark-piop owns the name tables
+/// ([`ark_piop::prover::tracker::SNARK_PROVER_TIMED_SPANS`] and
+/// [`ark_piop::prover::tracker::SC_REGION_SPANS`]) so a rename on their
+/// side can't silently drop a metric here, and the record keys are
+/// unchanged, so the dashboard sees the same JSON as before.
+struct SpanStart(Instant);
+
+/// Marks a `sc_bucket` span and pins which bucket it is. Every
+/// [`ark_piop::prover::tracker::SC_REGION_SPANS`] span nested inside one
+/// belongs to that bucket — that nesting is how a region duration finds
+/// its bucket without ark-piop threading an index through the call.
+struct BucketSpan {
+    index: u64,
+    wall_start_ms: u64,
+}
+
+/// Marks a [`front_end::prover::PROVER_PASS_SPAN`] span and holds the two
+/// clocks it reports on: a monotonic one for the duration and an epoch one
+/// for the timeline overlay.
+struct PassSpan {
+    pass: String,
+    wall_start_ms: u64,
+    started: Instant,
+}
+
+/// Timings for one sumcheck bucket, assembled from its `sc_bucket` span and
+/// the region spans nested inside it.
+///
+/// ark-piop emits each bucket's *claim shape* as an `sc_buckets_json` blob
+/// once every bucket span has closed; [`PendingBenchRecord::merge`] splices
+/// these timings in by index so the record keeps the shape it had when the
+/// prover measured the durations itself.
+///
+/// `wall_start_ms` / `wall_end_ms` let the dashboard overlay bucket
+/// boundaries on the RSS-over-time curve. They are stamped here rather than
+/// in ark-piop on purpose: the sampler drawing that curve runs in this
+/// process, so these timestamps share its clock exactly.
+#[derive(Default)]
+struct BucketTiming {
+    wall_start_ms: u64,
+    wall_end_ms: u64,
+    regions: BTreeMap<String, f64>,
+}
 
 impl BenchStatsJsonlLayer {
     pub fn new_default() -> std::io::Result<Self> {
@@ -49,6 +193,18 @@ impl BenchStatsJsonlLayer {
             pending_records: Arc::new(Mutex::new(BTreeMap::new())),
         })
     }
+
+    /// Get-or-create this query's pending record and hand it to `f`.
+    fn with_record<F>(&self, query: String, f: F)
+    where
+        F: FnOnce(&mut PendingBenchRecord),
+    {
+        if let Ok(mut pending_records) = self.pending_records.lock() {
+            f(pending_records
+                .entry(query.clone())
+                .or_insert_with(|| PendingBenchRecord::new(query)));
+        }
+    }
 }
 
 impl<S> Layer<S> for BenchStatsJsonlLayer
@@ -58,11 +214,47 @@ where
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
         let mut visitor = FieldValueVisitor::default();
         attrs.record(&mut visitor);
+
+        // Start the clock for prover regions we time from the span itself.
+        let meta = attrs.metadata();
+        if meta.target() == ark_piop::prover::tracker::SNARK_PROVER_SPAN_TARGET
+            && let Some(span) = ctx.span(id)
+        {
+            if meta.name() == ark_piop::prover::tracker::SC_BUCKET_SPAN {
+                let index = visitor
+                    .fields
+                    .get("bucket_index")
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or(0);
+                span.extensions_mut().insert(BucketSpan {
+                    index,
+                    wall_start_ms: wall_clock_ms(),
+                });
+            } else if meta.name() == front_end::prover::PROVER_PASS_SPAN {
+                let pass = visitor
+                    .fields
+                    .get(front_end::prover::PROVER_PASS_FIELD)
+                    .cloned()
+                    .unwrap_or_default();
+                span.extensions_mut().insert(PassSpan {
+                    pass,
+                    wall_start_ms: wall_clock_ms(),
+                    started: Instant::now(),
+                });
+            } else if ark_piop::prover::tracker::is_sc_region_span(meta.name())
+                || ark_piop::prover::tracker::snark_prover_timing_key(meta.name()).is_some()
+            {
+                span.extensions_mut().insert(SpanStart(Instant::now()));
+            }
+        }
+
         let query = visitor.fields.remove("query");
         if let (Some(span), Some(query)) = (ctx.span(id), query)
             && !query.is_empty()
         {
-            span.extensions_mut().insert(QueryLabel(query));
+            let mut ext = span.extensions_mut();
+            ext.insert(QueryLabel(query.clone()));
+            ext.insert(MemorySampler::start(self.sink.clone(), query));
         }
     }
 
@@ -74,6 +266,63 @@ where
         let mut visitor = FieldValueVisitor::default();
         event.record(&mut visitor);
         let mut fields = visitor.fields;
+
+        // Tracker snapshots stream to disk immediately as their own JSONL
+        // records so they survive an OOM kill (the aggregate bench_query
+        // record never gets written if the span doesn't close). The
+        // dashboard picks them up via a `kind: "tracker_snapshot"`
+        // filter, same pattern as `mem_sample`.
+        if let Some(payload) = fields.remove("tracker_snapshot_json") {
+            let q = fields
+                .get("query")
+                .cloned()
+                .or_else(|| query_from_scope(&ctx, event))
+                .unwrap_or_default();
+            let parsed: Value =
+                serde_json::from_str(&payload).unwrap_or_else(|_| Value::String(payload));
+            let entry = json!({
+                "kind": "tracker_snapshot",
+                "query": q,
+                "snapshot": parsed,
+            });
+            if let Ok(mut sink) = self.sink.lock() {
+                let _ = sink.write_entry(&entry);
+            }
+            return;
+        }
+
+        // Sumcheck stream-policy decisions: one event per `prover_init`
+        // call. Streamed to its own JSONL line for OOM survival AND
+        // aggregated into the pending bench_query record so multiple
+        // runs of the same query can be told apart in the dashboard
+        // (streamed lines only carry the query name, not the run's
+        // timestamp, so they'd merge across runs otherwise).
+        if let Some(payload) = fields.remove("sumcheck_stream_decision_json") {
+            let q = fields
+                .get("query")
+                .cloned()
+                .or_else(|| query_from_scope(&ctx, event))
+                .unwrap_or_default();
+            let parsed: Value =
+                serde_json::from_str(&payload).unwrap_or_else(|_| Value::String(payload));
+            let entry = json!({
+                "kind": "sumcheck_stream_decision",
+                "query": q.clone(),
+                "decision": parsed.clone(),
+            });
+            if let Ok(mut sink) = self.sink.lock() {
+                let _ = sink.write_entry(&entry);
+            }
+            if !q.is_empty()
+                && let Ok(mut pending_records) = self.pending_records.lock()
+            {
+                let record = pending_records
+                    .entry(q.clone())
+                    .or_insert_with(|| PendingBenchRecord::new(q));
+                record.stream_decisions.push(parsed);
+            }
+            return;
+        }
 
         if let Some(benchmark) = fields.remove("benchmark") {
             let case = fields.remove("case").unwrap_or_default();
@@ -129,19 +378,117 @@ where
         let Some(span) = ctx.span(&id) else {
             return;
         };
-        let extensions = span.extensions();
-        let Some(label) = extensions.get::<QueryLabel>() else {
-            return;
-        };
 
-        let query = label.0.clone();
+        // Prover timings: the span's own lifetime is the measurement. These
+        // spans never hold a QueryLabel, so they exit before the bench_query
+        // handling below. Each `extensions_mut()` guard is released at its
+        // semicolon, before we walk ancestor spans for the query / bucket.
+        let span_start = span.extensions_mut().remove::<SpanStart>();
+        if let Some(SpanStart(started)) = span_start {
+            let duration_s = started.elapsed().as_secs_f64();
+            let name = span.name();
+            let bucket_index = bucket_index_from_scope(&ctx, &id);
+            if let Some(query) = query_from_span_scope(&ctx, &id) {
+                self.with_record(query, |record| {
+                    if let Some(key) = ark_piop::prover::tracker::snark_prover_timing_key(name) {
+                        record
+                            .snark_prover
+                            .insert(key.to_string(), Value::String(duration_s.to_string()));
+                    } else {
+                        // A bucket-pipeline region. It counts twice: once
+                        // toward the cross-bucket total the old aggregate
+                        // event carried, and once against its own bucket.
+                        *record
+                            .piop_region_totals
+                            .entry(name.to_string())
+                            .or_insert(0.0) += duration_s;
+                        if let Some(index) = bucket_index {
+                            *record
+                                .bucket_timings
+                                .entry(index)
+                                .or_default()
+                                .regions
+                                .entry(name.to_string())
+                                .or_insert(0.0) += duration_s;
+                        }
+                    }
+                });
+            }
+            return;
+        }
+
+        // A prover pass closed. Both endpoints are real measurements here:
+        // the start stamp is taken at span open rather than back-derived
+        // from `end - duration` the way the old event pair had to.
+        let pass_span = span.extensions_mut().remove::<PassSpan>();
+        if let Some(PassSpan {
+            pass,
+            wall_start_ms,
+            started,
+        }) = pass_span
+        {
+            let duration_s = started.elapsed().as_secs_f64();
+            let wall_end_ms = wall_clock_ms();
+            if !pass.is_empty()
+                && let Some(query) = query_from_span_scope(&ctx, &id)
+            {
+                self.with_record(query, |record| {
+                    record.prover.insert(
+                        format!("prover_time_{pass}_s"),
+                        Value::String(duration_s.to_string()),
+                    );
+                    record.prover_pass_spans.push(json!({
+                        "pass": pass,
+                        "wall_start_ms": wall_start_ms,
+                        "wall_end_ms": wall_end_ms,
+                        "duration_s": duration_s,
+                    }));
+                });
+            }
+            return;
+        }
+
+        // A whole bucket closed: stamp its wall-clock boundaries. Its region
+        // spans have already closed and seeded the entry, hence or_default.
+        let bucket_span = span.extensions_mut().remove::<BucketSpan>();
+        if let Some(BucketSpan {
+            index,
+            wall_start_ms,
+        }) = bucket_span
+        {
+            let wall_end_ms = wall_clock_ms();
+            if let Some(query) = query_from_span_scope(&ctx, &id) {
+                self.with_record(query, |record| {
+                    let timing = record.bucket_timings.entry(index).or_default();
+                    timing.wall_start_ms = wall_start_ms;
+                    timing.wall_end_ms = wall_end_ms;
+                });
+            }
+            return;
+        }
+
+        let query;
+        let memory_samples;
+        {
+            let mut extensions = span.extensions_mut();
+            let Some(label) = extensions.get_mut::<QueryLabel>() else {
+                return;
+            };
+            query = label.0.clone();
+            memory_samples = extensions
+                .get_mut::<MemorySampler>()
+                .map(|s| s.stop_and_take())
+                .unwrap_or_default();
+        }
+
         let record = self
             .pending_records
             .lock()
             .ok()
             .and_then(|mut pending_records| pending_records.remove(&query));
 
-        if let Some(record) = record {
+        if let Some(mut record) = record {
+            record.memory_samples = memory_samples;
             let entry = record.into_json();
             if let Ok(mut sink) = self.sink.lock()
                 && let Err(err) = sink.write_entry(&entry)
@@ -154,6 +501,32 @@ where
             }
         }
     }
+}
+
+/// Nearest enclosing `sc_bucket` span's index, or `None` outside one.
+/// Walks leaf-first so a region span lands in the bucket it actually ran in.
+fn bucket_index_from_scope<S>(ctx: &Context<'_, S>, id: &Id) -> Option<u64>
+where
+    S: Subscriber + for<'span> LookupSpan<'span>,
+{
+    ctx.span_scope(id)?
+        .find_map(|span| span.extensions().get::<BucketSpan>().map(|b| b.index))
+}
+
+/// Same walk as [`query_from_scope`] but rooted at a span rather than an
+/// event — used to attribute a closing prover-timing span to its
+/// enclosing `bench_query`.
+fn query_from_span_scope<S>(ctx: &Context<'_, S>, id: &Id) -> Option<String>
+where
+    S: Subscriber + for<'span> LookupSpan<'span>,
+{
+    let mut query = None;
+    for span in ctx.span_scope(id)?.from_root() {
+        if let Some(label) = span.extensions().get::<QueryLabel>() {
+            query = Some(label.0.clone());
+        }
+    }
+    query
 }
 
 fn query_from_scope<S>(ctx: &Context<'_, S>, event: &Event<'_>) -> Option<String>
@@ -195,6 +568,20 @@ struct PendingBenchRecord {
     proof_size_fields: Map<String, Value>,
     proof_size_crypto_breakdown: Map<String, Value>,
     proof_size_non_crypto_breakdown: Map<String, Value>,
+    buckets: Option<Value>,
+    /// Planner inputs (one per side: prover and verifier run the same
+    /// model over the same stats, so both copies are kept as a cross-check).
+    plan_inputs: Vec<Value>,
+    /// Span-derived timings keyed by `bucket_index`, spliced into `buckets`
+    /// when ark-piop's claim-shape blob arrives. See [`BucketTiming`].
+    bucket_timings: BTreeMap<u64, BucketTiming>,
+    /// Region durations summed across every bucket, materialised into
+    /// `snark_prover` at [`PendingBenchRecord::into_json`] under the
+    /// `snark_prover_piop_<region>_time_s` keys the dashboard reads.
+    piop_region_totals: BTreeMap<String, f64>,
+    memory_samples: Vec<(u64, u64)>,
+    stream_decisions: Vec<Value>,
+    prover_pass_spans: Vec<Value>,
     extra: Map<String, Value>,
 }
 
@@ -211,6 +598,13 @@ impl PendingBenchRecord {
             proof_size_fields: Map::new(),
             proof_size_crypto_breakdown: Map::new(),
             proof_size_non_crypto_breakdown: Map::new(),
+            buckets: None,
+            plan_inputs: Vec::new(),
+            bucket_timings: BTreeMap::new(),
+            piop_region_totals: BTreeMap::new(),
+            memory_samples: Vec::new(),
+            stream_decisions: Vec::new(),
+            prover_pass_spans: Vec::new(),
             extra: Map::new(),
         }
     }
@@ -218,18 +612,31 @@ impl PendingBenchRecord {
     fn merge(&mut self, fields: Map<String, Value>) {
         let mut fields = fields;
 
+        // Per-bucket sumcheck stats arrive as a JSON blob in one field.
+        // Parse and hoist it into `self.buckets`; last write wins.
+        if let Some(Value::String(blob)) = fields.remove("sc_buckets_json") {
+            match serde_json::from_str::<Value>(&blob) {
+                Ok(mut parsed) => {
+                    self.splice_bucket_timings(&mut parsed);
+                    self.buckets = Some(parsed);
+                }
+                Err(err) => eprintln!("failed to parse sc_buckets_json: {err}"),
+            }
+        }
+
+        // The bucket stats above describe the buckets that ran; this is what
+        // the planner saw beforehand, which a merged bucket no longer reveals.
+        if let Some(Value::String(blob)) = fields.remove("sc_plan_input_json") {
+            match serde_json::from_str::<Value>(&blob) {
+                Ok(parsed) => self.plan_inputs.push(parsed),
+                Err(err) => eprintln!("failed to parse sc_plan_input_json: {err}"),
+            }
+        }
+
         if let (Some(Value::String(plan_name)), Some(plan_graphviz)) =
             (fields.remove("plan_name"), fields.remove("plan_graphviz"))
         {
             self.plans.insert(plan_name, plan_graphviz);
-        }
-
-        if let (Some(Value::String(pass_name)), Some(pass_seconds)) = (
-            fields.remove("prover_time_pass"),
-            fields.remove("prover_time_seconds"),
-        ) {
-            self.prover
-                .insert(format!("prover_time_{pass_name}_s"), pass_seconds);
         }
 
         for (key, value) in fields {
@@ -241,7 +648,11 @@ impl PendingBenchRecord {
                     let normalized = key.strip_prefix("plan_").unwrap_or(&key).to_string();
                     self.plans.insert(normalized, value);
                 }
-                "results_rows_count" | "results_schema" | "results_size_bytes" => {
+                "results_rows_count"
+                | "results_schema"
+                | "results_size_bytes"
+                | "results_preview_rows"
+                | "results_parquet_path" => {
                     let normalized = key.strip_prefix("results_").unwrap_or(&key).to_string();
                     self.results.insert(normalized, value);
                 }
@@ -283,7 +694,74 @@ impl PendingBenchRecord {
         }
     }
 
-    fn into_json(self) -> Value {
+    /// Fold span-derived timings into ark-piop's per-bucket claim blob, so
+    /// the emitted record keeps the exact shape it had when the prover
+    /// measured the durations itself: a `timing` object of
+    /// `<region>_time_s` keys plus `total_time_s`, and the bucket's
+    /// wall-clock boundaries.
+    ///
+    /// A region that never ran (a bucket that short-circuits before degree
+    /// reduction) reports 0.0 rather than being omitted — the old
+    /// `ScCompileTimingBreakdown` was a fixed struct of `f64`s and the
+    /// dashboard still expects every key to be present.
+    fn splice_bucket_timings(&self, parsed: &mut Value) {
+        let Some(buckets) = parsed.get_mut("buckets").and_then(Value::as_array_mut) else {
+            return;
+        };
+        for bucket in buckets {
+            let Some(index) = bucket.get("index").and_then(Value::as_u64) else {
+                continue;
+            };
+            let Some(entry) = bucket.as_object_mut() else {
+                continue;
+            };
+            // A bucket with no recorded spans still gets a full zeroed
+            // `timing` object, so every entry in the array has one shape.
+            let timing = self.bucket_timings.get(&index);
+            let mut total_time_s = 0.0;
+            let mut timing_json = Map::new();
+            for region in ark_piop::prover::tracker::SC_REGION_SPANS {
+                let seconds = timing
+                    .and_then(|t| t.regions.get(*region))
+                    .copied()
+                    .unwrap_or(0.0);
+                total_time_s += seconds;
+                timing_json.insert(format!("{region}_time_s"), json!(seconds));
+            }
+            timing_json.insert("total_time_s".to_string(), json!(total_time_s));
+            entry.insert(
+                "wall_start_ms".to_string(),
+                json!(timing.map(|t| t.wall_start_ms).unwrap_or(0)),
+            );
+            entry.insert(
+                "wall_end_ms".to_string(),
+                json!(timing.map(|t| t.wall_end_ms).unwrap_or(0)),
+            );
+            entry.insert("timing".to_string(), Value::Object(timing_json));
+        }
+    }
+
+    fn into_json(mut self) -> Value {
+        // Cross-bucket region totals, filed under the same keys ark-piop's
+        // old `snark_prover_piop_breakdown` event carried. Stringified to
+        // match how every other numeric field reaches this map.
+        //
+        // Every region gets a key, including stages that never ran (a bucket
+        // can short-circuit before degree reduction). That event was a fixed
+        // struct of `f64`s, so a stage that didn't run reported 0 rather than
+        // going missing, and the dashboard still expects the full set. Keyed
+        // off bucket_timings, not piop_region_totals, so the whole block stays
+        // absent when no bucket ran at all — which is what the old
+        // `buckets.is_empty()` early return did.
+        if !self.bucket_timings.is_empty() {
+            for region in ark_piop::prover::tracker::SC_REGION_SPANS {
+                let seconds = self.piop_region_totals.get(*region).copied().unwrap_or(0.0);
+                self.snark_prover.insert(
+                    format!("snark_prover_piop_{region}_time_s"),
+                    Value::String(seconds.to_string()),
+                );
+            }
+        }
         let mut root = Map::new();
         root.insert(
             "timestamp".to_string(),
@@ -307,7 +785,9 @@ impl PendingBenchRecord {
                 json!({
                     "Rows Count": self.results.get("rows_count").cloned().unwrap_or(Value::Null),
                     "Schema": self.results.get("schema").cloned().unwrap_or(Value::Null),
-                    "Size": self.results.get("size_bytes").cloned().unwrap_or(Value::Null)
+                    "Size": self.results.get("size_bytes").cloned().unwrap_or(Value::Null),
+                    "preview_rows": self.results.get("preview_rows").cloned().unwrap_or(Value::Null),
+                    "parquet_path": self.results.get("parquet_path").cloned().unwrap_or(Value::Null)
                 }),
             );
         }
@@ -366,6 +846,41 @@ impl PendingBenchRecord {
                         "breakdown": self.proof_size_non_crypto_breakdown
                     }
                 }),
+            );
+        }
+        if let Some(buckets) = self.buckets {
+            root.insert("sc_buckets".to_string(), buckets);
+        }
+        if !self.plan_inputs.is_empty() {
+            root.insert("sc_plan_inputs".to_string(), Value::Array(self.plan_inputs));
+        }
+        if !self.memory_samples.is_empty() {
+            let peak = self.memory_samples.iter().map(|(_, r)| *r).max().unwrap_or(0);
+            let samples_json: Vec<Value> = self
+                .memory_samples
+                .iter()
+                .map(|(t, r)| json!([*t, *r]))
+                .collect();
+            root.insert(
+                "memory".to_string(),
+                json!({
+                    "peak_rss_bytes": peak,
+                    "sample_count": samples_json.len(),
+                    "sample_interval_ms": MEMORY_SAMPLE_INTERVAL_MS,
+                    "samples": samples_json,
+                }),
+            );
+        }
+        if !self.stream_decisions.is_empty() {
+            root.insert(
+                "stream_decisions".to_string(),
+                Value::Array(self.stream_decisions),
+            );
+        }
+        if !self.prover_pass_spans.is_empty() {
+            root.insert(
+                "prover_pass_spans".to_string(),
+                Value::Array(self.prover_pass_spans),
             );
         }
         if !self.extra.is_empty() {
@@ -597,13 +1112,22 @@ pub fn emit_proof_size_bytes(
     );
 }
 
-pub fn emit_results_stats(query: &str, rows_count: usize, schema: &str, size_bytes: usize) {
+pub fn emit_results_stats(
+    query: &str,
+    rows_count: usize,
+    schema: &str,
+    size_bytes: usize,
+    preview_rows: &str,
+    parquet_path: &str,
+) {
     tracing::info!(
         target: BENCH_STATS_TARGET,
         query,
         results_rows_count = rows_count,
         results_schema = schema,
         results_size_bytes = size_bytes,
+        results_preview_rows = preview_rows,
+        results_parquet_path = parquet_path,
         "results"
     );
 }

@@ -12,6 +12,7 @@ use ark_std::fmt::Debug;
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 use derivative::Derivative;
 use indexmap::IndexMap;
+use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::sync::{Arc, Weak};
 
@@ -85,6 +86,21 @@ where
     /// Get a node by its ID from the arena.
     pub fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Node<B>>> {
         self.arena.get(node_id)
+    }
+
+    /// Union of [`IsNode::required_side_columns`] over every node: the
+    /// string columns some white-box string gadget (e.g. `Like`) will
+    /// consume char-level side polys for. Arithmetization (prover) and
+    /// tracking (verifier) emit/expect side polys only for these columns;
+    /// every other string column carries just its hash + length encoding
+    /// (paper: "Dropping Auxiliary Columns"). Both sides derive the set
+    /// from the same tree, so no wire hint is needed.
+    pub fn required_side_columns(&self) -> BTreeSet<String> {
+        let mut cols = BTreeSet::new();
+        for node in self.arena.values() {
+            cols.extend(node.required_side_columns());
+        }
+        cols
     }
 
     /// Display the tree in Graphviz DOT format.

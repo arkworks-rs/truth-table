@@ -10,8 +10,19 @@ use anyhow::{Context, Result, anyhow};
 use ark_piop::setup::KeyGenerator;
 use ark_serialize::CanonicalSerialize;
 
-pub const DEFAULT_TEST_LOG_SIZE: usize = 19;
-pub const DEFAULT_BENCH_LOG_SIZE: usize = 21;
+// Test SRS size. Sized to fit the largest char-domain side polynomial for
+// test-scale TPC-H tables:
+// lineitem.l_comment at 2^19 rows × ~15 avg active chars → 7.9M active
+// chars → next_pow2 = 2^23. (Row-domain-only needs just 19; an undersized
+// value fails with `TooLargePolynomial`.) If you enlarge the test parquet
+// files or add columns with longer strings, bump again and regenerate the
+// test keys (they auto-regenerate on the next test run via
+// `resolve_key_paths`).
+pub const DEFAULT_TEST_LOG_SIZE: usize = 23;
+// Bench SRS size. Row-domain polynomials alone need 21 at bench scale;
+// the char-domain side polys require ~25 (lineitem.l_comment). Changing it
+// means regenerating the bench setup keys via `tt setup --size bench`.
+pub const DEFAULT_BENCH_LOG_SIZE: usize = 25;
 pub const DEFAULT_LOG_SIZE: usize = DEFAULT_TEST_LOG_SIZE;
 const DEFAULT_PK_FILE: &str = "tt_pk";
 const DEFAULT_VK_FILE: &str = "tt_vk";

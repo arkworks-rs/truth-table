@@ -319,15 +319,18 @@ fn build_sort_exprs_table_prover<B: SnarkBackend>(
                 .expect("activator field missing from sort expr table");
             activator = Some((activator_field, activator_poly));
         }
+        // A sort expression can produce multiple data columns when its column
+        // is encoded as multiple segments (e.g. strings: hash + __length).
+        // Forward every data segment so the downstream sort gadget sees the
+        // same shape as the table it sorts.
         let data_indices = expr_table.data_tracked_polys_indices();
-        if data_indices.len() != 1 {
-            panic!("Sort expression tables must have exactly one data column");
-        }
         let expr_tracked = expr_table.tracked_polys();
-        let (field, poly) = expr_tracked
-            .get_index(data_indices[0])
-            .expect("sort expr column index out of bounds");
-        output_cols.insert(field.clone(), poly.clone());
+        for idx in &data_indices {
+            let (field, poly) = expr_tracked
+                .get_index(*idx)
+                .expect("sort expr column index out of bounds");
+            output_cols.insert(field.clone(), poly.clone());
+        }
     }
 
     if let Some((field, poly)) = activator {
@@ -394,15 +397,17 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
                 .expect("activator field missing from sort expr table");
             activator = Some((activator_field, activator_oracle));
         }
+        // Multi-segment columns (e.g. strings) contribute several data oracles
+        // per sort expression. Forward all of them so verifier mirrors the
+        // prover's sort-key table shape.
         let data_indices = expr_table.data_tracked_oracles_indices();
-        if data_indices.len() != 1 {
-            panic!("Sort expression tables must have exactly one data column");
-        }
         let expr_tracked = expr_table.tracked_oracles();
-        let (field, oracle) = expr_tracked
-            .get_index(data_indices[0])
-            .expect("sort expr column index out of bounds");
-        output_cols.insert(field.clone(), oracle.clone());
+        for idx in &data_indices {
+            let (field, oracle) = expr_tracked
+                .get_index(*idx)
+                .expect("sort expr column index out of bounds");
+            output_cols.insert(field.clone(), oracle.clone());
+        }
     }
 
     if let Some((field, oracle)) = activator {
