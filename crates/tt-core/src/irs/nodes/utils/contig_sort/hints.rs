@@ -4,10 +4,10 @@ use crate::irs::nodes::utils::contig_sort::{
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::arrow::{
     array::{
-        Array, ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int8Array,
-        Int16Array, Int32Array, Int64Array, new_null_array,
+        Array, ArrayRef, BooleanArray, Decimal128Array, Float32Array, Float64Array, Int64Array,
+        new_null_array,
     },
-    compute::{concat, concat_batches},
+    compute::{cast, concat, concat_batches},
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
@@ -374,9 +374,9 @@ fn diff_input_on_ordered_via_windows(
             // to `Vec<F>` (512 MiB at nv=24) via the negative-value
             // Field-fallback path in `encode_arrow_array_to_field`.
             //
-            // The consumer in `populate_sign_payloads_prover`
-            // subtracts `1` from the tracked diff to recover the sign
-            // semantics — see `is_sign_only_diff` in the parent module.
+            // These legacy hints are not binding comparison proofs; the
+            // contiguous-sort gadget rejects their input types until a
+            // field-level comparison reduction is implemented.
             //   gt → 2   (original +1 shifted)
             //   eq → 1   (original 0 shifted)
             //   lt → 0   (original -1 shifted)
@@ -435,7 +435,9 @@ fn diff_input_on_ordered_explicit(
         out_fields.push(Field::new(
             name,
             diff_output_type(field.data_type()),
-            field.is_nullable(),
+            // Match the verifier's witness schema. Nullability admission is
+            // checked on source keys, never inferred from difference hints.
+            true,
         ));
         out_cols.push(diff_col);
     }
@@ -473,111 +475,90 @@ fn is_explicit_diff_type(data_type: &DataType) -> bool {
             | DataType::Int16
             | DataType::Int32
             | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Decimal128(..)
             | DataType::Float32
             | DataType::Float64
             | DataType::Date32
     )
 }
 
-fn materialize_diff_array(
+/// Materialize a difference hint, widening integer/date subtraction first.
+pub(super) fn materialize_diff_array(
     data_type: &DataType,
     lhs: &dyn Array,
     rhs: &dyn Array,
 ) -> DataFusionResult<ArrayRef> {
     match data_type {
-        DataType::Int8 => diff_int8_array(lhs, rhs),
-        DataType::Int16 => diff_int16_array(lhs, rhs),
-        DataType::Int32 => diff_int32_array(lhs, rhs),
-        DataType::Int64 => diff_int64_array(lhs, rhs),
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64
+        | DataType::Date32
+        | DataType::Decimal128(..) => diff_integer_array(data_type, lhs, rhs),
         DataType::Float32 => diff_float32_array(lhs, rhs),
         DataType::Float64 => diff_float64_array(lhs, rhs),
-        DataType::Date32 => diff_date32_array(lhs, rhs),
         _ => sign_only_diff_array(lhs, rhs),
     }
 }
 
-fn diff_int8_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
+/// Widen before subtracting: a signed w-bit pair needs a signed (w+1)-bit
+/// difference, including the negative cyclic-wrap row that is later masked.
+fn diff_integer_array(
+    input_type: &DataType,
+    lhs: &dyn Array,
+    rhs: &dyn Array,
+) -> DataFusionResult<ArrayRef> {
+    let output_type = diff_output_type(input_type);
+    let (precision, scale) = match output_type {
+        DataType::Decimal128(precision, scale) => (precision, scale),
+        _ => {
+            return Err(DataFusionError::Execution(
+                "expected decimal difference type".into(),
+            ));
+        }
+    };
+    let widen = |array: &dyn Array| -> DataFusionResult<ArrayRef> {
+        // Date32 is stored as a day count, not as a decimal-castable date.
+        if input_type == &DataType::Date32 {
+            let days = cast(array, &DataType::Int32)?;
+            Ok(cast(days.as_ref(), &output_type)?)
+        } else {
+            Ok(cast(array, &output_type)?)
+        }
+    };
+    let left = widen(lhs)?;
+    let right = widen(rhs)?;
+    let left = left
         .as_any()
-        .downcast_ref::<Int8Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Int8 mismatch".to_string()))?;
-    let rhs = rhs
+        .downcast_ref::<Decimal128Array>()
+        .ok_or_else(|| DataFusionError::Execution("decimal difference lhs mismatch".into()))?;
+    let right = right
         .as_any()
-        .downcast_ref::<Int8Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Int8 mismatch".to_string()))?;
-    let values = (0..lhs.len())
+        .downcast_ref::<Decimal128Array>()
+        .ok_or_else(|| DataFusionError::Execution("decimal difference rhs mismatch".into()))?;
+    let values = (0..left.len())
         .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
+            if left.is_null(idx) || right.is_null(idx) {
+                Ok(None)
             } else {
-                Some(lhs.value(idx) - rhs.value(idx))
+                left.value(idx)
+                    .checked_sub(right.value(idx))
+                    .map(Some)
+                    .ok_or_else(|| DataFusionError::Execution("sort difference overflow".into()))
             }
         })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int8Array::from(values)))
-}
-
-fn diff_int16_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Int16Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Int16 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Int16Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Int16 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int16Array::from(values)))
-}
-
-fn diff_int32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Int32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Int32 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Int32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Int32 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int32Array::from(values)))
-}
-
-fn diff_int64_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Int64 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Int64 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int64Array::from(values)))
+        .collect::<DataFusionResult<Vec<_>>>()?;
+    Ok(std::sync::Arc::new(
+        Decimal128Array::from(values).with_precision_and_scale(precision, scale)?,
+    ))
 }
 
 fn diff_float32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
@@ -622,34 +603,12 @@ fn diff_float64_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<Arra
     Ok(std::sync::Arc::new(Float64Array::from(values)))
 }
 
-fn diff_date32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Date32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Date32 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Date32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Date32 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int32Array::from(values)))
-}
-
 fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
     // Emits the sign of `lhs - rhs` shifted from `{-1, 0, 1}` to `{0, 1, 2}`
     // as `UInt8`. See the parallel branch in `diff_input_on_ordered_via_windows`
     // for the rationale — the shift lets the encoder route to `MLE::U8`
     // storage (16 MiB at nv=24) instead of the Field fallback (512 MiB).
-    // The consumer subtracts `1` to recover the sign semantics; see
-    // `is_sign_only_diff` in the parent module.
+    // Contiguous sort now rejects these unbound comparison hints.
     let values = (0..lhs.len())
         .map(|idx| {
             if lhs.is_null(idx) || rhs.is_null(idx) {
@@ -874,4 +833,59 @@ fn sort_is_asc(sort_specs: &[(String, bool, bool)], col_name: &str) -> bool {
         .find(|(name, _, _)| normalize_sort_name(name) == normalize_sort_name(col_name))
         .map(|(_, asc, _)| *asc)
         .unwrap_or(true)
+}
+
+#[cfg(test)]
+mod difference_materialization_tests {
+    use super::*;
+    use datafusion::arrow::array::{Date32Array, Int8Array, UInt64Array};
+
+    fn check(input_type: DataType, left: &dyn Array, right: &dyn Array, expected: &[i128]) {
+        let difference = materialize_diff_array(&input_type, left, right).unwrap();
+        assert_eq!(difference.data_type(), &diff_output_type(&input_type));
+        let difference = difference
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .unwrap();
+        assert_eq!(difference.values().as_ref(), expected);
+    }
+
+    #[test]
+    fn bound_difference_widened_hints_preserve_signed_and_unsigned_extremes() {
+        check(
+            DataType::Int8,
+            &Int8Array::from(vec![127, -128]),
+            &Int8Array::from(vec![-128, 127]),
+            &[255, -255],
+        );
+        check(
+            DataType::Int64,
+            &Int64Array::from(vec![i64::MAX, i64::MIN]),
+            &Int64Array::from(vec![i64::MIN, i64::MAX]),
+            &[u64::MAX as i128, -(u64::MAX as i128)],
+        );
+        check(
+            DataType::UInt64,
+            &UInt64Array::from(vec![u64::MAX, 0]),
+            &UInt64Array::from(vec![0, u64::MAX]),
+            &[u64::MAX as i128, -(u64::MAX as i128)],
+        );
+    }
+
+    #[test]
+    fn bound_difference_widened_hints_preserve_dates_and_decimal_scale() {
+        check(
+            DataType::Date32,
+            &Date32Array::from(vec![i32::MAX, i32::MIN]),
+            &Date32Array::from(vec![i32::MIN, i32::MAX]),
+            &[u32::MAX as i128, -(u32::MAX as i128)],
+        );
+        let left = Decimal128Array::from(vec![999, -999])
+            .with_precision_and_scale(3, 2)
+            .unwrap();
+        let right = Decimal128Array::from(vec![-999, 999])
+            .with_precision_and_scale(3, 2)
+            .unwrap();
+        check(DataType::Decimal128(3, 2), &left, &right, &[1998, -1998]);
+    }
 }
