@@ -21,7 +21,10 @@ use crate::{
     prover::{
         passes::{
             arithmetization::arithmetize_materialized_table,
-            materialization::pad_batches_to_num_rows_with_inactive_padding,
+            materialization::{
+                append_activator_and_pad_batches, pad_batches_to_num_rows_with_inactive_padding,
+                reject_nulls_in_public_result,
+            },
         },
         payloads::MaterializedTable,
     },
@@ -69,9 +72,17 @@ impl<B: SnarkBackend> TrackingPass<B> {
         };
         let root = tracked_ir.tree().root();
         if root.name() != "ResultCheck" {
-            return Ok(());
+            return Err(DataFusionError::Internal(
+                "public result was supplied, but the verification plan has no ResultCheck root"
+                    .to_string(),
+            )
+            .into());
         }
 
+        // Treat even low-level callers' table as raw public data. Validation
+        // and activation normalization live here so no caller can bypass them
+        // by constructing TrackingPass directly.
+        let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         // Final output table: no side segments — no downstream PIOP consumes them.
         let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None);
@@ -464,6 +475,34 @@ fn infer_table_name_from_df_schema(schema: &DFSchema) -> Option<String> {
 }
 
 impl<B: SnarkBackend> TrackingPass<B> {
+    async fn normalize_output_memtable(mem_table: Arc<MemTable>) -> TTResult<Arc<MemTable>> {
+        let base_schema = mem_table.schema();
+        if base_schema.fields().iter().any(|field| {
+            field.name() == arithmetic::ACTIVATOR_COL_NAME
+                || field.name() == arithmetic::ROW_ID_COL_NAME
+        }) {
+            return Err(DataFusionError::Plan(format!(
+                "raw public result must not contain reserved internal columns {} or {}",
+                arithmetic::ACTIVATOR_COL_NAME,
+                arithmetic::ROW_ID_COL_NAME
+            ))
+            .into());
+        }
+        crate::irs::nodes::plan::result_check::validate_public_result_encoding::<B::F>(
+            base_schema.as_ref(),
+        )?;
+        let ctx = SessionContext::new();
+        let df = ctx.read_table(mem_table)?;
+        let batches = df.collect().await?;
+        reject_nulls_in_public_result(&batches)?;
+        let (output_schema, output_batches) =
+            append_activator_and_pad_batches(base_schema.as_ref(), batches)?;
+        Ok(Arc::new(MemTable::try_new(
+            Arc::new(output_schema),
+            vec![output_batches],
+        )?))
+    }
+
     async fn materialized_table_from_memtable(
         mem_table: Arc<MemTable>,
         target_num_rows: Option<usize>,
@@ -500,7 +539,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
                     move |point| {
                         // Fast path: hypercube points (every coord is 0 or 1)
                         // become a direct array lookup — O(num_vars) instead of
-                        // O(2^num_vars). result_check's verifier extracts res˜
+                        // O(2^num_vars). ResultCheck extracts the public result
                         // by querying at hypercube points, so this matters.
                         if let Some(idx) = hypercube_index(&point, num_vars) {
                             return Ok(poly_evals.get(idx).copied().unwrap_or_else(B::F::zero));
@@ -558,4 +597,82 @@ fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point:
         layer = next;
     }
     layer[0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TrackingPass;
+    use ark_piop::DefaultSnarkBackend;
+    use datafusion::{
+        arrow::{
+            array::{ArrayRef, BooleanArray, Int64Array},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        datasource::MemTable,
+    };
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn raw_public_result_rejects_a_reserved_activator() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            arithmetic::ACTIVATOR_COL_NAME,
+            DataType::Boolean,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BooleanArray::from(vec![true])) as ArrayRef],
+        )
+        .unwrap();
+        let table = Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap());
+
+        assert!(
+            TrackingPass::<DefaultSnarkBackend>::normalize_output_memtable(table)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_public_result_rejects_a_reserved_row_id() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            arithmetic::ROW_ID_COL_NAME,
+            DataType::Int64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int64Array::from(vec![0])) as ArrayRef],
+        )
+        .unwrap();
+        let table = Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap());
+
+        assert!(
+            TrackingPass::<DefaultSnarkBackend>::normalize_output_memtable(table)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_public_result_rejects_null_values() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            true,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int64Array::from(vec![None])) as ArrayRef],
+        )
+        .unwrap();
+        let table = Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap());
+
+        assert!(
+            TrackingPass::<DefaultSnarkBackend>::normalize_output_memtable(table)
+                .await
+                .is_err()
+        );
+    }
 }

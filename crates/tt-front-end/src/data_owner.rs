@@ -4,6 +4,7 @@ use arithmetic::{
 };
 use ark_piop::{SnarkBackend, prover::ArgProver, setup::structs::SNARKPk, verifier::ArgVerifier};
 use datafusion_common::DataFusionError;
+use datafusion_expr::LogicalPlan;
 use proof_planner::data_dependent_lp_optimizer::apply_optimization_hints;
 use tracing::debug;
 use tt_core::errors::TTResult;
@@ -11,7 +12,10 @@ use tt_core::errors::TTResult;
 use tt_core::prover::passes::honest_prover::HonestProverPass;
 use tt_core::{
     irs::shared_ir::EmptyIr,
-    irs::{nodes::IsNode, payloads::PayloadStructure},
+    irs::{
+        nodes::{IsNode, plan::result_check::ResultCheckLogicalNode},
+        payloads::PayloadStructure,
+    },
     prover::{
         irs::TrackedIr,
         irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
@@ -126,6 +130,13 @@ impl<B: SnarkBackend> TTDataOwner<B> {
             )?;
         let analyzed_and_optimized_lp =
             apply_optimization_hints(analyzed_and_optimized_lp, &optimization_hints)?;
+        // ResultCheck authenticates a verifier-supplied query result. A data
+        // owner is instead producing the base-table commitment and has no
+        // public result to bind, so this pipeline must not execute the
+        // terminal ResultCheck added by the shared query optimizer. Strip only
+        // that outer identity node; any unexpected nested ResultCheck remains
+        // in the plan and fails closed during proving.
+        let analyzed_and_optimized_lp = remove_terminal_result_check(analyzed_and_optimized_lp);
         debug!(
             "optimized and analyzed logical plan:\n{}",
             analyzed_and_optimized_lp.display_graphviz()
@@ -245,4 +256,18 @@ impl<B: SnarkBackend> TTDataOwner<B> {
             &tracked_table_oracle,
         ))
     }
+}
+
+fn remove_terminal_result_check(plan: LogicalPlan) -> LogicalPlan {
+    let LogicalPlan::Extension(extension) = &plan else {
+        return plan;
+    };
+    let Some(result_check) = extension
+        .node
+        .as_any()
+        .downcast_ref::<ResultCheckLogicalNode>()
+    else {
+        return plan;
+    };
+    result_check.input().clone()
 }

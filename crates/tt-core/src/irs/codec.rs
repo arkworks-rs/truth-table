@@ -81,6 +81,12 @@ enum LogicalPlanRepr {
     ExtensionResultCheck {
         input: Box<LogicalPlanRepr>,
     },
+    // Keep the existing ResultCheck variant as the stable bag-mode encoding.
+    // Adding a distinct variant avoids reinterpreting legacy bincode payloads
+    // while still retaining the ordered statement across serialization.
+    ExtensionOrderedResultCheck {
+        input: Box<LogicalPlanRepr>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -647,8 +653,14 @@ impl LogicalPlanRepr {
                     .as_any()
                     .downcast_ref::<result_check::ResultCheckLogicalNode>(
                 ) {
-                    LogicalPlanRepr::ExtensionResultCheck {
-                        input: Box::new(LogicalPlanRepr::from_plan(result_check.input())?),
+                    let input = Box::new(LogicalPlanRepr::from_plan(result_check.input())?);
+                    match result_check.mode() {
+                        crate::irs::nodes::utils::result_check::ResultCheckMode::Bag => {
+                            LogicalPlanRepr::ExtensionResultCheck { input }
+                        }
+                        crate::irs::nodes::utils::result_check::ResultCheckMode::Ordered => {
+                            LogicalPlanRepr::ExtensionOrderedResultCheck { input }
+                        }
                     }
                 } else {
                     debug!(?plan, "TTProof serialize: unsupported Extension node");
@@ -804,6 +816,13 @@ impl LogicalPlanRepr {
             LogicalPlanRepr::ExtensionResultCheck { input } => {
                 let input_plan = input.to_plan(ctx)?;
                 Ok(result_check::wrap_logical_plan(input_plan))
+            }
+            LogicalPlanRepr::ExtensionOrderedResultCheck { input } => {
+                let input_plan = input.to_plan(ctx)?;
+                Ok(result_check::wrap_logical_plan_with_mode(
+                    input_plan,
+                    crate::irs::nodes::utils::result_check::ResultCheckMode::Ordered,
+                ))
             }
         }
     }
@@ -1440,5 +1459,59 @@ fn apply_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, modes: &[JoinModeRepr]
 
     for child in node.children() {
         apply_join_modes(&child, modes, idx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LogicalPlanRepr;
+    use crate::irs::nodes::{plan::result_check, utils::result_check::ResultCheckMode};
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::prelude::SessionContext;
+    use datafusion_expr::{LogicalPlan, logical_plan::builder::table_scan};
+
+    fn input_plan() -> LogicalPlan {
+        table_scan(
+            Some("input"),
+            &Schema::new(vec![Field::new("value", DataType::Int64, false)]),
+            None,
+        )
+        .expect("table scan should be valid")
+        .build()
+        .expect("logical plan should be valid")
+    }
+
+    fn result_check_mode(plan: &LogicalPlan) -> ResultCheckMode {
+        let LogicalPlan::Extension(extension) = plan else {
+            panic!("expected ResultCheck extension")
+        };
+        extension
+            .node
+            .as_any()
+            .downcast_ref::<result_check::ResultCheckLogicalNode>()
+            .expect("expected ResultCheck logical node")
+            .mode()
+    }
+
+    #[test]
+    fn result_check_codec_retains_mode() {
+        let ctx = SessionContext::new();
+        for mode in [ResultCheckMode::Bag, ResultCheckMode::Ordered] {
+            let plan = result_check::wrap_logical_plan_with_mode(input_plan(), mode);
+            let repr = LogicalPlanRepr::from_plan(&plan).expect("plan should encode");
+
+            match (&repr, mode) {
+                (LogicalPlanRepr::ExtensionResultCheck { .. }, ResultCheckMode::Bag)
+                | (LogicalPlanRepr::ExtensionOrderedResultCheck { .. }, ResultCheckMode::Ordered) =>
+                    {}
+                _ => panic!("ResultCheck mode used the wrong codec variant"),
+            }
+
+            let bytes = bincode::serialize(&repr).expect("representation should serialize");
+            let decoded: LogicalPlanRepr =
+                bincode::deserialize(&bytes).expect("representation should deserialize");
+            let decoded_plan = decoded.to_plan(&ctx).expect("plan should decode");
+            assert_eq!(result_check_mode(&decoded_plan), mode);
+        }
     }
 }

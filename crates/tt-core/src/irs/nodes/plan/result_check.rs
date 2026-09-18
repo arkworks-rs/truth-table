@@ -1,9 +1,12 @@
+use crate::irs::nodes::utils::result_check::ResultCheckMode;
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
 };
 use crate::irs::payloads::PayloadStructure;
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::{DataType, IntervalUnit, Schema};
 use datafusion_common::{DFSchemaRef, DataFusionError};
 use datafusion_expr::{
     Expr, LogicalPlan,
@@ -12,7 +15,7 @@ use datafusion_expr::{
 use indexmap::IndexMap;
 use std::any::Any;
 use std::cmp::Ordering;
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashSet, hash_map::DefaultHasher};
 use std::hash::Hasher;
 use std::sync::Arc;
 
@@ -22,6 +25,7 @@ where
 {
     input: Arc<Node<B>>,
     gadget: Arc<Node<B>>,
+    mode: ResultCheckMode,
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -30,7 +34,11 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     }
 
     fn display(&self) -> String {
-        format!("ResultCheck\nInput: {}", self.input.name())
+        format!(
+            "ResultCheck ({:?})\nInput: {}",
+            self.mode,
+            self.input.name()
+        )
     }
 
     fn cost(
@@ -148,7 +156,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         let input = crate::irs::tree::Tree::<B>::from_logical_plan(result_check.input())
             .root()
             .clone();
-        Self::new(input)
+        Self::new_with_mode(input, result_check.mode())
     }
 
     fn lp(&self) -> LogicalPlan {
@@ -156,7 +164,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             Node::Plan(PlanNode::LpBased(node)) => node.lp(),
             _ => panic!("ResultCheck input must be an LP node"),
         };
-        wrap_logical_plan(input_lp)
+        wrap_logical_plan_with_mode(input_lp, self.mode)
     }
 }
 
@@ -214,11 +222,24 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> LpNode<B> {
+    /// Construct the legacy bag-equality ResultCheck.
     pub fn new(input: Arc<Node<B>>) -> Self {
+        Self::new_with_mode(input, ResultCheckMode::Bag)
+    }
+
+    pub fn new_with_mode(input: Arc<Node<B>>, mode: ResultCheckMode) -> Self {
         let gadget = Arc::new(Node::Gadget(Arc::new(
-            crate::irs::nodes::utils::result_check::GadgetNode::<B>::new(),
+            crate::irs::nodes::utils::result_check::GadgetNode::<B>::new(mode),
         )));
-        Self { input, gadget }
+        Self {
+            input,
+            gadget,
+            mode,
+        }
+    }
+
+    pub fn mode(&self) -> ResultCheckMode {
+        self.mode
     }
 }
 
@@ -226,22 +247,31 @@ fn project_prover_table_for_result_check<B: SnarkBackend>(
     input_t: &TrackedTable<B>,
     compact_r: &TrackedTable<B>,
 ) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
+    let input_schema = input_t
+        .schema_ref()
+        .ok_or_else(|| result_schema_error("internal result schema missing"))?;
     let compact_schema = compact_r
         .schema_ref()
-        .expect("ResultCheck compact schema missing");
+        .ok_or_else(|| result_schema_error("public result schema missing"))?;
+    validate_result_schema::<B>(input_schema, compact_schema)?;
     let mut projected = IndexMap::new();
     for field in compact_schema.fields() {
         let poly = if field.name() == ACTIVATOR_COL_NAME {
             input_t
                 .activator_tracked_poly()
-                .expect("ResultCheck T activator missing")
+                .ok_or_else(|| result_schema_error("internal activator missing"))?
         } else {
             input_t
                 .tracked_polys_iter()
                 .find_map(|(candidate, poly)| {
                     (candidate.name() == field.name()).then_some(poly.clone())
                 })
-                .unwrap_or_else(|| panic!("ResultCheck input column {} not found", field.name()))
+                .ok_or_else(|| {
+                    result_schema_error(&format!(
+                        "internal result column {} not found",
+                        field.name()
+                    ))
+                })?
         };
         projected.insert(field.clone(), poly);
     }
@@ -256,22 +286,31 @@ fn project_verifier_table_for_result_check<B: SnarkBackend>(
     input_t: &TrackedTableOracle<B>,
     compact_r: &TrackedTableOracle<B>,
 ) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
+    let input_schema = input_t
+        .schema_ref()
+        .ok_or_else(|| result_schema_error("internal result schema missing"))?;
     let compact_schema = compact_r
         .schema_ref()
-        .expect("ResultCheck compact schema missing");
+        .ok_or_else(|| result_schema_error("public result schema missing"))?;
+    validate_result_schema::<B>(input_schema, compact_schema)?;
     let mut projected = IndexMap::new();
     for field in compact_schema.fields() {
         let oracle = if field.name() == ACTIVATOR_COL_NAME {
             input_t
                 .activator_tracked_poly()
-                .expect("ResultCheck T activator missing")
+                .ok_or_else(|| result_schema_error("internal activator missing"))?
         } else {
             input_t
                 .tracked_oracles_iter()
                 .find_map(|(candidate, oracle)| {
                     (candidate.name() == field.name()).then_some(oracle.clone())
                 })
-                .unwrap_or_else(|| panic!("ResultCheck input column {} not found", field.name()))
+                .ok_or_else(|| {
+                    result_schema_error(&format!(
+                        "internal result column {} not found",
+                        field.name()
+                    ))
+                })?
         };
         projected.insert(field.clone(), oracle);
     }
@@ -282,18 +321,179 @@ fn project_verifier_table_for_result_check<B: SnarkBackend>(
     ))
 }
 
+/// Check the verifier-supplied result against the query plan's typed schema.
+///
+/// Field values alone do not identify SQL values: for example, small positive
+/// `Int64` and `UInt64` values have the same field encoding. ResultCheck must
+/// therefore reject a public file whose names, types, nullability, or duplicate
+/// layout differs from the proved plan before comparing row fingerprints.
+/// This validator does not authenticate Arrow validity bits inside the proved
+/// query: the current ResultCheck contract is field-encoding equality for a
+/// NULL-free internal pipeline, not general SQL NULL-aware equality.
+fn validate_result_schema<B: SnarkBackend>(
+    input_schema: &Schema,
+    public_schema: &Schema,
+) -> ark_piop::errors::SnarkResult<()> {
+    // The internal execution schema may retain the authenticated row-id used
+    // to preserve operator order. Row ids are deliberately not query output
+    // and are excluded from row fingerprints, so compare the public sequence
+    // against every other internal field (including the activator).
+    let input_fields: Vec<_> = input_schema
+        .fields()
+        .iter()
+        .filter(|field| field.name() != arithmetic::ROW_ID_COL_NAME)
+        .collect();
+    if input_fields.len() != public_schema.fields().len() {
+        return Err(result_schema_error(&format!(
+            "public result has {} columns, but the proved query result has {}",
+            public_schema.fields().len(),
+            input_fields.len()
+        )));
+    }
+    validate_public_result_encoding::<B::F>(public_schema)?;
+    for (position, (input_field, public_field)) in
+        input_fields.iter().zip(public_schema.fields()).enumerate()
+    {
+        if input_field.name() != public_field.name() {
+            return Err(result_schema_error(&format!(
+                "public result field {position} is out of order or has the wrong name"
+            )));
+        }
+    }
+    let mut seen = HashSet::new();
+    for public_field in public_schema.fields() {
+        if public_field.name() == arithmetic::ROW_ID_COL_NAME {
+            return Err(result_schema_error(
+                "public result must not expose the reserved row-id column",
+            ));
+        }
+        if !seen.insert(public_field.name()) {
+            return Err(result_schema_error("duplicate public result column name"));
+        }
+        let mut matching = input_fields
+            .iter()
+            .filter(|candidate| candidate.name() == public_field.name());
+        let Some(input_field) = matching.next() else {
+            return Err(result_schema_error(&format!(
+                "public result column {} is not produced by the query",
+                public_field.name()
+            )));
+        };
+        if matching.next().is_some() {
+            return Err(result_schema_error(&format!(
+                "query result column {} is ambiguous",
+                public_field.name()
+            )));
+        }
+        // Activator nullability is an internal representation detail: the
+        // shared ACTIVATOR_FIELD is declared nullable, while normalization
+        // constructs a non-null Boolean column. It is not part of the visible
+        // SQL schema, and both paths guarantee Boolean/non-NULL evaluations.
+        let type_and_nullability_match = if public_field.name() == ACTIVATOR_COL_NAME {
+            input_field.data_type() == &DataType::Boolean
+                && public_field.data_type() == &DataType::Boolean
+        } else {
+            input_field.data_type() == public_field.data_type()
+                && input_field.is_nullable() == public_field.is_nullable()
+        };
+        if !type_and_nullability_match {
+            return Err(result_schema_error(&format!(
+                "public result column {} has the wrong type or nullability: internal={input_field:?}, public={public_field:?}",
+                public_field.name(),
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Reject public SQL types whose current field encoding is not injective.
+///
+/// Decimal256 is reduced modulo the field characteristic by the current
+/// encoder. Decimal128 and the 128-bit MonthDayNano interval encoding are
+/// injective only when the field is wider than 128 bits. Nested types are
+/// checked recursively even though most are rejected earlier by today's query
+/// and encoding pipelines.
+pub fn validate_public_result_encoding<F: PrimeField>(
+    schema: &Schema,
+) -> ark_piop::errors::SnarkResult<()> {
+    for field in schema.fields() {
+        validate_public_data_type::<F>(field.data_type())?;
+    }
+    Ok(())
+}
+
+fn validate_public_data_type<F: PrimeField>(
+    data_type: &DataType,
+) -> ark_piop::errors::SnarkResult<()> {
+    match data_type {
+        DataType::Decimal256(_, _) => {
+            return Err(result_schema_error(
+                "Decimal256 public results are unsupported because their field encoding is not injective",
+            ));
+        }
+        DataType::Decimal128(_, _) | DataType::Interval(IntervalUnit::MonthDayNano)
+            if F::MODULUS_BIT_SIZE <= 128 =>
+        {
+            return Err(result_schema_error(
+                "128-bit public values require a field wider than 128 bits",
+            ));
+        }
+        DataType::List(field)
+        | DataType::ListView(field)
+        | DataType::FixedSizeList(field, _)
+        | DataType::LargeList(field)
+        | DataType::LargeListView(field)
+        | DataType::Map(field, _) => validate_public_data_type::<F>(field.data_type())?,
+        DataType::Struct(fields) => {
+            for field in fields.iter() {
+                validate_public_data_type::<F>(field.data_type())?;
+            }
+        }
+        DataType::Union(fields, _) => {
+            for (_, field) in fields.iter() {
+                validate_public_data_type::<F>(field.data_type())?;
+            }
+        }
+        DataType::Dictionary(key, value) => {
+            validate_public_data_type::<F>(key)?;
+            validate_public_data_type::<F>(value)?;
+        }
+        DataType::RunEndEncoded(run_ends, values) => {
+            validate_public_data_type::<F>(run_ends.data_type())?;
+            validate_public_data_type::<F>(values.data_type())?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn result_schema_error(message: &str) -> ark_piop::errors::SnarkError {
+    ark_piop::errors::SnarkError::VerifierError(
+        ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
+            "ResultCheck: {message}"
+        )),
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct ResultCheckLogicalNode {
     input: Arc<LogicalPlan>,
     schema: DFSchemaRef,
+    mode: ResultCheckMode,
 }
 
 impl ResultCheckLogicalNode {
+    /// Construct the legacy bag-equality ResultCheck.
     pub fn new(input: LogicalPlan) -> Self {
+        Self::new_with_mode(input, ResultCheckMode::Bag)
+    }
+
+    pub fn new_with_mode(input: LogicalPlan, mode: ResultCheckMode) -> Self {
         let schema = input.schema().clone();
         Self {
             input: Arc::new(input),
             schema,
+            mode,
         }
     }
 
@@ -301,8 +501,12 @@ impl ResultCheckLogicalNode {
         self.input.as_ref()
     }
 
+    pub fn mode(&self) -> ResultCheckMode {
+        self.mode
+    }
+
     fn key(&self) -> String {
-        format!("{:?}", self.input)
+        format!("{:?}:{:?}", self.mode, self.input)
     }
 }
 
@@ -361,7 +565,7 @@ impl UserDefinedLogicalNode for ResultCheckLogicalNode {
     }
 
     fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "ResultCheck")
+        write!(f, "ResultCheck: mode={:?}", self.mode)
     }
 
     fn with_exprs_and_inputs(
@@ -379,8 +583,9 @@ impl UserDefinedLogicalNode for ResultCheckLogicalNode {
                 "ResultCheck expects a single input".to_string(),
             ));
         }
-        Ok(Arc::new(ResultCheckLogicalNode::new(
+        Ok(Arc::new(ResultCheckLogicalNode::new_with_mode(
             inputs.into_iter().next().unwrap(),
+            self.mode,
         )))
     }
 
@@ -404,8 +609,12 @@ impl UserDefinedLogicalNode for ResultCheckLogicalNode {
 }
 
 pub fn wrap_logical_plan(input: LogicalPlan) -> LogicalPlan {
+    wrap_logical_plan_with_mode(input, ResultCheckMode::Bag)
+}
+
+pub fn wrap_logical_plan_with_mode(input: LogicalPlan, mode: ResultCheckMode) -> LogicalPlan {
     LogicalPlan::Extension(Extension {
-        node: Arc::new(ResultCheckLogicalNode::new(input)),
+        node: Arc::new(ResultCheckLogicalNode::new_with_mode(input, mode)),
     })
 }
 
@@ -413,4 +622,142 @@ fn _result_check_key(plan: &LogicalPlan) -> u64 {
     let mut hasher = DefaultHasher::new();
     hasher.write(format!("{plan:?}").as_bytes());
     hasher.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ResultCheckLogicalNode, validate_public_result_encoding, validate_result_schema,
+        wrap_logical_plan_with_mode,
+    };
+    use crate::irs::nodes::utils::result_check::ResultCheckMode;
+    use arithmetic::ACTIVATOR_COL_NAME;
+    use ark_piop::DefaultSnarkBackend;
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion_expr::{UserDefinedLogicalNode, logical_plan::builder::table_scan};
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+    use std::sync::Arc;
+
+    #[test]
+    fn logical_node_retains_mode_across_rewrites_and_identity() {
+        let input = table_scan(
+            Some("input"),
+            &Schema::new(vec![Field::new("value", DataType::Int64, false)]),
+            None,
+        )
+        .expect("table scan should be valid")
+        .build()
+        .expect("logical plan should be valid");
+        let bag = ResultCheckLogicalNode::new(input.clone());
+        let ordered =
+            ResultCheckLogicalNode::new_with_mode(input.clone(), ResultCheckMode::Ordered);
+
+        assert!(!bag.dyn_eq(&ordered));
+        let mut bag_hash = DefaultHasher::new();
+        bag.dyn_hash(&mut bag_hash);
+        let mut ordered_hash = DefaultHasher::new();
+        ordered.dyn_hash(&mut ordered_hash);
+        assert_ne!(bag_hash.finish(), ordered_hash.finish());
+
+        let rewritten = ordered
+            .with_exprs_and_inputs(Vec::new(), vec![input.clone()])
+            .expect("identity rewrite should succeed");
+        let rewritten = rewritten
+            .as_any()
+            .downcast_ref::<ResultCheckLogicalNode>()
+            .expect("rewrite should remain ResultCheck");
+        assert_eq!(rewritten.mode(), ResultCheckMode::Ordered);
+
+        let display = wrap_logical_plan_with_mode(input, ResultCheckMode::Ordered)
+            .display_indent()
+            .to_string();
+        assert!(display.contains("ResultCheck: mode=Ordered"));
+    }
+
+    #[test]
+    fn low_level_result_schema_rejects_an_omitted_column() {
+        let input = Schema::new(vec![
+            Field::new("left", DataType::Int64, false),
+            Field::new("right", DataType::Int64, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]);
+        let omitted = Schema::new(vec![
+            Field::new("left", DataType::Int64, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]);
+
+        assert!(validate_result_schema::<DefaultSnarkBackend>(&input, &omitted).is_err());
+    }
+
+    #[test]
+    fn low_level_result_schema_rejects_reordered_columns() {
+        let input = Schema::new(vec![
+            Field::new("left", DataType::Int64, false),
+            Field::new("right", DataType::Int64, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]);
+        let reordered = Schema::new(vec![
+            Field::new("right", DataType::Int64, false),
+            Field::new("left", DataType::Int64, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]);
+
+        assert!(validate_result_schema::<DefaultSnarkBackend>(&input, &reordered).is_err());
+    }
+
+    #[test]
+    fn low_level_result_schema_rejects_the_reserved_row_id() {
+        let schema = Schema::new(vec![
+            Field::new(arithmetic::ROW_ID_COL_NAME, DataType::Int64, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]);
+
+        assert!(validate_result_schema::<DefaultSnarkBackend>(&schema, &schema).is_err());
+    }
+
+    #[test]
+    fn public_result_encoding_rejects_nested_decimal256() {
+        let schema = Schema::new(vec![Field::new(
+            "values",
+            DataType::List(Arc::new(Field::new(
+                "item",
+                DataType::Decimal256(76, 0),
+                false,
+            ))),
+            false,
+        )]);
+
+        assert!(
+            validate_public_result_encoding::<<DefaultSnarkBackend as ark_piop::SnarkBackend>::F>(
+                &schema
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn low_level_result_schema_accepts_the_exact_schema() {
+        let schema = Schema::new(vec![
+            Field::new("value", DataType::Int64, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]);
+
+        assert!(validate_result_schema::<DefaultSnarkBackend>(&schema, &schema).is_ok());
+    }
+
+    #[test]
+    fn low_level_result_schema_allows_internal_row_id_only() {
+        let input = Schema::new(vec![
+            Field::new("value", DataType::Int64, false),
+            Field::new(arithmetic::ROW_ID_COL_NAME, DataType::Int64, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true),
+        ]);
+        let public = Schema::new(vec![
+            Field::new("value", DataType::Int64, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]);
+
+        assert!(validate_result_schema::<DefaultSnarkBackend>(&input, &public).is_ok());
+    }
 }

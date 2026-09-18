@@ -22,14 +22,13 @@ use front_end::{
     prover::TTProver,
     shared::TTSharedConfig,
     structs::{Artifact, SizeBreakdown, TTProof, TTVk},
-    verifier::{TTVerifier, TTVerifierConfig},
+    verifier::{PreparedVerification, TTVerifier, TTVerifierConfig},
 };
 use indexmap::IndexMap;
 use proof_planner::data_dependent_lp_optimizer::DataDependentOptimizationRule;
 use proof_planner::pp_optimizer::{ProofPlanOptimizer, ProofPlanOptimizerRule};
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
-use tt_core::irs::shared_ir::GadgetPlannedIr;
 use tt_exec::{
     backend::BenchBackend,
     paths::workspace_artifacts_dir,
@@ -86,8 +85,7 @@ pub struct VerifierFullBenchState {
     pub query: String,
     pub proof: TTProof<B>,
     pub output_memtable: Arc<MemTable>,
-    pub preprocessed_gadget_ir: Mutex<Option<Arc<GadgetPlannedIr<B>>>>,
-    pub preprocessed_output_memtable: Mutex<Option<Arc<MemTable>>>,
+    pub prepared_verification: Mutex<Option<PreparedVerification<B>>>,
 }
 
 pub struct ProverBenchIteration {
@@ -604,30 +602,20 @@ fn build_verifier_full_state_from_proof_impl(
         query: query.to_string(),
         proof,
         output_memtable,
-        preprocessed_gadget_ir: Mutex::new(None),
-        preprocessed_output_memtable: Mutex::new(None),
+        prepared_verification: Mutex::new(None),
     }
 }
 
 pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
     // Time full frontend verification path: IR passes + argument verification.
-    let cached_ir = state
-        .preprocessed_gadget_ir
+    let cached_prepared = state
+        .prepared_verification
         .lock()
-        .expect("preprocessed ir lock poisoned")
+        .expect("prepared verification lock poisoned")
         .clone();
-    let cached_output = state
-        .preprocessed_output_memtable
-        .lock()
-        .expect("preprocessed output lock poisoned")
-        .clone();
-    if let (Some(gadget_planned_ir), Some(output_memtable)) = (cached_ir, cached_output) {
-        block_on_verifier(state.verifier.verify_with_gadget_planned_ir(
-            &state.proof,
-            gadget_planned_ir.as_ref(),
-            Some(output_memtable),
-        ))
-        .expect("verify for bench");
+    if let Some(prepared) = cached_prepared {
+        block_on_verifier(state.verifier.verify_prepared(&state.proof, prepared))
+            .expect("verify for bench");
     } else {
         block_on_verifier(state.verifier.verify(
             &state.query,
@@ -640,38 +628,16 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
 
 pub fn run_preprocess_once(state: &VerifierFullBenchState) {
     // Time only one-time verifier preprocessing (planning/gadget planning cache fill).
-    let lp = block_on_verifier(state.verifier.lp_passes(&state.query, &state.proof))
-        .expect("verifier logical-plan preprocessing for bench");
-    let gadget_planned_ir = block_on_verifier(state.verifier.ir_passes(lp))
-        .expect("verifier ir preprocessing for bench");
-    let ctx = SessionContext::new();
-    let output_memtable = block_on_verifier(async {
-        let table: Arc<dyn TableProvider> = state.output_memtable.clone();
-        let df = ctx.read_table(table)?;
-        let batches = df.collect().await?;
-        let base_schema = batches
-            .first()
-            .map(|batch| batch.schema().as_ref().clone())
-            .unwrap_or_else(|| state.output_memtable.schema().as_ref().clone());
-        let (output_schema, output_batches) =
-            tt_core::prover::passes::materialization::append_activator_and_pad_batches(
-                &base_schema,
-                batches,
-            )?;
-        Ok::<Arc<MemTable>, tt_core::errors::TTError>(Arc::new(MemTable::try_new(
-            Arc::new(output_schema),
-            vec![output_batches],
-        )?))
-    })
-    .expect("verifier output preprocessing for bench");
+    let prepared = block_on_verifier(state.verifier.prepare_verification(
+        &state.query,
+        &state.proof,
+        Arc::clone(&state.output_memtable),
+    ))
+    .expect("verifier public-result preprocessing for bench");
     *state
-        .preprocessed_gadget_ir
+        .prepared_verification
         .lock()
-        .expect("preprocessed ir lock poisoned") = Some(Arc::new(gadget_planned_ir));
-    *state
-        .preprocessed_output_memtable
-        .lock()
-        .expect("preprocessed output lock poisoned") = Some(output_memtable);
+        .expect("prepared verification lock poisoned") = Some(prepared);
 }
 
 fn build_verifier(
