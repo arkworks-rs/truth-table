@@ -2,7 +2,8 @@ use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::ROW_ID_COL_NAME;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion_common::Column;
 use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -19,8 +20,10 @@ use crate::{
 };
 pub mod gadget;
 pub(crate) mod output;
+#[cfg(test)]
+mod tests;
 use datafusion::logical_expr::Sort;
-/// The implementation of a filter node in the prover proof tree.
+/// ORDER BY: prove a permutation of the input and sorted keys of that output.
 pub struct LpNode<B>
 where
     B: SnarkBackend,
@@ -29,10 +32,14 @@ where
     sort: Sort,
     // The prover plan child node that is the input to this Sort
     input: Arc<Node<B>>,
-    // The prover plan children nodes for the Sort expressions
+    // Input-scoped expression children retained for acyclic planning only.
+    // The proof does not trust their payloads as the sorted output keys.
     sort_exprs: Vec<Arc<Node<B>>>,
     // The gadget node for proving the sort operation
     gadget: Arc<Node<B>>,
+    // Tree construction is infallible, so unsupported keys are recorded and
+    // rejected by every fallible prover/verifier pass before proof work starts.
+    validation_error: Option<String>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -85,53 +92,53 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         _id: NodeId,
         _virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        self.ensure_valid()
     }
 
-    /// The gadget for the filter node only takes in 1. the input activator column, 2. the output activator column and 3. the binary output of the predicate column.
-    /// Then the gadget proves to you that the output activator column is correctly computed from the input activator column and the predicate column.
+    /// Connect the output's actual key expressions to the sorting gadget.
     fn initialize_gadgets(
         &self,
         _id: NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // 1) Gather the input/output tables for this sort node.
+        self.ensure_valid()?;
+        // Gather the input/output tables for this sort node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => {
                 // Drop row-id from gadget payloads while keeping it for ordering in plans.
-                Some(strip_row_id_tracked_table(table))
+                strip_row_id_tracked_table(table)
             }
-            _ => None,
+            _ => {
+                return Err(ark_piop::errors::SnarkError::Artifact(
+                    "ORDER BY input table is missing".to_string(),
+                ));
+            }
         };
-        let output_table =
-            virtualized_ir
-                .payload_for_node(&_id)
-                .and_then(|payload| match payload {
-                    PayloadStructure::PlanPayload(table) => {
-                        // Drop row-id from gadget payloads while keeping it for ordering in plans.
-                        Some(strip_row_id_tracked_table(table))
-                    }
-                    _ => None,
-                });
+        let output_source = match virtualized_ir.payload_for_node(&_id) {
+            Some(PayloadStructure::PlanPayload(table)) => table,
+            _ => {
+                return Err(ark_piop::errors::SnarkError::Artifact(
+                    "ORDER BY output table is missing".to_string(),
+                ));
+            }
+        };
+        // Sortcheck consumes keys selected from the tracked output itself.
+        // Expression-child payloads are deliberately not trusted here: an
+        // independently sorted helper must never validate an unsorted output.
+        let sort_exprs_table = build_output_sort_keys_prover(output_source, &self.sort)?;
+        // Drop row-id from the row-permutation payload while retaining it in
+        // the plan output used for deterministic execution.
+        let output_table = strip_row_id_tracked_table(output_source);
 
-        // 2) Build a table that holds one column per sort expression plus a shared activator.
-        let sort_exprs_table = build_sort_exprs_table_prover(&self.sort_exprs, virtualized_ir);
-
-        // 3) Populate the gadget payload for the sort gadget node.
+        // Populate the ORDER gadget from the row tables and exact output keys.
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        if let Some(input) = input_table {
-            gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input);
-        }
-        if let Some(output) = output_table {
-            gadget_payload.insert(gadget::OUTPUT_LABEL.to_string(), output);
-        }
-        if let Some(sort_exprs) = sort_exprs_table {
-            gadget_payload.insert(gadget::INPUT_SORT_EXPRS.to_string(), sort_exprs);
-        }
+        gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input_table);
+        gadget_payload.insert(gadget::OUTPUT_LABEL.to_string(), output_table);
+        gadget_payload.insert(gadget::OUTPUT_SORT_EXPRS.to_string(), sort_exprs_table);
 
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
@@ -143,46 +150,25 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     }
     fn initialize_gadget_plans(
         &self,
-        _id: NodeId,
+        id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
+        self.ensure_valid()?;
+        let output_hint_df = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
+            _ => {
+                return Err(ark_piop::errors::SnarkError::Artifact(
+                    "ORDER BY output planning payload is missing".to_string(),
+                ));
+            }
         };
-
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
-                .expect("sort input row-id sort should succeed");
-
-        let mut exprs: Vec<Expr> = output::resolve_sort_exprs(input_df.schema(), &self.sort.expr)
-            .into_iter()
-            .map(|sort_expr| sort_expr.expr)
-            .collect();
-        if input_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ACTIVATOR_COL_NAME)
-        {
-            // Preserve activator semantics for top-k/filter pipelines.
-            exprs.push(col(ACTIVATOR_COL_NAME));
-        }
-        // Keep row-id only for deterministic ordering; payloads strip it later.
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-
-        let sort_exprs_df = input_df
-            .select(exprs)
-            .expect("sort expr projection should succeed");
-        let sort_exprs_df = crate::irs::nodes::hints::sort_by_row_id_if_present(sort_exprs_df)
-            .expect("sort expr output sort should succeed");
-        let sort_exprs_hint = HintDF::new_virtual(sort_exprs_df);
+        let sort_exprs_hint = build_output_sort_exprs_hint(&output_hint_df, &self.sort)?;
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        gadget_payload.insert(gadget::INPUT_SORT_EXPRS.to_string(), sort_exprs_hint);
+        gadget_payload.insert(gadget::OUTPUT_SORT_EXPRS.to_string(), sort_exprs_hint);
         planned_ir.set_payload_for_node(
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
@@ -197,7 +183,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         _id: NodeId,
         _virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        self.ensure_valid()
     }
     fn initialize_gadgets(
         &self,
@@ -205,41 +191,40 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // 1) Gather the input/output table oracles for this sort node.
+        self.ensure_valid()?;
+        // Gather the input/output table oracles for this sort node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => {
                 // Drop row-id from gadget payloads while keeping it for ordering in plans.
-                Some(strip_row_id_tracked_oracle(table))
+                strip_row_id_tracked_oracle(table)
             }
-            _ => None,
+            _ => {
+                return Err(ark_piop::errors::SnarkError::Artifact(
+                    "ORDER BY input table oracle is missing".to_string(),
+                ));
+            }
         };
-        let output_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => {
-                    // Drop row-id from gadget payloads while keeping it for ordering in plans.
-                    Some(strip_row_id_tracked_oracle(table))
-                }
-                _ => None,
-            });
+        let output_source = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => table,
+            _ => {
+                return Err(ark_piop::errors::SnarkError::Artifact(
+                    "ORDER BY output table oracle is missing".to_string(),
+                ));
+            }
+        };
+        // Mirror the prover exactly: select key oracles from the tracked
+        // output, never from a separately generated sort-expression witness.
+        let sort_exprs_table = build_output_sort_keys_verifier(output_source, &self.sort)?;
+        let output_table = strip_row_id_tracked_oracle(output_source);
 
-        // 2) Build a table oracle that holds one column per sort expression plus a shared activator.
-        let sort_exprs_table = build_sort_exprs_table_verifier(&self.sort_exprs, virtualized_ir);
-
-        // 3) Populate the gadget payload for the sort gadget node.
+        // Populate the ORDER gadget from the row tables and exact output keys.
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        if let Some(input) = input_table {
-            gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input);
-        }
-        if let Some(output) = output_table {
-            gadget_payload.insert(gadget::OUTPUT_LABEL.to_string(), output);
-        }
-        if let Some(sort_exprs) = sort_exprs_table {
-            gadget_payload.insert(gadget::INPUT_SORT_EXPRS.to_string(), sort_exprs);
-        }
+        gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input_table);
+        gadget_payload.insert(gadget::OUTPUT_LABEL.to_string(), output_table);
+        gadget_payload.insert(gadget::OUTPUT_SORT_EXPRS.to_string(), sort_exprs_table);
 
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
@@ -251,22 +236,28 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     }
     fn initialize_gadget_plans(
         &self,
-        _id: NodeId,
+        id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
+        self.ensure_valid()?;
+        let output_hint_df = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
+            _ => {
+                return Err(ark_piop::errors::SnarkError::Artifact(
+                    "ORDER BY output planning payload is missing".to_string(),
+                ));
+            }
         };
-
-        let sort_exprs_hint =
-            build_sort_exprs_hint_verifier(&self.sort_exprs, &input_hint_df, planned_ir);
+        // Use the same output-scoped projection as the prover. Expression
+        // children remain planning-only and cannot silently change verifier
+        // key identity or disappear from the checked schema.
+        let sort_exprs_hint = build_output_sort_exprs_hint(&output_hint_df, &self.sort)?;
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        gadget_payload.insert(gadget::INPUT_SORT_EXPRS.to_string(), sort_exprs_hint);
+        gadget_payload.insert(gadget::OUTPUT_SORT_EXPRS.to_string(), sort_exprs_hint);
         planned_ir.set_payload_for_node(
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
@@ -275,200 +266,245 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     }
 }
 
-fn build_sort_exprs_table_prover<B: SnarkBackend>(
-    sort_exprs: &[Arc<Node<B>>],
-    virtualized_ir: &ProverVirtualizedIr<B>,
-) -> Option<TrackedTable<B>> {
-    if sort_exprs.is_empty() {
-        return None;
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
+
+fn checked_sort_column(
+    sort_expr: &datafusion_expr::SortExpr,
+) -> ark_piop::errors::SnarkResult<&Column> {
+    match &sort_expr.expr {
+        Expr::Column(column) => Ok(column),
+        _ => Err(ark_piop::errors::SnarkError::Artifact(
+            "ORDER BY key was not a validated direct column".to_string(),
+        )),
     }
+}
 
-    let mut output_cols: IndexMap<FieldRef, ark_piop::prover::structs::polynomial::TrackedPoly<B>> =
-        IndexMap::new();
-    let mut activator: Option<(FieldRef, _)> = None;
-    let mut log_size: Option<usize> = None;
-    let mut metadata = None;
-
-    for expr_node in sort_exprs {
-        let expr_table = match virtualized_ir.payload_for_node(&expr_node.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Sort expression missing tracked table payload"),
-        };
-
-        log_size.get_or_insert(expr_table.log_size());
-        debug_assert_eq!(
-            *log_size.as_ref().unwrap(),
-            expr_table.log_size(),
-            "Sort expr tables should share log size"
-        );
-        metadata.get_or_insert_with(|| {
-            expr_table
-                .schema_ref()
-                .map(|schema| schema.metadata().clone())
-                .unwrap_or_default()
-        });
-
-        if activator.is_none()
-            && let Some(activator_poly) = expr_table.activator_tracked_poly()
-        {
-            let activator_field = expr_table
-                .tracked_polys()
-                .keys()
-                .find(|field| field.name() == ACTIVATOR_COL_NAME)
-                .cloned()
-                .expect("activator field missing from sort expr table");
-            activator = Some((activator_field, activator_poly));
-        }
-        // A sort expression can produce multiple data columns when its column
-        // is encoded as multiple segments (e.g. strings: hash + __length).
-        // Forward every data segment so the downstream sort gadget sees the
-        // same shape as the table it sorts.
-        let data_indices = expr_table.data_tracked_polys_indices();
-        let expr_tracked = expr_table.tracked_polys();
-        for idx in &data_indices {
-            let (field, poly) = expr_tracked
-                .get_index(*idx)
-                .expect("sort expr column index out of bounds");
-            output_cols.insert(field.clone(), poly.clone());
-        }
-    }
-
-    if let Some((field, poly)) = activator {
-        output_cols.entry(field).or_insert(poly);
-    }
-    // Do not include row-id in gadget payloads; it is only used for ordering in plans.
-
-    let fields: Vec<Field> = output_cols
-        .keys()
-        .map(|field| field.as_ref().clone())
-        .collect();
-    let schema = Some(Schema::new_with_metadata(
-        fields,
-        metadata.unwrap_or_default(),
-    ));
-    Some(TrackedTable::new(
-        schema,
-        output_cols,
-        log_size.unwrap_or_default(),
+fn canonical_sort_key(
+    sort: &Sort,
+    sort_expr: &datafusion_expr::SortExpr,
+) -> ark_piop::errors::SnarkResult<(Column, DataType)> {
+    let requested = checked_sort_column(sort_expr)?;
+    let (qualifier, field) = sort
+        .input
+        .schema()
+        .qualified_field_from_column(requested)
+        .map_err(|error| {
+            ark_piop::errors::SnarkError::Artifact(format!(
+                "ORDER BY key `{requested}` does not resolve uniquely: {error}"
+            ))
+        })?;
+    Ok((
+        Column::new(qualifier.cloned(), field.name()),
+        field.data_type().clone(),
     ))
 }
 
-fn build_sort_exprs_table_verifier<B: SnarkBackend>(
-    sort_exprs: &[Arc<Node<B>>],
-    virtualized_ir: &VerifierVirtualizedIr<B>,
-) -> Option<TrackedTableOracle<B>> {
-    if sort_exprs.is_empty() {
-        return None;
+fn field_matches_sort_column(field: &Field, column: &Column) -> bool {
+    if field.name() != column.name() {
+        return false;
     }
-
-    let mut output_cols: IndexMap<FieldRef, ark_piop::verifier::structs::oracle::TrackedOracle<B>> =
-        IndexMap::new();
-    let mut activator: Option<(FieldRef, _)> = None;
-    let mut log_size: Option<usize> = None;
-    let mut metadata = None;
-
-    for expr_node in sort_exprs {
-        let expr_table = match virtualized_ir.payload_for_node(&expr_node.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Sort expression missing tracked table payload"),
-        };
-
-        log_size.get_or_insert(expr_table.log_size());
-        debug_assert_eq!(
-            *log_size.as_ref().unwrap(),
-            expr_table.log_size(),
-            "Sort expr tables should share log size"
-        );
-        metadata.get_or_insert_with(|| {
-            expr_table
-                .schema_ref()
-                .map(|schema| schema.metadata().clone())
-                .unwrap_or_default()
-        });
-
-        if activator.is_none()
-            && let Some(activator_oracle) = expr_table.activator_tracked_poly()
-        {
-            let activator_field = expr_table
-                .tracked_oracles()
-                .keys()
-                .find(|field| field.name() == ACTIVATOR_COL_NAME)
-                .cloned()
-                .expect("activator field missing from sort expr table");
-            activator = Some((activator_field, activator_oracle));
-        }
-        // Multi-segment columns (e.g. strings) contribute several data oracles
-        // per sort expression. Forward all of them so verifier mirrors the
-        // prover's sort-key table shape.
-        let data_indices = expr_table.data_tracked_oracles_indices();
-        let expr_tracked = expr_table.tracked_oracles();
-        for idx in &data_indices {
-            let (field, oracle) = expr_tracked
-                .get_index(*idx)
-                .expect("sort expr column index out of bounds");
-            output_cols.insert(field.clone(), oracle.clone());
-        }
+    match column.relation.as_ref() {
+        Some(relation) => field
+            .metadata()
+            .get(QUALIFIER_METADATA_KEY)
+            .is_some_and(|qualifier| qualifier == &relation.to_string()),
+        None => !field.metadata().contains_key(QUALIFIER_METADATA_KEY),
     }
-
-    if let Some((field, oracle)) = activator {
-        output_cols.entry(field).or_insert(oracle);
-    }
-    // Do not include row-id in gadget payloads; it is only used for ordering in plans.
-
-    let fields: Vec<Field> = output_cols
-        .keys()
-        .map(|field| field.as_ref().clone())
-        .collect();
-    let schema = Some(Schema::new_with_metadata(
-        fields,
-        metadata.unwrap_or_default(),
-    ));
-    Some(TrackedTableOracle::new(
-        schema,
-        output_cols,
-        log_size.unwrap_or_default(),
-    ))
 }
 
-fn build_sort_exprs_hint_verifier<B: SnarkBackend>(
-    sort_exprs: &[Arc<Node<B>>],
-    input_hint_df: &HintDF,
-    planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
-) -> HintDF {
-    let mut fields = Vec::new();
-
-    for expr_node in sort_exprs {
-        let Some(PayloadStructure::PlanPayload(expr_hint_df)) =
-            planned_ir.payload_for_node(&expr_node.id())
-        else {
-            continue;
-        };
-
-        fields.extend(
-            expr_hint_df
-                .data_frame()
-                .schema()
-                .fields()
-                .iter()
-                .filter(|field| {
-                    field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME
-                })
-                .map(|field| field.as_ref().clone()),
-        );
+fn validate_output_key_field(
+    field: &Field,
+    column: &Column,
+    expected_type: &DataType,
+) -> ark_piop::errors::SnarkResult<()> {
+    if field.is_nullable() {
+        return Err(ark_piop::errors::SnarkError::Artifact(format!(
+            "tracked ORDER BY output key `{column}` is nullable"
+        )));
     }
+    if !gadget::is_supported_sort_type(field.data_type()) {
+        return Err(ark_piop::errors::SnarkError::Artifact(format!(
+            "tracked ORDER BY output key `{column}` has unsupported type `{}`",
+            field.data_type()
+        )));
+    }
+    if field.data_type() != expected_type {
+        return Err(ark_piop::errors::SnarkError::Artifact(format!(
+            "tracked ORDER BY output key `{column}` has type `{}`, expected `{expected_type}`",
+            field.data_type()
+        )));
+    }
+    Ok(())
+}
 
-    fields.extend(
-        input_hint_df
-            .data_frame()
-            .schema()
-            .fields()
+fn validate_output_activator_field(field: &Field) -> ark_piop::errors::SnarkResult<()> {
+    if field.data_type() != &DataType::Boolean {
+        return Err(ark_piop::errors::SnarkError::Artifact(format!(
+            "ORDER BY output activator must be Boolean, got `{field}`"
+        )));
+    }
+    Ok(())
+}
+
+fn build_output_sort_keys_prover<B: SnarkBackend>(
+    output: &TrackedTable<B>,
+    sort: &Sort,
+) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
+    let tracked = output.tracked_polys();
+    let data_indices = output.data_tracked_polys_indices();
+    let mut columns = IndexMap::new();
+    for sort_expr in &sort.expr {
+        let (column, expected_type) = canonical_sort_key(sort, sort_expr)?;
+        let matches = data_indices
             .iter()
-            .filter(|field| field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME)
-            .map(|field| field.as_ref().clone()),
-    );
+            .copied()
+            .filter(|idx| {
+                tracked
+                    .get_index(*idx)
+                    .is_some_and(|(field, _)| field_matches_sort_column(field, &column))
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Err(ark_piop::errors::SnarkError::Artifact(format!(
+                "ORDER BY output key `{column}` resolved to {} tracked columns",
+                matches.len()
+            )));
+        }
+        let (field, poly) = tracked
+            .get_index(matches[0])
+            .expect("checked ORDER BY output index should exist");
+        validate_output_key_field(field, &column, &expected_type)?;
+        columns.insert(field.clone(), poly.clone());
+    }
+    if columns.len() != sort.expr.len() {
+        return Err(ark_piop::errors::SnarkError::Artifact(
+            "ORDER BY output key count does not match the logical sort".to_string(),
+        ));
+    }
+    let mut activators = tracked
+        .iter()
+        .filter(|(field, _)| field.name() == ACTIVATOR_COL_NAME);
+    let (active_field, active_poly) = activators.next().ok_or_else(|| {
+        ark_piop::errors::SnarkError::Artifact("ORDER BY output activator is missing".to_string())
+    })?;
+    if activators.next().is_some() {
+        return Err(ark_piop::errors::SnarkError::Artifact(
+            "ORDER BY output has multiple activator columns".to_string(),
+        ));
+    }
+    validate_output_activator_field(active_field)?;
+    columns.insert(active_field.clone(), active_poly.clone());
+    let fields = columns
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect::<Vec<_>>();
+    let metadata = output
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    Ok(TrackedTable::new(
+        Some(Schema::new_with_metadata(fields, metadata)),
+        columns,
+        output.log_size(),
+    ))
+}
 
-    let sort_exprs_df = crate::irs::nodes::hints::schema_only_df(fields);
-    HintDF::new_virtual(sort_exprs_df)
+fn build_output_sort_keys_verifier<B: SnarkBackend>(
+    output: &TrackedTableOracle<B>,
+    sort: &Sort,
+) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
+    let tracked = output.tracked_oracles();
+    let data_indices = output.data_tracked_oracles_indices();
+    let mut columns = IndexMap::new();
+    for sort_expr in &sort.expr {
+        let (column, expected_type) = canonical_sort_key(sort, sort_expr)?;
+        let matches = data_indices
+            .iter()
+            .copied()
+            .filter(|idx| {
+                tracked
+                    .get_index(*idx)
+                    .is_some_and(|(field, _)| field_matches_sort_column(field, &column))
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Err(ark_piop::errors::SnarkError::Artifact(format!(
+                "ORDER BY output key `{column}` resolved to {} tracked oracles",
+                matches.len()
+            )));
+        }
+        let (field, oracle) = tracked
+            .get_index(matches[0])
+            .expect("checked ORDER BY output oracle index should exist");
+        validate_output_key_field(field, &column, &expected_type)?;
+        columns.insert(field.clone(), oracle.clone());
+    }
+    if columns.len() != sort.expr.len() {
+        return Err(ark_piop::errors::SnarkError::Artifact(
+            "ORDER BY output key-oracle count does not match the logical sort".to_string(),
+        ));
+    }
+    let mut activators = tracked
+        .iter()
+        .filter(|(field, _)| field.name() == ACTIVATOR_COL_NAME);
+    let (active_field, active_oracle) = activators.next().ok_or_else(|| {
+        ark_piop::errors::SnarkError::Artifact(
+            "ORDER BY output activator oracle is missing".to_string(),
+        )
+    })?;
+    if activators.next().is_some() {
+        return Err(ark_piop::errors::SnarkError::Artifact(
+            "ORDER BY output has multiple activator oracles".to_string(),
+        ));
+    }
+    validate_output_activator_field(active_field)?;
+    columns.insert(active_field.clone(), active_oracle.clone());
+    let fields = columns
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect::<Vec<_>>();
+    let metadata = output
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    Ok(TrackedTableOracle::new(
+        Some(Schema::new_with_metadata(fields, metadata)),
+        columns,
+        output.log_size(),
+    ))
+}
+
+fn build_output_sort_exprs_hint(
+    output_hint: &HintDF,
+    sort: &Sort,
+) -> ark_piop::errors::SnarkResult<HintDF> {
+    let output_df = output_hint.data_frame().clone();
+    let mut exprs = output::resolve_sort_exprs(output_df.schema(), &sort.expr)
+        .into_iter()
+        .map(|sort_expr| sort_expr.expr)
+        .collect::<Vec<_>>();
+    if output_df
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME)
+    {
+        exprs.push(col(ACTIVATOR_COL_NAME));
+    }
+    // Row id is an auxiliary deterministic-ordering key and is removed before
+    // the actual tracked output keys are passed to Sortcheck.
+    crate::irs::nodes::hints::append_row_id_expr_if_present(&output_df, &mut exprs);
+    let key_df = output_df.select(exprs).map_err(|error| {
+        ark_piop::errors::SnarkError::Artifact(format!(
+            "ORDER BY output key projection failed: {error}"
+        ))
+    })?;
+    let key_df = crate::irs::nodes::hints::sort_by_row_id_if_present(key_df).map_err(|error| {
+        ark_piop::errors::SnarkError::Artifact(format!(
+            "ORDER BY output key ordering failed: {error}"
+        ))
+    })?;
+    Ok(HintDF::new_virtual(key_df))
 }
 
 fn strip_row_id_tracked_table<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
@@ -547,9 +583,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
         {
             let projected = output_df
                 .schema()
-                .fields()
                 .iter()
-                .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
+                .filter_map(|(qualifier, field)| {
+                    (field.name() != ROW_ID_COL_NAME)
+                        .then_some(Expr::Column(Column::new(qualifier.cloned(), field.name())))
+                })
                 .collect();
             output_df
                 .select(projected)
@@ -572,15 +610,21 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
-        let output_fields = input_hint_df
-            .data_frame()
+        let input_df = input_hint_df.data_frame().clone();
+        let output_exprs = input_df
             .schema()
-            .fields()
             .iter()
-            .filter(|field| field.name() != ROW_ID_COL_NAME)
-            .map(|field| field.as_ref().clone())
+            .filter_map(|(qualifier, field)| {
+                (field.name() != ROW_ID_COL_NAME)
+                    .then_some(Expr::Column(Column::new(qualifier.cloned(), field.name())))
+            })
             .collect();
-        let output_df = crate::irs::nodes::hints::schema_only_df(output_fields);
+        // Project the schema-only verifier DataFrame instead of rebuilding it
+        // from bare Arrow fields; rebuilding would erase relation qualifiers
+        // needed to bind joined-table keys unambiguously.
+        let output_df = input_df
+            .select(output_exprs)
+            .expect("sort verifier output projection should succeed");
         HintDF::new_materialized(output_df)
     }
 }
@@ -599,18 +643,22 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         // sort.
         let input = Tree::<B>::from_logical_plan(&sort.input).root().clone();
 
-        // Recurse into the input subtree and fetch the expr that feeds this
-        // sort.
+        // Keep expression children acyclic for planning. They are not trusted
+        // by the proof: `initialize_gadgets` selects the checked direct-column
+        // commitments from this Sort node's tracked output table itself.
+        let validation_error = gadget::validate_sort(&sort).err();
         let mut sort_exprs = vec![];
-        for expr in &sort.expr {
-            let expr_lp = Tree::<B>::from_expr(
-                &expr.expr.clone(),
-                Some(self_ref.clone()),
-                vec![Arc::downgrade(&input)],
-            )
-            .root()
-            .clone();
-            sort_exprs.push(expr_lp);
+        if validation_error.is_none() {
+            for expr in &sort.expr {
+                let expr_lp = Tree::<B>::from_expr(
+                    &expr.expr.clone(),
+                    Some(self_ref.clone()),
+                    vec![Arc::downgrade(&input)],
+                )
+                .root()
+                .clone();
+                sort_exprs.push(expr_lp);
+            }
         }
 
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(gadget::GadgetNode::new(
@@ -622,10 +670,20 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             input,
             sort_exprs,
             gadget,
+            validation_error,
         }
     }
 
     fn lp(&self) -> LogicalPlan {
         LogicalPlan::Sort(self.sort.clone())
+    }
+}
+
+impl<B: SnarkBackend> LpNode<B> {
+    fn ensure_valid(&self) -> ark_piop::errors::SnarkResult<()> {
+        match &self.validation_error {
+            Some(message) => Err(ark_piop::errors::SnarkError::Artifact(message.clone())),
+            None => Ok(()),
+        }
     }
 }

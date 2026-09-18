@@ -59,3 +59,49 @@ fn normalize_plan_node(plan: LogicalPlan) -> DataFusionResult<Transformed<Logica
 
     Ok(Transformed::yes(LogicalPlan::Limit(limit)))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion_common::DFSchema;
+    use datafusion_expr::{LogicalPlan, Sort, col, logical_plan::EmptyRelation};
+
+    use super::normalize_plan_node;
+
+    #[test]
+    fn top_k_sort_becomes_limit_over_full_sort() {
+        let schema = Arc::new(
+            DFSchema::try_from(Schema::new(vec![Field::new("key", DataType::Int64, false)]))
+                .unwrap(),
+        );
+        let input = LogicalPlan::EmptyRelation(EmptyRelation {
+            produce_one_row: false,
+            schema,
+        });
+        let top_k = LogicalPlan::Sort(Sort {
+            expr: vec![col("key").sort(true, false)],
+            input: Arc::new(input.clone()),
+            fetch: Some(3),
+        });
+
+        let rewritten = normalize_plan_node(top_k).unwrap().data;
+        let LogicalPlan::Limit(limit) = rewritten else {
+            panic!("top-k sort must produce an explicit LIMIT");
+        };
+        assert!(matches!(
+            limit.get_skip_type().unwrap(),
+            datafusion_expr::SkipType::Literal(0)
+        ));
+        assert!(matches!(
+            limit.get_fetch_type().unwrap(),
+            datafusion_expr::FetchType::Literal(Some(3))
+        ));
+        let LogicalPlan::Sort(sort) = limit.input.as_ref() else {
+            panic!("LIMIT must retain a full-sort child");
+        };
+        assert_eq!(sort.fetch, None);
+        assert_eq!(sort.input.as_ref(), &input);
+    }
+}

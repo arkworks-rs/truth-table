@@ -57,26 +57,20 @@ pub(crate) fn resolve_sort_exprs(schema: &DFSchema, exprs: &[SortExpr]) -> Vec<S
 fn resolve_sort_expr(schema: &DFSchema, expr: Expr) -> Expr {
     expr.transform(|inner| {
         if let Expr::Column(col) = &inner {
-            let name = col.name();
-            if let Some(relation) = col.relation.as_ref() {
-                let has_exact = schema.iter().any(|(qualifier, field)| {
-                    field.name() == name && qualifier.as_ref() == Some(&relation)
-                });
-                if has_exact {
-                    return Ok(Transformed::no(inner));
-                }
+            if let Ok((qualifier, field)) = schema.qualified_field_from_column(col) {
+                let resolved = Expr::Column(Column::new(qualifier.cloned(), field.name()));
+                return if resolved == inner {
+                    Ok(Transformed::no(inner))
+                } else {
+                    Ok(Transformed::yes(resolved))
+                };
             }
 
-            if let Some((qualifier, _)) = schema.iter().find(|(_, field)| field.name() == name) {
-                return Ok(Transformed::yes(Expr::Column(Column::new(
-                    qualifier.cloned(),
-                    name,
-                ))));
-            }
-
-            return Ok(Transformed::yes(Expr::Column(Column::new_unqualified(
-                name,
-            ))));
+            // Preserve unresolved and ambiguous references. In particular, do
+            // not discard a missing qualifier and silently select the first
+            // same-named field from another relation. DataFusion will reject
+            // the unchanged expression when the plan is evaluated.
+            return Ok(Transformed::no(inner));
         }
 
         Ok(Transformed::no(inner))

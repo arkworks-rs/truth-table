@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
+use arithmetic::{ACTIVATOR_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::Field;
-use datafusion_expr::{Sort, col, expr::Sort as SortExpr, lit};
+use datafusion::arrow::datatypes::DataType;
+use datafusion_expr::{Expr, Sort};
 
 use indexmap::IndexMap;
 
@@ -15,143 +15,153 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+#[cfg(test)]
+mod tests;
+
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
-pub const INPUT_SORT_EXPRS: &str = "__input_sort_exprs__";
 pub const OUTPUT_SORT_EXPRS: &str = "__output_sort_exprs__";
 pub struct GadgetNode<B: SnarkBackend> {
     sort_gadget: Arc<Node<B>>,
     remat_gadget: Arc<Node<B>>,
-    sort_specs: Vec<(String, bool, bool)>,
-    // Carry the logical `fetch` through gadget planning so helper sort hints
-    // mirror the top-k semantics of the enclosing Order By node.
-    fetch: Option<usize>,
+    sort_key_count: usize,
+    validation_error: Option<String>,
 }
 
-fn populate_output_expr(
-    gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
-    input_hint: &crate::irs::nodes::hints::HintDF,
-    sort_specs: &[(String, bool, bool)],
-    fetch: Option<usize>,
-    skip_collection: bool,
-) -> crate::irs::nodes::hints::HintDF {
-    let input_df = input_hint.data_frame().clone();
+pub(super) fn is_supported_sort_type(data_type: &DataType) -> bool {
+    matches!(
+        data_type,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Date32
+    )
+}
 
-    // Verifier planning only needs shape/materialization metadata, not row values.
-    // Avoid expensive sort planning here when we're in verifier mode.
-    // Verifier planning only needs shape/materialization metadata, not row values.
-    // Avoid expensive sort planning here when we're in verifier mode.
-    let output_hint = if skip_collection {
-        // Build a schema-only verifier hint directly (no DataFusion plan building).
-        let has_activator = input_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ACTIVATOR_COL_NAME);
-        let mut fields: Vec<Field> = input_df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        if !has_activator {
-            fields.push(ACTIVATOR_FIELD.as_ref().clone());
-        }
-        let sort_input_df = crate::irs::nodes::hints::schema_only_df(fields);
-        let mut should_materialize = IndexMap::new();
-        for field in sort_input_df.schema().fields() {
-            should_materialize.insert(field.clone(), field.name() != ROW_ID_COL_NAME);
-        }
-        crate::irs::nodes::hints::HintDF::new_assume_normalized(sort_input_df, should_materialize)
-    } else {
-        let has_activator = input_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ACTIVATOR_COL_NAME);
-        // Guarantee a materialized activator so downstream gadgets can rely on it.
-        let sort_input_df = if has_activator {
-            input_df
-        } else {
-            // Ensure the output carries an activator even if the input did not.
-            input_df
-                .with_column(ACTIVATOR_COL_NAME, lit(true))
-                .expect("sort exprs should accept synthetic activator")
-        };
-        // Sort by activator first (actives first), then by the sort-expr columns.
-        let mut sort_exprs: Vec<SortExpr> =
-            Vec::with_capacity(1 + sort_input_df.schema().fields().len());
-        sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
-        let data_fields: Vec<_> = sort_input_df
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| !is_system_column(field.name()))
-            .collect();
-        // Respect the sort spec ordering by column name, falling back to schema order if needed.
-        if !sort_specs.is_empty() {
-            let mut ordered = Vec::with_capacity(sort_specs.len());
-            for (name, asc, nulls_first) in sort_specs {
-                let normalized = normalize_sort_name(name);
-                if let Some(field) = data_fields
-                    .iter()
-                    .find(|field| normalize_sort_name(field.name()) == normalized)
-                {
-                    ordered.push(col(field.name()).sort(*asc, *nulls_first));
-                }
-            }
-            if ordered.len() == data_fields.len() {
-                sort_exprs.extend(ordered);
-            } else {
-                sort_exprs.extend(
-                    data_fields
-                        .iter()
-                        .map(|field| col(field.name()).sort(true, true)),
-                );
-            }
-        } else {
-            sort_exprs.extend(
-                data_fields
-                    .iter()
-                    .map(|field| col(field.name()).sort(true, true)),
-            );
-        }
+fn missing_sort_keys() -> ark_piop::errors::SnarkError {
+    ark_piop::errors::SnarkError::Artifact(
+        "ORDER BY output sort-key payload is missing".to_string(),
+    )
+}
 
-        let sort = Sort {
-            expr: sort_exprs,
-            input: Arc::new(sort_input_df.logical_plan().clone()),
-            fetch,
-        };
+fn missing_order_table(label: &str) -> ark_piop::errors::SnarkError {
+    ark_piop::errors::SnarkError::Artifact(format!(
+        "ORDER BY row-permutation payload `{label}` is missing"
+    ))
+}
 
-        let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
-        // Project the data columns and activator (and row_id for deterministic ordering).
-        let projected = sorted_df
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| {
-                field.name() == ACTIVATOR_COL_NAME
-                    || field.name() == ROW_ID_COL_NAME
-                    || !is_system_column(field.name())
-            })
-            .map(|field| col(field.name()))
-            .collect();
-        let sorted_df = sorted_df
-            .select(projected)
-            .expect("sort exprs projection should succeed");
+fn invalid_sort(message: String) -> ark_piop::errors::SnarkError {
+    ark_piop::errors::SnarkError::Artifact(message)
+}
 
-        crate::irs::nodes::hints::HintDF::new_materialized(sorted_df)
-    };
-    // This helper payload is only used to seed downstream virtual tables.
-    // Keep all of its columns virtual so it does not introduce dead commitments.
-    let mut should_materialize = IndexMap::new();
-    for field in output_hint.data_frame().schema().fields() {
-        should_materialize.insert(field.clone(), false);
+fn checked_output_hint(
+    payload: &IndexMap<String, crate::irs::nodes::hints::HintDF>,
+    expected_keys: usize,
+) -> ark_piop::errors::SnarkResult<&crate::irs::nodes::hints::HintDF> {
+    // This checks only the planning shape. Exact tracker/oracle identity is
+    // enforced later when the Sort LP selects keys from its tracked output.
+    let hint = payload
+        .get(OUTPUT_SORT_EXPRS)
+        .ok_or_else(missing_sort_keys)?;
+    let actual_keys = hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| !is_system_column(field.name()))
+        .count();
+    if actual_keys != expected_keys {
+        return Err(invalid_sort(format!(
+            "ORDER BY output sort-key hint contains {actual_keys} keys, expected {expected_keys}"
+        )));
     }
-    let output_sort_exprs =
-        crate::irs::nodes::hints::HintDF::new(output_hint.data_frame().clone(), should_materialize);
-    gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), output_sort_exprs);
-    output_hint
+    let activators = hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| field.name() == ACTIVATOR_COL_NAME)
+        .collect::<Vec<_>>();
+    if activators.len() != 1 || activators[0].data_type() != &DataType::Boolean {
+        return Err(invalid_sort(
+            "ORDER BY output sort-key hint must contain one Boolean activator".to_string(),
+        ));
+    }
+    Ok(hint)
+}
+
+/// Return the deliberately small ORDER BY fragment whose key values are
+/// currently tied to constrained output expressions.
+///
+/// In particular, several expression nodes materialize a witness without a
+/// gadget proving its SQL semantics. Accepting those nodes here would let the
+/// prover sort an unrelated column. Qualified columns with the same terminal
+/// name are also rejected because ContiguousSort currently identifies key
+/// columns by that terminal name.
+pub(super) fn validate_sort(sort: &Sort) -> Result<(), String> {
+    if sort.expr.is_empty() {
+        return Err("ORDER BY requires at least one proved key".to_string());
+    }
+    if sort.fetch.is_some() {
+        return Err(
+            "ORDER BY with an embedded fetch is unsupported; normalize it to a separately proved LIMIT"
+                .to_string(),
+        );
+    }
+
+    let mut names = HashSet::with_capacity(sort.expr.len());
+    for sort_expr in &sort.expr {
+        let Expr::Column(column) = &sort_expr.expr else {
+            return Err(format!(
+                "unsupported ORDER BY key `{}`; only direct column keys are currently proved",
+                sort_expr.expr
+            ));
+        };
+        if is_system_column(column.name()) {
+            return Err(format!(
+                "internal system column `{column}` cannot be an ORDER BY key"
+            ));
+        }
+        let (_, field) = sort
+            .input
+            .schema()
+            .qualified_field_from_column(column)
+            .map_err(|error| {
+                format!("ORDER BY key `{column}` does not resolve uniquely: {error}")
+            })?;
+        if field.is_nullable() {
+            return Err(format!(
+                "nullable ORDER BY key `{column}` is unsupported until NULL ordering is proved"
+            ));
+        }
+        if !is_supported_sort_type(field.data_type()) {
+            return Err(format!(
+                "unsupported ORDER BY key type `{}` for `{column}`; only bounded integer/date keys are currently proved",
+                field.data_type()
+            ));
+        }
+        // ContiguousSort identifies columns by the terminal segment of their
+        // field name. Quoted identifiers containing a dot cannot currently be
+        // represented without a collision, so reject them explicitly.
+        if column.name.contains('.') {
+            return Err(format!(
+                "unsupported ORDER BY key name `{}`; dots in key field names are not currently proved",
+                column.name
+            ));
+        }
+        if !names.insert(column.name.clone()) {
+            return Err(format!(
+                "ambiguous ORDER BY key `{}`; duplicate unqualified key names are unsupported",
+                column.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn populate_sort_gadget_table<B: SnarkBackend>(
@@ -202,25 +212,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+        self.ensure_valid()?;
+        let gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
+            _ => return Err(missing_sort_keys()),
         };
-        let input_hint = match gadget_payload.get(INPUT_SORT_EXPRS) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
+        let output_hint = checked_output_hint(&gadget_payload, self.sort_key_count)?.clone();
 
-        let output_hint = populate_output_expr(
-            &mut gadget_payload,
-            &input_hint,
-            &self.sort_specs,
-            self.fetch,
-            false,
-        );
-        // Drop row-id from the input sort-exprs payload after it's been used for ordering.
-        let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
-        gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
+        // The key table is virtual. Only rotation/tie/difference auxiliaries
+        // are materialized by the child; initialization supplies the actual keys.
         populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
@@ -230,7 +230,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _id: crate::irs::nodes::NodeId,
         _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        self.ensure_valid()
     }
 
     fn initialize_gadgets(
@@ -239,28 +239,48 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        self.ensure_valid()?;
         let Some(PayloadStructure::GadgetPayload(payload)) =
             virtualized_ir.payload_for_node(&id).cloned()
         else {
-            return Ok(());
+            return Err(missing_sort_keys());
         };
 
+        let keys = payload
+            .get(OUTPUT_SORT_EXPRS)
+            .cloned()
+            .ok_or_else(missing_sort_keys)?;
+        let mut sort_payload = match virtualized_ir.payload_for_node(&self.sort_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        sort_payload.insert(
+            crate::irs::nodes::utils::contig_sort::TABLE_LABEL.to_string(),
+            keys,
+        );
+        virtualized_ir.set_payload_for_node(
+            self.sort_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(sort_payload)),
+        );
+
+        let input = payload
+            .get(INPUT_LABEL)
+            .cloned()
+            .ok_or_else(|| missing_order_table(INPUT_LABEL))?;
+        let output = payload
+            .get(OUTPUT_LABEL)
+            .cloned()
+            .ok_or_else(|| missing_order_table(OUTPUT_LABEL))?;
         let mut remat_payload = match virtualized_ir.payload_for_node(&self.remat_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        if let Some(input) = payload.get(INPUT_LABEL).cloned() {
-            remat_payload.insert(remat::INPUT_LABEL.to_string(), input);
-        }
-        if let Some(output) = payload.get(OUTPUT_LABEL).cloned() {
-            remat_payload.insert(remat::OUTPUT_LABEL.to_string(), output);
-        }
-        if !remat_payload.is_empty() {
-            virtualized_ir.set_payload_for_node(
-                self.remat_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(remat_payload)),
-            );
-        }
+        remat_payload.insert(remat::INPUT_LABEL.to_string(), input);
+        remat_payload.insert(remat::OUTPUT_LABEL.to_string(), output);
+        virtualized_ir.set_payload_for_node(
+            self.remat_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(remat_payload)),
+        );
         Ok(())
     }
 }
@@ -271,24 +291,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+        self.ensure_valid()?;
+        let gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
+            _ => return Err(missing_sort_keys()),
         };
-        let input_hint = match gadget_payload.get(INPUT_SORT_EXPRS) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
+        let output_hint = checked_output_hint(&gadget_payload, self.sort_key_count)?.clone();
 
-        let output_hint = populate_output_expr(
-            &mut gadget_payload,
-            &input_hint,
-            &self.sort_specs,
-            self.fetch,
-            true,
-        );
-        // INPUT_SORT_EXPRS is not consumed during gadget wiring for OrderBy.
-        // Avoid extra verifier-side projection work here.
         populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
@@ -298,7 +307,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _id: crate::irs::nodes::NodeId,
         _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        self.ensure_valid()
     }
     fn initialize_gadgets(
         &self,
@@ -306,28 +315,50 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        self.ensure_valid()?;
         let Some(PayloadStructure::GadgetPayload(payload)) =
             virtualized_ir.payload_for_node(&id).cloned()
         else {
-            return Ok(());
+            return Err(missing_sort_keys());
         };
 
+        // Mirror the prover binding: Sortcheck must consume the same oracle
+        // expressions as the committed output, never a separate sorted witness.
+        let keys = payload
+            .get(OUTPUT_SORT_EXPRS)
+            .cloned()
+            .ok_or_else(missing_sort_keys)?;
+        let mut sort_payload = match virtualized_ir.payload_for_node(&self.sort_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        sort_payload.insert(
+            crate::irs::nodes::utils::contig_sort::TABLE_LABEL.to_string(),
+            keys,
+        );
+        virtualized_ir.set_payload_for_node(
+            self.sort_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(sort_payload)),
+        );
+
+        let input = payload
+            .get(INPUT_LABEL)
+            .cloned()
+            .ok_or_else(|| missing_order_table(INPUT_LABEL))?;
+        let output = payload
+            .get(OUTPUT_LABEL)
+            .cloned()
+            .ok_or_else(|| missing_order_table(OUTPUT_LABEL))?;
         let mut remat_payload = match virtualized_ir.payload_for_node(&self.remat_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        if let Some(input) = payload.get(INPUT_LABEL).cloned() {
-            remat_payload.insert(remat::INPUT_LABEL.to_string(), input);
-        }
-        if let Some(output) = payload.get(OUTPUT_LABEL).cloned() {
-            remat_payload.insert(remat::OUTPUT_LABEL.to_string(), output);
-        }
-        if !remat_payload.is_empty() {
-            virtualized_ir.set_payload_for_node(
-                self.remat_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(remat_payload)),
-            );
-        }
+        remat_payload.insert(remat::INPUT_LABEL.to_string(), input);
+        remat_payload.insert(remat::OUTPUT_LABEL.to_string(), output);
+        virtualized_ir.set_payload_for_node(
+            self.remat_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(remat_payload)),
+        );
         Ok(())
     }
 }
@@ -339,7 +370,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        self.ensure_valid()
     }
 
     fn honest_prover_check(
@@ -348,7 +379,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        self.ensure_valid()
     }
 
     fn verify(
@@ -357,7 +388,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        self.ensure_valid()
     }
 
     fn prover_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -371,6 +402,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort: Sort) -> Self {
+        let validation_error = validate_sort(&sort).err();
         // Preserve column names so sort-spec ordering can be matched to hint schemas.
         let sort_specs: Vec<(String, bool, bool)> = sort
             .expr
@@ -383,7 +415,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 )
             })
             .collect();
-        // DataFusion sort expressions do not encode strictness, so default to true.
+        // SQL ORDER BY permits ties.
         let strict: bool = false;
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::contig_sort::GadgetNode::new(
@@ -401,12 +433,15 @@ impl<B: SnarkBackend> GadgetNode<B> {
         Self {
             sort_gadget,
             remat_gadget,
-            sort_specs,
-            fetch: sort.fetch,
+            sort_key_count: sort.expr.len(),
+            validation_error,
         }
     }
-}
 
-fn normalize_sort_name(name: &str) -> String {
-    name.rsplit('.').next().unwrap_or(name).to_string()
+    fn ensure_valid(&self) -> ark_piop::errors::SnarkResult<()> {
+        match &self.validation_error {
+            Some(message) => Err(invalid_sort(message.clone())),
+            None => Ok(()),
+        }
+    }
 }
