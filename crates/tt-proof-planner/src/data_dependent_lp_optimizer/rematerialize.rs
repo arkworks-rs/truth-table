@@ -1,6 +1,9 @@
 use datafusion::execution::context::SessionState;
-use datafusion_common::{DataFusionError, Result as DataFusionResult};
-use datafusion_expr::{BinaryExpr, Expr, LogicalPlan, Operator};
+use datafusion_common::{
+    DataFusionError, Result as DataFusionResult,
+    tree_node::{TreeNode, TreeNodeRecursion},
+};
+use datafusion_expr::{BinaryExpr, Distinct, Expr, LogicalPlan, Operator};
 use std::collections::BTreeSet;
 use tt_core::irs::nodes::plan::{
     rematerialize::{RematerializeLogicalNode, wrap_logical_plan},
@@ -9,11 +12,20 @@ use tt_core::irs::nodes::plan::{
 
 use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
 
+#[cfg(test)]
+mod tests;
+
 /// Data-dependent rule that wraps Filter / Aggregate nodes in a
 /// `RematerializeLogicalNode` whenever the node's output row count fits in
-/// a strictly smaller power-of-two hypercube than its input. Limit is
-/// excluded because wrapping it triggers prover-side `FalseClaim` panics on
-/// queries with explicit `LIMIT` (Q3, Q10).
+/// a strictly smaller power-of-two hypercube than its input.
+///
+/// Rematerialization currently proves bag equality, not order preservation.
+/// Until an order-demand analysis or a stable compaction check is available,
+/// this rule declines all plans containing Sort, Limit (including a limit
+/// pushed into `TableScan.fetch`), Window, DISTINCT ON, explicitly ordered
+/// expressions, or an unknown extension node. This is deliberately
+/// conservative: compaction below a subsequent Sort can be safe, and SQL LIMIT
+/// without ORDER BY does not promise a particular global order.
 #[derive(Debug, Default)]
 pub struct RematerializeRule;
 
@@ -33,6 +45,9 @@ impl DataDependentOptimizationRule for RematerializeRule {
         session_state: &SessionState,
         plan: &LogicalPlan,
     ) -> DataFusionResult<Vec<OptimizationHint>> {
+        if contains_order_sensitive_operator(plan)? {
+            return Ok(Vec::new());
+        }
         let mut hints = Vec::new();
         let mut path = Vec::new();
         collect_rematerialize_hints(session_state, plan, false, &mut path, &mut hints)?;
@@ -75,7 +90,95 @@ pub(super) fn apply_rematerialize_hints(
     path: &mut Vec<usize>,
     remaining_paths: &mut BTreeSet<Vec<usize>>,
 ) -> DataFusionResult<LogicalPlan> {
+    // Hints are prover-supplied. Recheck the same structural restriction on
+    // the verifier path; suppressing only honest collection is insufficient.
+    if !remaining_paths.is_empty() {
+        ensure_rematerialization_is_order_safe(&plan)?;
+    }
     apply_rematerialize_hints_with_result_check_guard(plan, path, remaining_paths, false)
+}
+
+/// Reject bag-only rematerialization whenever the original plan has an
+/// order-dependent operator. Call this before applying any other untrusted
+/// rewrite, since such a rewrite could erase the node that carries the order
+/// demand and thereby bypass a later structural check.
+pub(super) fn ensure_rematerialization_is_order_safe(plan: &LogicalPlan) -> DataFusionResult<()> {
+    if contains_order_sensitive_operator(plan)? {
+        return Err(DataFusionError::Plan(
+            "Rematerialize hints are not supported for plans containing Sort, Limit (including a pushed-down TableScan fetch), Window, DISTINCT ON, an explicitly ordered expression, or an unknown extension node: bag equality does not preserve order".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Detect order-sensitive constructs through wrappers and expression
+/// subqueries. Both hint collection and replay use this conservative
+/// whole-plan policy. This is an allowlist: plan variants outside the query
+/// fragment currently lowered by TruthTable fail closed, as do unknown
+/// extension nodes. Only TruthTable's two audited identity wrappers are
+/// admitted.
+fn contains_order_sensitive_operator(plan: &LogicalPlan) -> DataFusionResult<bool> {
+    let mut found = false;
+    plan.apply_with_subqueries(|node| {
+        let is_order_sensitive = match node {
+            LogicalPlan::Projection(_)
+            | LogicalPlan::Filter(_)
+            | LogicalPlan::Aggregate(_)
+            | LogicalPlan::Join(_)
+            | LogicalPlan::SubqueryAlias(_) => false,
+            LogicalPlan::TableScan(scan) => scan.fetch.is_some(),
+            LogicalPlan::Extension(extension) => {
+                !is_result_check_plan(node)
+                    && !extension.node.as_any().is::<RematerializeLogicalNode>()
+            }
+            LogicalPlan::Sort(_)
+            | LogicalPlan::Limit(_)
+            | LogicalPlan::Window(_)
+            | LogicalPlan::Distinct(Distinct::On(_)) => true,
+            // These variants are not part of the currently audited lowering
+            // fragment (some, such as Repartition and Union, may also alter
+            // physical order). Treat them as unsafe until reviewed.
+            _ => true,
+        };
+        if is_order_sensitive || contains_explicit_ordering(node)? {
+            found = true;
+            Ok(TreeNodeRecursion::Stop)
+        } else {
+            Ok(TreeNodeRecursion::Continue)
+        }
+    })?;
+    Ok(found)
+}
+
+/// Some order requirements live inside expressions rather than in a Sort
+/// node. In particular, SQL aggregates may carry their own ORDER BY clause.
+/// Window expressions are included defensively even though DataFusion normally
+/// places them in a `LogicalPlan::Window`, which is already rejected above.
+fn contains_explicit_ordering(plan: &LogicalPlan) -> DataFusionResult<bool> {
+    let mut found = false;
+    for expression in plan.expressions() {
+        expression.apply(|nested| {
+            let ordered = match nested {
+                Expr::AggregateFunction(function) => function
+                    .params
+                    .order_by
+                    .as_ref()
+                    .is_some_and(|order_by| !order_by.is_empty()),
+                Expr::WindowFunction(function) => !function.params.order_by.is_empty(),
+                _ => false,
+            };
+            if ordered {
+                found = true;
+                Ok(TreeNodeRecursion::Stop)
+            } else {
+                Ok(TreeNodeRecursion::Continue)
+            }
+        })?;
+        if found {
+            break;
+        }
+    }
+    Ok(found)
 }
 
 fn apply_rematerialize_hints_with_result_check_guard(
@@ -87,8 +190,8 @@ fn apply_rematerialize_hints_with_result_check_guard(
     let was_hit = remaining_paths.remove(path);
 
     // Match `collect_rematerialize_hints`: only the immediate child of a
-    // `ResultCheck` is in the tail; the flag does not propagate through
-    // Sort / Projection / SubqueryAlias.
+    // `ResultCheck` is in the tail. The separate whole-plan order guard above
+    // already excludes order-sensitive operators, including under wrappers.
     let child_parent_is_result_check = is_result_check_plan(&plan);
 
     // Post-order: rewrite children first so nested hints wrap before we
