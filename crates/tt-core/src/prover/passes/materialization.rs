@@ -243,6 +243,28 @@ pub fn append_activator_and_pad_batches(
     Ok((output_schema, vec![combined_batch]))
 }
 
+/// Reject NULLs in a public query result before field arithmetization.
+///
+/// The current Arrow-to-field encoding maps a NULL payload to zero and does
+/// not emit a separate validity polynomial. Until such validity columns are
+/// authenticated, accepting NULLs here would let a verifier-owned NULL be
+/// substituted for a zero (or vice versa) without changing ResultCheck's
+/// field-level statement.
+pub fn reject_nulls_in_public_result(batches: &[RecordBatch]) -> datafusion_common::Result<()> {
+    for batch in batches {
+        let schema = batch.schema();
+        for (field, column) in schema.fields().iter().zip(batch.columns()) {
+            if column.null_count() != 0 {
+                return Err(DataFusionError::Plan(format!(
+                    "public result column {} contains NULL values, which are unsupported until validity columns are authenticated",
+                    field.name()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn pad_batches_to_num_rows_with_inactive_padding(
     schema: &Schema,
     batches: Vec<RecordBatch>,

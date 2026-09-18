@@ -21,7 +21,10 @@ use crate::{
     prover::{
         passes::{
             arithmetization::arithmetize_materialized_table,
-            materialization::pad_batches_to_num_rows_with_inactive_padding,
+            materialization::{
+                append_activator_and_pad_batches, pad_batches_to_num_rows_with_inactive_padding,
+                reject_nulls_in_public_result,
+            },
         },
         payloads::MaterializedTable,
     },
@@ -38,6 +41,11 @@ pub struct TrackingPass<B: SnarkBackend> {
     verifier: RefCell<ArgVerifier<B>>,
     ctx_oracles: CtxOracles<B>,
     output_memtable: Option<Arc<MemTable>>,
+    /// Schema validation happens inside `LocalPass::transform`, whose API
+    /// cannot return a `Result`. Retain the first error and surface it from
+    /// `finish` before cryptographic verification instead of panicking or
+    /// accepting an unsupported field representation.
+    encoding_error: RefCell<Option<String>>,
     /// Columns some white-box string gadget consumes char-level side polys
     /// for (from `Tree::required_side_columns`). The prover emits side
     /// commitments only for these columns, so the verifier must expect
@@ -56,6 +64,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
             verifier: RefCell::new(verifier),
             ctx_oracles,
             output_memtable,
+            encoding_error: RefCell::new(None),
             side_columns,
         }
     }
@@ -64,14 +73,24 @@ impl<B: SnarkBackend> TrackingPass<B> {
         &self,
         tracked_ir: &mut crate::verifier::irs::TrackedIr<B>,
     ) -> TTResult<()> {
+        if let Some(error) = self.encoding_error.borrow().as_ref() {
+            return Err(DataFusionError::Plan(error.clone()).into());
+        }
         let Some(output_memtable) = self.output_memtable.clone() else {
             return Ok(());
         };
         let root = tracked_ir.tree().root();
         if root.name() != "ResultCheck" {
-            return Ok(());
+            return Err(DataFusionError::Internal(
+                "public result was supplied, but the verification plan has no ResultCheck root"
+                    .to_string(),
+            )
+            .into());
         }
-
+        // Treat even low-level callers' table as raw public data. Validation
+        // and activation normalization live here so no caller can bypass them
+        // by constructing TrackingPass directly.
+        let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         // Final output table: no side segments — no downstream PIOP consumes them.
         let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None);
@@ -113,8 +132,26 @@ where
         _id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<TrackedPayload<B>> {
+        if self.encoding_error.borrow().is_some() {
+            return None;
+        }
         // If there is no payload, do nothing
         let payload = payload?;
+        let validation_result = match payload {
+            HintDFPayload::PlanPayload(hint_df) => validate_hint_df_encoding::<B>(hint_df),
+            HintDFPayload::GadgetPayload(map) => map.iter().try_for_each(|(key, hint_df)| {
+                validate_hint_df_encoding::<B>(hint_df).map_err(|error| {
+                    format!("gadget payload `{key}` has an unsupported encoding: {error}")
+                })
+            }),
+        };
+        if let Err(error) = validation_result {
+            *self.encoding_error.borrow_mut() = Some(format!(
+                "verifier tracking rejected unsupported schema at node `{}`: {error}",
+                node.name()
+            ));
+            return None;
+        }
         match payload {
             // If the payload is a plan,
             HintDFPayload::PlanPayload(hint_df) => {
@@ -164,6 +201,20 @@ where
     fn name(&self) -> &'static str {
         "Verifier Tracking"
     }
+}
+
+fn validate_hint_df_encoding<B: SnarkBackend>(
+    hint_df: &crate::irs::nodes::hints::HintDF,
+) -> Result<(), String> {
+    hint_df
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .try_for_each(|field| {
+            arithmetic::encoding::validate_fixed_width_encoding_safety::<B::F>(field.data_type())
+                .map_err(|error| format!("field `{}`: {error}", field.name()))
+        })
 }
 
 fn track_hint_df_from_oracle<B: SnarkBackend>(
@@ -362,6 +413,11 @@ fn track_hint_df<B: SnarkBackend>(
 /// `[col, col__length]`). The first segment uses the unchanged field; later
 /// segments inherit `metadata` and nullability but rename to `<col>{suffix}`.
 fn segment_fields<B: SnarkBackend>(field: &FieldRef) -> Vec<FieldRef> {
+    // `TrackingPass::transform` validates every HintDF schema before reaching
+    // this helper. Keep this assertion as defense in depth for future callers
+    // that might enumerate verifier commitments without that preflight.
+    arithmetic::encoding::validate_fixed_width_encoding_safety::<B::F>(field.data_type())
+        .expect("segment enumeration requires a safe fixed-width field encoding");
     let suffixes = arithmetic::encoding::segment_suffixes_for_type::<B::F>(field.data_type());
     if suffixes.len() <= 1 {
         return vec![field.clone()];
@@ -464,6 +520,34 @@ fn infer_table_name_from_df_schema(schema: &DFSchema) -> Option<String> {
 }
 
 impl<B: SnarkBackend> TrackingPass<B> {
+    async fn normalize_output_memtable(mem_table: Arc<MemTable>) -> TTResult<Arc<MemTable>> {
+        let base_schema = mem_table.schema();
+        if base_schema.fields().iter().any(|field| {
+            field.name() == arithmetic::ACTIVATOR_COL_NAME
+                || field.name() == arithmetic::ROW_ID_COL_NAME
+        }) {
+            return Err(DataFusionError::Plan(format!(
+                "raw public result must not contain reserved internal columns {} or {}",
+                arithmetic::ACTIVATOR_COL_NAME,
+                arithmetic::ROW_ID_COL_NAME
+            ))
+            .into());
+        }
+        crate::irs::nodes::plan::result_check::validate_public_result_encoding::<B::F>(
+            base_schema.as_ref(),
+        )?;
+        let ctx = SessionContext::new();
+        let df = ctx.read_table(mem_table)?;
+        let batches = df.collect().await?;
+        reject_nulls_in_public_result(&batches)?;
+        let (output_schema, output_batches) =
+            append_activator_and_pad_batches(base_schema.as_ref(), batches)?;
+        Ok(Arc::new(MemTable::try_new(
+            Arc::new(output_schema),
+            vec![output_batches],
+        )?))
+    }
+
     async fn materialized_table_from_memtable(
         mem_table: Arc<MemTable>,
         target_num_rows: Option<usize>,
@@ -500,7 +584,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
                     move |point| {
                         // Fast path: hypercube points (every coord is 0 or 1)
                         // become a direct array lookup — O(num_vars) instead of
-                        // O(2^num_vars). result_check's verifier extracts res˜
+                        // O(2^num_vars). ResultCheck extracts the public result
                         // by querying at hypercube points, so this matters.
                         if let Some(idx) = hypercube_index(&point, num_vars) {
                             return Ok(poly_evals.get(idx).copied().unwrap_or_else(B::F::zero));
@@ -558,4 +642,130 @@ fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point:
         layer = next;
     }
     layer[0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TrackingPass, validate_hint_df_encoding};
+    use crate::irs::nodes::hints::{HintDF, schema_only_df};
+    use ark_piop::DefaultSnarkBackend;
+    use datafusion::{
+        arrow::{
+            array::{ArrayRef, BooleanArray, Decimal256Array, Int64Array},
+            datatypes::{DataType, Field, Schema, i256},
+            record_batch::RecordBatch,
+        },
+        datasource::MemTable,
+    };
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn raw_public_result_rejects_a_reserved_activator() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            arithmetic::ACTIVATOR_COL_NAME,
+            DataType::Boolean,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BooleanArray::from(vec![true])) as ArrayRef],
+        )
+        .unwrap();
+        let table = Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap());
+
+        assert!(
+            TrackingPass::<DefaultSnarkBackend>::normalize_output_memtable(table)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_public_result_rejects_a_reserved_row_id() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            arithmetic::ROW_ID_COL_NAME,
+            DataType::Int64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int64Array::from(vec![0])) as ArrayRef],
+        )
+        .unwrap();
+        let table = Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap());
+
+        assert!(
+            TrackingPass::<DefaultSnarkBackend>::normalize_output_memtable(table)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_public_result_rejects_null_values() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            true,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int64Array::from(vec![None])) as ArrayRef],
+        )
+        .unwrap();
+        let table = Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap());
+
+        assert!(
+            TrackingPass::<DefaultSnarkBackend>::normalize_output_memtable(table)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_public_result_rejects_noninjective_decimal256() {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "amount",
+            DataType::Decimal256(76, 0),
+            false,
+        )]));
+        let decimal = Decimal256Array::from(vec![Some(i256::MINUS_ONE)])
+            .with_precision_and_scale(76, 0)
+            .unwrap();
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(decimal) as ArrayRef]).unwrap();
+        let table = Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap());
+
+        let error = TrackingPass::<DefaultSnarkBackend>::normalize_output_memtable(table)
+            .await
+            .expect_err("BN254 cannot injectively encode Decimal256 public values");
+        assert!(error.to_string().contains("Decimal256"));
+    }
+
+    #[test]
+    fn verifier_hint_schema_rejects_decimal256_including_nested() {
+        let direct = HintDF::new_virtual(schema_only_df(vec![Field::new(
+            "amount",
+            DataType::Decimal256(76, 0),
+            false,
+        )]));
+        let direct_error = validate_hint_df_encoding::<DefaultSnarkBackend>(&direct)
+            .expect_err("Decimal256 must be rejected before verifier tracking");
+        assert!(direct_error.contains("amount"));
+        assert!(direct_error.contains("Decimal256"));
+
+        let nested = HintDF::new_virtual(schema_only_df(vec![Field::new(
+            "amounts",
+            DataType::List(Arc::new(Field::new(
+                "item",
+                DataType::Decimal256(76, 0),
+                false,
+            ))),
+            false,
+        )]));
+        let nested_error = validate_hint_df_encoding::<DefaultSnarkBackend>(&nested)
+            .expect_err("nested Decimal256 must be rejected before verifier tracking");
+        assert!(nested_error.contains("amounts"));
+        assert!(nested_error.contains("Decimal256"));
+    }
 }

@@ -58,15 +58,35 @@ pub use strings::{
     STRING_BND_SUFFIX, STRING_CHARS_SUFFIX, STRING_INT_IND_SUFFIX, STRING_LENGTH_SUFFIX,
     STRING_ORIG_IND_SUFFIX,
 };
+pub use util::validate_fixed_width_encoding_safety;
 
 #[cfg(test)]
 mod tests {
     use super::util::encode_hashed_bytes;
     use super::*;
-    use ark_ff::Zero;
-    use ark_test_curves::bls12_381::Fr;
-    use datafusion::arrow::array::{Array, StringArray};
+    use crate::errors::EncodeError;
+    use ark_bn254::Fr as Bn254Fr;
+    use ark_ff::{Fp64, MontBackend, MontConfig, PrimeField, Zero};
+    use ark_test_curves::bls12_381::{Fq, Fr};
+    use datafusion::arrow::array::{
+        Array, ArrayRef, Decimal128Array, Decimal256Array, IntervalMonthDayNanoArray, StringArray,
+    };
+    use datafusion::arrow::datatypes::{DataType, Field, IntervalMonthDayNanoType, i256};
     use datafusion_common::ScalarValue;
+    use std::sync::Arc;
+
+    #[derive(MontConfig)]
+    #[modulus = "17"]
+    #[generator = "3"]
+    struct TinyFieldConfig;
+    type TinyField = Fp64<MontBackend<TinyFieldConfig, 1>>;
+
+    fn assert_type_not_supported<T>(result: Result<T, EncodeError>, expected: &str) {
+        assert!(
+            matches!(result, Err(EncodeError::TypeNotSupported(ref name)) if name == expected),
+            "expected unsupported type {expected}"
+        );
+    }
 
     #[test]
     fn single_character_strings_are_inlined() {
@@ -134,6 +154,110 @@ mod tests {
         );
         // scalar_to_field's single-field convenience refuses multi-segment scalars
         assert!(scalar_to_field::<Fr>(&scalar).is_none());
+    }
+
+    #[test]
+    fn decimal256_requires_a_wider_field_for_injective_encoding() {
+        // This is exactly `(2^256 mod p) - 1` for the BN254 scalar-field
+        // modulus, in little-endian form. It is a positive, precision-76
+        // Decimal256 value and is distinct from -1.
+        let colliding_positive = i256::from_le_bytes([
+            0xfa, 0xff, 0xff, 0x4f, 0x1c, 0x34, 0x96, 0xac, 0x29, 0xcd, 0x60, 0x9f, 0x95, 0x76,
+            0xfc, 0x36, 0x2e, 0x46, 0x79, 0x78, 0x6f, 0xa3, 0x6e, 0x66, 0x2f, 0xdf, 0x07, 0x9a,
+            0xc1, 0x77, 0x0a, 0x0e,
+        ]);
+        let minus_one = i256::MINUS_ONE;
+        assert_ne!(minus_one, colliding_positive);
+
+        // Document the old, unsafe encoding precisely: reducing both raw
+        // 256-bit representations modulo p produces the same field element.
+        assert_eq!(
+            Bn254Fr::from_le_bytes_mod_order(&minus_one.to_le_bytes()),
+            Bn254Fr::from_le_bytes_mod_order(&colliding_positive.to_le_bytes())
+        );
+
+        let decimal = Decimal256Array::from(vec![Some(minus_one), Some(colliding_positive)])
+            .with_precision_and_scale(76, 0)
+            .expect("both values fit Decimal256(76, 0)");
+        decimal
+            .validate_decimal_precision(76)
+            .expect("both values are valid precision-76 decimals");
+
+        // Reject schema-only validation, direct trait use, and the public
+        // Arrow dispatcher. Keeping the rejection at the trait boundary also
+        // protects any future nested encoder that delegates to `Encodable`.
+        assert_type_not_supported(
+            validate_fixed_width_encoding_safety::<Bn254Fr>(decimal.data_type()),
+            "Decimal256 requires a field modulus wider than 256 bits",
+        );
+        assert_type_not_supported(
+            validate_fixed_width_encoding_safety::<Fr>(decimal.data_type()),
+            "Decimal256 requires a field modulus wider than 256 bits",
+        );
+        let nested_decimal = DataType::List(Arc::new(Field::new(
+            "item",
+            DataType::Decimal256(76, 0),
+            false,
+        )));
+        assert_type_not_supported(
+            validate_fixed_width_encoding_safety::<Bn254Fr>(&nested_decimal),
+            "Decimal256 requires a field modulus wider than 256 bits",
+        );
+        assert_type_not_supported(
+            <Decimal256Array as Encodable<Bn254Fr>>::encode(&decimal),
+            "Decimal256 requires a field modulus wider than 256 bits",
+        );
+        let array: ArrayRef = Arc::new(decimal);
+        assert_type_not_supported(
+            encode_arrow_array_to_field::<Bn254Fr>(&array),
+            "Decimal256 requires a field modulus wider than 256 bits",
+        );
+
+        // A modulus wider than the complete 256-bit source representation
+        // makes the raw-byte conversion injective. BLS12-381's base field is
+        // wide enough, so the same distinct inputs remain distinct.
+        validate_fixed_width_encoding_safety::<Fq>(array.data_type())
+            .expect("BLS12-381 base field is wider than Decimal256");
+        let encoded = encode_arrow_array_to_field::<Fq>(&array)
+            .expect("Decimal256 encoding should succeed in a field wider than 256 bits");
+        assert_eq!(encoded.len(), 1);
+        assert_ne!(encoded[0].value_as_field(0), encoded[0].value_as_field(1));
+
+        // Scalar/literal encoding goes through the same dispatcher and must
+        // fail closed rather than reintroducing the modular reduction.
+        let scalar = ScalarValue::Decimal256(Some(minus_one), 76, 0);
+        assert!(scalar_to_fields::<Bn254Fr>(&scalar).is_none());
+        assert!(scalar_to_field::<Bn254Fr>(&scalar).is_none());
+    }
+
+    #[test]
+    fn raw_128_bit_encodings_require_a_wider_modulus() {
+        let decimal = Decimal128Array::from(vec![1_i128, -2_i128])
+            .with_precision_and_scale(38, 0)
+            .expect("values fit Decimal128(38, 0)");
+        assert_type_not_supported(
+            validate_fixed_width_encoding_safety::<TinyField>(decimal.data_type()),
+            "Decimal128 requires a field modulus wider than 128 bits",
+        );
+        assert_type_not_supported(
+            <Decimal128Array as Encodable<TinyField>>::encode(&decimal),
+            "Decimal128 requires a field modulus wider than 128 bits",
+        );
+        assert!(<Decimal128Array as Encodable<Fr>>::encode(&decimal).is_ok());
+
+        let interval = IntervalMonthDayNanoArray::from(vec![
+            IntervalMonthDayNanoType::make_value(1, 2, 3),
+            IntervalMonthDayNanoType::make_value(-1, -2, -3),
+        ]);
+        assert_type_not_supported(
+            validate_fixed_width_encoding_safety::<TinyField>(interval.data_type()),
+            "IntervalMonthDayNano requires a field modulus wider than 128 bits",
+        );
+        assert_type_not_supported(
+            <IntervalMonthDayNanoArray as Encodable<TinyField>>::encode(&interval),
+            "IntervalMonthDayNano requires a field modulus wider than 128 bits",
+        );
+        assert!(<IntervalMonthDayNanoArray as Encodable<Fr>>::encode(&interval).is_ok());
     }
 
     // #[test]

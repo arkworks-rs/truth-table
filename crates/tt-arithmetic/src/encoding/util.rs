@@ -1,5 +1,73 @@
 use ark_ff::PrimeField;
+use datafusion::arrow::datatypes::{DataType, IntervalUnit};
 use sha2::{Digest, Sha256};
+
+use crate::errors::EncodeError;
+
+/// Require a fixed-width bit pattern to fit below the modulus before using
+/// the current field encoding.
+///
+/// A prime whose modulus has at most `source_bits` bits is strictly smaller
+/// than `2^source_bits`, so modular conversion can identify two distinct
+/// source patterns. A future range-checked multi-limb encoding could support
+/// smaller fields; until then this conservative guard fails closed. The
+/// strict inequality also handles a modulus bit size exactly equal to the
+/// source width.
+pub(crate) fn require_modulus_wider_than<F: PrimeField>(
+    source_bits: u32,
+    source_type: &'static str,
+) -> Result<(), EncodeError> {
+    if F::MODULUS_BIT_SIZE <= source_bits {
+        return Err(EncodeError::TypeNotSupported(format!(
+            "{source_type} requires a field modulus wider than {source_bits} bits"
+        )));
+    }
+    Ok(())
+}
+
+/// Validate fixed-width encodings whose source representation can exceed the
+/// proof field.
+///
+/// This is shared by direct value encoding, top-level dispatch, and
+/// schema-only verifier tracking. Checking only [`super::Encodable::encode`]
+/// would stop an honest prover but still let a verifier interpret a
+/// maliciously supplied commitment as an unsupported column.
+///
+/// This is a safety preflight, not a comprehensive Arrow support check:
+/// success does not imply that an [`super::Encodable`] implementation exists
+/// for the type.
+pub fn validate_fixed_width_encoding_safety<F: PrimeField>(
+    data_type: &DataType,
+) -> Result<(), EncodeError> {
+    match data_type {
+        DataType::Decimal256(..) => require_modulus_wider_than::<F>(256, "Decimal256"),
+        DataType::Decimal128(..) => require_modulus_wider_than::<F>(128, "Decimal128"),
+        DataType::Interval(IntervalUnit::MonthDayNano) => {
+            require_modulus_wider_than::<F>(128, "IntervalMonthDayNano")
+        }
+        DataType::List(field)
+        | DataType::ListView(field)
+        | DataType::FixedSizeList(field, _)
+        | DataType::LargeList(field)
+        | DataType::LargeListView(field)
+        | DataType::Map(field, _) => validate_fixed_width_encoding_safety::<F>(field.data_type()),
+        DataType::Struct(fields) => fields
+            .iter()
+            .try_for_each(|field| validate_fixed_width_encoding_safety::<F>(field.data_type())),
+        DataType::Union(fields, _) => fields.iter().try_for_each(|(_type_id, field)| {
+            validate_fixed_width_encoding_safety::<F>(field.data_type())
+        }),
+        DataType::Dictionary(key_type, value_type) => {
+            validate_fixed_width_encoding_safety::<F>(key_type)?;
+            validate_fixed_width_encoding_safety::<F>(value_type)
+        }
+        DataType::RunEndEncoded(run_ends, values) => {
+            validate_fixed_width_encoding_safety::<F>(run_ends.data_type())?;
+            validate_fixed_width_encoding_safety::<F>(values.data_type())
+        }
+        _ => Ok(()),
+    }
+}
 
 /// Compress arbitrary bytes to a 32-byte digest that serves as the canonical
 /// field encoding for long strings and opaque binary values. Must be

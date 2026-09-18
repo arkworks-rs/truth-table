@@ -20,6 +20,7 @@ use crate::{
         passes::arithmetization::arithmetize_materialized_table,
         passes::materialization::{
             append_activator_and_pad_batches, pad_batches_to_num_rows_with_inactive_padding,
+            reject_nulls_in_public_result,
         },
         payloads::{ArithPayload, CommittedPayload, MaterializedTable, TrackedPayload},
     },
@@ -93,7 +94,10 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
         };
         let root = tracked_ir.tree().root();
         if root.name() != "ResultCheck" {
-            return Ok(());
+            return Err(DataFusionError::Internal(
+                "query result was supplied, but the proof plan has no ResultCheck root".to_string(),
+            )
+            .into());
         }
 
         let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
@@ -150,9 +154,25 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
     async fn normalize_output_memtable(
         mem_table: Arc<MemTable>,
     ) -> crate::errors::TTResult<Arc<MemTable>> {
+        let raw_schema = mem_table.schema();
+        if raw_schema.fields().iter().any(|field| {
+            field.name() == arithmetic::ACTIVATOR_COL_NAME
+                || field.name() == arithmetic::ROW_ID_COL_NAME
+        }) {
+            return Err(DataFusionError::Plan(format!(
+                "raw public result must not contain reserved internal columns {} or {}",
+                arithmetic::ACTIVATOR_COL_NAME,
+                arithmetic::ROW_ID_COL_NAME
+            ))
+            .into());
+        }
+        crate::irs::nodes::plan::result_check::validate_public_result_encoding::<B::F>(
+            raw_schema.as_ref(),
+        )?;
         let ctx = SessionContext::new();
         let df = ctx.read_table(mem_table.clone())?;
         let batches = df.collect().await?;
+        reject_nulls_in_public_result(&batches)?;
         let base_schema = batches
             .first()
             .map(|batch| batch.schema().as_ref().clone())

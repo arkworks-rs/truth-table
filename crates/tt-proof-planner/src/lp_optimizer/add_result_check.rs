@@ -1,15 +1,6 @@
-use std::sync::Arc;
-
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
-use datafusion_common::{
-    Result,
-    tree_node::{Transformed, TreeNode, TreeNodeRecursion},
-};
-use datafusion_expr::{
-    Expr,
-    expr::{Exists, InSubquery},
-    logical_plan::{LogicalPlan, Subquery},
-};
+use datafusion_common::{Result, tree_node::Transformed};
+use datafusion_expr::logical_plan::LogicalPlan;
 use tt_core::irs::nodes::plan::result_check::{self, ResultCheckLogicalNode};
 
 #[derive(Debug, Default)]
@@ -35,60 +26,15 @@ impl OptimizerRule for AddResultCheck {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
-        let transformed_subqueries = plan.map_expressions(rewrite_subqueries_with_result_check)?;
-        let plan = transformed_subqueries.data;
+        // ResultCheck binds the one public table supplied to the final query
+        // root. Subqueries are internal computations and have no independent
+        // public OUTPUT payload. Wrapping them would create unverifiable nested
+        // ResultChecks and would not strengthen the terminal statement.
         if is_result_check_plan(&plan) {
-            Ok(Transformed::new(
-                plan,
-                transformed_subqueries.transformed,
-                TreeNodeRecursion::Continue,
-            ))
+            Ok(Transformed::no(plan))
         } else {
             Ok(Transformed::yes(result_check::wrap_logical_plan(plan)))
         }
-    }
-}
-
-fn rewrite_subqueries_with_result_check(expr: Expr) -> Result<Transformed<Expr>> {
-    expr.transform_up(|expr| match expr {
-        Expr::ScalarSubquery(Subquery {
-            subquery,
-            outer_ref_columns,
-        }) => Ok(Transformed::yes(Expr::ScalarSubquery(Subquery {
-            subquery: Arc::new(add_result_check(Arc::unwrap_or_clone(subquery))?),
-            outer_ref_columns,
-        }))),
-        Expr::Exists(Exists { subquery, negated }) => Ok(Transformed::yes(Expr::Exists(Exists {
-            subquery: Subquery {
-                subquery: Arc::new(add_result_check(Arc::unwrap_or_clone(subquery.subquery))?),
-                outer_ref_columns: subquery.outer_ref_columns,
-            },
-            negated,
-        }))),
-        Expr::InSubquery(InSubquery {
-            expr: input_expr,
-            subquery,
-            negated,
-        }) => Ok(Transformed::yes(Expr::InSubquery(InSubquery::new(
-            input_expr,
-            Subquery {
-                subquery: Arc::new(add_result_check(Arc::unwrap_or_clone(subquery.subquery))?),
-                outer_ref_columns: subquery.outer_ref_columns,
-            },
-            negated,
-        )))),
-        other => Ok(Transformed::no(other)),
-    })
-}
-
-fn add_result_check(plan: LogicalPlan) -> Result<LogicalPlan> {
-    let plan = plan
-        .map_expressions(rewrite_subqueries_with_result_check)?
-        .data;
-    if is_result_check_plan(&plan) {
-        Ok(plan)
-    } else {
-        Ok(result_check::wrap_logical_plan(plan))
     }
 }
 
@@ -110,7 +56,11 @@ mod tests {
         prelude::SessionContext,
     };
     use datafusion_common::Result;
-    use datafusion_expr::{Expr, LogicalPlan, logical_plan::builder::table_scan};
+    use datafusion_expr::{
+        Expr, LogicalPlan,
+        expr::InSubquery,
+        logical_plan::{Subquery, builder::table_scan},
+    };
     use tt_core::irs::nodes::plan::result_check;
 
     use super::*;
@@ -155,6 +105,49 @@ mod tests {
             "result check should remain the single outermost wrapper"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn optimizer_does_not_wrap_internal_subqueries() -> Result<()> {
+        let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+        let subquery_plan = table_scan(Some("inner"), &schema, None)?
+            .project(vec![Expr::Column("a".into())])?
+            .build()?;
+        let predicate = Expr::InSubquery(InSubquery::new(
+            Box::new(Expr::Column("a".into())),
+            Subquery {
+                subquery: Arc::new(subquery_plan),
+                outer_ref_columns: vec![],
+            },
+            false,
+        ));
+        let plan = table_scan(Some("outer"), &schema, None)?
+            .filter(predicate)?
+            .build()?;
+
+        // Exercise AddResultCheck in isolation so DataFusion does not first
+        // decorrelate the subquery into a join and hide this regression.
+        let optimizer = Optimizer::with_rules(vec![Arc::new(AddResultCheck::new())]);
+        let config = OptimizerContext::new().with_max_passes(16);
+        let optimized = optimizer.optimize(plan, &config, |_plan_after_rule, _rule| {})?;
+        let root = match optimized {
+            LogicalPlan::Extension(extension) => extension,
+            other => panic!("expected terminal result check, found {other:?}"),
+        };
+        assert!(root.node.as_any().is::<ResultCheckLogicalNode>());
+
+        let inputs = root.node.inputs();
+        let Some(LogicalPlan::Filter(filter)) = inputs.first().copied() else {
+            panic!("expected filter below terminal ResultCheck")
+        };
+        let Expr::InSubquery(in_subquery) = &filter.predicate else {
+            panic!("expected IN subquery predicate")
+        };
+        assert!(
+            !is_result_check_plan(in_subquery.subquery.subquery.as_ref()),
+            "an internal subquery has no independent public OUTPUT payload"
+        );
         Ok(())
     }
 

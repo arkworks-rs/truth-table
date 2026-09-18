@@ -21,6 +21,7 @@ use crate::errors::EncodeError;
 
 use super::encodable::Encodable;
 use super::segment::EncodedSegment;
+use super::util::validate_fixed_width_encoding_safety;
 
 /// Encode an Arrow `ScalarValue` to its (one or more) row-domain field-element
 /// segments. Each returned segment carries exactly one value (the scalar) plus
@@ -83,6 +84,8 @@ pub fn encode_arrow_array_to_field_with_side<F: PrimeField>(
     array: &ArrayRef,
     emit_side: bool,
 ) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+    validate_fixed_width_encoding_safety::<F>(array.data_type())?;
+
     fn downcast_and_encode<F: PrimeField, A: Encodable<F> + 'static>(
         array: &ArrayRef,
         emit_side: bool,

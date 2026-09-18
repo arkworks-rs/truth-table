@@ -12,25 +12,33 @@
 //! full-fat 254-bit scalar that no compressed variant can hold. Nulls read
 //! as zero (matches the eager-encoding contract).
 //!
-//! Decimals stay field-native — `from_le_bytes_mod_order` is intrinsically
-//! field-native. Same for `Interval*` limb packings in `other.rs`.
+//! `Decimal128` stays field-native when it cannot use packed storage. Its
+//! encoder requires a modulus wider than 128 bits so that neither path can
+//! silently identify distinct values. `Decimal256` similarly requires a
+//! modulus wider than its complete 256-bit representation; the shipped scalar
+//! fields therefore reject it.
+//!
+//! Full-width 64-bit integer/date/time encodings rely on the supported-backend
+//! boundary that the field characteristic is wider than 64 bits. Enforcing
+//! that shared precondition centrally is separate from the 128/256-bit local
+//! hazards handled here.
 
 use ark_ff::PrimeField;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use datafusion::arrow::array::{
-    Array, BooleanArray, Date32Array, Date64Array, Decimal128Array, Decimal256Array,
-    DurationMicrosecondArray, DurationMillisecondArray, DurationNanosecondArray,
-    DurationSecondArray, Int8Array, Int16Array, Int32Array, Int64Array, IntervalYearMonthArray,
-    Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-    TimestampSecondArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
+    Array, BooleanArray, Date32Array, Date64Array, Decimal128Array, DurationMicrosecondArray,
+    DurationMillisecondArray, DurationNanosecondArray, DurationSecondArray, Int8Array, Int16Array,
+    Int32Array, Int64Array, IntervalYearMonthArray, Time32MillisecondArray, Time32SecondArray,
+    Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
+    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt8Array,
+    UInt16Array, UInt32Array, UInt64Array,
 };
 
 use crate::errors::EncodeError;
 
 use super::encodable::{Encodable, impl_col_adapter_map};
 use super::segment::{EncodedSegment, auto_segments};
-use super::util::collect_by_columns;
+use super::util::{collect_by_columns, validate_fixed_width_encoding_safety};
 
 /// Number of multilinear variables corresponding to a physical `len`.
 /// Encoders always receive pow2-length arrays in our pipeline (arithmetization
@@ -367,9 +375,9 @@ impl_col_adapter_map!(IntervalYearMonthArray, |v| F::from(v as i128));
 // Decimal128: sign-peek like Int64. Non-negative → PackedDecimal storage
 // (16 B/row via parallel high/low u64 vectors; commit path reuses `msm_u64`
 // twice — see `pcs/pst13/mod.rs`). Any negative row → fall back to the
-// eager field-native path via `from_le_bytes_mod_order`, because negative
-// values in `F` become `MODULUS − |v|`, a full 254-bit scalar that a
-// 128-bit packed backing can't represent.
+// eager field-native path via `from_le_bytes_mod_order`, which preserves the
+// complete unsigned 128-bit two's-complement source word. The packed-decimal
+// representation has no sign metadata with which to reconstruct that word.
 //
 // TPC-H's `l_extendedprice`, `l_discount`, `l_tax`, `o_totalprice`,
 // `ps_supplycost`, `p_retailprice`, `c_acctbal`, `s_acctbal`, and
@@ -377,6 +385,7 @@ impl_col_adapter_map!(IntervalYearMonthArray, |v| F::from(v as i128));
 // common case takes the packed path.
 impl<F: PrimeField> Encodable<F> for Decimal128Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        validate_fixed_width_encoding_safety::<F>(self.data_type())?;
         let all_non_negative = (0..self.len()).all(|i| self.is_null(i) || self.value(i) >= 0);
         if all_non_negative {
             let n = self.len();
@@ -414,8 +423,3 @@ impl<F: PrimeField> Encodable<F> for Decimal128Array {
         todo!("Decoding Decimal128Array is not implemented yet")
     }
 }
-// Decimal256 has no 128-bit packing available; stays field-native. TPC-H
-// doesn't use Decimal256 in practice.
-impl_col_adapter_map!(Decimal256Array, |v: <datafusion::arrow::datatypes::Decimal256Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
-    &v.to_le_bytes()
-));

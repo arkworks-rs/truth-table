@@ -1,17 +1,21 @@
 use ark_ff::PrimeField;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use datafusion::arrow::array::{
-    Array, BinaryArray, BinaryViewArray, DictionaryArray, FixedSizeBinaryArray, FixedSizeListArray,
-    Float16Array, Float32Array, Float64Array, Int16RunArray, Int32RunArray, Int64RunArray,
-    IntervalDayTimeArray, IntervalMonthDayNanoArray, LargeBinaryArray, LargeListArray,
-    LargeListViewArray, ListArray, ListViewArray, MapArray, NullArray, StructArray, UnionArray,
+    Array, BinaryArray, BinaryViewArray, Decimal256Array, DictionaryArray, FixedSizeBinaryArray,
+    FixedSizeListArray, Float16Array, Float32Array, Float64Array, Int16RunArray, Int32RunArray,
+    Int64RunArray, IntervalDayTimeArray, IntervalMonthDayNanoArray, LargeBinaryArray,
+    LargeListArray, LargeListViewArray, ListArray, ListViewArray, MapArray, NullArray, StructArray,
+    UnionArray,
 };
 
 use crate::errors::EncodeError;
 
 use super::encodable::{Encodable, impl_col_adapter_unsupported};
 use super::segment::{EncodedSegment, auto_segments};
-use super::util::{collect_by_columns, encode_bytes_to_fields, encode_hashed_bytes};
+use super::util::{
+    collect_by_columns, encode_bytes_to_fields, encode_hashed_bytes,
+    validate_fixed_width_encoding_safety,
+};
 
 impl<F: PrimeField> Encodable<F> for BinaryArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
@@ -143,6 +147,7 @@ impl<F: PrimeField> Encodable<F> for IntervalDayTimeArray {
 
 impl<F: PrimeField> Encodable<F> for IntervalMonthDayNanoArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        validate_fixed_width_encoding_safety::<F>(self.data_type())?;
         let cols = collect_by_columns(self.len(), |idx| {
             if self.is_null(idx) {
                 Vec::new()
@@ -190,6 +195,27 @@ where
 impl_col_adapter_unsupported!(Float16Array, "Float16");
 impl_col_adapter_unsupported!(Float32Array, "Float32");
 impl_col_adapter_unsupported!(Float64Array, "Float64");
+// Decimal256 values use a 256-bit two's-complement representation. Converting
+// those bytes is injective only when the field modulus is wider than 256 bits;
+// shipped scalar fields therefore reject the type, while wider fields retain
+// the existing raw one-field encoding.
+impl<F: PrimeField> Encodable<F> for Decimal256Array {
+    fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
+        validate_fixed_width_encoding_safety::<F>(self.data_type())?;
+        let cols = collect_by_columns(self.len(), |idx| {
+            if self.is_null(idx) {
+                vec![F::zero()]
+            } else {
+                vec![F::from_le_bytes_mod_order(&self.value(idx).to_le_bytes())]
+            }
+        });
+        Ok(auto_segments(cols))
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!("Decoding Decimal256Array is not implemented yet")
+    }
+}
 impl_col_adapter_unsupported!(ListArray, "List");
 impl_col_adapter_unsupported!(LargeListArray, "LargeList");
 impl_col_adapter_unsupported!(ListViewArray, "ListView");
