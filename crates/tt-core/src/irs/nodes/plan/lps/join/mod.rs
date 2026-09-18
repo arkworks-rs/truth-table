@@ -60,11 +60,13 @@ impl<B: SnarkBackend> LpNode<B> {
             .unwrap_or(modes::JoinMode::MANY_TO_MANY)
     }
 
-    /// Update this join's mode. Propagates to the inner gadget so plan-side
-    /// materialization policy and gadget-side protocol selection stay in
-    /// sync. Used by the `PkFkSpecialization` pp_optimizer rule after
-    /// ingestion.
-    pub fn set_join_mode(&self, mode: modes::JoinMode) {
+    /// Request a join mode and propagate the proof-supported mode to the inner
+    /// gadget. The PK/FK `HasOne` variants currently have no constraints for
+    /// their materialized PK-side columns, so accepting them would let those
+    /// output values bypass the Join proof. Until a dedicated protocol exists,
+    /// every request is conservatively normalized to `MANY_TO_MANY`.
+    pub fn set_join_mode(&self, _requested_mode: modes::JoinMode) {
+        let mode = modes::JoinMode::MANY_TO_MANY;
         if let Ok(mut guard) = self.join_mode.write() {
             *guard = mode;
         }

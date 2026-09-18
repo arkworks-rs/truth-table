@@ -1,7 +1,13 @@
 use std::sync::Arc;
 
 use crate::irs::{
-    nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, utils::prescr_perm},
+    nodes::{
+        IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
+        utils::{
+            prescr_perm, validate_tracked_oracle_table_row_domain,
+            validate_tracked_table_row_domain,
+        },
+    },
     payloads::PayloadStructure,
 };
 use crate::prover::irs::GadgetReadyIr;
@@ -17,7 +23,7 @@ use ark_piop::{SnarkBackend, piop::PIOP};
 use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion::prelude::lit;
-use datafusion_expr::Join;
+use datafusion_expr::{Expr, Join, JoinType};
 use either::Either;
 use indexmap::IndexMap;
 use std::cell::RefCell;
@@ -33,6 +39,97 @@ pub const SRC_RIGHT_LABEL: &str = "__SRC_RIGHT__";
 pub const SRC_LEFT_COL_NAME: &str = "src_left";
 pub const SRC_RIGHT_COL_NAME: &str = "src_right";
 pub use crate::irs::nodes::plan::lps::join::modes::JoinMode;
+
+fn unsupported_join_error(message: impl Into<String>) -> ark_piop::errors::SnarkError {
+    ark_piop::errors::SnarkError::VerifierError(
+        ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
+            "Join proof supports only plain inner equijoins: {}",
+            message.into()
+        )),
+    )
+}
+
+fn join_wiring_error(message: impl Into<String>) -> ark_piop::errors::SnarkError {
+    ark_piop::errors::SnarkError::VerifierError(
+        ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
+            "Join proof wiring: {}",
+            message.into()
+        )),
+    )
+}
+
+/// Fail closed on logical join shapes that the current Join proof does not
+/// model. In the full MANY_TO_MANY path, MatchPair proves a nonempty
+/// conjunction of column equalities and its count formula is exactly the
+/// cardinality of an inner equijoin. Outer joins, cross joins, and residual
+/// filters require different relations in every optimization mode. Nullable
+/// payloads are also excluded because the current arithmetic encoding maps
+/// NULL to zero without committing a row-level validity bit. A provenance
+/// lookup therefore cannot distinguish a true NULL from the ordinary value
+/// zero, even when the nullable column is not itself a join key.
+fn ensure_supported_join(join: &Join) -> ark_piop::errors::SnarkResult<()> {
+    if join.join_type != JoinType::Inner {
+        return Err(unsupported_join_error("join type must be INNER"));
+    }
+    if join.on.is_empty() {
+        return Err(unsupported_join_error(
+            "at least one equijoin key pair is required",
+        ));
+    }
+    if join.filter.is_some() {
+        return Err(unsupported_join_error(
+            "residual join filters are not yet constrained",
+        ));
+    }
+
+    for (side, schema) in [("left", join.left.schema()), ("right", join.right.schema())] {
+        for (_, field) in schema.iter() {
+            if !arithmetic::is_system_column(field.name()) && field.is_nullable() {
+                return Err(unsupported_join_error(format!(
+                    "{side} payload column {} is nullable, but NULL validity is not encoded",
+                    field.name()
+                )));
+            }
+        }
+    }
+
+    for (key_index, (left, right)) in join.on.iter().enumerate() {
+        let (Expr::Column(left), Expr::Column(right)) = (left, right) else {
+            return Err(unsupported_join_error(format!(
+                "key pair {key_index} must consist of direct column references"
+            )));
+        };
+        let left_field = join.left.schema().field_from_column(left).map_err(|err| {
+            unsupported_join_error(format!(
+                "cannot resolve left key {} at position {key_index}: {err}",
+                left.flat_name()
+            ))
+        })?;
+        let right_field = join
+            .right
+            .schema()
+            .field_from_column(right)
+            .map_err(|err| {
+                unsupported_join_error(format!(
+                    "cannot resolve right key {} at position {key_index}: {err}",
+                    right.flat_name()
+                ))
+            })?;
+        if left_field.is_nullable() || right_field.is_nullable() {
+            return Err(unsupported_join_error(format!(
+                "key pair {key_index} is nullable (left={}, right={}), but NULL validity is not encoded",
+                left_field.is_nullable(),
+                right_field.is_nullable(),
+            )));
+        }
+        if left_field.data_type() != right_field.data_type() {
+            return Err(unsupported_join_error(format!(
+                "key pair {key_index} has different left/right encoding types"
+            )));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone)]
 struct JoinPlanningDerivedHints {
@@ -282,8 +379,8 @@ fn force_materialize_all(
 pub enum Gadgets<B: SnarkBackend> {
     // Full join proof stack: bool + nodup + match-pair utilities.
     ManyToMany(ManyToManyGadgets<B>),
-    // Optimized mode for joins where one side is guaranteed unique.
-    // No child gadgets are needed.
+    // Reserved representation for a future PK/FK-specific proof. It must not
+    // be selected until it constrains the materialized output relation.
     HasOne,
 }
 pub struct ManyToManyGadgets<B: SnarkBackend> {
@@ -334,6 +431,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        ensure_supported_join(&self.join)?;
         if let Some(gadgets) = self.many_to_many_gadgets() {
             let mut gadget_payload = match planned_ir.payload_for_node(&id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -421,6 +519,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        ensure_supported_join(&self.join)?;
         if self.many_to_many_gadgets().is_some() {
             // First fetch the payload for the current node, prepared by the parent
             let Some(PayloadStructure::GadgetPayload(payload)) =
@@ -444,6 +543,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             let current_right_src = payload
                 .get(SRC_RIGHT_LABEL)
                 .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
+            validate_tracked_table_row_domain(&current_output, "join output")?;
+            validate_tracked_table_row_domain(&current_left, "join left input")?;
+            validate_tracked_table_row_domain(&current_right, "join right input")?;
+            validate_tracked_table_row_domain(current_left_src, "join src-left")?;
+            validate_tracked_table_row_domain(current_right_src, "join src-right")?;
+            current_output
+                .activator_tracked_poly()
+                .ok_or_else(|| join_wiring_error("join output is missing its activator"))?;
             self.wire_prover_bool_payload(&current_output, virtualized_ir);
 
             self.wire_prover_nodup_payload(
@@ -451,14 +558,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 current_left_src,
                 current_right_src,
                 virtualized_ir,
-            );
+            )?;
 
             self.wire_prover_match_pair_payload(
                 &current_output,
                 &current_left,
                 &current_right,
                 virtualized_ir,
-            );
+            )?;
             Ok(())
         } else {
             Ok(())
@@ -472,6 +579,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        ensure_supported_join(&self.join)?;
         if let Some(gadgets) = self.many_to_many_gadgets() {
             let mut gadget_payload = match planned_ir.payload_for_node(&id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -554,6 +662,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        ensure_supported_join(&self.join)?;
         if self.many_to_many_gadgets().is_some() {
             let (current_output, current_left, current_right, current_left_src, current_right_src) = {
                 let Some(PayloadStructure::GadgetPayload(payload)) =
@@ -585,6 +694,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                         .clone(),
                 )
             };
+            validate_tracked_oracle_table_row_domain(&current_output, "join output")?;
+            validate_tracked_oracle_table_row_domain(&current_left, "join left input")?;
+            validate_tracked_oracle_table_row_domain(&current_right, "join right input")?;
+            validate_tracked_oracle_table_row_domain(&current_left_src, "join src-left")?;
+            validate_tracked_oracle_table_row_domain(&current_right_src, "join src-right")?;
+            current_output
+                .activator_tracked_poly()
+                .ok_or_else(|| join_wiring_error("join output is missing its activator"))?;
             self.wire_verifier_bool_payload(&current_output, virtualized_ir);
 
             self.wire_verifier_nodup_payload(
@@ -592,14 +709,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 &current_left_src,
                 &current_right_src,
                 virtualized_ir,
-            );
+            )?;
 
             self.wire_verifier_match_pair_payload(
                 &current_output,
                 &current_left,
                 &current_right,
                 virtualized_ir,
-            );
+            )?;
             Ok(())
         } else {
             Ok(())
@@ -711,12 +828,19 @@ fn lookup_fold_challenges_prover<B: SnarkBackend>(
 fn fold_lookup_table_prover<B: SnarkBackend>(
     table: &TrackedTable<B>,
     challenges: &[B::F],
-) -> TrackedCol<B> {
+) -> ark_piop::errors::SnarkResult<TrackedCol<B>> {
     let data_indices = table.data_tracked_polys_indices();
-    if data_indices.len() == 1 {
-        return table.tracked_col_by_ind(data_indices[0]);
+    if data_indices.is_empty() || data_indices.len() != challenges.len() {
+        return Err(join_wiring_error(format!(
+            "lookup table has {} data fields but {} fold challenges",
+            data_indices.len(),
+            challenges.len()
+        )));
     }
-    table.fold_all_data_columns(challenges)
+    if data_indices.len() == 1 {
+        return Ok(table.tracked_col_by_ind(data_indices[0]));
+    }
+    Ok(table.fold_all_data_columns(challenges))
 }
 
 fn lookup_fold_challenges_verifier<B: SnarkBackend>(
@@ -733,12 +857,19 @@ fn lookup_fold_challenges_verifier<B: SnarkBackend>(
 fn fold_lookup_table_verifier<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     challenges: &[B::F],
-) -> TrackedColOracle<B> {
+) -> ark_piop::errors::SnarkResult<TrackedColOracle<B>> {
     let data_indices = table.data_tracked_oracles_indices();
-    if data_indices.len() == 1 {
-        return table.tracked_col_oracle_by_ind(data_indices[0]);
+    if data_indices.is_empty() || data_indices.len() != challenges.len() {
+        return Err(join_wiring_error(format!(
+            "lookup oracle table has {} data fields but {} fold challenges",
+            data_indices.len(),
+            challenges.len()
+        )));
     }
-    table.fold_all_data_oracles(challenges)
+    if data_indices.len() == 1 {
+        return Ok(table.tracked_col_oracle_by_ind(data_indices[0]));
+    }
+    Ok(table.fold_all_data_oracles(challenges))
 }
 
 fn index_tracked_poly<B: SnarkBackend>(
@@ -760,8 +891,36 @@ fn append_tracked_col<B: SnarkBackend>(
     table: &TrackedTable<B>,
     field: FieldRef,
     poly: TrackedPoly<B>,
-) -> TrackedTable<B> {
+) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
+    validate_tracked_table_row_domain(table, "join lookup table")?;
+    let existing = table
+        .tracked_polys()
+        .first()
+        .map(|(_, existing)| existing.clone())
+        .ok_or_else(|| join_wiring_error("join lookup table has no row-domain columns"))?;
+    if !existing.same_tracker(&poly) {
+        return Err(join_wiring_error(
+            "source index and join lookup table belong to different proof trackers",
+        ));
+    }
+    if poly.log_size() != table.log_size() {
+        return Err(join_wiring_error(format!(
+            "source index has log size {}, expected {}",
+            poly.log_size(),
+            table.log_size()
+        )));
+    }
     let mut tracked_polys = table.tracked_polys();
+    if tracked_polys
+        .keys()
+        .any(|existing| existing.name() == field.name())
+    {
+        return Err(join_wiring_error(format!(
+            "reserved source-index column {} collides with a payload field",
+            field.name()
+        )));
+    }
+    let old_width = table.num_data_tracked_cols();
     tracked_polys.insert(field.clone(), poly);
     let schema = table.schema_ref().map(|schema| {
         let mut fields = schema
@@ -780,28 +939,65 @@ fn append_tracked_col<B: SnarkBackend>(
                 .collect::<Vec<_>>(),
         ))
     });
-    TrackedTable::new(schema, tracked_polys, table.log_size())
+    let result = TrackedTable::new(schema, tracked_polys, table.log_size());
+    if result.num_data_tracked_cols() != old_width + 1 {
+        return Err(join_wiring_error(
+            "appending a source index did not increase lookup width by one",
+        ));
+    }
+    Ok(result)
 }
 
 fn single_data_poly_from_table<B: SnarkBackend>(
     table: &TrackedTable<B>,
     label: &str,
-) -> TrackedPoly<B> {
+) -> ark_piop::errors::SnarkResult<TrackedPoly<B>> {
+    validate_tracked_table_row_domain(table, &format!("Join {label} table"))?;
     let data_indices = table.data_tracked_polys_indices();
     if data_indices.len() != 1 {
-        panic!("Join {label} table must have exactly one data column");
+        return Err(join_wiring_error(format!(
+            "Join {label} table must have exactly one data column"
+        )));
     }
-    table
+    Ok(table
         .tracked_col_by_ind(data_indices[0])
-        .data_tracked_poly()
+        .data_tracked_poly())
 }
 
 fn append_tracked_oracle<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     field: FieldRef,
     oracle: TrackedOracle<B>,
-) -> TrackedTableOracle<B> {
+) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
+    validate_tracked_oracle_table_row_domain(table, "join lookup oracle table")?;
+    let existing = table
+        .tracked_oracles()
+        .first()
+        .map(|(_, existing)| existing.clone())
+        .ok_or_else(|| join_wiring_error("join lookup oracle table has no row-domain columns"))?;
+    if !existing.same_tracker(&oracle) {
+        return Err(join_wiring_error(
+            "source-index oracle and join lookup table belong to different proof trackers",
+        ));
+    }
+    if oracle.log_size() != table.log_size() {
+        return Err(join_wiring_error(format!(
+            "source-index oracle has log size {}, expected {}",
+            oracle.log_size(),
+            table.log_size()
+        )));
+    }
     let mut tracked_oracles = table.tracked_oracles();
+    if tracked_oracles
+        .keys()
+        .any(|existing| existing.name() == field.name())
+    {
+        return Err(join_wiring_error(format!(
+            "reserved source-index column {} collides with a payload field",
+            field.name()
+        )));
+    }
+    let old_width = table.num_data_tracked_col_oracles();
     tracked_oracles.insert(field.clone(), oracle);
     let schema = table.schema_ref().map(|schema| {
         let mut fields = schema
@@ -820,24 +1016,43 @@ fn append_tracked_oracle<B: SnarkBackend>(
                 .collect::<Vec<_>>(),
         ))
     });
-    TrackedTableOracle::new(schema, tracked_oracles, table.log_size())
+    let result = TrackedTableOracle::new(schema, tracked_oracles, table.log_size());
+    if result.num_data_tracked_col_oracles() != old_width + 1 {
+        return Err(join_wiring_error(
+            "appending a source-index oracle did not increase lookup width by one",
+        ));
+    }
+    Ok(result)
 }
 
 fn single_data_oracle_from_table<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     label: &str,
-) -> TrackedOracle<B> {
+) -> ark_piop::errors::SnarkResult<TrackedOracle<B>> {
+    validate_tracked_oracle_table_row_domain(table, &format!("Join {label} table"))?;
     let data_indices = table.data_tracked_oracles_indices();
     if data_indices.len() != 1 {
-        panic!("Join {label} table must have exactly one data column");
+        return Err(join_wiring_error(format!(
+            "Join {label} table must have exactly one data column"
+        )));
     }
-    table
+    Ok(table
         .tracked_col_oracle_by_ind(data_indices[0])
-        .data_tracked_oracle()
+        .data_tracked_oracle())
 }
 
-fn input_lookup_base_from_table<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
+fn input_lookup_base_from_table<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
+    validate_tracked_table_row_domain(table, "join input")?;
     let cols = table.tracked_polys();
+    let actual_fields = cols.keys().cloned().collect::<Vec<_>>();
+    validate_flat_field_order(
+        table.schema_ref(),
+        &actual_fields,
+        table.num_total_tracked_cols(),
+        "join input",
+    )?;
     let fields: Vec<FieldRef> = match table.schema_ref() {
         Some(schema) => schema
             .fields()
@@ -851,9 +1066,12 @@ fn input_lookup_base_from_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Tra
         if field.name() == arithmetic::ROW_ID_COL_NAME {
             continue;
         }
-        let poly = cols
-            .get(&field)
-            .unwrap_or_else(|| panic!("Join input table missing column {}", field.name()));
+        let poly = cols.get(&field).ok_or_else(|| {
+            join_wiring_error(format!(
+                "join input table is missing column {}",
+                field.name()
+            ))
+        })?;
         filtered.insert(field, poly.clone());
     }
     let metadata = table
@@ -865,13 +1083,21 @@ fn input_lookup_base_from_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Tra
         .map(|field| field.as_ref().clone())
         .collect();
     let schema = Some(Schema::new_with_metadata(fields, metadata));
-    TrackedTable::new(schema, filtered, table.log_size())
+    Ok(TrackedTable::new(schema, filtered, table.log_size()))
 }
 
 fn input_lookup_base_from_table_oracle<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
-) -> TrackedTableOracle<B> {
+) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
+    validate_tracked_oracle_table_row_domain(table, "join input")?;
     let cols = table.tracked_oracles();
+    let actual_fields = cols.keys().cloned().collect::<Vec<_>>();
+    validate_flat_field_order(
+        table.schema_ref(),
+        &actual_fields,
+        table.num_total_tracked_col_oracles(),
+        "join input oracle",
+    )?;
     let fields: Vec<FieldRef> = match table.schema_ref() {
         Some(schema) => schema
             .fields()
@@ -885,9 +1111,12 @@ fn input_lookup_base_from_table_oracle<B: SnarkBackend>(
         if field.name() == arithmetic::ROW_ID_COL_NAME {
             continue;
         }
-        let oracle = cols
-            .get(&field)
-            .unwrap_or_else(|| panic!("Join input table missing column {}", field.name()));
+        let oracle = cols.get(&field).ok_or_else(|| {
+            join_wiring_error(format!(
+                "join input oracle is missing column {}",
+                field.name()
+            ))
+        })?;
         filtered.insert(field, oracle.clone());
     }
     let metadata = table
@@ -899,79 +1128,111 @@ fn input_lookup_base_from_table_oracle<B: SnarkBackend>(
         .map(|field| field.as_ref().clone())
         .collect();
     let schema = Some(Schema::new_with_metadata(fields, metadata));
-    TrackedTableOracle::new(schema, filtered, table.log_size())
+    Ok(TrackedTableOracle::new(schema, filtered, table.log_size()))
 }
 
-fn count_output_payload_cols<B: SnarkBackend>(table: &TrackedTable<B>) -> usize {
-    let cols = table.tracked_polys();
-    let fields: Vec<FieldRef> = match table.schema_ref() {
-        Some(schema) => schema
-            .fields()
-            .iter()
-            .map(|field| Arc::new(field.as_ref().clone()))
-            .collect(),
-        None => cols.keys().cloned().collect(),
-    };
-    fields
-        .into_iter()
-        .filter(|field| {
-            field.name() != arithmetic::ROW_ID_COL_NAME
-                && field.name() != arithmetic::ACTIVATOR_COL_NAME
-        })
-        .count()
-}
-
-fn payload_fields_by_schema_match(
-    output_fields: &[FieldRef],
-    side_fields: &[FieldRef],
-) -> Option<Vec<FieldRef>> {
-    let side_payload = side_fields
-        .iter()
-        .filter(|field| {
-            field.name() != arithmetic::ROW_ID_COL_NAME
-                && field.name() != arithmetic::ACTIVATOR_COL_NAME
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let output_payload = output_fields
-        .iter()
-        .filter(|field| {
-            field.name() != arithmetic::ROW_ID_COL_NAME
-                && field.name() != arithmetic::ACTIVATOR_COL_NAME
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-
-    let mut used = vec![false; output_payload.len()];
-    let mut matched = Vec::with_capacity(side_payload.len());
-    for side_field in side_payload {
-        let (idx, field) = output_payload
-            .iter()
-            .enumerate()
-            .find(|(idx, candidate)| !used[*idx] && candidate.as_ref() == side_field.as_ref())?;
-        used[idx] = true;
-        matched.push(field.clone());
+fn validate_flat_field_order(
+    schema: Option<&Schema>,
+    actual_fields: &[FieldRef],
+    declared_flat_width: usize,
+    label: &str,
+) -> ark_piop::errors::SnarkResult<()> {
+    // `TrackedTable::{new,new_with_side_cols}` historically checked this only
+    // under debug assertions and compared schema/map order with `zip`. In a
+    // release build, a duplicate `FieldRef` can collapse in the `IndexMap`, or
+    // a short map can silently truncate that comparison. Both cases are fatal
+    // for positional join provenance, so enforce the full shape here.
+    if actual_fields.len() != declared_flat_width {
+        return Err(join_wiring_error(format!(
+            "{label} contains {declared_flat_width} row-domain segments but only {} distinct committed fields",
+            actual_fields.len()
+        )));
     }
-    Some(matched)
+    if let Some(schema) = schema {
+        if schema.fields().len() != actual_fields.len() {
+            return Err(join_wiring_error(format!(
+                "{label} schema has {} fields but its committed table has {}",
+                schema.fields().len(),
+                actual_fields.len()
+            )));
+        }
+        for (index, (declared, actual)) in schema.fields().iter().zip(actual_fields).enumerate() {
+            if declared.as_ref() != actual.as_ref() {
+                return Err(join_wiring_error(format!(
+                    "{label} schema field {index} does not match the committed field order"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
-fn count_output_payload_cols_oracle<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> usize {
-    let cols = table.tracked_oracles();
-    let fields: Vec<FieldRef> = match table.schema_ref() {
-        Some(schema) => schema
-            .fields()
-            .iter()
-            .map(|field| Arc::new(field.as_ref().clone()))
-            .collect(),
-        None => cols.keys().cloned().collect(),
-    };
-    fields
+fn validated_data_polys<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    label: &str,
+) -> ark_piop::errors::SnarkResult<Vec<(FieldRef, TrackedPoly<B>)>> {
+    validate_tracked_table_row_domain(table, label)?;
+    let flat = table.tracked_polys();
+    let fields = flat.keys().cloned().collect::<Vec<_>>();
+    validate_flat_field_order(
+        table.schema_ref(),
+        &fields,
+        table.num_total_tracked_cols(),
+        label,
+    )?;
+    Ok(flat
         .into_iter()
-        .filter(|field| {
-            field.name() != arithmetic::ROW_ID_COL_NAME
-                && field.name() != arithmetic::ACTIVATOR_COL_NAME
-        })
-        .count()
+        .filter(|(field, _)| !arithmetic::is_system_column(field.name()))
+        .collect())
+}
+
+fn validated_data_oracles<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    label: &str,
+) -> ark_piop::errors::SnarkResult<Vec<(FieldRef, TrackedOracle<B>)>> {
+    validate_tracked_oracle_table_row_domain(table, label)?;
+    let flat = table.tracked_oracles();
+    let fields = flat.keys().cloned().collect::<Vec<_>>();
+    validate_flat_field_order(
+        table.schema_ref(),
+        &fields,
+        table.num_total_tracked_col_oracles(),
+        label,
+    )?;
+    Ok(flat
+        .into_iter()
+        .filter(|(field, _)| !arithmetic::is_system_column(field.name()))
+        .collect())
+}
+
+fn field_provenance(field: &FieldRef) -> (Option<&str>, &str) {
+    (
+        field.metadata().get("tt.qualifier").map(String::as_str),
+        field.name(),
+    )
+}
+
+fn field_metadata_without_constraints(
+    field: &FieldRef,
+) -> std::collections::HashMap<String, String> {
+    let mut metadata = field.metadata().clone();
+    metadata.remove("tt.pk");
+    metadata.remove("tt.fk.ref_table");
+    metadata.remove("tt.fk.ref_columns");
+    metadata
+}
+
+fn fields_are_positionally_compatible(actual: &FieldRef, expected: &FieldRef) -> bool {
+    // MANY_TO_MANY deliberately strips PK/FK constraint metadata from join
+    // output fields. Those annotations are not part of row provenance; the
+    // remaining metadata, exact qualifier/name, Arrow type, and nullability
+    // are. Comparing all other metadata keeps extension/encoding annotations
+    // from being silently discarded.
+    field_provenance(actual) == field_provenance(expected)
+        && actual.data_type() == expected.data_type()
+        && actual.is_nullable() == expected.is_nullable()
+        && field_metadata_without_constraints(actual)
+            == field_metadata_without_constraints(expected)
 }
 
 fn output_lookup_base_from_output<B: SnarkBackend>(
@@ -979,69 +1240,51 @@ fn output_lookup_base_from_output<B: SnarkBackend>(
     left_table: &TrackedTable<B>,
     right_table: &TrackedTable<B>,
     use_left: bool,
-) -> TrackedTable<B> {
-    let left_width = count_output_payload_cols(left_table);
-    let right_width = count_output_payload_cols(right_table);
-    let start = if use_left { 0 } else { left_width };
-    let len = if use_left { left_width } else { right_width };
-    let output_cols = output.tracked_polys();
-    let ordered_fields: Vec<FieldRef> = match output.schema_ref() {
-        Some(schema) => schema
-            .fields()
+) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
+    let left = validated_data_polys(left_table, "left input")?;
+    let right = validated_data_polys(right_table, "right input")?;
+    let output_data = validated_data_polys(output, "join output")?;
+    let expected_fields = left
+        .iter()
+        .chain(&right)
+        .map(|(field, _)| field)
+        .collect::<Vec<_>>();
+    if output_data.len() != expected_fields.len() {
+        return Err(join_wiring_error(format!(
+            "join output has {} data fields, expected {} left/right fields",
+            output_data.len(),
+            expected_fields.len()
+        )));
+    }
+    for (index, ((output_field, _), expected_field)) in
+        output_data.iter().zip(expected_fields).enumerate()
+    {
+        if !fields_are_positionally_compatible(output_field, expected_field) {
+            return Err(join_wiring_error(format!(
+                "join output field {index} does not match its positional input field"
+            )));
+        }
+    }
+    if left.iter().any(|(left_field, _)| {
+        right
             .iter()
-            .map(|field| Arc::new(field.as_ref().clone()))
-            .collect(),
-        None => output_cols.keys().cloned().collect(),
-    };
-    let side_fields = if use_left {
-        match left_table.schema_ref() {
-            Some(schema) => schema
-                .fields()
-                .iter()
-                .map(|field| Arc::new(field.as_ref().clone()))
-                .collect::<Vec<_>>(),
-            None => left_table.tracked_polys().keys().cloned().collect(),
-        }
+            .any(|(right_field, _)| field_provenance(left_field) == field_provenance(right_field))
+    }) {
+        return Err(join_wiring_error(
+            "left/right payload fields are not provenance-disjoint; alias self-join inputs explicitly",
+        ));
+    }
+
+    let left_width = left.len();
+    let selected = if use_left {
+        &output_data[..left_width]
     } else {
-        match right_table.schema_ref() {
-            Some(schema) => schema
-                .fields()
-                .iter()
-                .map(|field| Arc::new(field.as_ref().clone()))
-                .collect::<Vec<_>>(),
-            None => right_table.tracked_polys().keys().cloned().collect(),
-        }
+        &output_data[left_width..]
     };
-    let selected_fields = payload_fields_by_schema_match(&ordered_fields, &side_fields)
-        .unwrap_or_else(|| {
-            ordered_fields
-                .iter()
-                .filter(|field| {
-                    field.name() != arithmetic::ACTIVATOR_COL_NAME
-                        && field.name() != arithmetic::ROW_ID_COL_NAME
-                })
-                .skip(start)
-                .take(len)
-                .cloned()
-                .collect::<Vec<_>>()
-        });
-    let mut data_fields = IndexMap::new();
-    for field in selected_fields {
-        let poly = output_cols
-            .get(&field)
-            .unwrap_or_else(|| panic!("Join output missing column {}", field.name()));
-        data_fields.insert(field, poly.clone());
-    }
-    if data_fields.len() != len {
-        panic!(
-            "Join output missing {} {}-side payload columns",
-            len,
-            if use_left { "left" } else { "right" }
-        );
-    }
+    let mut data_fields = selected.iter().cloned().collect::<IndexMap<_, _>>();
     let activator = output
         .activator_tracked_poly()
-        .expect("Join output should carry an activator column");
+        .ok_or_else(|| join_wiring_error("join output is missing its activator"))?;
     data_fields.insert(arithmetic::ACTIVATOR_FIELD.clone(), activator);
     let schema = Some(Schema::new(
         data_fields
@@ -1049,7 +1292,7 @@ fn output_lookup_base_from_output<B: SnarkBackend>(
             .map(|field| field.as_ref().clone())
             .collect::<Vec<_>>(),
     ));
-    TrackedTable::new(schema, data_fields, output.log_size())
+    Ok(TrackedTable::new(schema, data_fields, output.log_size()))
 }
 
 fn output_lookup_base_from_output_oracle<B: SnarkBackend>(
@@ -1057,69 +1300,51 @@ fn output_lookup_base_from_output_oracle<B: SnarkBackend>(
     left_table: &TrackedTableOracle<B>,
     right_table: &TrackedTableOracle<B>,
     use_left: bool,
-) -> TrackedTableOracle<B> {
-    let left_width = count_output_payload_cols_oracle(left_table);
-    let right_width = count_output_payload_cols_oracle(right_table);
-    let start = if use_left { 0 } else { left_width };
-    let len = if use_left { left_width } else { right_width };
-    let output_cols = output.tracked_oracles();
-    let ordered_fields: Vec<FieldRef> = match output.schema_ref() {
-        Some(schema) => schema
-            .fields()
+) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
+    let left = validated_data_oracles(left_table, "left input")?;
+    let right = validated_data_oracles(right_table, "right input")?;
+    let output_data = validated_data_oracles(output, "join output")?;
+    let expected_fields = left
+        .iter()
+        .chain(&right)
+        .map(|(field, _)| field)
+        .collect::<Vec<_>>();
+    if output_data.len() != expected_fields.len() {
+        return Err(join_wiring_error(format!(
+            "join output has {} data fields, expected {} left/right fields",
+            output_data.len(),
+            expected_fields.len()
+        )));
+    }
+    for (index, ((output_field, _), expected_field)) in
+        output_data.iter().zip(expected_fields).enumerate()
+    {
+        if !fields_are_positionally_compatible(output_field, expected_field) {
+            return Err(join_wiring_error(format!(
+                "join output field {index} does not match its positional input field"
+            )));
+        }
+    }
+    if left.iter().any(|(left_field, _)| {
+        right
             .iter()
-            .map(|field| Arc::new(field.as_ref().clone()))
-            .collect(),
-        None => output_cols.keys().cloned().collect(),
-    };
-    let side_fields = if use_left {
-        match left_table.schema_ref() {
-            Some(schema) => schema
-                .fields()
-                .iter()
-                .map(|field| Arc::new(field.as_ref().clone()))
-                .collect::<Vec<_>>(),
-            None => left_table.tracked_oracles().keys().cloned().collect(),
-        }
+            .any(|(right_field, _)| field_provenance(left_field) == field_provenance(right_field))
+    }) {
+        return Err(join_wiring_error(
+            "left/right payload fields are not provenance-disjoint; alias self-join inputs explicitly",
+        ));
+    }
+
+    let left_width = left.len();
+    let selected = if use_left {
+        &output_data[..left_width]
     } else {
-        match right_table.schema_ref() {
-            Some(schema) => schema
-                .fields()
-                .iter()
-                .map(|field| Arc::new(field.as_ref().clone()))
-                .collect::<Vec<_>>(),
-            None => right_table.tracked_oracles().keys().cloned().collect(),
-        }
+        &output_data[left_width..]
     };
-    let selected_fields = payload_fields_by_schema_match(&ordered_fields, &side_fields)
-        .unwrap_or_else(|| {
-            ordered_fields
-                .iter()
-                .filter(|field| {
-                    field.name() != arithmetic::ACTIVATOR_COL_NAME
-                        && field.name() != arithmetic::ROW_ID_COL_NAME
-                })
-                .skip(start)
-                .take(len)
-                .cloned()
-                .collect::<Vec<_>>()
-        });
-    let mut data_fields = IndexMap::new();
-    for field in selected_fields {
-        let oracle = output_cols
-            .get(&field)
-            .unwrap_or_else(|| panic!("Join output missing column {}", field.name()));
-        data_fields.insert(field, oracle.clone());
-    }
-    if data_fields.len() != len {
-        panic!(
-            "Join output missing {} {}-side payload columns",
-            len,
-            if use_left { "left" } else { "right" }
-        );
-    }
+    let mut data_fields = selected.iter().cloned().collect::<IndexMap<_, _>>();
     let activator = output
         .activator_tracked_poly()
-        .expect("Join output should carry an activator column");
+        .ok_or_else(|| join_wiring_error("join output is missing its activator"))?;
     data_fields.insert(arithmetic::ACTIVATOR_FIELD.clone(), activator);
     let schema = Some(Schema::new(
         data_fields
@@ -1127,7 +1352,11 @@ fn output_lookup_base_from_output_oracle<B: SnarkBackend>(
             .map(|field| field.as_ref().clone())
             .collect::<Vec<_>>(),
     ));
-    TrackedTableOracle::new(schema, data_fields, output.log_size())
+    Ok(TrackedTableOracle::new(
+        schema,
+        data_fields,
+        output.log_size(),
+    ))
 }
 
 fn index_tracked_oracle<B: SnarkBackend>(
@@ -1157,6 +1386,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        ensure_supported_join(&self.join)?;
         if self.many_to_many_gadgets().is_some() {
             let Some(PayloadStructure::GadgetPayload(payload)) =
                 gadget_ready_ir.payload_for_node(&id)
@@ -1180,9 +1410,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 panic!("Expected src-right table for Join gadget");
             };
             let output_left_base =
-                output_lookup_base_from_output(&output, &left_table, &right_table, true);
+                output_lookup_base_from_output(&output, &left_table, &right_table, true)?;
             let output_right_base =
-                output_lookup_base_from_output(&output, &left_table, &right_table, false);
+                output_lookup_base_from_output(&output, &left_table, &right_table, false)?;
             // Purpose: Every row in the output table must consist of columns that come from some row in the left table.
             // Method: We look up table output_left in input_left
             // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
@@ -1190,21 +1420,21 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let output_left = append_tracked_col(
                 &output_left_base,
                 Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
-                single_data_poly_from_table(&left_src_table, "src-left"),
-            );
+                single_data_poly_from_table(&left_src_table, "src-left")?,
+            )?;
 
             let index_poly = index_tracked_poly(prover, &left_table);
-            let input_left_base = input_lookup_base_from_table(&left_table);
+            let input_left_base = input_lookup_base_from_table(&left_table)?;
             let input_left = append_tracked_col(
                 &input_left_base,
                 Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
                 index_poly,
-            );
+            )?;
             // Fold both sides with the same transcript challenges for this lookup.
             let left_fold_challs =
                 lookup_fold_challenges_prover(prover, output_left.num_data_tracked_cols())?;
-            let output_folded = fold_lookup_table_prover(&output_left, &left_fold_challs);
-            let input_folded = fold_lookup_table_prover(&input_left, &left_fold_challs);
+            let output_folded = fold_lookup_table_prover(&output_left, &left_fold_challs)?;
+            let input_folded = fold_lookup_table_prover(&input_left, &left_fold_challs)?;
 
             LookupPIOP::<B>::prove(
                 prover,
@@ -1222,21 +1452,21 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let output_right = append_tracked_col(
                 &output_right_base,
                 Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
-                single_data_poly_from_table(&right_src_table, "src-right"),
-            );
+                single_data_poly_from_table(&right_src_table, "src-right")?,
+            )?;
 
             let right_index_poly = index_tracked_poly(prover, &right_table);
-            let input_right_base = input_lookup_base_from_table(&right_table);
+            let input_right_base = input_lookup_base_from_table(&right_table)?;
             let input_right = append_tracked_col(
                 &input_right_base,
                 Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
                 right_index_poly,
-            );
+            )?;
             // Fold both sides with the same transcript challenges for this lookup.
             let right_fold_challs =
                 lookup_fold_challenges_prover(prover, output_right.num_data_tracked_cols())?;
-            let output_right_folded = fold_lookup_table_prover(&output_right, &right_fold_challs);
-            let input_right_folded = fold_lookup_table_prover(&input_right, &right_fold_challs);
+            let output_right_folded = fold_lookup_table_prover(&output_right, &right_fold_challs)?;
+            let input_right_folded = fold_lookup_table_prover(&input_right, &right_fold_challs)?;
             LookupPIOP::<B>::prove(
                 prover,
                 LookupProverInput {
@@ -1289,27 +1519,32 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
 
+        let output_left_base =
+            output_lookup_base_from_output(&output, &left_table, &right_table, true)?;
         let output_left = append_tracked_col(
-            &output_lookup_base_from_output(&output, &left_table, &right_table, true),
+            &output_left_base,
             Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
-            single_data_poly_from_table(&left_src_table, "src-left"),
-        );
+            single_data_poly_from_table(&left_src_table, "src-left")?,
+        )?;
+        let output_right_base =
+            output_lookup_base_from_output(&output, &left_table, &right_table, false)?;
         let output_right = append_tracked_col(
-            &output_lookup_base_from_output(&output, &left_table, &right_table, false),
+            &output_right_base,
             Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
-            single_data_poly_from_table(&right_src_table, "src-right"),
-        );
+            single_data_poly_from_table(&right_src_table, "src-right")?,
+        )?;
 
         let index_poly = index_tracked_poly(prover, &left_table);
+        let input_left_base = input_lookup_base_from_table(&left_table)?;
         let input_left = append_tracked_col(
-            &input_lookup_base_from_table(&left_table),
+            &input_left_base,
             Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
             index_poly,
-        );
+        )?;
         let left_fold_challs =
             lookup_fold_challenges_prover(prover, output_left.num_data_tracked_cols())?;
-        let output_left_folded = fold_lookup_table_prover(&output_left, &left_fold_challs);
-        let input_left_folded = fold_lookup_table_prover(&input_left, &left_fold_challs);
+        let output_left_folded = fold_lookup_table_prover(&output_left, &left_fold_challs)?;
+        let input_left_folded = fold_lookup_table_prover(&input_left, &left_fold_challs)?;
         let left_super_set: IndexSet<B::F> = input_left_folded.effective_hashset();
         for value in output_left_folded.effective_iter() {
             if !left_super_set.contains(&value) {
@@ -1325,15 +1560,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         }
 
         let right_index_poly = index_tracked_poly(prover, &right_table);
+        let input_right_base = input_lookup_base_from_table(&right_table)?;
         let input_right = append_tracked_col(
-            &input_lookup_base_from_table(&right_table),
+            &input_right_base,
             Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
             right_index_poly,
-        );
+        )?;
         let right_fold_challs =
             lookup_fold_challenges_prover(prover, output_right.num_data_tracked_cols())?;
-        let output_right_folded = fold_lookup_table_prover(&output_right, &right_fold_challs);
-        let input_right_folded = fold_lookup_table_prover(&input_right, &right_fold_challs);
+        let output_right_folded = fold_lookup_table_prover(&output_right, &right_fold_challs)?;
+        let input_right_folded = fold_lookup_table_prover(&input_right, &right_fold_challs)?;
         let right_super_set: IndexSet<B::F> = input_right_folded.effective_hashset();
         for value in output_right_folded.effective_iter() {
             if !right_super_set.contains(&value) {
@@ -1357,6 +1593,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        ensure_supported_join(&self.join)?;
         if self.many_to_many_gadgets().is_some() {
             let Some(PayloadStructure::GadgetPayload(payload)) =
                 gadget_ready_ir.payload_for_node(&id)
@@ -1380,30 +1617,30 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 panic!("Expected src-right table for Join gadget");
             };
             let output_left_base =
-                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true);
+                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true)?;
             let output_right_base =
-                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false);
+                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false)?;
             let output_left = append_tracked_oracle(
                 &output_left_base,
                 Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
-                single_data_oracle_from_table(&left_src_table, "src-left"),
-            );
+                single_data_oracle_from_table(&left_src_table, "src-left")?,
+            )?;
 
             let index_oracle = index_tracked_oracle(verifier, &left_table);
-            let input_left_base = input_lookup_base_from_table_oracle(&left_table);
+            let input_left_base = input_lookup_base_from_table_oracle(&left_table)?;
             let input_left = append_tracked_oracle(
                 &input_left_base,
                 Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
                 index_oracle,
-            );
+            )?;
 
             // Mirror prover-side challenge reuse exactly.
             let left_fold_challs = lookup_fold_challenges_verifier(
                 verifier,
                 output_left.num_data_tracked_col_oracles(),
             )?;
-            let output_folded = fold_lookup_table_verifier(&output_left, &left_fold_challs);
-            let input_folded = fold_lookup_table_verifier(&input_left, &left_fold_challs);
+            let output_folded = fold_lookup_table_verifier(&output_left, &left_fold_challs)?;
+            let input_folded = fold_lookup_table_verifier(&input_left, &left_fold_challs)?;
 
             LookupPIOP::<B>::verify(
                 verifier,
@@ -1416,24 +1653,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let output_right = append_tracked_oracle(
                 &output_right_base,
                 Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
-                single_data_oracle_from_table(&right_src_table, "src-right"),
-            );
+                single_data_oracle_from_table(&right_src_table, "src-right")?,
+            )?;
 
             let right_index_oracle = index_tracked_oracle(verifier, &right_table);
-            let input_right_base = input_lookup_base_from_table_oracle(&right_table);
+            let input_right_base = input_lookup_base_from_table_oracle(&right_table)?;
             let input_right = append_tracked_oracle(
                 &input_right_base,
                 Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
                 right_index_oracle,
-            );
+            )?;
 
             // Mirror prover-side challenge reuse exactly.
             let right_fold_challs = lookup_fold_challenges_verifier(
                 verifier,
                 output_right.num_data_tracked_col_oracles(),
             )?;
-            let output_right_folded = fold_lookup_table_verifier(&output_right, &right_fold_challs);
-            let input_right_folded = fold_lookup_table_verifier(&input_right, &right_fold_challs);
+            let output_right_folded =
+                fold_lookup_table_verifier(&output_right, &right_fold_challs)?;
+            let input_right_folded = fold_lookup_table_verifier(&input_right, &right_fold_challs)?;
 
             LookupPIOP::<B>::verify(
                 verifier,
@@ -1458,7 +1696,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(join: Join, join_mode: JoinMode) -> Self {
+    pub fn new(join: Join, _requested_mode: JoinMode) -> Self {
         let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::bool::GadgetNode::new(),
         )));
@@ -1468,19 +1706,15 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let match_pair_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::match_pair_check::GadgetNode::new(),
         )));
-        let mut gadgets = Gadgets::ManyToMany(ManyToManyGadgets {
+        let gadgets = Gadgets::ManyToMany(ManyToManyGadgets {
             bool_gadget,
             nodup_gadget,
             match_pair_gadget,
         });
-        // HasOne modes collapse join gadget internals to keep plan/gadget optimization aligned.
-        if join_mode != JoinMode::MANY_TO_MANY {
-            gadgets = Gadgets::HasOne;
-        }
         Self {
             gadgets: RwLock::new(gadgets),
             join,
-            join_mode: RwLock::new(join_mode),
+            join_mode: RwLock::new(JoinMode::MANY_TO_MANY),
         }
     }
 
@@ -1506,17 +1740,709 @@ impl<B: SnarkBackend> GadgetNode<B> {
             .unwrap_or(JoinMode::MANY_TO_MANY)
     }
 
-    pub fn set_join_mode(&self, mode: JoinMode) {
+    pub fn set_join_mode(&self, _requested_mode: JoinMode) {
+        // `HasOne` is not a proof protocol yet: it has no child gadgets and
+        // places no claims on materialized PK-side output columns. Silently
+        // selecting it would therefore bypass Join soundness. Retain the
+        // complete MatchPair/lookup/NoDup path until those variants acquire
+        // dedicated constraints.
+        let mode = JoinMode::MANY_TO_MANY;
         if let Ok(mut guard) = self.join_mode.write() {
             *guard = mode;
         }
-        if let Ok(mut gadgets) = self.gadgets.write() {
+        if let Ok(gadgets) = self.gadgets.read() {
             // Never rebuild MANY_TO_MANY children here: creating fresh child nodes would
             // change node ids and break IR payload maps keyed by existing ids.
-            // Optimized modes collapse the join gadget into a no-op (no child gadgets).
-            if mode != JoinMode::MANY_TO_MANY {
-                *gadgets = Gadgets::HasOne;
-            }
+            // The proof-supported mode must retain the children allocated at construction.
+            debug_assert!(matches!(&*gadgets, Gadgets::ManyToMany(_)));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        GadgetNode, JoinMode, SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME, append_tracked_col,
+        ensure_supported_join, fold_lookup_table_prover, output_lookup_base_from_output,
+    };
+    use crate::irs::{
+        ir::Ir,
+        nodes::{
+            IsNode, Node,
+            utils::{validate_tracked_oracle_table_row_domain, validate_tracked_table_row_domain},
+        },
+        payloads::PayloadStructure,
+        tree::Tree,
+    };
+    use ark_ff::Zero;
+    use ark_piop::{
+        DefaultSnarkBackend, SnarkBackend, arithmetic::mat_poly::mle::MLE,
+        prover::structs::polynomial::TrackedPoly, test_utils::prelude_with_vars,
+    };
+    use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+    use datafusion_expr::{
+        Expr, Join, JoinType, LogicalPlan, LogicalPlanBuilder,
+        logical_plan::builder::LogicalTableSource,
+    };
+    use either::Either;
+    use indexmap::IndexMap;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    type B = DefaultSnarkBackend;
+    type F = <B as SnarkBackend>::F;
+
+    fn qualified_field(name: &str, qualifier: &str) -> FieldRef {
+        let mut metadata = HashMap::new();
+        metadata.insert("tt.qualifier".to_string(), qualifier.to_string());
+        Arc::new(Field::new(name, DataType::Int64, false).with_metadata(metadata))
+    }
+
+    fn commit_table(
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        fields: Vec<FieldRef>,
+        include_activator: bool,
+    ) -> arithmetic::table::TrackedTable<B> {
+        let mut polys = IndexMap::new();
+        for (index, field) in fields.iter().enumerate() {
+            let poly = prover
+                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+                    1,
+                    vec![F::from(index as u64 + 1), F::from(index as u64 + 2)],
+                ))
+                .expect("commit test column");
+            polys.insert(field.clone(), poly);
+        }
+        let mut schema_fields = fields
+            .iter()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        if include_activator {
+            let active = prover
+                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+                    1,
+                    vec![F::from(1u64), F::zero()],
+                ))
+                .expect("commit test activator");
+            polys.insert(arithmetic::ACTIVATOR_FIELD.clone(), active);
+            schema_fields.push(arithmetic::ACTIVATOR_FIELD.as_ref().clone());
+        }
+        arithmetic::table::TrackedTable::new(Some(Schema::new(schema_fields)), polys, 1)
+    }
+
+    fn inner_join(nullable: bool) -> Join {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "key",
+            DataType::Int64,
+            nullable,
+        )]));
+        let source = Arc::new(LogicalTableSource::new(schema));
+        let left = LogicalPlanBuilder::scan("left", source.clone(), None)
+            .expect("build left scan")
+            .build()
+            .expect("finish left scan");
+        let right = LogicalPlanBuilder::scan("right", source, None)
+            .expect("build right scan")
+            .build()
+            .expect("finish right scan");
+        let plan = LogicalPlanBuilder::from(left)
+            .join(
+                right,
+                JoinType::Inner,
+                (vec!["left.key"], vec!["right.key"]),
+                None,
+            )
+            .expect("build inner join")
+            .build()
+            .expect("finish inner join");
+        match plan {
+            LogicalPlan::Join(join) => join,
+            other => panic!("expected Join, got {other:?}"),
+        }
+    }
+
+    fn inner_join_with_nullable_payload(nullable_payload: bool) -> Join {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("key", DataType::Int64, false),
+            Field::new("payload", DataType::Int64, nullable_payload),
+        ]));
+        let source = Arc::new(LogicalTableSource::new(schema));
+        let left = LogicalPlanBuilder::scan("left", source.clone(), None)
+            .expect("build left scan")
+            .build()
+            .expect("finish left scan");
+        let right = LogicalPlanBuilder::scan("right", source, None)
+            .expect("build right scan")
+            .build()
+            .expect("finish right scan");
+        let plan = LogicalPlanBuilder::from(left)
+            .join(
+                right,
+                JoinType::Inner,
+                (vec!["left.key"], vec!["right.key"]),
+                None,
+            )
+            .expect("build inner join")
+            .build()
+            .expect("finish inner join");
+        match plan {
+            LogicalPlan::Join(join) => join,
+            other => panic!("expected Join, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn join_proof_scope_accepts_plain_nonnullable_inner_equijoin() {
+        ensure_supported_join(&inner_join(false))
+            .expect("plain inner equijoin is the supported protocol scope");
+    }
+
+    #[test]
+    fn join_proof_scope_rejects_unconstrained_join_shapes() {
+        let mut non_inner = inner_join(false);
+        non_inner.join_type = JoinType::Left;
+        assert!(ensure_supported_join(&non_inner).is_err());
+
+        let mut no_keys = inner_join(false);
+        no_keys.on.clear();
+        assert!(ensure_supported_join(&no_keys).is_err());
+
+        let mut filtered = inner_join(false);
+        filtered.filter = Some(datafusion_expr::lit(true));
+        assert!(ensure_supported_join(&filtered).is_err());
+
+        let mut expression_key = inner_join(false);
+        expression_key.on[0].0 = Expr::Literal(datafusion_common::ScalarValue::Int64(Some(1)));
+        assert!(ensure_supported_join(&expression_key).is_err());
+
+        assert!(
+            ensure_supported_join(&inner_join(true)).is_err(),
+            "nullable keys must fail closed until validity bits are constrained"
+        );
+        assert!(
+            ensure_supported_join(&inner_join_with_nullable_payload(true)).is_err(),
+            "nullable non-key payloads must also fail closed: NULL and zero share an encoding"
+        );
+        ensure_supported_join(&inner_join_with_nullable_payload(false))
+            .expect("fully nonnullable join payloads remain supported");
+    }
+
+    #[test]
+    fn unsupported_has_one_modes_keep_the_complete_join_protocol() {
+        let gadget =
+            GadgetNode::<DefaultSnarkBackend>::new(inner_join(false), JoinMode::ONE_TO_MANY);
+        assert_eq!(gadget.join_mode(), JoinMode::MANY_TO_MANY);
+        assert_eq!(gadget.children().len(), 3);
+
+        gadget.set_join_mode(JoinMode::MANY_TO_ONE);
+        assert_eq!(gadget.join_mode(), JoinMode::MANY_TO_MANY);
+        assert_eq!(gadget.children().len(), 3);
+    }
+
+    #[test]
+    fn output_provenance_partition_is_positional_and_disjoint() {
+        let (mut prover, _) = prelude_with_vars::<B>(3).expect("SRS setup");
+        let mut left_metadata = HashMap::new();
+        left_metadata.insert("tt.qualifier".to_string(), "left".to_string());
+        left_metadata.insert("tt.pk".to_string(), "true".to_string());
+        let left_field =
+            Arc::new(Field::new("value", DataType::Int64, false).with_metadata(left_metadata));
+        let output_left_field = qualified_field("value", "left");
+        let right_field = qualified_field("value", "right");
+
+        let left = commit_table(&mut prover, vec![left_field], false);
+        let right = commit_table(&mut prover, vec![right_field.clone()], false);
+        let output = commit_table(
+            &mut prover,
+            vec![output_left_field, right_field.clone()],
+            true,
+        );
+        let left_output = output_lookup_base_from_output(&output, &left, &right, true)
+            .expect("constraint metadata stripping must not change provenance");
+        assert_eq!(left_output.num_data_tracked_cols(), 1);
+
+        let reordered = commit_table(
+            &mut prover,
+            vec![right_field, qualified_field("value", "left")],
+            true,
+        );
+        assert!(
+            output_lookup_base_from_output(&reordered, &left, &right, true).is_err(),
+            "a right/left payload swap must not be accepted as left/right provenance"
+        );
+
+        let mut overlapping_right_metadata = HashMap::new();
+        overlapping_right_metadata.insert("tt.qualifier".to_string(), "left".to_string());
+        overlapping_right_metadata.insert("tt.side_marker".to_string(), "right".to_string());
+        let overlapping_right_field = Arc::new(
+            Field::new("value", DataType::Int64, false).with_metadata(overlapping_right_metadata),
+        );
+        let overlapping_right =
+            commit_table(&mut prover, vec![overlapping_right_field.clone()], false);
+        let overlapping_output = commit_table(
+            &mut prover,
+            vec![qualified_field("value", "left"), overlapping_right_field],
+            true,
+        );
+        assert!(
+            output_lookup_base_from_output(&overlapping_output, &left, &overlapping_right, true,)
+                .is_err(),
+            "unaliased self-join payloads must fail closed instead of sharing one commitment"
+        );
+    }
+
+    #[test]
+    fn lookup_folding_and_source_columns_fail_closed_on_shape_mismatch() {
+        let (mut prover, _) = prelude_with_vars::<B>(3).expect("SRS setup");
+        let payload = commit_table(
+            &mut prover,
+            vec![qualified_field("a", "left"), qualified_field("b", "left")],
+            false,
+        );
+        assert!(
+            fold_lookup_table_prover(&payload, &[F::from(1u64)]).is_err(),
+            "release builds must not truncate lookup folds with zip"
+        );
+
+        let colliding = commit_table(
+            &mut prover,
+            vec![qualified_field(SRC_LEFT_COL_NAME, "left")],
+            false,
+        );
+        let source_poly: TrackedPoly<B> = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+                1,
+                vec![F::zero(), F::from(1u64)],
+            ))
+            .expect("commit source index");
+        assert!(
+            append_tracked_col(
+                &colliding,
+                Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, false)),
+                source_poly,
+            )
+            .is_err(),
+            "the internal source index must not overwrite a same-named payload"
+        );
+    }
+
+    #[test]
+    fn row_domain_validation_rejects_heterogeneous_commitments() {
+        let (mut prover, mut verifier) = prelude_with_vars::<B>(3).expect("SRS setup");
+        let first_field = qualified_field("first", "left");
+        let second_field = qualified_field("second", "left");
+        let first = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+                1,
+                vec![F::zero(), F::from(1u64)],
+            ))
+            .expect("commit first row-domain column");
+        let second = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+                2,
+                vec![F::zero(), F::from(1u64), F::from(2u64), F::from(3u64)],
+            ))
+            .expect("commit mismatched row-domain column");
+        let mut cols = IndexMap::new();
+        cols.insert(
+            first_field.clone(),
+            arithmetic::col::TrackedCol::new(first.clone(), None, Some(first_field.clone())),
+        );
+        cols.insert(
+            second_field.clone(),
+            arithmetic::col::TrackedCol::new(second.clone(), None, Some(second_field.clone())),
+        );
+        let malformed = arithmetic::table::TrackedTable::new_from_cols(None, cols, 1);
+        assert!(
+            validate_tracked_table_row_domain(&malformed, "malformed prover table").is_err(),
+            "row-domain validation must not rely on debug-only constructor checks"
+        );
+
+        let hidden_activator_field = qualified_field("hidden_activator", "left");
+        let hidden_activator_col = arithmetic::col::TrackedCol::SingleSegment {
+            poly_bundle: arithmetic::col::PolyBundle::new(first.clone(), Some(second.clone())),
+            field_ref: Some(hidden_activator_field.clone()),
+        };
+        let hidden_activator_table = arithmetic::table::TrackedTable::new_from_cols(
+            None,
+            IndexMap::from([(hidden_activator_field, hidden_activator_col)]),
+            1,
+        );
+        assert!(
+            validate_tracked_table_row_domain(&hidden_activator_table, "hidden activator table")
+                .is_err(),
+            "paired row activators must be validated even though flat maps omit them"
+        );
+
+        // Constants still carry an ambient Boolean-hypercube domain.  If an
+        // all-one system activator is tagged with a larger domain than its
+        // table, counting and lookup checks can otherwise disagree about the
+        // number of physical rows even though every evaluation is `1`.
+        let oversized_constant_activator =
+            TrackedPoly::new(Either::Right(F::from(1u64)), 2, first.tracker());
+        let constant_activator_table = arithmetic::table::TrackedTable::new_from_cols(
+            None,
+            IndexMap::from([
+                (
+                    first_field.clone(),
+                    arithmetic::col::TrackedCol::new(
+                        first.clone(),
+                        None,
+                        Some(first_field.clone()),
+                    ),
+                ),
+                (
+                    arithmetic::ACTIVATOR_FIELD.clone(),
+                    arithmetic::col::TrackedCol::new(
+                        oversized_constant_activator,
+                        None,
+                        Some(arithmetic::ACTIVATOR_FIELD.clone()),
+                    ),
+                ),
+            ]),
+            1,
+        );
+        assert!(
+            validate_tracked_table_row_domain(
+                &constant_activator_table,
+                "constant activator prover table"
+            )
+            .is_err(),
+            "a constant system activator must use the table's exact row domain"
+        );
+
+        let first_id = first.id();
+        let second_id = second.id();
+        let proof = prover.build_proof().expect("build commitment proof");
+        verifier.set_proof(proof);
+        let first_oracle = verifier
+            .track_mv_com_by_id(first_id)
+            .expect("track first oracle");
+        let second_oracle = verifier
+            .track_mv_com_by_id(second_id)
+            .expect("track second oracle");
+        let oversized_constant_activator_oracle =
+            ark_piop::verifier::structs::oracle::TrackedOracle::new(
+                Either::Right(F::from(1u64)),
+                first_oracle.tracker(),
+                2,
+            );
+        let constant_activator_oracle_table =
+            arithmetic::table_oracle::TrackedTableOracle::new_from_col_oracles(
+                None,
+                IndexMap::from([
+                    (
+                        first_field.clone(),
+                        arithmetic::col_oracle::TrackedColOracle::new(
+                            first_oracle.clone(),
+                            None,
+                            Some(first_field.clone()),
+                        ),
+                    ),
+                    (
+                        arithmetic::ACTIVATOR_FIELD.clone(),
+                        arithmetic::col_oracle::TrackedColOracle::new(
+                            oversized_constant_activator_oracle,
+                            None,
+                            Some(arithmetic::ACTIVATOR_FIELD.clone()),
+                        ),
+                    ),
+                ]),
+                1,
+            );
+        assert!(
+            validate_tracked_oracle_table_row_domain(
+                &constant_activator_oracle_table,
+                "constant activator verifier table"
+            )
+            .is_err(),
+            "the verifier must reject a constant activator on the wrong row domain"
+        );
+        let mut oracle_cols = IndexMap::new();
+        oracle_cols.insert(
+            first_field.clone(),
+            arithmetic::col_oracle::TrackedColOracle::new(first_oracle, None, Some(first_field)),
+        );
+        oracle_cols.insert(
+            second_field.clone(),
+            arithmetic::col_oracle::TrackedColOracle::new(second_oracle, None, Some(second_field)),
+        );
+        let malformed_oracles = arithmetic::table_oracle::TrackedTableOracle::new_from_col_oracles(
+            None,
+            oracle_cols,
+            1,
+        );
+        assert!(
+            validate_tracked_oracle_table_row_domain(
+                &malformed_oracles,
+                "malformed verifier table"
+            )
+            .is_err(),
+            "the verifier must reject heterogeneous commitment domains in release builds"
+        );
+    }
+
+    #[test]
+    fn source_pair_nodup_uses_runtime_source_commitments() {
+        let (mut prover, mut verifier) = prelude_with_vars::<B>(3).expect("SRS setup");
+        let output = commit_table(&mut prover, vec![], true);
+        let left_src = commit_table(
+            &mut prover,
+            vec![Arc::new(Field::new(
+                SRC_LEFT_COL_NAME,
+                DataType::Int64,
+                false,
+            ))],
+            false,
+        );
+        let right_src = commit_table(
+            &mut prover,
+            vec![Arc::new(Field::new(
+                SRC_RIGHT_COL_NAME,
+                DataType::Int64,
+                false,
+            ))],
+            false,
+        );
+        let sentinel = commit_table(
+            &mut prover,
+            vec![Arc::new(Field::new("sentinel", DataType::Int64, false))],
+            true,
+        );
+
+        let gadget = Arc::new(GadgetNode::<B>::new(
+            inner_join(false),
+            JoinMode::MANY_TO_MANY,
+        ));
+        let root = Arc::new(Node::Gadget(gadget.clone()));
+        let tree = Tree::new_from_root(root);
+        let mut prover_ir: crate::prover::irs::VirtualizedIr<B> = Ir::new_empty(tree.clone());
+        let nodup_id = gadget
+            .many_to_many_gadgets()
+            .expect("many-to-many children")
+            .nodup_gadget
+            .id();
+        prover_ir.set_payload_for_node(
+            nodup_id,
+            Some(PayloadStructure::GadgetPayload(IndexMap::from([(
+                crate::irs::nodes::utils::nodup::INPUT_LABEL.to_string(),
+                sentinel.clone(),
+            )]))),
+        );
+        let same_named_right_source = commit_table(
+            &mut prover,
+            vec![Arc::new(Field::new(
+                SRC_LEFT_COL_NAME,
+                DataType::Int64,
+                false,
+            ))],
+            false,
+        );
+        gadget
+            .wire_prover_nodup_payload(&output, &left_src, &same_named_right_source, &mut prover_ir)
+            .expect("source-pair coordinates are rebound to distinct internal names");
+        let PayloadStructure::GadgetPayload(rebound) = prover_ir
+            .payload_for_node(&nodup_id)
+            .expect("rebound NoDup payload")
+        else {
+            panic!("expected gadget payload")
+        };
+        let rebound = rebound
+            .get(crate::irs::nodes::utils::nodup::INPUT_LABEL)
+            .expect("rebound NoDup input");
+        assert_eq!(rebound.num_data_tracked_cols(), 2);
+        assert_eq!(
+            rebound
+                .tracked_col_by_name(SRC_RIGHT_COL_NAME)
+                .expect("distinct right source coordinate")
+                .data_tracked_poly()
+                .id(),
+            same_named_right_source
+                .tracked_col_by_name(SRC_LEFT_COL_NAME)
+                .expect("same-named source payload")
+                .data_tracked_poly()
+                .id()
+        );
+        let mismatched_source_field =
+            Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, false));
+        let mismatched_source_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+                2,
+                vec![F::zero(), F::from(1u64), F::from(2u64), F::from(3u64)],
+            ))
+            .expect("commit mismatched source domain");
+        let mismatched_source = arithmetic::table::TrackedTable::new(
+            Some(Schema::new(vec![mismatched_source_field.as_ref().clone()])),
+            IndexMap::from([(mismatched_source_field, mismatched_source_poly)]),
+            2,
+        );
+        assert!(
+            gadget
+                .wire_prover_nodup_payload(&output, &mismatched_source, &right_src, &mut prover_ir,)
+                .is_err(),
+            "source indices on a different output row domain must fail closed"
+        );
+        gadget
+            .wire_prover_nodup_payload(&output, &left_src, &right_src, &mut prover_ir)
+            .expect("bind runtime source pairs to NoDup");
+        let PayloadStructure::GadgetPayload(bound) = prover_ir
+            .payload_for_node(&nodup_id)
+            .expect("wired NoDup payload")
+        else {
+            panic!("expected gadget payload")
+        };
+        let bound = bound
+            .get(crate::irs::nodes::utils::nodup::INPUT_LABEL)
+            .expect("NoDup input");
+        assert_eq!(
+            bound
+                .activator_tracked_poly()
+                .expect("bound activator")
+                .id(),
+            output
+                .activator_tracked_poly()
+                .expect("output activator")
+                .id()
+        );
+        assert_eq!(
+            bound
+                .tracked_col_by_name(SRC_LEFT_COL_NAME)
+                .expect("bound left source")
+                .data_tracked_poly()
+                .id(),
+            left_src
+                .tracked_col_by_name(SRC_LEFT_COL_NAME)
+                .expect("left source")
+                .data_tracked_poly()
+                .id()
+        );
+        assert_eq!(
+            bound
+                .tracked_col_by_name(SRC_RIGHT_COL_NAME)
+                .expect("bound right source")
+                .data_tracked_poly()
+                .id(),
+            right_src
+                .tracked_col_by_name(SRC_RIGHT_COL_NAME)
+                .expect("right source")
+                .data_tracked_poly()
+                .id()
+        );
+
+        let proof = prover.build_proof().expect("build commitment proof");
+        verifier.set_proof(proof);
+        let output_oracle =
+            arithmetic::table_oracle::TrackedTableOracle::from_tracked_table(output, &mut verifier)
+                .expect("track output");
+        let left_src_oracle = arithmetic::table_oracle::TrackedTableOracle::from_tracked_table(
+            left_src,
+            &mut verifier,
+        )
+        .expect("track left source");
+        let right_src_oracle = arithmetic::table_oracle::TrackedTableOracle::from_tracked_table(
+            right_src,
+            &mut verifier,
+        )
+        .expect("track right source");
+        let sentinel_oracle = arithmetic::table_oracle::TrackedTableOracle::from_tracked_table(
+            sentinel,
+            &mut verifier,
+        )
+        .expect("track sentinel");
+        let same_named_right_oracle =
+            arithmetic::table_oracle::TrackedTableOracle::from_tracked_table(
+                same_named_right_source,
+                &mut verifier,
+            )
+            .expect("track same-named right source");
+        let mut verifier_ir: crate::verifier::irs::VirtualizedIr<B> = Ir::new_empty(tree);
+        verifier_ir.set_payload_for_node(
+            nodup_id,
+            Some(PayloadStructure::GadgetPayload(IndexMap::from([(
+                crate::irs::nodes::utils::nodup::INPUT_LABEL.to_string(),
+                sentinel_oracle,
+            )]))),
+        );
+        gadget
+            .wire_verifier_nodup_payload(
+                &output_oracle,
+                &left_src_oracle,
+                &same_named_right_oracle,
+                &mut verifier_ir,
+            )
+            .expect("verifier rebinds source-pair coordinates to distinct names");
+        let PayloadStructure::GadgetPayload(rebound) = verifier_ir
+            .payload_for_node(&nodup_id)
+            .expect("rebound verifier NoDup payload")
+        else {
+            panic!("expected verifier gadget payload")
+        };
+        let rebound = rebound
+            .get(crate::irs::nodes::utils::nodup::INPUT_LABEL)
+            .expect("rebound verifier NoDup input");
+        assert_eq!(rebound.num_data_tracked_col_oracles(), 2);
+        assert_eq!(
+            rebound
+                .tracked_col_oracle_by_name(SRC_RIGHT_COL_NAME)
+                .expect("distinct right source oracle")
+                .data_tracked_oracle()
+                .id(),
+            same_named_right_oracle
+                .tracked_col_oracle_by_name(SRC_LEFT_COL_NAME)
+                .expect("same-named source oracle payload")
+                .data_tracked_oracle()
+                .id()
+        );
+        gadget
+            .wire_verifier_nodup_payload(
+                &output_oracle,
+                &left_src_oracle,
+                &right_src_oracle,
+                &mut verifier_ir,
+            )
+            .expect("bind runtime source-pair oracles to NoDup");
+        let PayloadStructure::GadgetPayload(bound) = verifier_ir
+            .payload_for_node(&nodup_id)
+            .expect("wired verifier NoDup payload")
+        else {
+            panic!("expected verifier gadget payload")
+        };
+        let bound = bound
+            .get(crate::irs::nodes::utils::nodup::INPUT_LABEL)
+            .expect("verifier NoDup input");
+        assert_eq!(
+            bound
+                .activator_tracked_poly()
+                .expect("bound activator")
+                .id(),
+            output_oracle
+                .activator_tracked_poly()
+                .expect("output activator")
+                .id()
+        );
+        assert_eq!(
+            bound
+                .tracked_col_oracle_by_name(SRC_LEFT_COL_NAME)
+                .expect("bound left source oracle")
+                .data_tracked_oracle()
+                .id(),
+            left_src_oracle
+                .tracked_col_oracle_by_name(SRC_LEFT_COL_NAME)
+                .expect("left source oracle")
+                .data_tracked_oracle()
+                .id()
+        );
+        assert_eq!(
+            bound
+                .tracked_col_oracle_by_name(SRC_RIGHT_COL_NAME)
+                .expect("bound right source oracle")
+                .data_tracked_oracle()
+                .id(),
+            right_src_oracle
+                .tracked_col_oracle_by_name(SRC_RIGHT_COL_NAME)
+                .expect("right source oracle")
+                .data_tracked_oracle()
+                .id()
+        );
     }
 }
