@@ -18,17 +18,18 @@ mod truncate_empty_payload;
 pub use rematerialize::RematerializeRule;
 pub use truncate_empty_payload::TruncateEmptyPayloadRule;
 
-/// Verifier-replayable data-dependent optimization decisions. Each rule's
-/// hints map to exactly one variant; `apply_optimization_hints` dispatches
-/// per-variant to the rule's apply path.
+#[cfg(test)]
+mod tests;
+
+/// Untrusted data-dependent optimization decisions. Replay must reject any
+/// decision whose semantic prerequisite is not enforced by the proof plan.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum OptimizationHint {
     /// Wrap the LP subtree at `target_path` in a `RematerializeLogicalNode`.
     Rematerialize { target_path: Vec<usize> },
-    /// Replace the LP subtree at `target_path` with an `EmptyRelation`
-    /// carrying the original subtree's schema. Emitted by
-    /// [`TruncateEmptyPayloadRule`] when the prover observes that the
-    /// subtree's output is empty.
+    /// Legacy hint for replacing a subtree with an `EmptyRelation`.
+    /// Retained for decoding older proofs, but always rejected: observing an
+    /// empty output on the prover is not a verifier-checked emptiness proof.
     Truncate { target_path: Vec<usize> },
 }
 
@@ -100,9 +101,7 @@ impl DataDependentOptimizer {
 /// owner. Benchmarks (or other callers) may construct a `DataDependentOptimizer`
 /// from a filtered subset of this list to disable specific rules.
 pub fn rules() -> Vec<Arc<dyn DataDependentOptimizationRule>> {
-    // `TruncateEmptyPayloadRule` is available but not included here; callers
-    // that want it can construct a `DataDependentOptimizer` with an extended
-    // rule list.
+    // Truncation remains disabled until its emptiness prerequisite is proved.
     vec![Arc::new(RematerializeRule::new())]
 }
 
@@ -117,11 +116,9 @@ pub fn collect_data_dependent_hints(
     DataDependentOptimizer::with_rules(rules()).collect_hints(session_ctx, plan)
 }
 
-/// Apply every collected hint to the plan, dispatching per-variant.
-///
-/// Truncate hints run first (they may eliminate entire subtrees, removing
-/// rematerialize targets that no longer need wrapping). Rematerialize hints
-/// run on whatever subtrees remain.
+/// Apply supported hints, rejecting unproved truncation before rewriting.
+/// Hints may come from an adversarial proof, independently of the default
+/// collector's rule list. Disabling a collector alone cannot secure replay.
 pub fn apply_optimization_hints(
     plan: LogicalPlan,
     hints: &OptimizationHints,
@@ -134,32 +131,16 @@ pub fn apply_optimization_hints(
     }
 
     let mut remat_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
-    let mut truncate_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
     for hint in &hints.hints {
         match hint {
             OptimizationHint::Rematerialize { target_path } => {
                 remat_paths.insert(target_path.clone());
             }
-            OptimizationHint::Truncate { target_path } => {
-                truncate_paths.insert(target_path.clone());
+            OptimizationHint::Truncate { .. } => {
+                return Err(truncate_empty_payload::unsupported_truncation());
             }
         }
     }
-
-    let plan = if truncate_paths.is_empty() {
-        plan
-    } else {
-        let mut path = Vec::new();
-        let rewritten =
-            truncate_empty_payload::apply_truncate_hints(plan, &mut path, &mut truncate_paths)?;
-        if !truncate_paths.is_empty() {
-            return Err(DataFusionError::Plan(format!(
-                "Unapplied truncate hints at paths: {:?}",
-                truncate_paths
-            )));
-        }
-        rewritten
-    };
 
     if remat_paths.is_empty() {
         return Ok(plan);
