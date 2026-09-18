@@ -1,7 +1,13 @@
+//! Rematerialization checks active-row bag equality and, when requested,
+//! requires the output activator to be an exact prefix of ones. Prefix mode
+//! transcript-binds the active-row count as a zero-variable proof constant,
+//! so callers must include that cardinality in their leakage model.
+
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_piop::SnarkBackend;
+use ark_ff::{BigInteger, One, PrimeField, Zero};
+use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use indexmap::IndexMap;
 
@@ -16,11 +22,13 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+#[cfg(test)]
+mod tests;
+
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
-#[allow(unused)]
 pub struct GadgetNode<B: SnarkBackend> {
-    contigous: bool,
+    contiguous: bool,
     bool_check_gadget: Arc<Node<B>>,
     perm_check_gadget: Arc<Node<B>>,
 }
@@ -141,28 +149,118 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if !self.contiguous {
+            return Ok(());
+        }
+        let output = remat_output_prover(gadget_ready_ir, id)?;
+        let activator = output
+            .activator_tracked_poly()
+            .ok_or_else(|| remat_check_error("contiguous output is missing its activator"))?;
+        let capacity = checked_capacity::<B::F>(output.log_size())?;
+        let active_count = activator
+            .evaluations()
+            .iter()
+            .filter(|value| **value == B::F::one())
+            .count();
+        if active_count > capacity {
+            return Err(remat_check_error(
+                "contiguous output count exceeds its capacity",
+            ));
+        }
+        let active_count_u64 = u64::try_from(active_count)
+            .map_err(|_| remat_check_error("contiguous output count does not fit into u64"))?;
+        // The prefix length determines the public polynomial used below, so
+        // it must be transcript-bound before the resulting zerocheck is
+        // batched. A miscellaneous proof field is not sufficient: a prover
+        // could otherwise choose the length after seeing the batching
+        // challenges. Constants use a zero-variable proof entry encoded
+        // directly in, and appended to, the Fiat--Shamir transcript.
+        let active_count_field = B::F::from(active_count_u64);
+        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+            0,
+            vec![active_count_field],
+        ))?;
+
+        let prefix = activator
+            .tracker()
+            .borrow_mut()
+            .get_or_build_contig_one_poly(output.log_size(), active_count)?;
+        let residual = &activator - &prefix;
+        prover.add_mv_zerocheck_claim(residual.id())?;
         Ok(())
     }
 
     fn honest_prover_check(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if !self.contiguous {
+            return Ok(());
+        }
+        let output = remat_output_prover(gadget_ready_ir, id)?;
+        let activator = output
+            .activator_tracked_poly()
+            .ok_or_else(|| remat_check_error("contiguous output is missing its activator"))?;
+        let mut inactive_seen = false;
+        for value in activator.evaluations().iter().copied() {
+            if value == B::F::zero() {
+                inactive_seen = true;
+            } else if value != B::F::one() || inactive_seen {
+                return Err(ark_piop::errors::SnarkError::ProverError(
+                    ark_piop::prover::errors::ProverError::HonestProverError(
+                        ark_piop::prover::errors::HonestProverError::FalseClaim,
+                    ),
+                ));
+            }
+        }
         Ok(())
     }
 
     fn verify(
         &self,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if !self.contiguous {
+            return Ok(());
+        }
+        let output = remat_output_verifier(gadget_ready_ir, id)?;
+        let activator = output
+            .activator_tracked_poly()
+            .ok_or_else(|| remat_check_error("contiguous output is missing its activator"))?;
+        let capacity = checked_capacity::<B::F>(output.log_size())?;
+        // Mirror the prover's zero-variable count proof entry. Tracking the
+        // next entry appends its value to the verifier transcript in the
+        // same position before we use it to choose the public prefix.
+        let active_count_oracle = verifier.track_next_mv_com()?;
+        if active_count_oracle.log_size() != 0 {
+            return Err(remat_check_error(
+                "contiguous output count proof entry has variables",
+            ));
+        }
+        let active_count_field = active_count_oracle
+            .as_constant()
+            .ok_or_else(|| remat_check_error("contiguous output count is not a proof constant"))?;
+        let active_count = field_to_usize(active_count_field)?;
+        if active_count > capacity {
+            return Err(remat_check_error(
+                "contiguous output count exceeds its capacity",
+            ));
+        }
+
+        let prefix = activator
+            .tracker()
+            .borrow_mut()
+            .get_or_build_contig_one_poly(output.log_size(), active_count)?;
+        let residual = &activator - &prefix;
+        verifier.add_mv_zerocheck_claim(residual.id());
         Ok(())
     }
 
@@ -176,7 +274,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(contigous: bool) -> Self
+    pub fn new(contiguous: bool) -> Self
     where
         Self: Sized,
     {
@@ -188,11 +286,76 @@ impl<B: SnarkBackend> GadgetNode<B> {
             crate::irs::nodes::utils::perm::GadgetNode::new(),
         )));
         Self {
-            contigous,
+            contiguous,
             bool_check_gadget,
             perm_check_gadget,
         }
     }
+}
+
+fn remat_output_prover<B: SnarkBackend>(
+    ir: &GadgetReadyIr<B>,
+    id: crate::irs::nodes::NodeId,
+) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
+    let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
+        return Err(remat_check_error("rematerialization payload is missing"));
+    };
+    payload
+        .get(OUTPUT_LABEL)
+        .cloned()
+        .ok_or_else(|| remat_check_error("rematerialization output is missing"))
+}
+
+fn remat_output_verifier<B: SnarkBackend>(
+    ir: &VerifierGadgetReadyIr<B>,
+    id: crate::irs::nodes::NodeId,
+) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
+    let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
+        return Err(remat_check_error("rematerialization payload is missing"));
+    };
+    payload
+        .get(OUTPUT_LABEL)
+        .cloned()
+        .ok_or_else(|| remat_check_error("rematerialization output is missing"))
+}
+
+fn remat_check_error(message: &str) -> ark_piop::errors::SnarkError {
+    ark_piop::errors::SnarkError::VerifierError(
+        ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(message.to_string()),
+    )
+}
+
+/// Ensure a prefix length has a unique field encoding on this domain.
+fn checked_capacity<F: PrimeField>(log_size: usize) -> ark_piop::errors::SnarkResult<usize> {
+    let capacity = u32::try_from(log_size)
+        .ok()
+        .and_then(|bits| 1usize.checked_shl(bits))
+        .ok_or_else(|| remat_check_error("rematerialization capacity does not fit into usize"))?;
+    let capacity_u64 = u64::try_from(capacity)
+        .map_err(|_| remat_check_error("rematerialization capacity does not fit into u64"))?;
+    if F::BigInt::from(capacity_u64) >= F::MODULUS {
+        return Err(remat_check_error(
+            "rematerialization capacity must be below the field modulus",
+        ));
+    }
+    Ok(capacity)
+}
+
+fn field_to_usize<F: PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
+    let bytes = value.into_bigint().to_bytes_le();
+    let mut output = 0usize;
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        if index >= std::mem::size_of::<usize>() {
+            if byte != 0 {
+                return Err(remat_check_error(
+                    "rematerialization count does not fit into usize",
+                ));
+            }
+        } else {
+            output |= (byte as usize) << (8 * index);
+        }
+    }
+    Ok(output)
 }
 
 fn bool_table_from_output_prover<B: SnarkBackend>(output: &TrackedTable<B>) -> TrackedTable<B> {

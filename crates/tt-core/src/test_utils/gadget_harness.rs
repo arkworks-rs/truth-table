@@ -223,9 +223,21 @@ fn materialize_verifier_table<B: SnarkBackend>(
 /// their children's payloads), then `prove` / `verify` run in post-order
 /// (so children complete before parents), mirroring the tt-core
 /// production pipeline.
-pub fn run_gadget_pipeline<B: SnarkBackend>(
+pub fn run_gadget_pipeline<B: SnarkBackend>(harness: GadgetHarness<B>) -> Result<(), SnarkError> {
+    run_gadget_pipeline_with_proof_mutator(harness, |_| {})
+}
+
+/// Run the gadget pipeline after allowing a test to tamper with the compiled
+/// proof. This is useful for regression tests that must demonstrate verifier
+/// rejection rather than merely exercise the honest prover path.
+pub fn run_gadget_pipeline_with_proof_mutator<B, M>(
     mut harness: GadgetHarness<B>,
-) -> Result<(), SnarkError> {
+    mutate_proof: M,
+) -> Result<(), SnarkError>
+where
+    B: SnarkBackend,
+    M: FnOnce(&mut ark_piop::prover::structs::proof::SNARKProof<B>),
+{
     // Pre-order walk of gadget nodes rooted at the harness gadget.
     let tree = harness.prover_ir.tree().clone();
     let pre_order: Vec<_> = collect_pre_order(&tree);
@@ -258,7 +270,8 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
     }
 
     // 3. Compile the proof and hand it to the verifier.
-    let proof = harness.prover.build_proof()?;
+    let mut proof = harness.prover.build_proof()?;
+    mutate_proof(&mut proof);
     harness.verifier.set_proof(proof);
 
     // 4. Materialize the harness-declared verifier tables (needs the
