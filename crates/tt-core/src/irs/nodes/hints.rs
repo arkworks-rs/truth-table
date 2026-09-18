@@ -8,7 +8,7 @@ use datafusion::{
     prelude::{DataFrame, SessionContext},
 };
 use datafusion_common::{Column, Result as DataFusionResult, TableReference};
-use datafusion_expr::{Expr, LogicalPlan, SortExpr, col, expr::Alias, expr_fn::try_cast};
+use datafusion_expr::{Expr, LogicalPlan, SortExpr, col, expr::Alias};
 use indexmap::IndexMap;
 use serde::Deserialize;
 use std::{
@@ -517,14 +517,16 @@ fn normalize_hint_df(
             } else {
                 Expr::Column(Column::new_unqualified(field.name()))
             };
-            let cast_expr = try_cast(col_expr, field.data_type().clone());
-            Expr::Alias(Alias::new(cast_expr, qualifier.cloned(), field.name()))
+            // This is an identity projection, not a conversion. A same-type
+            // TRY_CAST would mark even non-null source fields nullable, hiding
+            // the schema prerequisite used by bound sorting comparisons.
+            Expr::Alias(Alias::new(col_expr, qualifier.cloned(), field.name()))
         })
         .collect();
 
     let already_normalized = match data_fram.logical_plan() {
         // A normalized HintDF is exactly the projection we build above.
-        // If it already matches, avoid re-projecting/casting.
+        // If it already matches, avoid re-projecting.
         LogicalPlan::Projection(proj) => proj.expr == projection,
         _ => false,
     };
@@ -549,4 +551,148 @@ fn normalize_hint_df(
     }
 
     (normalized_df, normalized_should_materialize)
+}
+
+#[cfg(test)]
+mod normalization_tests {
+    use super::*;
+    use datafusion::arrow::{
+        array::{Array, Int64Array},
+        datatypes::DataType,
+    };
+
+    #[tokio::test]
+    async fn hint_normalization_preserves_nullability_values_and_materialization() {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("required", DataType::Int64, false),
+            Field::new("optional", DataType::Int64, true),
+            Field::new("optional_without_nulls", DataType::Int64, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2])),
+                Arc::new(Int64Array::from(vec![Some(3), None])),
+                Arc::new(Int64Array::from(vec![4, 5])),
+            ],
+        )
+        .unwrap();
+        // Explicit aliases give this fixture unqualified fields, including
+        // when SessionContext adds a qualifier to its in-memory table scan.
+        let df = SessionContext::new()
+            .read_batch(batch)
+            .unwrap()
+            .select(vec![
+                col("required").alias("required"),
+                col("optional").alias("optional"),
+                col("optional_without_nulls").alias("optional_without_nulls"),
+            ])
+            .unwrap();
+        let flags = df
+            .schema()
+            .fields()
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| (field.clone(), idx != 1))
+            .collect();
+        let hint = HintDF::new(df, flags);
+        assert_eq!(
+            hint.data_frame()
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| (field.name().as_str(), field.is_nullable()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("required", false),
+                ("optional", true),
+                ("optional_without_nulls", true),
+            ]
+        );
+        assert_eq!(
+            hint.field_materialization_iter()
+                .map(|(_, materialized)| *materialized)
+                .collect::<Vec<_>>(),
+            vec![true, false, true]
+        );
+
+        let normalized_again =
+            HintDF::new(hint.data_frame().clone(), hint.should_materialize.clone());
+        assert_eq!(
+            hint.data_frame().logical_plan(),
+            normalized_again.data_frame().logical_plan()
+        );
+        assert_eq!(hint.should_materialize, normalized_again.should_materialize);
+
+        let batches = normalized_again
+            .data_frame()
+            .clone()
+            .collect()
+            .await
+            .unwrap();
+        assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 2);
+        let batches =
+            datafusion::arrow::compute::concat_batches(&batches[0].schema(), &batches).unwrap();
+        let required = batches
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        let optional = batches
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        let optional_without_nulls = batches
+            .column(2)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(required.values().as_ref(), &[1, 2]);
+        assert_eq!(required.null_count(), 0);
+        assert_eq!(optional.value(0), 3);
+        assert!(optional.is_null(1));
+        assert_eq!(optional_without_nulls.values().as_ref(), &[4, 5]);
+        assert_eq!(optional_without_nulls.null_count(), 0);
+    }
+
+    #[test]
+    fn hint_normalization_preserves_qualifiers_field_metadata_and_order() {
+        let metadata = HashMap::from([("test.metadata".to_string(), "preserved".to_string())]);
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("second", DataType::Int64, false).with_metadata(metadata),
+            Field::new("first", DataType::Int64, true),
+        ]));
+        let df = SessionContext::new()
+            .read_batch(RecordBatch::new_empty(schema))
+            .unwrap()
+            .alias("hint_source")
+            .unwrap();
+        let flags = df
+            .schema()
+            .fields()
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| (field.clone(), idx == 1))
+            .collect();
+        let hint = HintDF::new(df, flags);
+        let fields = hint.field_materialization_iter().collect::<Vec<_>>();
+        assert_eq!(fields[0].0.name(), "second");
+        assert_eq!(fields[1].0.name(), "first");
+        assert!(!fields[0].0.is_nullable());
+        assert!(fields[1].0.is_nullable());
+        assert!(!*fields[0].1);
+        assert!(*fields[1].1);
+        assert_eq!(
+            fields[0].0.metadata().get("test.metadata").unwrap(),
+            "preserved"
+        );
+        for ((qualifier, _), (field, _)) in hint.data_frame().schema().iter().zip(fields) {
+            assert_eq!(qualifier.unwrap().to_string(), "hint_source");
+            assert_eq!(
+                field.metadata().get(QUALIFIER_METADATA_KEY).unwrap(),
+                "hint_source"
+            );
+        }
+    }
 }

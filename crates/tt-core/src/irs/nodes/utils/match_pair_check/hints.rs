@@ -1,7 +1,7 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_FIELD, is_system_column};
 use datafusion::{
     arrow::{
-        array::{ArrayRef, BooleanArray, Int64Array, UInt32Array, new_null_array},
+        array::{ArrayRef, BooleanArray, Int64Array, UInt32Array},
         compute::{concat, concat_batches, take},
         datatypes::{Field, Schema},
         record_batch::RecordBatch,
@@ -142,12 +142,16 @@ fn materialize_union_hint(df: DataFrame, key_names: &[String]) -> DataFusionResu
         output_fields.push(Field::new(
             field.name(),
             field.data_type().clone(),
-            field.is_nullable() || pad > 0,
+            field.is_nullable(),
         ));
         let out = if pad == 0 {
             base
         } else {
-            let pad_arr: ArrayRef = new_null_array(field.data_type(), pad);
+            // Padding is inactive, so its payload is semantically irrelevant.
+            // Use a concrete zero rather than NULL so non-nullable join keys
+            // remain eligible for the NULL-free contiguous-sort check.
+            let pad_arr: ArrayRef =
+                ScalarValue::new_zero(field.data_type())?.to_array_of_size(pad)?;
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         };
         output_arrays.push(out);
@@ -240,5 +244,69 @@ fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
                 .map_err(|e| DataFusionError::Execution(e.to_string()))?;
             rt.block_on(df.collect())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::arrow::{
+        array::{Array as _, BooleanArray, Int64Array},
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    };
+
+    use super::*;
+
+    fn active_keys(values: Vec<i64>) -> DataFusionResult<DataFrame> {
+        let len = values.len();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("__mp_key_0", DataType::Int64, false),
+            (**ROW_ID_FIELD).clone(),
+            (**ACTIVATOR_FIELD).clone(),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(values)),
+                Arc::new(Int64Array::from_iter_values(0..len as i64)),
+                Arc::new(BooleanArray::from(vec![true; len])),
+            ],
+        )?;
+        SessionContext::new().read_batch(batch)
+    }
+
+    #[test]
+    fn inactive_union_padding_is_zero_and_preserves_non_nullability() -> DataFusionResult<()> {
+        // Three unique active keys require a four-row union domain. The fourth
+        // row is inactive padding, not a SQL NULL key.
+        let union = build_union_hint_df(active_keys(vec![1, 2])?, active_keys(vec![2, 3])?)?;
+        let batches = collect_blocking(union)?;
+        assert_eq!(batches.len(), 1);
+        let batch = &batches[0];
+        assert_eq!(batch.num_rows(), 4);
+
+        let schema = batch.schema();
+        let key_field = schema.field_with_name("__mp_key_0")?;
+        assert!(!key_field.is_nullable());
+        let keys = batch
+            .column_by_name("__mp_key_0")
+            .expect("union key column")
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("Int64 union key");
+        let active = batch
+            .column_by_name(ACTIVATOR_COL_NAME)
+            .expect("union activator")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("Boolean union activator");
+
+        assert_eq!(keys.null_count(), 0);
+        assert_eq!(
+            (0..4).map(|row| active.value(row)).collect::<Vec<_>>(),
+            vec![true, true, true, false]
+        );
+        assert_eq!(keys.value(3), 0);
+        Ok(())
     }
 }
