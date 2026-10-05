@@ -685,9 +685,7 @@ fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point:
     for i in 0..num_vars {
         let x = point.get(i).copied().unwrap_or_else(F::zero);
         let mut next = Vec::with_capacity(layer.len() / 2);
-        for chunk in layer.chunks_exact(2) {
-            let low = chunk[0];
-            let high = chunk[1];
+        for &[low, high] in layer.as_chunks::<2>().0 {
             next.push(low * (one - x) + high * x);
         }
         layer = next;

@@ -253,7 +253,7 @@ pub fn generate(corpus: &Corpus, index: &FeatureIndex, per_regime: usize, seed: 
         }
         idle = if out.len() == before { idle + 1 } else { 0 };
     }
-    out.sort_by(|a, b| (a.regime, a.matches).cmp(&(b.regime, b.matches)));
+    out.sort_by_key(|a| (a.regime, a.matches));
     out
 }
 
