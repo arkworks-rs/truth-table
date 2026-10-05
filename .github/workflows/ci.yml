@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Cargo.toml patches ark-piop by path, so it has to sit next to the
+      # workspace.
+      - run: git clone --depth 1 https://github.com/alireza-shirzad/ark-piop ../ark-piop
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -40,6 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Cargo.toml patches ark-piop by path, so it has to sit next to the
+      # workspace.
+      - run: git clone --depth 1 https://github.com/alireza-shirzad/ark-piop ../ark-piop
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -52,6 +58,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Cargo.toml patches ark-piop by path, so it has to sit next to the
+      # workspace.
+      - run: git clone --depth 1 https://github.com/alireza-shirzad/ark-piop ../ark-piop
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: extractions/setup-just@v2
@@ -63,6 +72,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Cargo.toml patches ark-piop by path, so it has to sit next to the
+      # workspace.
+      - run: git clone --depth 1 https://github.com/alireza-shirzad/ark-piop ../ark-piop
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo bench --workspace --no-run
@@ -77,6 +89,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Cargo.toml patches ark-piop by path, so it has to sit next to the
+      # workspace.
+      - run: git clone --depth 1 https://github.com/alireza-shirzad/ark-piop ../ark-piop
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
