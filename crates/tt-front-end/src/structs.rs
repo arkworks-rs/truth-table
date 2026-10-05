@@ -12,7 +12,7 @@ use ark_serialize::{
 use derivative::Derivative;
 use proof_planner::data_dependent_lp_optimizer::OptimizationHints;
 use tracing::debug;
-use tt_core::errors::TTResult;
+use tt_core::{errors::TTResult, prover::passes::tracking::FingerprintOpenings};
 use zstd::stream::{decode_all as zstd_decode_all, encode_all as zstd_encode_all};
 
 pub use ark_piop::types::artifact::{Artifact, SizeBreakdown};
@@ -31,6 +31,9 @@ pub struct TTProof<B: SnarkBackend> {
     snark_proof: SNARKProof<B>,
     /// The list of optimization hints used by the prover that is sent to the verifier, which should be used by the verifier to arrive to the same proof plan as the prover.
     optimization_hints: OptimizationHints,
+    /// The Merkle multiproofs opening, against the table oracles' roots, the
+    /// fingerprint bins whose commitments this proof carries.
+    fingerprint_openings: FingerprintOpenings,
 }
 
 /// The prover key for the truth-table
@@ -50,10 +53,12 @@ impl<B: SnarkBackend> TTProof<B> {
     pub fn new(
         snark_proof: SNARKProof<B>,
         optimization_hints: OptimizationHints,
+        fingerprint_openings: FingerprintOpenings,
     ) -> TTResult<Self> {
         Ok(Self {
             snark_proof,
             optimization_hints,
+            fingerprint_openings,
         })
     }
 
@@ -74,6 +79,11 @@ impl<B: SnarkBackend> TTProof<B> {
     /// Get a reference to the optimization hints contained in the TTProof.
     pub fn optimization_hints(&self) -> &OptimizationHints {
         &self.optimization_hints
+    }
+
+    /// The multiproofs of the fingerprint bins this proof opens.
+    pub fn fingerprint_openings(&self) -> &FingerprintOpenings {
+        &self.fingerprint_openings
     }
 }
 
@@ -163,15 +173,17 @@ where
             .map(|bytes| bytes.len())
             .ok()?;
         let snark_proof = self.snark_proof.size_breakdown()?;
+        let openings = self.fingerprint_openings.serialized_size(Compress::Yes);
 
         Some(SizeBreakdown::node(
-            8 + optimization_hints + snark_proof.size,
+            8 + optimization_hints + snark_proof.size + openings,
             [
                 (
                     "optimization_hints",
                     SizeBreakdown::leaf(optimization_hints),
                 ),
                 ("snark_proof", snark_proof),
+                ("fingerprint_openings", SizeBreakdown::leaf(openings)),
             ],
         ))
     }
@@ -246,6 +258,7 @@ where
 /// 1. little-endian payload length for optimization hints
 /// 2. framed optimization-hint payload bytes
 /// 3. canonical SNARK proof bytes
+/// 4. the fingerprint multiproofs
 impl<B> CanonicalSerialize for TTProof<B>
 where
     B: SnarkBackend,
@@ -266,6 +279,8 @@ where
         writer.write_all(&plan_bytes)?;
         self.snark_proof
             .serialize_with_mode(&mut writer, compress)?;
+        self.fingerprint_openings
+            .serialize_with_mode(&mut writer, compress)?;
         Ok(())
     }
 
@@ -273,7 +288,9 @@ where
         let plan_len = optimization_hints_payload_bytes(&self.optimization_hints)
             .map(|bytes| bytes.len())
             .unwrap_or(0);
-        8 + plan_len + self.snark_proof.serialized_size(compress)
+        8 + plan_len
+            + self.snark_proof.serialized_size(compress)
+            + self.fingerprint_openings.serialized_size(compress)
     }
 }
 
@@ -308,10 +325,13 @@ where
             // framing compatible, but new code no longer retains that payload.
             OptimizationHints::default()
         };
-        let snark_proof = SNARKProof::<B>::deserialize_with_mode(reader, compress, _validate)?;
+        let snark_proof = SNARKProof::<B>::deserialize_with_mode(&mut reader, compress, _validate)?;
+        let fingerprint_openings =
+            FingerprintOpenings::deserialize_with_mode(&mut reader, compress, _validate)?;
         Ok(Self {
             snark_proof,
             optimization_hints,
+            fingerprint_openings,
         })
     }
 }

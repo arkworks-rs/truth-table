@@ -663,14 +663,9 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
         let input_schema = scope_hint_df.data_frame().schema().as_arrow().clone();
         let output_expr = Expr::BinaryExpr(self.binary_expression.clone());
         let output_expr = if self.should_materialize() {
-            if let Some(activator_col) = input_schema
-                .fields()
-                .iter()
-                .find(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
-            {
-                let activator_expr = Expr::Column(datafusion_common::Column::new_unqualified(
-                    activator_col.name(),
-                ));
+            // Same activator choice as the prover, so the masked column gets
+            // the same name on both sides.
+            if let Some(activator_expr) = Self::activator_expr_for_df(scope_hint_df.data_frame()) {
                 let else_expr = match output_expr
                     .get_type(scope_hint_df.data_frame().schema())
                     .ok()

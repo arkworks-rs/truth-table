@@ -180,6 +180,26 @@ pub(crate) fn scoped_schema_only_ctx() -> Option<SessionContext> {
     SCHEMA_ONLY_CTX_SCOPE.with(|cell| cell.borrow().clone())
 }
 
+/// Runs `f` with `ctx` as this thread's schema-only scope, then restores the
+/// thread's previous scope, even if `f` panics.
+///
+/// Scopes are thread-local, so a pass that opens one in `begin_pass` and then
+/// runs `transform` on rayon workers uses this to carry it onto each worker.
+pub(crate) fn with_schema_only_ctx_scope<R>(
+    ctx: Option<SessionContext>,
+    f: impl FnOnce() -> R,
+) -> R {
+    struct Restore(Option<SessionContext>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let previous = self.0.take();
+            SCHEMA_ONLY_CTX_SCOPE.with(|cell| *cell.borrow_mut() = previous);
+        }
+    }
+    let _restore = Restore(SCHEMA_ONLY_CTX_SCOPE.with(|cell| cell.replace(ctx)));
+    f()
+}
+
 pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
     let row_id_exprs: Vec<Expr> = df
         .schema()
@@ -387,6 +407,16 @@ pub fn column_constraint_metadata(
     })
 }
 
+/// The primary-key columns (lowercase) that `constraints.json` declares for
+/// `table_name`, or `None` when no manifest covering the table is loaded.
+pub fn table_primary_key_columns(table_name: &str) -> Option<BTreeSet<String>> {
+    let lock = CONSTRAINTS_BY_TABLE.get()?;
+    let guard = lock.read().ok()?;
+    guard
+        .get(&table_name_from_qualifier(table_name))
+        .map(|table| table.primary_key_cols.clone())
+}
+
 pub fn configure_constraint_metadata_from_parquet_paths(parquet_paths: &[PathBuf]) {
     let mut merged = BTreeMap::new();
     for parquet_path in parquet_paths {
@@ -549,4 +579,28 @@ fn normalize_hint_df(
     }
 
     (normalized_df, normalized_should_materialize)
+}
+
+#[cfg(all(test, feature = "parallel"))]
+mod scope_tests {
+    use rayon::prelude::*;
+
+    use super::*;
+
+    #[test]
+    fn schema_only_scope_reaches_rayon_workers_and_is_restored() {
+        begin_schema_only_ctx_scope();
+        let ctx = scoped_schema_only_ctx();
+        let seen: Vec<bool> = (0..64)
+            .into_par_iter()
+            .map(|_| with_schema_only_ctx_scope(ctx.clone(), || scoped_schema_only_ctx().is_some()))
+            .collect();
+        end_schema_only_ctx_scope();
+        assert!(seen.iter().all(|&in_scope| in_scope));
+
+        let leaked = (0..64)
+            .into_par_iter()
+            .any(|_| scoped_schema_only_ctx().is_some());
+        assert!(!leaked, "a worker kept the scope after the pass");
+    }
 }

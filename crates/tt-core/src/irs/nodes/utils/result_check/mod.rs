@@ -1,11 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_ff::{One, PrimeField, Zero};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
+use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
+    piop::PIOP,
     prover::ArgProver,
     prover::structs::polynomial::TrackedPoly,
     verifier::ArgVerifier,
@@ -15,12 +19,18 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
+        nodes::{
+            IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
+            utils::nodup::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
+        },
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
@@ -194,6 +204,17 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
+/// Proves that the active rows of `t_table`, the query output the plan has
+/// proven, are the same multiset as the rows of `r_table`, the result the
+/// verifier holds in the clear.
+///
+/// The claimed result comes from the prover and is not otherwise in the
+/// transcript, so it must be fixed before this check draws any challenge;
+/// a prover that knew the fold challenges could otherwise pick different
+/// rows that fold to the same values. The prover therefore commits the
+/// result on its own domain first, and a zerocheck against the verifier's
+/// copy ties each commitment to the claimed result. Only then are the fold
+/// challenges drawn and the two multisets compared.
 fn prove_result_check<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     t_table: &TrackedTable<B>,
@@ -202,240 +223,172 @@ fn prove_result_check<B: SnarkBackend>(
     let t_act = t_table
         .activator_tracked_poly()
         .expect("ResultCheck t_table activator missing");
-    let mu_t = t_table.log_size();
-    let n_t = 1usize << mu_t;
+    let r_act = r_table
+        .activator_tracked_poly()
+        .expect("ResultCheck r_table activator missing");
+    let columns =
+        match_columns(data_polys(t_table), data_polys(r_table)).ok_or_else(false_claim)?;
 
-    // src[i] = the t_table active hypercube position whose row content matches
-    // r_table's i-th row. Constructing src this way (rather than just
-    // enumerating active positions in increasing index order) is what lets
-    // ZC2 (`t_act * (fp_T - fp_R) == 0`) vanish even when the IR's tracked
-    // execution and datafusion's execution emit the same multiset of rows in
-    // different orders (e.g. plain joins without ORDER BY). ZC1 still enforces
-    // that src is a permutation of t_table's active positions: the sparse MLE
-    // built from src must equal t_act on the whole hypercube, so duplicates
-    // collapse and gaps surface as a non-zero zerocheck.
-    let src = compute_src_by_row_matching::<B>(t_table, r_table)?;
-
-    // Build R.a's MLE in t_table's hypercube and commit it. The verifier
-    // receives only the commitment (O(1) bytes) and queries R.a at sumcheck
-    // challenges via PCS openings — we never put the full src/R.a evaluations
-    // in the proof, so proof size is independent of the result row count.
-    let mut r_a_evals = vec![B::F::zero(); n_t];
-    for &idx in &src {
-        r_a_evals[idx] = B::F::one();
-    }
-    let r_a_tracked =
-        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(mu_t, r_a_evals))?;
-
-    // For each data column shared by t_table and r_table, build R.dj's MLE in
-    // t_table's hypercube by scattering r_table's contiguous data values to the
-    // active positions of t_table.
-    let data_indices = t_table.data_tracked_polys_indices();
-    let n_data = data_indices.len();
-    let mut t_data_polys: Vec<TrackedPoly<B>> = Vec::with_capacity(n_data);
-    let mut r_d_tracked: Vec<TrackedPoly<B>> = Vec::with_capacity(n_data);
-    for &t_idx in &data_indices {
-        let (field_ref, t_poly) = t_table
-            .tracked_polys()
-            .get_index(t_idx)
-            .map(|(f, p)| (f.clone(), p.clone()))
-            .expect("ResultCheck t_table column index out of bounds");
-        t_data_polys.push(t_poly);
-
-        let r_poly = r_table
-            .tracked_polys_iter()
-            .find_map(|(f, p)| (f.name() == field_ref.name()).then_some(p.clone()))
-            .unwrap_or_else(|| {
-                panic!(
-                    "ResultCheck r_table missing column {} matching t_table",
-                    field_ref.name()
-                )
-            });
-        let r_evals = r_poly.evaluations();
-
-        let mut r_d_evals = vec![B::F::zero(); n_t];
-        for (i, &idx) in src.iter().enumerate() {
-            r_d_evals[idx] = r_evals[i];
-        }
-        r_d_tracked.push(
-            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(mu_t, r_d_evals))?,
-        );
+    let r_nv = r_table.log_size();
+    let committed_act = commit_claimed_poly(prover, &r_act, r_nv)?;
+    let mut t_data = Vec::with_capacity(columns.len());
+    let mut r_data = Vec::with_capacity(columns.len());
+    for (t_poly, r_poly) in &columns {
+        t_data.push(t_poly.clone());
+        r_data.push(commit_claimed_poly(prover, r_poly, r_nv)?);
     }
 
-    // Fingerprint challenges shared between fp_T and fp_R folds.
-    let num_challenges = std::cmp::max(n_data, 1);
-    let mut challenges = Vec::with_capacity(num_challenges);
-    for _ in 0..num_challenges {
+    let mut challenges = Vec::with_capacity(columns.len());
+    for _ in 0..columns.len() {
         challenges.push(prover.get_and_append_challenge(b"result_check_fold")?);
     }
-
-    // Zerocheck 1: t_table.a - R.a = 0.
-    let zc_act = &t_act - &r_a_tracked;
-    prover.add_mv_zerocheck_claim(zc_act.id())?;
-
-    // Zerocheck 2: t_table.a * (fp_T - fp_R) = 0.
-    if n_data > 0 {
-        let folded_t = fold_polys(&t_data_polys, &challenges);
-        let folded_r = fold_polys(&r_d_tracked, &challenges);
-        let fp_diff = &folded_t - &folded_r;
-        let zc_fp = &t_act * &fp_diff;
-        prover.add_mv_zerocheck_claim(zc_fp.id())?;
-    }
-
+    // With no data columns the multisets are equal exactly when the active
+    // row counts are, which comparing the activators themselves checks.
+    let (t_rows, r_rows) = if columns.is_empty() {
+        (t_act.clone(), committed_act.clone())
+    } else {
+        (
+            fold_polys(&t_data, &challenges),
+            fold_polys(&r_data, &challenges),
+        )
+    };
+    PermPIOP::<B>::prove(
+        prover,
+        PermPIOPProverInput {
+            left_col: TrackedCol::new(t_rows, Some(t_act), None),
+            right_col: TrackedCol::new(r_rows, Some(committed_act), None),
+        },
+    )?;
     Ok(())
 }
 
-/// Build src so that `t_table[src[i]]` equals `r_table[i]` row-for-row.
-///
-/// r_table's actual data lives in its first `k` evaluations (the rest is
-/// inactive padding from `append_activator_and_pad_batches`). For each
-/// i in 0..k, we find an unmatched t-active position whose data columns
-/// equal r_table's i-th row, then set src[i] = that position. Stable
-/// matching by content; multiset semantics. Returns Err if the multisets
-/// of active rows disagree between t_table and r_table.
-fn compute_src_by_row_matching<B: SnarkBackend>(
-    t_table: &TrackedTable<B>,
-    r_table: &TrackedTable<B>,
-) -> SnarkResult<Vec<usize>> {
-    let t_act_evals = t_table
-        .activator_tracked_poly()
-        .expect("ResultCheck t_table activator missing")
-        .evaluations();
-    let t_active_indices: Vec<usize> = t_act_evals
-        .iter()
-        .enumerate()
-        .filter_map(|(i, v)| (!v.is_zero()).then_some(i))
-        .collect();
-    let k = t_active_indices.len();
-    if k == 0 {
-        return Ok(Vec::new());
-    }
+/// Commits `public`, a column of the claimed result, and adds the zerocheck
+/// that binds the commitment to it.
+fn commit_claimed_poly<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    public: &TrackedPoly<B>,
+    nv: usize,
+) -> SnarkResult<TrackedPoly<B>> {
+    let committed = prover
+        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(nv, public.evaluations()))?;
+    prover.add_mv_zerocheck_claim((&committed - public).id())?;
+    Ok(committed)
+}
 
-    // Match on the data columns of r_table's schema (excluding activator).
-    // r_table's schema is the user-visible result schema, which is a subset
-    // of t_table's columns (post `project_prover_table_for_result_check`).
-    let r_schema = r_table
-        .schema_ref()
-        .expect("ResultCheck r_table schema missing");
-    let key_field_names: Vec<String> = r_schema
-        .fields()
-        .iter()
-        .filter(|f| f.name() != ACTIVATOR_COL_NAME)
-        .map(|f| f.name().to_string())
-        .collect();
+fn data_polys<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<(String, TrackedPoly<B>)> {
+    let polys = table.tracked_polys();
+    table
+        .data_tracked_polys_indices()
+        .into_iter()
+        .map(|idx| {
+            let (field, poly) = polys
+                .get_index(idx)
+                .expect("ResultCheck column index out of bounds");
+            (field.name().to_string(), poly.clone())
+        })
+        .collect()
+}
 
-    if key_field_names.is_empty() {
-        // No data columns to match on: any permutation works. Keep the
-        // active-positions-in-order behavior as a degenerate but valid choice.
-        return Ok(t_active_indices);
+/// Pairs each data column of the proven output with the claimed result's
+/// column of the same name, in the output's column order. Returns `None`
+/// unless both tables have exactly the same data columns.
+fn match_columns<T>(t_data: Vec<(String, T)>, r_data: Vec<(String, T)>) -> Option<Vec<(T, T)>> {
+    if t_data.len() != r_data.len() {
+        return None;
     }
-
-    let mut t_col_evals: Vec<Vec<B::F>> = Vec::with_capacity(key_field_names.len());
-    for name in &key_field_names {
-        let evals = t_table
-            .tracked_polys_iter()
-            .find_map(|(f, p)| (f.name() == name).then(|| p.evaluations()))
-            .unwrap_or_else(|| {
-                panic!(
-                    "ResultCheck t_table missing column {} required for row matching",
-                    name
-                )
-            });
-        t_col_evals.push(evals);
+    let mut r_by_name: HashMap<String, T> = r_data.into_iter().collect();
+    if r_by_name.len() != t_data.len() {
+        return None;
     }
-    let mut r_col_evals: Vec<Vec<B::F>> = Vec::with_capacity(key_field_names.len());
-    for name in &key_field_names {
-        let evals = r_table
-            .tracked_polys_iter()
-            .find_map(|(f, p)| (f.name() == name).then(|| p.evaluations()))
-            .unwrap_or_else(|| {
-                panic!(
-                    "ResultCheck r_table missing column {} required for row matching",
-                    name
-                )
-            });
-        r_col_evals.push(evals);
-    }
-
-    // r_table's first k rows hold the actual rows.
-    let r_min_len = r_col_evals.iter().map(|c| c.len()).min().unwrap_or(0);
-    if r_min_len < k {
-        return Err(SnarkError::ProverError(
-            ark_piop::prover::errors::ProverError::HonestProverError(
-                ark_piop::prover::errors::HonestProverError::FalseClaim,
-            ),
-        ));
-    }
-
-    // Bucket t-active positions by row-content key; iterate in reverse so
-    // popping yields ascending positions first when multiple rows match.
-    let mut buckets: HashMap<Vec<B::F>, Vec<usize>> = HashMap::with_capacity(k);
-    for &p in t_active_indices.iter().rev() {
-        let key: Vec<B::F> = t_col_evals.iter().map(|col| col[p]).collect();
-        buckets.entry(key).or_default().push(p);
-    }
-    let mut src = Vec::with_capacity(k);
-    for i in 0..k {
-        let r_key: Vec<B::F> = r_col_evals.iter().map(|col| col[i]).collect();
-        let p = buckets
-            .get_mut(&r_key)
-            .and_then(|v| v.pop())
-            .ok_or_else(false_claim)?;
-        src.push(p);
-    }
-    Ok(src)
+    t_data
+        .into_iter()
+        .map(|(name, t)| r_by_name.remove(&name).map(|r| (t, r)))
+        .collect()
 }
 
 fn verify_result_check<B: SnarkBackend>(
     verifier: &mut ArgVerifier<B>,
     t_table: &TrackedTableOracle<B>,
-    _r_table: &TrackedTableOracle<B>,
+    r_table: &TrackedTableOracle<B>,
 ) -> SnarkResult<()> {
     let t_act = t_table
         .activator_tracked_poly()
         .expect("ResultCheck t_table activator missing");
+    let r_act = r_table
+        .activator_tracked_poly()
+        .expect("ResultCheck r_table activator missing");
+    let columns = match_columns(data_oracles(t_table), data_oracles(r_table)).ok_or_else(|| {
+        check_failed("the claimed result's columns differ from the query output's".to_string())
+    })?;
 
-    // Pull R.a's commitment off the transcript in the same order the prover
-    // committed it (R.a first, then one R.dj per data column). The verifier
-    // never sees src or R.a's evaluations directly — only the commitments
-    // and the PCS openings forced by the zerocheck claims below.
-    let r_a_tracked = verifier.track_next_mv_com()?;
-
-    let data_indices = t_table.data_tracked_oracles_indices();
-    let n_data = data_indices.len();
-    let mut t_data_oracles: Vec<TrackedOracle<B>> = Vec::with_capacity(n_data);
-    let mut r_d_tracked: Vec<TrackedOracle<B>> = Vec::with_capacity(n_data);
-    for &t_idx in &data_indices {
-        let (_, t_oracle) = t_table
-            .tracked_oracles_iter()
-            .nth(t_idx)
-            .map(|(f, o)| (f.clone(), o.clone()))
-            .expect("ResultCheck t_table column index out of bounds");
-        t_data_oracles.push(t_oracle);
-        r_d_tracked.push(verifier.track_next_mv_com()?);
+    // Mirror the prover: bind the claimed result before drawing challenges.
+    let r_nv = r_table.log_size();
+    let committed_act = bind_claimed_oracle(verifier, &r_act, r_nv)?;
+    let mut t_data = Vec::with_capacity(columns.len());
+    let mut r_data = Vec::with_capacity(columns.len());
+    for (t_oracle, r_oracle) in &columns {
+        t_data.push(t_oracle.clone());
+        r_data.push(bind_claimed_oracle(verifier, r_oracle, r_nv)?);
     }
 
-    // Mirror the prover's fingerprint challenges.
-    let num_challenges = std::cmp::max(n_data, 1);
-    let mut challenges = Vec::with_capacity(num_challenges);
-    for _ in 0..num_challenges {
+    let mut challenges = Vec::with_capacity(columns.len());
+    for _ in 0..columns.len() {
         challenges.push(verifier.get_and_append_challenge(b"result_check_fold")?);
     }
-
-    // Zerocheck 1: t_table.a - R.a = 0.
-    let zc_act = &t_act - &r_a_tracked;
-    verifier.add_mv_zerocheck_claim(zc_act.id());
-
-    // Zerocheck 2: t_table.a * (fp_T - fp_R) = 0.
-    if n_data > 0 {
-        let folded_t = fold_oracles(&t_data_oracles, &challenges);
-        let folded_r = fold_oracles(&r_d_tracked, &challenges);
-        let fp_diff = &folded_t - &folded_r;
-        let zc_fp = &t_act * &fp_diff;
-        verifier.add_mv_zerocheck_claim(zc_fp.id());
-    }
-
+    let (t_rows, r_rows) = if columns.is_empty() {
+        (t_act.clone(), committed_act.clone())
+    } else {
+        (
+            fold_oracles(&t_data, &challenges),
+            fold_oracles(&r_data, &challenges),
+        )
+    };
+    PermPIOP::<B>::verify(
+        verifier,
+        PermPIOPVerifierInput {
+            left_tracked_col_oracle: TrackedColOracle::new(t_rows, Some(t_act), None),
+            right_tracked_col_oracle: TrackedColOracle::new(r_rows, Some(committed_act), None),
+        },
+    )?;
     Ok(())
+}
+
+/// Takes the prover's commitment to `public`, a column of the claimed result,
+/// and adds the zerocheck that binds it to the verifier's own copy.
+fn bind_claimed_oracle<B: SnarkBackend>(
+    verifier: &mut ArgVerifier<B>,
+    public: &TrackedOracle<B>,
+    nv: usize,
+) -> SnarkResult<TrackedOracle<B>> {
+    let committed = verifier.track_next_mv_com()?;
+    if committed.log_size() != nv {
+        return Err(check_failed(format!(
+            "committed result column has {} variables, the claimed result has {nv}",
+            committed.log_size()
+        )));
+    }
+    verifier.add_mv_zerocheck_claim((&committed - public).id());
+    Ok(committed)
+}
+
+fn data_oracles<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<(String, TrackedOracle<B>)> {
+    let oracles: Vec<_> = table.tracked_oracles_iter().collect();
+    table
+        .data_tracked_oracles_indices()
+        .into_iter()
+        .map(|idx| {
+            let (field, oracle) = &oracles[idx];
+            (field.name().to_string(), oracle.clone())
+        })
+        .collect()
+}
+
+fn check_failed(msg: String) -> SnarkError {
+    SnarkError::VerifierError(
+        ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
+            "ResultCheck: {msg}"
+        )),
+    )
 }
 
 fn fold_polys<B: SnarkBackend>(polys: &[TrackedPoly<B>], challenges: &[B::F]) -> TrackedPoly<B> {

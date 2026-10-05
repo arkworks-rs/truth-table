@@ -167,6 +167,9 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         let arithmetized_ir = materialized_ir.apply_local_pass_parallel(
             &tt_core::prover::passes::arithmetization::ArithmetizationPass::new(
                 materialized_ir.tree().required_side_columns(),
+                // The oracle carries every string column's fingerprint limbs,
+                // so any later query can pre-filter any column.
+                tt_core::prover::passes::arithmetization::FingerprintColumns::All,
             ),
         );
         drop(materialized_ir);
@@ -233,7 +236,7 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         proving_pass.take_result()?;
         let mut arg_prover = arg_prover;
         let arg_proof = arg_prover.build_proof().unwrap();
-        let tt_proof = TTProof::new(arg_proof, optimization_hints)?;
+        let tt_proof = TTProof::new(arg_proof, optimization_hints, Vec::new())?;
 
         // 6. Convert the tracked table into a serializable oracle using verifier-side state.
         let mut verifier = ArgVerifier::new_from_vk(self.snark_pk().vk.clone());

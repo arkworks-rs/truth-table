@@ -49,8 +49,8 @@
 //!   internal rotation chain).
 //! - `"occurs"`, `"match"`, `"mark"`, `"start"`, `"match_broadcast"`,
 //!   `"start_broadcast"`, `"leftmost_mask"` — FactorPlacement witnesses.
-//! - `"att_mask"` — suffix mode only.
-//! - `"rotated_bnd"` — infix mode with `k_j ≥ 2` only.
+//! - `"rotated_bnd"` — infix and suffix modes with `k_j ≥ 2` only.
+//! - `"rotated_int_ind"`, `"end"` — suffix mode only.
 //! - `"past"` — only for `j < t − 1` (past_j indicator for the
 //!   inter-factor alive chain).
 

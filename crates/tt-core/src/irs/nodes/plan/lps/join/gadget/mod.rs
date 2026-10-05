@@ -24,6 +24,8 @@ use std::cell::RefCell;
 use std::sync::RwLock;
 
 mod hints;
+#[cfg(test)]
+mod tests;
 mod wiring;
 pub const LEFT_LABEL: &str = "__LEFT__";
 pub const RIGHT_LABEL: &str = "__RIGHT__";
@@ -282,8 +284,8 @@ fn force_materialize_all(
 pub enum Gadgets<B: SnarkBackend> {
     // Full join proof stack: bool + nodup + match-pair utilities.
     ManyToMany(ManyToManyGadgets<B>),
-    // Optimized mode for joins where one side is guaranteed unique.
-    // No child gadgets are needed.
+    // PK-FK join: the join gadget runs a single lookup itself (PKFKJoin), so
+    // no child gadgets are needed.
     HasOne,
 }
 pub struct ManyToManyGadgets<B: SnarkBackend> {
@@ -1246,6 +1248,22 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             )?;
             Ok(())
         } else {
+            let (output, fk_side, pk_side) =
+                self.pk_fk_tables(gadget_ready_ir.payload_for_node(&id));
+            let (included, super_table) = self.pk_fk_lookup_tables_prover(
+                output.expect("PK-FK join payload missing output table"),
+                fk_side.expect("PK-FK join payload missing FK-side input table"),
+                pk_side.expect("PK-FK join payload missing PK-side input table"),
+            );
+            let challenges =
+                lookup_fold_challenges_prover(prover, included.data_tracked_polys_indices().len())?;
+            LookupPIOP::<B>::prove(
+                prover,
+                LookupProverInput {
+                    included_cols: vec![fold_lookup_table_prover(&included, &challenges)],
+                    super_col: fold_lookup_table_prover(&super_table, &challenges),
+                },
+            )?;
             Ok(())
         }
     }
@@ -1444,6 +1462,29 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             )?;
             Ok(())
         } else {
+            let (output, fk_side, pk_side) =
+                self.pk_fk_tables(gadget_ready_ir.payload_for_node(&id));
+            let (Some(output), Some(fk_side), Some(pk_side)) = (output, fk_side, pk_side) else {
+                return Err(pk_fk_check_failed(
+                    "the join payload is incomplete".to_string(),
+                ));
+            };
+            let (included, super_table) =
+                self.pk_fk_lookup_tables_verifier(output, fk_side, pk_side)?;
+            let challenges = lookup_fold_challenges_verifier(
+                verifier,
+                included.data_tracked_oracles_indices().len(),
+            )?;
+            LookupPIOP::<B>::verify(
+                verifier,
+                LookupVerifierInput {
+                    included_tracked_col_oracles: vec![fold_lookup_table_verifier(
+                        &included,
+                        &challenges,
+                    )],
+                    super_tracked_col_oracle: fold_lookup_table_verifier(&super_table, &challenges),
+                },
+            )?;
             Ok(())
         }
     }
@@ -1473,7 +1514,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
             nodup_gadget,
             match_pair_gadget,
         });
-        // HasOne modes collapse join gadget internals to keep plan/gadget optimization aligned.
+        // HasOne modes replace the child gadgets with the PKFKJoin lookup, matching the
+        // plan node's partial materialization.
         if join_mode != JoinMode::MANY_TO_MANY {
             gadgets = Gadgets::HasOne;
         }
@@ -1513,10 +1555,244 @@ impl<B: SnarkBackend> GadgetNode<B> {
         if let Ok(mut gadgets) = self.gadgets.write() {
             // Never rebuild MANY_TO_MANY children here: creating fresh child nodes would
             // change node ids and break IR payload maps keyed by existing ids.
-            // Optimized modes collapse the join gadget into a no-op (no child gadgets).
+            // HasOne modes drop the child gadgets; the join gadget proves the PKFKJoin
+            // lookup itself.
             if mode != JoinMode::MANY_TO_MANY {
                 *gadgets = Gadgets::HasOne;
             }
         }
     }
+}
+
+/// The PKFKJoin protocol for the HasOne modes. The output keeps one row per
+/// active FK-side row; its FK-side columns and activator are the FK input's
+/// own polynomials, and the prover commits only the PK-side columns O.dP. A
+/// single Lookupcheck proves (F.a, [F.k, O.dP]) is contained in
+/// (P.a, [P.k, P.d]). The mode is chosen only when P.k is P's full primary
+/// key over an unfiltered table, so each FK row has at most one match, and the
+/// lookup pins O.dP to exactly that row.
+impl<B: SnarkBackend> GadgetNode<B> {
+    /// The join output and its (FK-side, PK-side) inputs from this join's
+    /// gadget payload.
+    fn pk_fk_tables<'a, T>(
+        &self,
+        payload: Option<&'a PayloadStructure<T>>,
+    ) -> (Option<&'a T>, Option<&'a T>, Option<&'a T>) {
+        let Some(PayloadStructure::GadgetPayload(map)) = payload else {
+            return (None, None, None);
+        };
+        let (fk_label, pk_label) = if self.join_mode() == JoinMode::MANY_TO_ONE {
+            (LEFT_LABEL, RIGHT_LABEL)
+        } else {
+            (RIGHT_LABEL, LEFT_LABEL)
+        };
+        (map.get(OUTPUT_LABEL), map.get(fk_label), map.get(pk_label))
+    }
+
+    /// The join keys as (FK-side name, PK-side name) pairs.
+    fn pk_fk_key_names(&self) -> Vec<(String, String)> {
+        let fk_is_left = self.join_mode() == JoinMode::MANY_TO_ONE;
+        self.join
+            .on
+            .iter()
+            .map(|(left, right)| {
+                let name = |expr| {
+                    super::modes::expr_to_column(expr)
+                        .map(|col| col.name)
+                        .expect("PK-FK join keys are plain columns")
+                };
+                if fk_is_left {
+                    (name(left), name(right))
+                } else {
+                    (name(right), name(left))
+                }
+            })
+            .collect()
+    }
+
+    fn pk_fk_lookup_tables_prover(
+        &self,
+        output: &TrackedTable<B>,
+        fk_side: &TrackedTable<B>,
+        pk_side: &TrackedTable<B>,
+    ) -> (TrackedTable<B>, TrackedTable<B>) {
+        let output_polys = row_domain_polys(output.tracked_polys(), output.log_size());
+        let fk_polys = row_domain_polys(fk_side.tracked_polys(), fk_side.log_size());
+        let pk_polys = row_domain_polys(pk_side.tracked_polys(), pk_side.log_size());
+        let mut included = Vec::new();
+        let mut super_cols = Vec::new();
+        for (fk_name, pk_name) in self.pk_fk_key_names() {
+            included.push(named(&fk_polys, &fk_name, "FK-side input"));
+            super_cols.push(named(&pk_polys, &pk_name, "PK-side input"));
+        }
+        for name in data_names(&pk_polys) {
+            included.push(named(&output_polys, &name, "join output"));
+            super_cols.push(named(&pk_polys, &name, "PK-side input"));
+        }
+        (
+            lookup_table(
+                included,
+                fk_side.activator_tracked_poly(),
+                fk_side.log_size(),
+            ),
+            lookup_table(
+                super_cols,
+                pk_side.activator_tracked_poly(),
+                pk_side.log_size(),
+            ),
+        )
+    }
+
+    fn pk_fk_lookup_tables_verifier(
+        &self,
+        output: &TrackedTableOracle<B>,
+        fk_side: &TrackedTableOracle<B>,
+        pk_side: &TrackedTableOracle<B>,
+    ) -> ark_piop::errors::SnarkResult<(TrackedTableOracle<B>, TrackedTableOracle<B>)> {
+        // O.dP is indexed by FK-side row, so it must live on the FK domain.
+        if output.log_size() != fk_side.log_size() {
+            return Err(pk_fk_check_failed(format!(
+                "the output has {} variables, the FK side {}",
+                output.log_size(),
+                fk_side.log_size()
+            )));
+        }
+        let output_oracles = row_domain_oracles(output.tracked_oracles(), output.log_size());
+        let fk_oracles = row_domain_oracles(fk_side.tracked_oracles(), fk_side.log_size());
+        let pk_oracles = row_domain_oracles(pk_side.tracked_oracles(), pk_side.log_size());
+        let find = |oracles: &[(String, TrackedOracle<B>)], name: &str, table: &str| {
+            oracles
+                .iter()
+                .find(|(candidate, _)| candidate == name)
+                .map(|(_, oracle)| oracle.clone())
+                .ok_or_else(|| pk_fk_check_failed(format!("the {table} has no column {name}")))
+        };
+        let mut included = Vec::new();
+        let mut super_cols = Vec::new();
+        for (fk_name, pk_name) in self.pk_fk_key_names() {
+            included.push(find(&fk_oracles, &fk_name, "FK-side input")?);
+            super_cols.push(find(&pk_oracles, &pk_name, "PK-side input")?);
+        }
+        for name in data_names(&pk_oracles) {
+            included.push(find(&output_oracles, &name, "join output")?);
+            super_cols.push(find(&pk_oracles, &name, "PK-side input")?);
+        }
+        Ok((
+            lookup_table_oracle(
+                included,
+                fk_side.activator_tracked_poly(),
+                fk_side.log_size(),
+            ),
+            lookup_table_oracle(
+                super_cols,
+                pk_side.activator_tracked_poly(),
+                pk_side.log_size(),
+            ),
+        ))
+    }
+}
+
+fn pk_fk_check_failed(msg: String) -> ark_piop::errors::SnarkError {
+    ark_piop::errors::SnarkError::VerifierError(
+        ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
+            "PK-FK join: {msg}"
+        )),
+    )
+}
+
+/// A table's row-domain columns by name, dropping side-domain segments (which
+/// live on a different domain and are not row values).
+fn row_domain_polys<B: SnarkBackend>(
+    polys: IndexMap<FieldRef, TrackedPoly<B>>,
+    log_size: usize,
+) -> Vec<(String, TrackedPoly<B>)> {
+    polys
+        .into_iter()
+        .filter(|(_, poly)| poly.log_size() == log_size)
+        .map(|(field, poly)| (field.name().to_string(), poly))
+        .collect()
+}
+
+fn row_domain_oracles<B: SnarkBackend>(
+    oracles: IndexMap<FieldRef, TrackedOracle<B>>,
+    log_size: usize,
+) -> Vec<(String, TrackedOracle<B>)> {
+    oracles
+        .into_iter()
+        .filter(|(_, oracle)| oracle.log_size() == log_size)
+        .map(|(field, oracle)| (field.name().to_string(), oracle))
+        .collect()
+}
+
+/// The data column names of the PK side, sorted so prover and verifier pair
+/// columns with fold challenges in the same order.
+fn data_names<T>(columns: &[(String, T)]) -> Vec<String> {
+    let mut names: Vec<String> = columns
+        .iter()
+        .map(|(name, _)| name.clone())
+        .filter(|name| !arithmetic::is_system_column(name))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn named<B: SnarkBackend>(
+    polys: &[(String, TrackedPoly<B>)],
+    name: &str,
+    table: &str,
+) -> TrackedPoly<B> {
+    polys
+        .iter()
+        .find(|(candidate, _)| candidate == name)
+        .map(|(_, poly)| poly.clone())
+        .unwrap_or_else(|| panic!("PK-FK join: the {table} has no column {name}"))
+}
+
+fn lookup_field(idx: usize) -> FieldRef {
+    Arc::new(Field::new(
+        format!("pk_fk_lookup_{idx}"),
+        DataType::Int64,
+        true,
+    ))
+}
+
+/// A lookup table whose data columns are `columns`, in order, under `activator`.
+fn lookup_table<B: SnarkBackend>(
+    columns: Vec<TrackedPoly<B>>,
+    activator: Option<TrackedPoly<B>>,
+    log_size: usize,
+) -> TrackedTable<B> {
+    let mut polys: IndexMap<FieldRef, TrackedPoly<B>> = columns
+        .into_iter()
+        .enumerate()
+        .map(|(idx, poly)| (lookup_field(idx), poly))
+        .collect();
+    if let Some(activator) = activator {
+        polys.insert(arithmetic::ACTIVATOR_FIELD.clone(), activator);
+    }
+    let schema = Schema::new(polys.keys().map(|f| f.as_ref().clone()).collect::<Vec<_>>());
+    TrackedTable::new(Some(schema), polys, log_size)
+}
+
+fn lookup_table_oracle<B: SnarkBackend>(
+    columns: Vec<TrackedOracle<B>>,
+    activator: Option<TrackedOracle<B>>,
+    log_size: usize,
+) -> TrackedTableOracle<B> {
+    let mut oracles: IndexMap<FieldRef, TrackedOracle<B>> = columns
+        .into_iter()
+        .enumerate()
+        .map(|(idx, oracle)| (lookup_field(idx), oracle))
+        .collect();
+    if let Some(activator) = activator {
+        oracles.insert(arithmetic::ACTIVATOR_FIELD.clone(), activator);
+    }
+    let schema = Schema::new(
+        oracles
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>(),
+    );
+    TrackedTableOracle::new(Some(schema), oracles, log_size)
 }

@@ -734,7 +734,7 @@ fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkRes
     Ok(out)
 }
 
-fn collect_blocking(
+pub(crate) fn collect_blocking(
     df: datafusion::prelude::DataFrame,
     skip_collection: bool,
 ) -> datafusion_common::Result<Vec<datafusion::arrow::record_batch::RecordBatch>> {

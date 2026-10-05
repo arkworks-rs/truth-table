@@ -20,6 +20,7 @@ use std::{
     io::BufReader,
     path::{Path, PathBuf},
     sync::Arc,
+    time::{Duration, Instant},
 };
 use tt_core::ctx_oracles::CtxOracles;
 
@@ -114,6 +115,14 @@ pub struct VerifyRunner {
 
 impl VerifyRunner {
     pub async fn run(&self) -> Result<()> {
+        self.run_with_timing().await?;
+        println!("proof verified successfully");
+        Ok(())
+    }
+
+    /// Verify, returning the time spent in the verifier itself: loading the
+    /// proof, key, oracles and result is not counted.
+    pub async fn run_with_timing(&self) -> Result<Duration> {
         let tt_proof = TTProof::<B>::load(&self.proof_path)?;
         let tt_vk = TTVk::<B>::load(&self.vk_path)
             .with_context(|| format!("failed to load verifying key {}", self.vk_path.display()))?;
@@ -130,12 +139,12 @@ impl VerifyRunner {
 
         let verifier = TTVerifier::new(TTVerifierConfig::default(), shared_config, arg_verifier);
         let output_memtable = load_result_memtable(&self.result_path).await?;
+        let start = Instant::now();
         verifier
             .verify(&self.query, &tt_proof, output_memtable)
             .await
             .map_err(|err| anyhow!(err))?;
-        println!("proof verified successfully");
-        Ok(())
+        Ok(start.elapsed())
     }
 }
 
@@ -181,7 +190,24 @@ async fn load_result_memtable(path: &Path) -> Result<Arc<MemTable>> {
     Ok(Arc::new(mem_table))
 }
 
+/// Install the per-column fingerprint rules the tables were committed under.
+///
+/// The verifier takes them from the oracle, never from the proof, so an
+/// untrusted prover cannot change how a column is fingerprinted. A table
+/// with no rules contributes none, and its columns are not pre-filtered.
+fn configure_fingerprint_rules(oracles: &[ArithTableOracle<B>]) -> Result<()> {
+    let mut rules = arithmetic::fingerprint::FingerprintRules::default();
+    for oracle in oracles {
+        if let Some(theirs) = oracle.fingerprint_rules() {
+            rules.merge(theirs).map_err(|e| anyhow!("{e}"))?;
+        }
+    }
+    arithmetic::fingerprint::configure_rules(rules).map_err(|e| anyhow!("{e}"))?;
+    Ok(())
+}
+
 fn ctx_oracles_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<CtxOracles<B>> {
+    configure_fingerprint_rules(oracles)?;
     let mut table_oracles = IndexMap::new();
     for oracle in oracles {
         let schema = oracle

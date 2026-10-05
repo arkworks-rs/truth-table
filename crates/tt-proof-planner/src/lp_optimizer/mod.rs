@@ -21,6 +21,8 @@ use datafusion::{
 mod add_result_check;
 mod customized_optimize_projections;
 mod lift_join_filter;
+mod like_prefilter;
+pub use like_prefilter::insert_like_prefilters;
 mod merge_filters;
 mod merge_limits;
 mod normalize_sort_fetch;

@@ -16,6 +16,28 @@ use crate::{
     prover::payloads::{ArithPayload, MaterializedPayload, MaterializedTable},
 };
 use std::collections::BTreeSet;
+/// Which fingerprint limb columns table-scan string columns carry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FingerprintColumns {
+    /// Every limb of every string column — the data owner commits them all
+    /// so any query can pre-filter any column on any bins.
+    All,
+    /// Only these limbs — a query carries the limbs its pre-filters test
+    /// (from `Tree::required_fingerprint_columns`).
+    Only(arithmetic::encoding::FingerprintSelection),
+}
+
+impl FingerprintColumns {
+    pub fn limbs(&self, column: &str) -> arithmetic::encoding::FingerprintLimbs<'_> {
+        match self {
+            FingerprintColumns::All => arithmetic::encoding::FingerprintLimbs::All,
+            FingerprintColumns::Only(selection) => {
+                arithmetic::encoding::selected_limbs(selection, column)
+            }
+        }
+    }
+}
+
 /// An arithmetization pass that arithmetizes the prover's materialized in-memory tables
 ///
 /// This pass converts an IR with materialized in-memory tables into an IR with arithmetized tables, meaning that each column is encoded and represented as multilinear extensions (MLEs) over a finite field.
@@ -24,13 +46,16 @@ pub struct ArithmetizationPass<B> {
     /// polys for (from `Tree::required_side_columns`). Every other string
     /// column skips side-poly encoding entirely.
     side_columns: BTreeSet<String>,
+    /// Table-scan string columns that get fingerprint limb segments.
+    fingerprint_columns: FingerprintColumns,
     _phantom: std::marker::PhantomData<B>,
 }
 
 impl<B> ArithmetizationPass<B> {
-    pub fn new(side_columns: BTreeSet<String>) -> Self {
+    pub fn new(side_columns: BTreeSet<String>, fingerprint_columns: FingerprintColumns) -> Self {
         Self {
             side_columns,
+            fingerprint_columns,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -38,7 +63,10 @@ impl<B> ArithmetizationPass<B> {
 
 impl<B> Default for ArithmetizationPass<B> {
     fn default() -> Self {
-        Self::new(BTreeSet::new())
+        Self::new(
+            BTreeSet::new(),
+            FingerprintColumns::Only(Default::default()),
+        )
     }
 }
 
@@ -53,22 +81,33 @@ where
         payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
         // Side-domain string columns are restricted to base tables
-        // (TableScan): intermediate operators denormalize string columns
-        // across join fan-outs, which would produce char-level polys sized
-        // to (joined_rows × avg_len) and blow past both the SRS ceiling and
-        // available memory. Within a TableScan, only columns some white-box
-        // string gadget actually consumes get side polys.
-        let side_filter = (node.name() == "TableScan").then_some(&self.side_columns);
+        // (TableScan) and Rematerialize outputs: intermediate operators
+        // denormalize string columns across join fan-outs, which would
+        // produce char-level polys sized to (joined_rows × avg_len) and
+        // blow past both the SRS ceiling and available memory. A
+        // Rematerialize output is a compacted single-table snapshot (no
+        // fan-out), and re-encoding it here is exactly what shrinks the
+        // char domain for string gadgets above it. In both cases only
+        // columns some white-box string gadget actually consumes get
+        // side polys.
+        let side_filter = (node.name() == "TableScan" || node.name() == "Rematerialize")
+            .then_some(&self.side_columns);
+        // Fingerprint limbs are owner-committed base-table data: only table
+        // scans carry them, and only for pre-filtered columns (the
+        // pre-filter is planned directly over a scan).
+        let fingerprint_filter = (node.name() == "TableScan").then_some(&self.fingerprint_columns);
         match payload? {
             MaterializedPayload::PlanPayload(mat) => {
-                let arithmetized_table = arithmetize_materialized_table(mat, side_filter);
+                let arithmetized_table =
+                    arithmetize_materialized_table(mat, side_filter, fingerprint_filter);
                 tracing::debug!( node = %node.name(), typ= "plan", num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), side_cols= arithmetized_table.side_cols().len(), "Arithmetized");
                 Some(ArithPayload::PlanPayload(arithmetized_table))
             }
             MaterializedPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (k, mat) in map {
-                    let arithmetized_table = arithmetize_materialized_table(mat, side_filter);
+                    let arithmetized_table =
+                        arithmetize_materialized_table(mat, side_filter, fingerprint_filter);
                     tracing::debug!( node = %node.name(), typ= "plan", key = %k, num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), side_cols= arithmetized_table.side_cols().len(), "Arithmetized");
                     out.insert(k.clone(), arithmetized_table);
                 }
@@ -90,9 +129,11 @@ where
 /// side-poly emission per column: `None` (intermediate operators, output
 /// table) emits none; `Some(set)` (TableScan) emits side polys only for
 /// columns in the set — those a white-box string gadget will consume.
+/// `fingerprint_columns` gates fingerprint limb segments the same way.
 pub fn arithmetize_materialized_table<F: PrimeField>(
     mat: &MaterializedTable,
     side_columns: Option<&std::collections::BTreeSet<String>>,
+    fingerprint_columns: Option<&FingerprintColumns>,
 ) -> ArithTable<F> {
     let batches = mat
         .batches()
@@ -138,10 +179,18 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
 
     for col_idx in 0..num_total_cols {
         let base_field = schema_ref.fields()[col_idx].clone();
-        let emit_side = side_columns.is_some_and(|columns| columns.contains(base_field.name()));
-        let encoded = arithmetic::encoding::encode_arrow_array_to_field_with_side::<F>(
+        let options = arithmetic::encoding::EncodeOptions {
+            side: side_columns.is_some_and(|columns| columns.contains(base_field.name())),
+            fingerprint: fingerprint_columns
+                .map_or(arithmetic::encoding::FingerprintLimbs::None, |columns| {
+                    columns.limbs(base_field.name())
+                }),
+            // The encoder fingerprints under this column's own rule.
+            column: Some(base_field.name()),
+        };
+        let encoded = arithmetic::encoding::encode_arrow_array_to_field_with_options::<F>(
             combined_batch.column(col_idx),
-            emit_side,
+            options,
         )
         .expect("arrow encoding should succeed");
 

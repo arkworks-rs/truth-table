@@ -103,6 +103,21 @@ where
         cols
     }
 
+    /// Union of [`IsNode::required_fingerprint_columns`] over every node: the
+    /// fingerprint limbs, per string column, that a pre-filter tests. Table
+    /// scans carry exactly these `__fp{j}` columns (prover arithmetization
+    /// and verifier tracking alike), so a query without a pre-filter never
+    /// touches a fingerprint and one with a pre-filter loads only its bins.
+    pub fn required_fingerprint_columns(&self) -> arithmetic::encoding::FingerprintSelection {
+        let mut selection = arithmetic::encoding::FingerprintSelection::new();
+        for node in self.arena.values() {
+            for (column, limbs) in node.required_fingerprint_columns() {
+                selection.entry(column).or_default().extend(limbs);
+            }
+        }
+        selection
+    }
+
     /// Display the tree in Graphviz DOT format.
     pub fn display_graphviz(&self, _inner: bool) -> String {
         todo!()

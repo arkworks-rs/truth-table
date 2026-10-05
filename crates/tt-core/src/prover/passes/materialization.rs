@@ -11,7 +11,7 @@ use ark_piop::SnarkBackend;
 use datafusion::catalog::TableProvider;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, BooleanArray, Int64Array},
+        array::{ArrayRef, BooleanArray, Int64Array, new_null_array},
         compute::{concat, concat_batches},
         datatypes::{Field, FieldRef, Schema},
         record_batch::{RecordBatch, RecordBatchOptions},
@@ -463,7 +463,14 @@ fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>
     }
 }
 
-fn pad_batches_to_power_of_two(
+/// Pad collected batches up to the next power-of-two row count with the
+/// materialization pass's canonical inactive padding: `false` activator,
+/// `false` boolean payloads, NULL string payloads, repeat-last for other
+/// columns. Public
+/// because plan-time witness scans (e.g. the LIKE gadget re-scanning a
+/// rematerialized input) must pad EXACTLY like the committed tables were
+/// padded, or the scanned witness diverges from the commitments.
+pub fn pad_batches_to_power_of_two(
     schema: &Schema,
     batches: Vec<RecordBatch>,
 ) -> datafusion_common::Result<(Vec<RecordBatch>, usize)> {
@@ -525,6 +532,23 @@ fn pad_batches_to_power_of_two(
                 .unwrap_or_else(|| Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef);
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else if is_string_type(field.data_type()) {
+            // Padded rows of a STRING column must be null, never a repeat of
+            // the last real row. A string column encodes char-domain side
+            // segments, and the encoder marks every character of every
+            // non-null row active; a repeated string would therefore put
+            // active characters under an INACTIVE row slot, breaking the
+            // rematerialize DPUC's activator/length relation
+            // (`Σ_{orig-ind = i} char-act = a[i]·l[i]`, which is `0` for a
+            // padding slot). Null pads encode to length 0 with no
+            // characters, exactly as a source table's own padding rows do.
+            let base = combined
+                .as_ref()
+                .map(|batch| batch.column(idx).clone())
+                .unwrap_or_else(|| new_null_array(field.data_type(), 0));
+            let null = ScalarValue::try_new_null(field.data_type())?;
+            let pad_arr = null.to_array_of_size(pad)?;
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if field.data_type() == &datafusion::arrow::datatypes::DataType::Boolean {
             // Keep boolean payload columns false on padded rows to avoid introducing
             // accidental truth constraints.
@@ -549,6 +573,16 @@ fn pad_batches_to_power_of_two(
 
     let out_batch = RecordBatch::try_new(schema_ref, output_arrays)?;
     Ok((vec![out_batch], target))
+}
+
+/// String payload types whose padding must be null (see
+/// [`pad_batches_to_power_of_two`]).
+fn is_string_type(dt: &datafusion::arrow::datatypes::DataType) -> bool {
+    use datafusion::arrow::datatypes::DataType;
+    matches!(
+        dt,
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
+    )
 }
 
 fn rewrap_batches_with_schema(

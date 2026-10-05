@@ -282,14 +282,7 @@ fn merge_cached_oracle_with_side_commitments<B: SnarkBackend>(
     }
     total_committed.fetch_add(side_commitments.len() * 2, Ordering::Relaxed);
 
-    // ArithTableOracle has no mutable side_commitments setter — rebuild it
-    // with the merged commitments.
-    ArithTableOracle::new_with_side_commitments(
-        cached.schema(),
-        cached.commitments().clone(),
-        cached.log_size(),
-        side_commitments,
-    )
+    cached.with_side_commitments(side_commitments)
 }
 
 fn arith_to_oracle<B: SnarkBackend>(
@@ -426,13 +419,38 @@ fn arith_to_oracle<B: SnarkBackend>(
         );
     }
 
-    let schema = enrich_schema_with_constraint_summary(arith_table.schema());
+    let schema = enrich_schema_with_fingerprint_rules(enrich_schema_with_constraint_summary(
+        arith_table.schema(),
+    ));
     ArithTableOracle::new_with_side_commitments(
         schema,
         commitments,
         arith_table.log_size(),
         side_commitments,
     )
+}
+
+/// Record the per-column fingerprint rules this table was encoded under, so
+/// prover and verifier read them from the oracle instead of sharing a
+/// compile-time default. Nothing is written when no rules are installed — no
+/// string column of that table is fingerprinted.
+fn enrich_schema_with_fingerprint_rules(schema: Option<Schema>) -> Option<Schema> {
+    let schema = schema?;
+    let rules = arithmetic::fingerprint::configured_rules();
+    if rules.columns.is_empty() {
+        return Some(schema);
+    }
+    let mut metadata = schema.metadata().clone();
+    metadata.insert(
+        arithmetic::table_oracle::FINGERPRINT_RULES_METADATA_KEY.to_string(),
+        rules.to_toml_string(),
+    );
+    let fields = schema
+        .fields()
+        .iter()
+        .map(|f| f.as_ref().clone())
+        .collect::<Vec<_>>();
+    Some(Schema::new_with_metadata(fields, metadata))
 }
 
 fn enrich_schema_with_constraint_summary(schema: Option<Schema>) -> Option<Schema> {

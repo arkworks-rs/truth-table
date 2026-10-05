@@ -1,6 +1,7 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use arithmetic::fingerprint::Bin;
 use datafusion::dataframe::DataFrame;
 use datafusion::execution::context::SessionState;
 use datafusion::prelude::SessionContext;
@@ -13,8 +14,10 @@ use serde::{Deserialize, Serialize};
 use tokio::runtime::RuntimeFlavor;
 use tt_core::irs::nodes::plan::rematerialize::RematerializeLogicalNode;
 
+mod prefilter_bins;
 mod rematerialize;
 mod truncate_empty_payload;
+pub use prefilter_bins::PrefilterBinsRule;
 pub use rematerialize::RematerializeRule;
 pub use truncate_empty_payload::TruncateEmptyPayloadRule;
 
@@ -23,6 +26,14 @@ pub use truncate_empty_payload::TruncateEmptyPayloadRule;
 /// per-variant to the rule's apply path.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum OptimizationHint {
+    /// Set the bins the fingerprint pre-filter at `target_path` tests, or
+    /// remove it when `bins` is empty. Emitted by [`PrefilterBinsRule`]
+    /// from the prover's greedy choice; the verifier checks the bins are the
+    /// pattern's.
+    PrefilterBins {
+        target_path: Vec<usize>,
+        bins: Vec<Bin>,
+    },
     /// Wrap the LP subtree at `target_path` in a `RematerializeLogicalNode`.
     Rematerialize { target_path: Vec<usize> },
     /// Replace the LP subtree at `target_path` with an `EmptyRelation`
@@ -81,7 +92,11 @@ impl DataDependentOptimizer {
         &self.rules
     }
 
-    /// Run every rule against `plan` and return their merged hint set.
+    /// Run every rule in order and return their merged hint set. Each rule
+    /// sees the plan with the earlier rules' hints applied, so a later
+    /// decision (e.g. rematerializing after a pre-filter) reflects the
+    /// earlier ones; [`apply_optimization_hints`] applies the variants in the
+    /// same order, so the verifier rebuilds the same plan.
     pub fn collect_hints(
         &self,
         session_ctx: &SessionContext,
@@ -89,8 +104,13 @@ impl DataDependentOptimizer {
     ) -> DataFusionResult<OptimizationHints> {
         let state = session_ctx.state();
         let mut hints = Vec::new();
+        let mut current = plan.clone();
         for rule in &self.rules {
-            hints.extend(rule.collect_hints(&state, plan)?);
+            let rule_hints = OptimizationHints {
+                hints: rule.collect_hints(&state, &current)?,
+            };
+            current = apply_optimization_hints(current, &rule_hints)?;
+            hints.extend(rule_hints.hints);
         }
         Ok(OptimizationHints { hints })
     }
@@ -102,8 +122,12 @@ impl DataDependentOptimizer {
 pub fn rules() -> Vec<Arc<dyn DataDependentOptimizationRule>> {
     // `TruncateEmptyPayloadRule` is available but not included here; callers
     // that want it can construct a `DataDependentOptimizer` with an extended
-    // rule list.
-    vec![Arc::new(RematerializeRule::new())]
+    // rule list. Pre-filter bin counts come first: rematerialize decisions
+    // depend on how much the pre-filters drop.
+    vec![
+        Arc::new(PrefilterBinsRule::new()),
+        Arc::new(RematerializeRule::new()),
+    ]
 }
 
 /// Production entry point: run the default `DataDependentOptimizer` over the
@@ -119,9 +143,11 @@ pub fn collect_data_dependent_hints(
 
 /// Apply every collected hint to the plan, dispatching per-variant.
 ///
-/// Truncate hints run first (they may eliminate entire subtrees, removing
-/// rematerialize targets that no longer need wrapping). Rematerialize hints
-/// run on whatever subtrees remain.
+/// Pre-filter bin counts run first (they may remove a pre-filter, which
+/// shifts the paths below it, and rematerialize hints were collected on the
+/// plan after them). Truncate hints run next (they may eliminate entire
+/// subtrees, removing rematerialize targets that no longer need wrapping).
+/// Rematerialize hints run on whatever subtrees remain.
 pub fn apply_optimization_hints(
     plan: LogicalPlan,
     hints: &OptimizationHints,
@@ -135,8 +161,12 @@ pub fn apply_optimization_hints(
 
     let mut remat_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
     let mut truncate_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
+    let mut prefilter_bins: BTreeMap<Vec<usize>, Vec<Bin>> = BTreeMap::new();
     for hint in &hints.hints {
         match hint {
+            OptimizationHint::PrefilterBins { target_path, bins } => {
+                prefilter_bins.insert(target_path.clone(), bins.clone());
+            }
             OptimizationHint::Rematerialize { target_path } => {
                 remat_paths.insert(target_path.clone());
             }
@@ -145,6 +175,21 @@ pub fn apply_optimization_hints(
             }
         }
     }
+
+    let plan = if prefilter_bins.is_empty() {
+        plan
+    } else {
+        let mut path = Vec::new();
+        let rewritten =
+            prefilter_bins::apply_prefilter_bins_hints(plan, &mut path, &mut prefilter_bins)?;
+        if !prefilter_bins.is_empty() {
+            return Err(DataFusionError::Plan(format!(
+                "Unapplied pre-filter bin hints at paths: {:?}",
+                prefilter_bins.keys().collect::<Vec<_>>()
+            )));
+        }
+        rewritten
+    };
 
     let plan = if truncate_paths.is_empty() {
         plan

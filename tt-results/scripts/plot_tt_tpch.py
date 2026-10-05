@@ -37,6 +37,10 @@ SCALE_FACTOR = 0.1
 # at the bar position instead of a bar.
 QUERY_IDS = list(range(1, 23))
 
+# Matches the other standalone figures (plot_pgn.py / plot_micro.py): 46 in wide
+# × 8 in tall is what 38 pt text needs to fit 22 query labels and the legend.
+FIGSIZE = (46, 8)
+
 base_dir = Path(__file__).resolve().parent.parent
 data_path = base_dir / "tidy" / "tpch.csv"
 figures_dir = base_dir / "figures"
@@ -113,7 +117,7 @@ def plot_prover():
     group_width = 2 * bar_width + group_gap
     x = np.arange(len(QUERY_IDS)) * group_width
 
-    fig, ax = plt.subplots(figsize=(18, 5.4))
+    fig, ax = plt.subplots(figsize=FIGSIZE)
     colors = plt.get_cmap("tab10").colors
     light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 
@@ -161,10 +165,11 @@ def plot_prover():
     ax.set_ylabel("Prover Time (s)")
     _style_axes(ax)
     _mark_missing(ax, x + bar_width / 2)
+    ax.set_xlim(x[0] - bar_width, x[-1] + 2 * bar_width)
     ymax = max(one_max, four_max)
-    ax.set_ylim(0, ymax * 1.18)
+    ax.set_ylim(0, ymax * 1.10)
     ax.legend(
-        ncol=3,
+        ncol=6,
         loc="lower center",
         bbox_to_anchor=(0.5, 1.04),
         handlelength=2.2,
@@ -175,7 +180,7 @@ def plot_prover():
     )
 
     fig.tight_layout()
-    fig.savefig(figures_dir / "tpch_tt_prover.pdf")
+    fig.savefig(figures_dir / "tpch_tt_prover.pdf", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -186,7 +191,7 @@ def plot_verifier():
     bar_width = 0.55
     x = np.arange(len(QUERY_IDS), dtype=float)
 
-    fig, ax = plt.subplots(figsize=(18, 5.4))
+    fig, ax = plt.subplots(figsize=FIGSIZE)
     colors = plt.get_cmap("tab10").colors
     light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 
@@ -231,7 +236,8 @@ def plot_verifier():
     ax.set_ylabel("Verifier Time (ms)")
     _style_axes(ax)
     _mark_missing(ax, x)
-    ax.set_ylim(0, full_max * 1.18)
+    ax.set_xlim(x[0] - 0.6, x[-1] + 0.6)
+    ax.set_ylim(0, full_max * 1.10)
     legend_handles = [
         Patch(facecolor=light[2], edgecolor=colors[2], hatch="/", label="Cryptographic"),
         Patch(facecolor=light[3], edgecolor=colors[3], hatch="\\", label="Non-cryptographic"),
@@ -245,7 +251,7 @@ def plot_verifier():
     ax.legend(
         handles,
         labels,
-        ncol=3,
+        ncol=6,
         loc="lower center",
         bbox_to_anchor=(0.5, 1.04),
         handlelength=2.2,
@@ -256,7 +262,7 @@ def plot_verifier():
     )
 
     fig.tight_layout()
-    fig.savefig(figures_dir / "tpch_tt_verifier.pdf")
+    fig.savefig(figures_dir / "tpch_tt_verifier.pdf", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -266,7 +272,7 @@ def plot_proof_size():
     bar_width = 0.55
     x = np.arange(len(QUERY_IDS), dtype=float)
 
-    fig, ax = plt.subplots(figsize=(18, 5.4))
+    fig, ax = plt.subplots(figsize=FIGSIZE)
     colors = plt.get_cmap("tab10").colors
     light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 
@@ -291,17 +297,19 @@ def plot_proof_size():
     ax.set_ylabel("Proof Size (KB)")
     _style_axes(ax)
     _mark_missing(ax, x)
+    ax.set_xlim(x[0] - 0.6, x[-1] + 0.6)
+    ax.set_ylim(0, max_val * 1.10)
     ax.legend(
         ncol=2,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 1.18),
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.02),
         handlelength=2.2,
         borderpad=0.6,
         columnspacing=1.6,
     )
 
     fig.tight_layout()
-    fig.savefig(figures_dir / "tpch_tt_proof_size.pdf")
+    fig.savefig(figures_dir / "tpch_tt_proof_size.pdf", bbox_inches="tight")
     plt.close(fig)
 
 

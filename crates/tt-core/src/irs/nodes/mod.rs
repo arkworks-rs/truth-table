@@ -142,6 +142,14 @@ where
     fn required_side_columns(&self) -> Vec<String> {
         Vec::new()
     }
+    /// Base-table string columns and the fingerprint limb columns
+    /// (`__fp{j}`) of each that this node's proof reads. Default: none. The
+    /// fingerprint pre-filter overrides this; the union over a tree (see
+    /// [`crate::irs::tree::Tree::required_fingerprint_columns`]) decides
+    /// which limbs table scans carry into the proof.
+    fn required_fingerprint_columns(&self) -> Vec<(String, Vec<usize>)> {
+        Vec::new()
+    }
 }
 
 pub(crate) fn display_with_inputs<B: SnarkBackend>(name: &str, inputs: &[Arc<Node<B>>]) -> String {
@@ -332,8 +340,10 @@ impl<B: SnarkBackend> Node<B> {
                     .downcast_ref::<rematerialize::RematerializeLogicalNode>()
                 {
                     Arc::new_cyclic(|_weak_self| {
-                        let input = Tree::<B>::from_logical_plan(remat.input()).root().clone();
-                        let node = rematerialize::LpNode::new(input);
+                        let input_tree = Tree::<B>::from_logical_plan(remat.input());
+                        let input = input_tree.root().clone();
+                        let dpuc_base = rematerialize::single_side_string_base(&input_tree);
+                        let node = rematerialize::LpNode::new(input, dpuc_base);
                         Node::Plan(PlanNode::LpBased(Arc::new(node)))
                     })
                 } else if extension
@@ -432,6 +442,19 @@ impl<B: SnarkBackend> Node<B> {
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
+            Expr::ScalarFunction(ref f)
+                if f.name() == plan::exprs::fp_prefilter::TT_PREFILTER_UDF_NAME =>
+            {
+                Arc::new_cyclic(|weak_self| {
+                    let node = plan::exprs::fp_prefilter::ExprNode::from_expr(
+                        expr.clone(),
+                        weak_self.clone(),
+                        parent.clone(),
+                        scope.clone(),
+                    );
+                    Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+                })
+            }
             Expr::ScalarFunction(_) => Arc::new_cyclic(|weak_self| {
                 let node = scalar_function::ExprNode::from_expr(
                     expr.clone(),
@@ -517,6 +540,13 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
         match &self {
             Node::Plan(plan_node) => plan_node.required_side_columns(),
             Node::Gadget(gadget_node) => gadget_node.required_side_columns(),
+        }
+    }
+
+    fn required_fingerprint_columns(&self) -> Vec<(String, Vec<usize>)> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.required_fingerprint_columns(),
+            Node::Gadget(gadget_node) => gadget_node.required_fingerprint_columns(),
         }
     }
 }
@@ -723,6 +753,13 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
         match &self {
             PlanNode::LpBased(node) => node.required_side_columns(),
             PlanNode::ExprBased(node) => node.required_side_columns(),
+        }
+    }
+
+    fn required_fingerprint_columns(&self) -> Vec<(String, Vec<usize>)> {
+        match &self {
+            PlanNode::LpBased(node) => node.required_fingerprint_columns(),
+            PlanNode::ExprBased(node) => node.required_fingerprint_columns(),
         }
     }
 }

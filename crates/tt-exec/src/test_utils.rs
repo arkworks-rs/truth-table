@@ -81,7 +81,9 @@ pub async fn prove_and_verify_query_bench(
             .with_parquet_paths(parquet_paths.clone())
             .with_oracle_paths(oracle_paths.clone())
             .with_pk_path(pk_path)
-            .with_output_path(proof_output_path.clone())
+            .with_output_path(Some(
+                proof_output_path.clone().unwrap_or_else(unique_proof_path),
+            ))
             .build()?
             .run()
             .await?;
@@ -123,7 +125,9 @@ pub async fn prove_and_verify_query(
             .with_parquet_paths(parquet_paths.clone())
             .with_oracle_paths(oracle_paths.clone())
             .with_pk_path(pk_path)
-            .with_output_path(proof_output_path.clone())
+            .with_output_path(Some(
+                proof_output_path.clone().unwrap_or_else(unique_proof_path),
+            ))
             .build()?
             .run()
             .await?;
@@ -140,6 +144,25 @@ pub async fn prove_and_verify_query(
     }
     .instrument(query_stats_span(query))
     .await
+}
+
+/// A proof path unique to the calling test.
+///
+/// `resolve_output_path(None)` in `prove.rs` maps to one shared
+/// `artifacts/proof.pi` (and a result parquet derived from it). `cargo test`
+/// runs tests as threads in one process, so tests sharing that default
+/// overwrite each other's proof and result, and a test can end up verifying a
+/// sibling's proof. The harness names each test thread after its test; the pid
+/// keeps concurrent `cargo test` processes apart.
+fn unique_proof_path() -> PathBuf {
+    let thread = std::thread::current();
+    let sanitized: String = thread
+        .name()
+        .unwrap_or("test")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    workspace_artifacts_dir().join(format!("{sanitized}.{}.pi", std::process::id()))
 }
 
 pub fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
@@ -165,31 +188,191 @@ pub fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
 }
 
 pub async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
-    // Namespace by curve: oracle files contain commitments specific to the active
-    // backend, so BN254 and BLS12-381 runs cannot share `.oracle` artifacts.
-    let parquet_oracle = parquet_path.with_extension(format!("{BACKEND_NAME}.oracle"));
-    if parquet_oracle.exists() && oracle_matches_parquet(&parquet_oracle, parquet_path)? {
-        return Ok(parquet_oracle);
+    // Commit at most one table at a time PER PARQUET PATH. `cargo test` runs
+    // tests as threads in one process and every test that touches a table
+    // lands here. The lock is held across the whole check-then-build, so a
+    // second caller for the same table waits and then finds the first
+    // caller's published file instead of rebuilding it.
+    let lock = oracle_build_lock(parquet_path);
+    let _guard = lock.lock().await;
+    resolve_oracle_path_locked(parquet_path, pk_path).await
+}
+
+/// Per-parquet-path build lock for [`resolve_oracle_path`].
+fn oracle_build_lock(parquet_path: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
+    let map = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = map.lock().expect("oracle lock registry poisoned");
+    map.entry(parquet_path.to_path_buf())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+/// Cache key for a committed oracle: everything the commitment depends on
+/// that can change between runs without the parquet path changing.
+///
+/// - the backend curve (commitments are curve-specific),
+/// - the fingerprint rules commit will record (they define the committed
+///   `__fp{j}` limb columns, so a rule change must never reuse an old
+///   oracle): the fingerprint mode and the version of each mode's rule,
+/// - the proving key file,
+/// - the parquet file's size and modification time,
+/// - how the commit path encodes this table, via [`hash_sample_encoding`], so
+///   a change to column encoding or padding never reuses a stale oracle.
+async fn oracle_cache_key(parquet_path: &Path, pk_path: &Path) -> Result<String> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    hash_sample_encoding(parquet_path, &mut h).await?;
+    BACKEND_NAME.hash(&mut h);
+    ORACLE_LAYOUT.hash(&mut h);
+    for path in [parquet_path, pk_path] {
+        let meta = std::fs::metadata(path)
+            .with_context(|| format!("stat {} for the oracle cache key", path.display()))?;
+        path.file_name().hash(&mut h);
+        meta.len().hash(&mut h);
+        if let Ok(modified) = meta.modified()
+            && let Ok(since) = modified.duration_since(std::time::UNIX_EPOCH)
+        {
+            since.as_nanos().hash(&mut h);
+        }
     }
-    if parquet_oracle.exists() {
+    Ok(format!("{:016x}", h.finish()))
+}
+
+/// Bumped when the oracle files change without the encoding of the sample
+/// changing (2: fingerprint bins sealed under Merkle roots, bins in
+/// `<oracle>.bins`; 3: one rule for every column, the single-feature rule).
+const ORACLE_LAYOUT: u32 = 3;
+
+/// Rows of the table run through the commit path's padding and
+/// arithmetization for [`oracle_cache_key`]. A sample is enough to notice an
+/// encoding change and keeps the key cheap for large tables.
+const ENCODING_SAMPLE_ROWS: usize = 64;
+
+/// Hashes the polynomials the commit path produces for the first
+/// [`ENCODING_SAMPLE_ROWS`] rows of the table, using the same padding and
+/// arithmetization functions a commitment goes through.
+async fn hash_sample_encoding(
+    parquet_path: &Path,
+    hasher: &mut impl std::hash::Hasher,
+) -> Result<()> {
+    use ark_piop::SnarkBackend;
+    use ark_serialize::CanonicalSerialize;
+    use datafusion::{
+        datasource::MemTable,
+        prelude::{ParquetReadOptions, SessionContext},
+    };
+    use std::hash::Hash;
+    use tt_core::prover::{
+        passes::{
+            arithmetization::arithmetize_materialized_table,
+            materialization::pad_batches_to_power_of_two,
+        },
+        payloads::MaterializedTable,
+    };
+
+    let ctx = SessionContext::new();
+    ctx.register_parquet(
+        "sample",
+        parquet_path
+            .to_str()
+            .context("parquet path must be valid UTF-8")?,
+        ParquetReadOptions::default(),
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "register {} for the oracle cache key",
+            parquet_path.display()
+        )
+    })?;
+    let df = ctx
+        .sql(&format!(
+            "SELECT * EXCEPT ({}) FROM sample LIMIT {ENCODING_SAMPLE_ROWS}",
+            arithmetic::ROW_ID_COL_NAME
+        ))
+        .await?;
+    let schema = df.schema().as_arrow().clone();
+    let (batches, row_count) = pad_batches_to_power_of_two(&schema, df.collect().await?)?;
+    let table = MaterializedTable::new_with_batches(
+        MemTable::try_new(std::sync::Arc::new(schema), vec![batches.clone()])?,
+        row_count,
+        batches,
+    );
+    let arith = arithmetize_materialized_table::<<B as SnarkBackend>::F>(
+        &table,
+        None,
+        Some(&tt_core::prover::passes::arithmetization::FingerprintColumns::All),
+    );
+    let mut bytes = Vec::new();
+    for (field, mle) in arith.polynomials() {
+        field.name().hash(hasher);
+        for eval in mle.evaluations() {
+            bytes.clear();
+            eval.serialize_compressed(&mut bytes)?;
+            bytes.hash(hasher);
+        }
+    }
+    Ok(())
+}
+
+async fn resolve_oracle_path_locked(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
+    // `<stem>.<backend>.<key>.oracle`, next to the parquet. The key changes
+    // whenever the commitment would, so an existing file is always current.
+    let key = oracle_cache_key(parquet_path, pk_path).await?;
+    let cached = parquet_path.with_extension(format!("{BACKEND_NAME}.{key}.oracle"));
+    if cached.exists() && oracle_matches_parquet(&cached, parquet_path)? {
+        return Ok(cached);
+    }
+    if cached.exists() {
         warn!(
             parquet = %parquet_path.display(),
-            oracle = %parquet_oracle.display(),
-            "stale oracle detected; regenerating from parquet"
+            oracle = %cached.display(),
+            "cached oracle does not match its parquet; regenerating"
         );
     }
 
-    let output_root = parquet_oracle.parent().map(Path::to_path_buf);
-
-    let oracle_path = CommitBuilder::new()
+    // Build under a unique temporary name, then rename into place. Rename is
+    // atomic on one filesystem, so a reader in another process (the bench
+    // harness, a second `cargo test` binary) sees either no file or a
+    // complete one, never a partial write.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = parquet_path.with_extension(format!(
+        "{BACKEND_NAME}.{key}.tmp{}-{nonce}.oracle",
+        std::process::id()
+    ));
+    let written = CommitBuilder::new()
         .with_parquet_path(parquet_path.to_path_buf())
         .with_pk_path(pk_path.to_path_buf())
-        .with_output_path(output_root)
+        .with_output_path(Some(tmp.clone()))
         .build()?
         .run()
         .await?;
-
-    Ok(oracle_path)
+    // Bins before the oracle: a published oracle always has its bins.
+    let written_bins = crate::paths::fingerprint_bins_path(&written);
+    if written_bins.exists() {
+        let cached_bins = crate::paths::fingerprint_bins_path(&cached);
+        std::fs::rename(&written_bins, &cached_bins).with_context(|| {
+            format!(
+                "publish fingerprint bins {} -> {}",
+                written_bins.display(),
+                cached_bins.display()
+            )
+        })?;
+    }
+    std::fs::rename(&written, &cached).with_context(|| {
+        format!(
+            "publish oracle {} -> {}",
+            written.display(),
+            cached.display()
+        )
+    })?;
+    Ok(cached)
 }
 
 pub fn resolve_oracle_path_blocking(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {

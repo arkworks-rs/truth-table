@@ -163,8 +163,6 @@ pub fn build_partial_output_dataframe(
             .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
             .expect("partial join pk activator filter should succeed");
         let mut projection_exprs = Vec::new();
-        // Marker to detect whether LEFT JOIN found a PK-side match for each FK row.
-        projection_exprs.push(lit(true).alias("__pk_present__"));
         for (qualifier, field) in df.schema().iter() {
             if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
                 continue;
@@ -211,7 +209,6 @@ pub fn build_partial_output_dataframe(
     let mut data_exprs = Vec::new();
     let mut fk_row_id = None;
     let mut fk_activator = None;
-    let mut pk_present = None;
     for (qualifier, field) in joined.schema().iter() {
         if field.name() == "__fk_row_id__" {
             fk_row_id = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
@@ -221,21 +218,17 @@ pub fn build_partial_output_dataframe(
             fk_activator = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
             continue;
         }
-        if field.name() == "__pk_present__" {
-            pk_present = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-            continue;
-        }
         if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
             continue;
         }
         data_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
     }
 
-    let fk_activator = fk_activator.expect("partial join output missing fk activator");
-    let pk_present = pk_present.expect("partial join output missing pk marker");
-    // INNER-join semantics over FK domain: a row is active iff FK row is active and
-    // a PK-side match exists for that FK row.
-    let output_activator = fk_activator.and(pk_present.is_not_null());
+    // One output row per FK-side row (PKFKJoin): the foreign-key constraint
+    // promises every FK key has its PK row, so the output activator is the FK
+    // activator. Data breaking that promise leaves null PK-side columns, which
+    // the join's lookup then fails to find.
+    let output_activator = fk_activator.expect("partial join output missing fk activator");
 
     let mut projection_exprs = data_exprs;
     projection_exprs.push(output_activator.alias(ACTIVATOR_COL_NAME));

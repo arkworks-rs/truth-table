@@ -1,6 +1,7 @@
+use crate::irs::nodes::plan::rematerialize_dpuc;
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
-    utils::remat as remat_gadget,
+    utils::domain_preserving_update_check as dpuc_gadget_mod, utils::remat as remat_gadget,
 };
 use crate::irs::payloads::PayloadStructure;
 use arithmetic::{
@@ -33,9 +34,38 @@ where
 {
     input: Arc<Node<B>>,
     // The gadget node for proving the rematerialize (compaction) operation:
-    // it asserts that the output table is a permutation of the input's active
-    // rows (see TruthTable paper §6.4 "Compaction" / PIOP 13).
+    // it asserts the output table is a row-domain permutation of the input's
+    // active rows (base remat gadget: BoolCheck + Permutation, folding every
+    // row-domain data column by name). This binds the row domain but NOT the
+    // char-domain side segments of a string column.
     gadget: Arc<Node<B>>,
+    // Present iff the table has exactly one string column: the
+    // Domain-Preserving Update Check (paper §4.2.2) that closes the
+    // char-domain gap the permutation leaves open. `dpuc_base` is that
+    // column's name. See `rematerialize_dpuc`.
+    dpuc_gadget: Option<Arc<Node<B>>>,
+    dpuc_base: Option<String>,
+}
+
+/// The base name of the single **side-emitting** string column of the
+/// remat input subtree, iff there is exactly one. Only white-box string
+/// columns (LIKE / MCPM) receive char-domain side segments — a projected
+/// or equality-compared string column does not — so gating on
+/// [`Tree::required_side_columns`] (not the schema's string types) both
+/// attaches the DPUC child exactly when it will be active and matches the
+/// runtime `__chars`-side detection in
+/// [`rematerialize_dpuc::single_string_base`]. Computed at construction
+/// from the already-built input subtree, whose white-box gadgets are the
+/// authority on which columns get side polys.
+pub fn single_side_string_base<B: SnarkBackend>(
+    input_tree: &crate::irs::tree::Tree<B>,
+) -> Option<String> {
+    let side = input_tree.required_side_columns();
+    if side.len() == 1 {
+        side.into_iter().next()
+    } else {
+        None
+    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -56,7 +86,11 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![self.input.clone(), self.gadget.clone()]
+        let mut children = vec![self.input.clone(), self.gadget.clone()];
+        if let Some(dpuc) = &self.dpuc_gadget {
+            children.push(dpuc.clone());
+        }
+        children
     }
 }
 
@@ -99,7 +133,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             fields.push(ACTIVATOR_FIELD.as_ref().clone().into());
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
-        let updated = arithmetic::table::TrackedTable::new(schema, polys, current_table.log_size());
+        // Preserve the re-encoded side (char-domain) segments — string
+        // gadgets above this node bind to them.
+        let updated = arithmetic::table::TrackedTable::new_with_side_cols(
+            schema,
+            polys,
+            current_table.log_size(),
+            current_table.side_cols(),
+        );
         virtualized_ir.set_payload_for_node(
             id,
             Some(crate::irs::payloads::PayloadStructure::PlanPayload(updated)),
@@ -115,7 +156,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
@@ -143,14 +184,75 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
+
+        // Domain-Preserving Update Check: commit the char-binding
+        // witnesses (in the PreOrder gadget-init pass, like the Lookup
+        // gadget's multiplicity fallback) and stash the four payload
+        // tables on the composite child — which is visited later in this
+        // same pass, so the payload is in place when it initializes. Uses
+        // the RAW input/output payloads (with char-domain side segments),
+        // not the row-id-stripped tables the permutation consumes.
+        if let (Some(dpuc), Some(base)) = (&self.dpuc_gadget, &self.dpuc_base) {
+            let raw_input = match virtualized_ir.payload_for_node(&self.input.id()) {
+                Some(PayloadStructure::PlanPayload(t)) => Some(t.clone()),
+                _ => None,
+            };
+            let raw_output = match virtualized_ir.payload_for_node(&id) {
+                Some(PayloadStructure::PlanPayload(t)) => Some(t.clone()),
+                _ => None,
+            };
+            if let (Some(raw_input), Some(raw_output)) = (raw_input, raw_output)
+                && rematerialize_dpuc::single_string_base(&raw_output).as_deref()
+                    == Some(base.as_str())
+            {
+                let witnesses = rematerialize_dpuc::commit_witnesses_prover(
+                    &raw_input,
+                    &raw_output,
+                    base,
+                    prover,
+                )?;
+                let payload = rematerialize_dpuc::build_payload_prover(
+                    &raw_input,
+                    &raw_output,
+                    base,
+                    witnesses,
+                );
+                virtualized_ir.set_payload_for_node(
+                    dpuc.id(),
+                    Some(PayloadStructure::GadgetPayload(payload)),
+                );
+            }
+        }
         Ok(())
     }
 
     fn initialize_gadget_plans(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Seed the DPUC composite's sort-based offset no-dup: its planner
+        // lex-sorts the offset column at plan time, so rebuild that column
+        // here from the compacted output (deterministic and challenge-free)
+        // and stage it on the composite, which this PreOrder pass visits
+        // next. Prover only — the verifier's planner needs schema alone.
+        if let (Some(dpuc), Some(base)) = (&self.dpuc_gadget, &self.dpuc_base) {
+            let output = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
+            let hint =
+                rematerialize_dpuc::build_offset_plan_hint(output.data_frame().clone(), base)
+                    .map_err(|e| {
+                        ark_piop::errors::SnarkError::Artifact(format!(
+                            "rematerialize DPUC offset plan hint: {e}"
+                        ))
+                    })?;
+            let mut payload = match planned_ir.payload_for_node(&dpuc.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            payload.insert(dpuc_gadget_mod::OFFSET_PLAN_HINT_LABEL.to_string(), hint);
+            planned_ir
+                .set_payload_for_node(dpuc.id(), Some(PayloadStructure::GadgetPayload(payload)));
+        }
         Ok(())
     }
 }
@@ -231,10 +333,10 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             .as_any()
             .downcast_ref::<RematerializeLogicalNode>()
             .expect("Rematerialize extension node");
-        let input = crate::irs::tree::Tree::<B>::from_logical_plan(remat.input())
-            .root()
-            .clone();
-        Self::new(input)
+        let input_tree = crate::irs::tree::Tree::<B>::from_logical_plan(remat.input());
+        let input = input_tree.root().clone();
+        let dpuc_base = single_side_string_base(&input_tree);
+        Self::new(input, dpuc_base)
     }
 
     fn lp(&self) -> LogicalPlan {
@@ -283,10 +385,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             fields.push(ACTIVATOR_FIELD.as_ref().clone().into());
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
-        let updated = arithmetic::table_oracle::TrackedTableOracle::new(
+        // Preserve the re-emitted side (char-domain) oracles (mirrors
+        // the prover).
+        let updated = arithmetic::table_oracle::TrackedTableOracle::new_with_side_cols(
             schema,
             oracles,
             current_table.log_size(),
+            current_table.side_cols(),
         );
         virtualized_ir.set_payload_for_node(
             id,
@@ -325,6 +430,45 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
+
+        // Mirror the prover: track the char-binding witnesses in the same
+        // fixed order and assemble the composite's four payload tables,
+        // from the RAW (side-col-bearing) oracles.
+        if let (Some(dpuc), Some(base)) = (&self.dpuc_gadget, &self.dpuc_base) {
+            let raw_input = match virtualized_ir.payload_for_node(&self.input.id()) {
+                Some(PayloadStructure::PlanPayload(t)) => Some(t.clone()),
+                _ => None,
+            };
+            let raw_output = match virtualized_ir.payload_for_node(&id) {
+                Some(PayloadStructure::PlanPayload(t)) => Some(t.clone()),
+                _ => None,
+            };
+            if let (Some(raw_input), Some(raw_output)) = (raw_input, raw_output)
+                && rematerialize_dpuc::single_string_base_verifier(&raw_output).as_deref()
+                    == Some(base.as_str())
+            {
+                let tracker = raw_output
+                    .activator_tracked_poly()
+                    .expect("remat output activator")
+                    .tracker();
+                let witnesses = rematerialize_dpuc::track_witnesses_verifier(
+                    &raw_input,
+                    &raw_output,
+                    base,
+                    &tracker,
+                )?;
+                let payload = rematerialize_dpuc::build_payload_verifier(
+                    &raw_input,
+                    &raw_output,
+                    base,
+                    witnesses,
+                );
+                virtualized_ir.set_payload_for_node(
+                    dpuc.id(),
+                    Some(PayloadStructure::GadgetPayload(payload)),
+                );
+            }
+        }
         Ok(())
     }
 
@@ -338,14 +482,27 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> LpNode<B> {
-    pub fn new(input: Arc<Node<B>>) -> Self {
+    pub fn new(input: Arc<Node<B>>, dpuc_base: Option<String>) -> Self {
         // `contigous: true` — the output activator is a deterministic
         // contig-one poly of weight s, so no separate contiguity check is
         // needed beyond what the wrapped remat gadget provides.
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(remat_gadget::GadgetNode::new(
             true,
         ))));
-        Self { input, gadget }
+        // Single-string tables also carry the Domain-Preserving Update
+        // Check, which binds the freshly re-emitted char-domain side
+        // segments the permutation cannot see.
+        let dpuc_gadget = dpuc_base.as_ref().map(|_| {
+            Arc::new(Node::<B>::Gadget(Arc::new(
+                dpuc_gadget_mod::GadgetNode::new(),
+            )))
+        });
+        Self {
+            input,
+            gadget,
+            dpuc_gadget,
+            dpuc_base,
+        }
     }
 }
 
@@ -621,4 +778,51 @@ fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkRes
         out |= (*byte as usize) << (8 * i);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use ark_piop::DefaultSnarkBackend;
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion_expr::{col, logical_plan::table_scan};
+
+    use super::single_side_string_base;
+    use arithmetic::fingerprint::{
+        Feature, FeatureKind, FingerprintConfig, FingerprintRules, configure_rules,
+    };
+
+    use crate::irs::nodes::plan::exprs::fp_prefilter::{pattern_bins, tt_prefilter_expr};
+    use crate::irs::tree::Tree;
+
+    type B = DefaultSnarkBackend;
+
+    /// `Filter(LIKE) ∘ Rematerialize ∘ Filter(tt_prefilter) ∘ TableScan`:
+    /// the compacted subtree reads no characters itself, yet the LIKE above
+    /// it does, so the compaction must still bind the column's characters.
+    #[test]
+    fn compacting_a_prefilter_binds_the_like_column() {
+        let schema = Schema::new(vec![Field::new("l_comment", DataType::Utf8, false)]);
+        // A column is pre-filtered only under a committed rule.
+        let rule = FingerprintConfig::from_assignment(
+            "l_comment",
+            ["e", "r", "v"]
+                .into_iter()
+                .zip([3, 17, 17])
+                .map(|(key, bin)| (Feature::parse(FeatureKind::Char, key).unwrap(), bin)),
+            18,
+        );
+        let mut rules = FingerprintRules::default();
+        rules.columns.insert("l_comment".into(), rule);
+        configure_rules(rules).unwrap();
+        let bins = pattern_bins("l_comment", "%erve%").expect("the rule bins it");
+        assert_eq!(bins, [3, 17]);
+        let prefiltered = table_scan(Some("lineitem"), &schema, None)
+            .unwrap()
+            .filter(tt_prefilter_expr(col("l_comment"), "%erve%", &bins))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tree = Tree::<B>::from_logical_plan(&prefiltered);
+        assert_eq!(single_side_string_base(&tree).as_deref(), Some("l_comment"));
+    }
 }

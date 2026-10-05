@@ -15,9 +15,9 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
-    ATT_MASK_LABEL, CHAR_INPUT_LABEL, GadgetNode, LEFTMOST_MASK_LABEL, MARK_LABEL,
+    CHAR_INPUT_LABEL, END_LABEL, GadgetNode, LEFTMOST_MASK_LABEL, MARK_LABEL,
     MATCH_BROADCAST_LABEL, MATCH_LABEL, Mode, OCCURS_LABEL, ROTATED_BND_LABEL, ROTATED_CHAR_LABEL,
-    START_BROADCAST_LABEL, START_LABEL, STR_INPUT_LABEL,
+    ROTATED_INT_IND_LABEL, START_BROADCAST_LABEL, START_LABEL, STR_INPUT_LABEL,
 };
 use crate::irs::nodes::Node;
 use crate::irs::nodes::utils::nodup;
@@ -352,9 +352,13 @@ fn honest_suffix_match_verifies() {
     // char^(0) = char, char^(1) = shift_left(char, 1).
     let rotated = vec![char_col.clone(), shift_left(&char_col, 1)];
 
-    // att_mask = ρ_{-2}(char_act · bnd) = [0, 0, 1, 0, 0, 0, 1, 0].
-    // (char_act · bnd = [1, 0, 0, 0, 1, 0, 0, 0]; shift left by 2.)
-    let att_mask = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
+    // Suffix windows: no boundary inside (bnd(1) = ρ_{-1}(bnd)) and the
+    // occurrence ends its string: int_ind^(2) = ρ_{-2}(int_ind) differs
+    // from int_ind + 2 exactly at c = 2, 3, 6, 7. Together:
+    // att_mask = char_act · (1 − bnd(1)) · end = [0, 0, 1, 0, 0, 0, 1, 0].
+    let bnd_1 = shift_left(&bnd, 1);
+    let rotated_int_ind = shift_left(&int_ind, 2);
+    let end = u(&[0, 0, 1, 1, 0, 0, 1, 1]);
 
     // Only the two valid suffix windows have both att_mask=1 AND matching
     // fingerprint; that's exactly where occurs is 1.
@@ -373,7 +377,9 @@ fn honest_suffix_match_verifies() {
     let bnd_f = u64_field("bnd");
     let ind_f = u64_field("ind");
     let flag = bool_field("data");
-    let att_mask_f = u64_field("att_mask");
+    let bnd_1_f = u64_field("bnd_1");
+    let rotated_int_ind_f = u64_field("rotated_int_ind");
+    let end_f = u64_field("end");
 
     let char_input_schema = Schema::new(vec![
         char_f.as_ref().clone(),
@@ -496,11 +502,31 @@ fn honest_suffix_match_verifies() {
         )
         .with_table(
             gadget_id,
-            ATT_MASK_LABEL,
+            ROTATED_BND_LABEL,
             TableSpec {
-                schema: Schema::new(vec![att_mask_f.as_ref().clone()]),
+                schema: Schema::new(vec![bnd_1_f.as_ref().clone()]),
                 log_size: CHAR_NV,
-                cols: vec![(att_mask_f, att_mask)],
+                cols: vec![(bnd_1_f, bnd_1)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            ROTATED_INT_IND_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![rotated_int_ind_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(rotated_int_ind_f, rotated_int_ind)],
+                activator: None,
+            },
+        )
+        .with_table(
+            gadget_id,
+            END_LABEL,
+            TableSpec {
+                schema: Schema::new(vec![end_f.as_ref().clone()]),
+                log_size: CHAR_NV,
+                cols: vec![(end_f, end)],
                 activator: None,
             },
         )

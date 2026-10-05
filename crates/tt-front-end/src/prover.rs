@@ -93,12 +93,18 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     /// Build the arithmetization pass. `side_columns` is the set of columns
     /// white-box string gadgets consume char-level side polys for (from
     /// `Tree::required_side_columns`); all other string columns skip
-    /// side-poly emission.
+    /// side-poly emission. `fingerprint_columns` (from
+    /// `Tree::required_fingerprint_columns`) likewise names the table-scan
+    /// columns that carry fingerprint limbs.
     pub fn arithmetization_pass(
         &self,
         side_columns: std::collections::BTreeSet<String>,
+        fingerprint_columns: arithmetic::encoding::FingerprintSelection,
     ) -> ArithmetizationPass<B> {
-        ArithmetizationPass::new(side_columns)
+        ArithmetizationPass::new(
+            side_columns,
+            tt_core::prover::passes::arithmetization::FingerprintColumns::Only(fingerprint_columns),
+        )
     }
 
     /// Build the commitment pass using the prover PCS parameters and context oracles.
@@ -135,6 +141,8 @@ pub struct TTProver<B: SnarkBackend> {
     shared_config: TTSharedConfig<B>,
     /// The inner argument prover
     arg_prover: RefCell<ArgProver<B>>,
+    /// The fingerprint multiproofs the tracking pass produced, for the proof.
+    fingerprint_openings: RefCell<tt_core::prover::passes::tracking::FingerprintOpenings>,
 }
 
 impl<B: SnarkBackend> TTProver<B> {
@@ -148,6 +156,7 @@ impl<B: SnarkBackend> TTProver<B> {
             prover_config,
             shared_config,
             arg_prover: RefCell::new(arg_prover),
+            fingerprint_openings: RefCell::new(Vec::new()),
         }
     }
 
@@ -301,13 +310,16 @@ impl<B: SnarkBackend> TTProver<B> {
         // decision without a wire hint.
         let side_columns = materialized_ir.tree().required_side_columns();
         info!(?side_columns, "columns receiving char-level side polys");
+        let fingerprint_columns = materialized_ir.tree().required_fingerprint_columns();
         let arithmetized_ir = self
             .timed_ir_stage(
                 "arithmetization",
                 "arithmetized_ir",
                 || async {
                     Ok(materialized_ir.apply_local_pass_parallel(
-                        &self.prover_config().arithmetization_pass(side_columns),
+                        &self
+                            .prover_config()
+                            .arithmetization_pass(side_columns, fingerprint_columns),
                     ))
                 },
                 |ir| ir.display_graphviz(true),
@@ -344,6 +356,8 @@ impl<B: SnarkBackend> TTProver<B> {
                     );
                     let mut tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
                     tracking_pass.finish(&mut tracked_ir).await?;
+                    self.fingerprint_openings
+                        .replace(tracking_pass.take_fingerprint_openings());
                     Ok::<_, tt_core::errors::TTError>(tracked_ir)
                 },
                 |ir| ir.display_graphviz(true),
@@ -428,7 +442,11 @@ impl<B: SnarkBackend> TTProver<B> {
     /// Assemble the truth-table proof
     fn assemble_proof(&self, optimization_hints: OptimizationHints) -> TTResult<TTProof<B>> {
         let arg_proof = self.arg_prover.borrow_mut().build_proof().unwrap();
-        TTProof::new(arg_proof, optimization_hints)
+        TTProof::new(
+            arg_proof,
+            optimization_hints,
+            self.fingerprint_openings.take(),
+        )
     }
 
     /// Execute the optimized query and return the raw result table that will be sent to the verifier.

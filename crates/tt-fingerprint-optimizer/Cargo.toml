@@ -1,0 +1,60 @@
+[package]
+name = "tt-fingerprint-optimizer"
+description = "Offline evaluation of the fingerprint rules: synthetic selectivity workloads, the measured prover cost model, and per-width pricing of each commit mode's rule."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Offline analysis / optimization tooling for fingerprint schemes.
+# Deliberately NOT a dependency of any prover/verifier crate: it is a
+# data-owner-side tool, like key generation. It depends on tt-arithmetic
+# for the production `FingerprintScheme` (feature walk, encoder, file format).
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { workspace = true }
+clap = { workspace = true }
+parquet = { workspace = true, features = ["snap", "zstd"] }
+rayon = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+arithmetic = { path = "../tt-arithmetic", package = "tt-arithmetic" }
+
+# --- calibration-only deps ---
+# The `calibration` feature turns this offline tool into a prover driver so
+# the cost model's points can be re-measured end to end instead of
+# hand-transcribed. It pulls in the real prover stack; the default build
+# stays prover-free (see the crate-level note above). tt-exec re-exports the
+# builder/resolvers/setup we need, so it is the only prover crate named here.
+tt-exec = { path = "../tt-exec", package = "tt-exec", optional = true }
+tpch-data = { path = "../tt-tpch-data", package = "tt-tpch-data", optional = true }
+# The prover's async entry points are driven from SYNC context with a fresh
+# tokio runtime per prove (the pattern the bench harness uses):
+# DataFusion needs a live tokio reactor, and the blocking asset resolvers are
+# called before entering the runtime so their internal `block_on` never nests.
+tokio = { workspace = true, optional = true }
+
+[features]
+# Off by default: keeps `tt-fingerprint-optimizer` a lightweight
+# data-owner-side tool. Enable to build the calibration harness + bin.
+calibration = ["dep:tt-exec", "dep:tpch-data", "dep:tokio"]
+
+[[bin]]
+name = "tt-fp-opt"
+path = "src/bin/tt-fp-opt.rs"
+
+[[bin]]
+name = "tt-fp-calibrate"
+path = "src/bin/tt-fp-calibrate.rs"
+required-features = ["calibration"]
+
+[[bin]]
+name = "tt-fp-measure"
+path = "src/bin/tt-fp-measure.rs"
+required-features = ["calibration"]

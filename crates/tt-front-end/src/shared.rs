@@ -60,6 +60,12 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         optimizer_ctx: OptimizerContext,
         observer: fn(&LogicalPlan, &dyn OptimizerRule),
     ) -> Self {
+        let session_ctx = with_noop_extension_support(session_ctx);
+        // `tt_prefilter` must resolve on every session (hint-DF
+        // execution, data-dependent row counts, codec `ctx.udf(...)`
+        // lookups all go through this context).
+        session_ctx
+            .register_udf(tt_core::irs::nodes::plan::exprs::fp_prefilter::tt_prefilter_udf());
         Self {
             analyzer,
             optimizer,
@@ -67,7 +73,7 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
             data_dependent_optimizer,
             data_dependent_pp_optimizer,
             ctx_oracles,
-            session_ctx: with_noop_extension_support(session_ctx),
+            session_ctx,
             config_options,
             optimizer_ctx,
             observer,
@@ -146,7 +152,7 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
     /// Parse a SQL query into DataFusion's unoptimized logical plan.
     pub async fn query_to_lp(&self, query: &str) -> LogicalPlan {
         let df = self.session_ctx().sql(query).await.unwrap();
-        df.into_unoptimized_plan()
+        with_unique_output_names(df.into_unoptimized_plan())
     }
 
     /// Run the configured analyzer pipeline on a logical plan.
@@ -158,10 +164,60 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
 
     /// Run the configured logical optimizer pipeline on an analyzed plan.
     pub async fn optimize_lp(&self, analyzed_lp: LogicalPlan) -> LogicalPlan {
-        self.optimizer()
+        let optimized = self
+            .optimizer()
             .optimize(analyzed_lp, self.optimizer_ctx(), self.observer())
-            .unwrap()
+            .unwrap();
+        // Deterministic post-pass (runs identically on prover and
+        // verifier): insert fingerprint pre-filters in front of LIKE
+        // filters. Must run after the structural rules — inside the
+        // rule list, MergeConsecutiveFilters/PushDownFilter would fold
+        // the inserted filter back into the LIKE filter.
+        proof_planner::lp_optimizer::insert_like_prefilters(optimized)
+            .expect("LIKE pre-filter insertion should succeed")
     }
+}
+
+/// Renames repeated output column names so every result column has its own
+/// name.
+///
+/// SQL allows a result with repeated names (`SELECT l1.x, l2.x ...`), but the
+/// result table is matched column by column by name, and a table keyed by
+/// field would collapse the repeats into one column. The first occurrence
+/// keeps its name and later ones get the lowest free `name_<n>`, n >= 2.
+/// Prover and verifier plan from this same function, so both see the same
+/// names.
+fn with_unique_output_names(plan: LogicalPlan) -> LogicalPlan {
+    use datafusion_common::Column;
+    use datafusion_expr::{Expr, LogicalPlanBuilder};
+    use std::collections::BTreeSet;
+
+    let schema = plan.schema().clone();
+    let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+    let mut taken: BTreeSet<String> = names.iter().map(|name| name.to_string()).collect();
+    if taken.len() == names.len() {
+        return plan;
+    }
+    let mut seen = BTreeSet::new();
+    let exprs = schema
+        .iter()
+        .map(|(qualifier, field)| {
+            let column = Expr::Column(Column::new(qualifier.cloned(), field.name()));
+            if seen.insert(field.name().clone()) {
+                return column;
+            }
+            let renamed = (2..)
+                .map(|n| format!("{}_{n}", field.name()))
+                .find(|candidate| !taken.contains(candidate))
+                .expect("an unused column name exists");
+            taken.insert(renamed.clone());
+            column.alias(renamed)
+        })
+        .collect::<Vec<_>>();
+    LogicalPlanBuilder::from(plan)
+        .project(exprs)
+        .and_then(|builder| builder.build())
+        .expect("renaming repeated output columns should succeed")
 }
 
 /// Install a query planner that treats selected truth-table extension nodes as
