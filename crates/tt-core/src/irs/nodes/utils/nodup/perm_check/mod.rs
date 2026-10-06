@@ -84,7 +84,8 @@ impl<B: SnarkBackend> PIOP<B> for PermPIOP<B> {
             mgxs: vec![None],
         };
 
-        KeyedSumcheck::<B>::prove(prover, keyed_sumcheck_prover_input)?;
+        // `prove` has already run this PIOP's own honest-prover check.
+        KeyedSumcheck::<B>::prove_inner(prover, keyed_sumcheck_prover_input)?;
         Ok(())
     }
 

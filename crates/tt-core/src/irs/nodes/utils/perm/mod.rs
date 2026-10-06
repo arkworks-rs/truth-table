@@ -161,7 +161,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         }
         let left_col: TrackedCol<B> = left.fold(&left_inds, &challenges);
         let right_col: TrackedCol<B> = right.fold(&right_inds, &challenges);
-        PermPIOP::<B>::prove(
+        // The honest-prover pass checks this claim through
+        // `honest_prover_check`, so skip the PIOP's own copy of that check.
+        PermPIOP::<B>::prove_inner(
             prover,
             PermPIOPProverInput {
                 left_col,
