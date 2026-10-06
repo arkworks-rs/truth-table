@@ -5,7 +5,7 @@ use arithmetic::{
 };
 use ark_ff::One;
 use ark_piop::{
-    SnarkBackend, prover::structs::polynomial::TrackedPoly,
+    SnarkBackend, errors::SnarkResult, prover::structs::polynomial::TrackedPoly,
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
@@ -27,6 +27,13 @@ mod tests;
 
 pub const LEFT_LABEL: &str = "__left__";
 pub const RIGHT_LABEL: &str = "__right__";
+const ROW_FOLD_CHALLENGE_LABEL: &[u8] = b"truth-table/perm/row-fold/v1";
+
+/// Proves equality of the active-row multisets over the selected columns.
+///
+/// Present activators are required to be Boolean; callers establish that
+/// separately. Proof witnesses must be committed before initialization, while
+/// public and virtual inputs must be verifier-fixed or derived from bound data.
 pub struct GadgetNode<B: SnarkBackend> {
     keyed_sumcheck: Arc<Node<B>>,
 }
@@ -66,7 +73,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
@@ -82,25 +89,45 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
         let shared_names = shared_data_field_names(left, right);
-        let (fxs, gxs) = if should_fold_by_names(
+        let fold_by_names = should_fold_by_names(
             left.num_data_tracked_cols(),
             right.num_data_tracked_cols(),
             &shared_names,
-        ) {
+        );
+        if fold_by_names {
             assert!(
                 !shared_names.is_empty(),
                 "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
                 left.num_data_tracked_cols(),
                 right.num_data_tracked_cols(),
             );
+        }
+        let fold_width = if fold_by_names {
+            shared_names.len()
+        } else {
+            left.num_data_tracked_cols()
+        };
+        let challenges = folding_challenges_prover(prover, fold_width)?;
+
+        let (fxs, gxs) = if fold_by_names {
             (
-                fold_table_by_names::<B>(left, &shared_names, keyed_sumcheck::FXS_LABEL),
-                fold_table_by_names::<B>(right, &shared_names, keyed_sumcheck::GXS_LABEL),
+                fold_table_by_names::<B>(
+                    left,
+                    &shared_names,
+                    &challenges,
+                    keyed_sumcheck::FXS_LABEL,
+                ),
+                fold_table_by_names::<B>(
+                    right,
+                    &shared_names,
+                    &challenges,
+                    keyed_sumcheck::GXS_LABEL,
+                ),
             )
         } else {
             (
-                fold_table_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL),
-                fold_table_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL),
+                fold_table_to_single_col::<B>(left, &challenges, keyed_sumcheck::FXS_LABEL),
+                fold_table_to_single_col::<B>(right, &challenges, keyed_sumcheck::GXS_LABEL),
             )
         };
         let mfxs = constant_one_table::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
@@ -141,7 +168,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
@@ -157,25 +184,45 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
         let shared_names = shared_oracle_data_field_names(left, right);
-        let (fxs, gxs) = if should_fold_by_names(
+        let fold_by_names = should_fold_by_names(
             left.num_data_tracked_col_oracles(),
             right.num_data_tracked_col_oracles(),
             &shared_names,
-        ) {
+        );
+        if fold_by_names {
             assert!(
                 !shared_names.is_empty(),
                 "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
                 left.num_data_tracked_col_oracles(),
                 right.num_data_tracked_col_oracles(),
             );
+        }
+        let fold_width = if fold_by_names {
+            shared_names.len()
+        } else {
+            left.num_data_tracked_col_oracles()
+        };
+        let challenges = folding_challenges_verifier(verifier, fold_width)?;
+
+        let (fxs, gxs) = if fold_by_names {
             (
-                fold_table_oracle_by_names::<B>(left, &shared_names, keyed_sumcheck::FXS_LABEL),
-                fold_table_oracle_by_names::<B>(right, &shared_names, keyed_sumcheck::GXS_LABEL),
+                fold_table_oracle_by_names::<B>(
+                    left,
+                    &shared_names,
+                    &challenges,
+                    keyed_sumcheck::FXS_LABEL,
+                ),
+                fold_table_oracle_by_names::<B>(
+                    right,
+                    &shared_names,
+                    &challenges,
+                    keyed_sumcheck::GXS_LABEL,
+                ),
             )
         } else {
             (
-                fold_table_oracle_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL),
-                fold_table_oracle_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL),
+                fold_table_oracle_to_single_col::<B>(left, &challenges, keyed_sumcheck::FXS_LABEL),
+                fold_table_oracle_to_single_col::<B>(right, &challenges, keyed_sumcheck::GXS_LABEL),
             )
         };
         let mfxs = constant_one_table_oracle::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
@@ -291,8 +338,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
-/// Whether the two perm sides must be folded over `shared_names`
-/// instead of positionally.
+/// Whether the two perm sides must be folded over
+/// `shared_names` instead of positionally.
 ///
 /// Positional folding pairs challenge `k` with each side's `k`-th data
 /// column, so it is only valid when the sides agree column-for-column
@@ -321,8 +368,42 @@ fn should_fold_by_names(left_count: usize, right_count: usize, shared_names: &[S
     shared_names.len() == left_count && shared_names.iter().all(|n| seen.insert(n))
 }
 
-fn folding_challenges<F: ark_ff::PrimeField>(count: usize) -> Vec<F> {
-    (0..count).map(|i| F::from((i + 1) as u64)).collect()
+/// Build a transcript-random fingerprint for an ordered row tuple.
+///
+/// The leading coefficient is fixed to one, so a one-column permutation is
+/// checked exactly and every additional column contributes an independent
+/// Fiat-Shamir challenge. Security requires every selected value and activator
+/// to be fixed before this function is called. The normal front-end commits
+/// proof witnesses before gadget initialization; public or virtual inputs must
+/// be verifier-fixed or derived from bound inputs, and external commitments are
+/// assumed to be fixed authenticated context before proving.
+fn folding_challenges_prover<B: SnarkBackend>(
+    prover: &mut ark_piop::prover::ArgProver<B>,
+    count: usize,
+) -> SnarkResult<Vec<B::F>> {
+    let mut challenges = Vec::with_capacity(count);
+    if count > 0 {
+        challenges.push(B::F::one());
+    }
+    for _ in 1..count {
+        challenges.push(prover.get_and_append_challenge(ROW_FOLD_CHALLENGE_LABEL)?);
+    }
+    Ok(challenges)
+}
+
+/// Verifier mirror of [`folding_challenges_prover`].
+fn folding_challenges_verifier<B: SnarkBackend>(
+    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+    count: usize,
+) -> SnarkResult<Vec<B::F>> {
+    let mut challenges = Vec::with_capacity(count);
+    if count > 0 {
+        challenges.push(B::F::one());
+    }
+    for _ in 1..count {
+        challenges.push(verifier.get_and_append_challenge(ROW_FOLD_CHALLENGE_LABEL)?);
+    }
+    Ok(challenges)
 }
 
 fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
@@ -338,17 +419,13 @@ fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
     Arc::new(Field::new(label, DataType::UInt64, false))
 }
 
-/// Original positional per-side fold — folds `table`'s data columns
-/// with `[1..num_data_self]`. Preserved for the equal-count branch of
-/// `initialize_gadgets` where both sides carry the same number of data
-/// columns and positional alignment already yields comparable folds.
+/// Fold every data column with shared transcript challenges in flat order.
 fn fold_table_to_single_col<B: SnarkBackend>(
     table: &TrackedTable<B>,
+    challenges: &[B::F],
     label: &str,
 ) -> TrackedTable<B> {
-    let num_data = table.num_data_tracked_cols();
-    let challenges = folding_challenges::<B::F>(num_data);
-    let folded_col = table.fold_all_data_columns(&challenges);
+    let folded_col = table.fold_all_data_columns(challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];
@@ -366,11 +443,10 @@ fn fold_table_to_single_col<B: SnarkBackend>(
 /// Verifier mirror of `fold_table_to_single_col`.
 fn fold_table_oracle_to_single_col<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
+    challenges: &[B::F],
     label: &str,
 ) -> TrackedTableOracle<B> {
-    let num_data = table.num_data_tracked_col_oracles();
-    let challenges = folding_challenges::<B::F>(num_data);
-    let folded_col = table.fold_all_data_oracles(&challenges);
+    let folded_col = table.fold_all_data_oracles(challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];
@@ -434,13 +510,11 @@ fn shared_oracle_data_field_names<B: SnarkBackend>(
         .collect()
 }
 
-/// Fold `table`'s data columns whose names appear in `names` (in
-/// `names` order) with challenges `[1..=names.len()]`. Both LEFT and
-/// RIGHT sides of the permutation use the same `names` slice so the
-/// resulting folded polys are structurally comparable.
+/// Fold the named data columns, in `names` order, with shared transcript challenges.
 fn fold_table_by_names<B: SnarkBackend>(
     table: &TrackedTable<B>,
     names: &[String],
+    challenges: &[B::F],
     label: &str,
 ) -> TrackedTable<B> {
     // Resolve `names` → flat-view indices in this side's tracked_polys.
@@ -459,8 +533,7 @@ fn fold_table_by_names<B: SnarkBackend>(
         names.len(),
         "fold_table_by_names: perm side missing shared column(s) — LEFT/RIGHT diverged unexpectedly"
     );
-    let challenges = folding_challenges::<B::F>(indices.len());
-    let folded_col = table.fold(&indices, &challenges);
+    let folded_col = table.fold(&indices, challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];
@@ -475,13 +548,11 @@ fn fold_table_by_names<B: SnarkBackend>(
     TrackedTable::new(Some(Schema::new(fields)), tracked_polys, table.log_size())
 }
 
-/// Verifier mirror of `fold_table_by_names`. Same rationale: fold both
-/// sides over the intersection of data-column names with matching
-/// challenges so the folded oracles are structurally comparable at the
-/// keyed-sumcheck stage.
+/// Verifier mirror of `fold_table_by_names`, with the same name alignment.
 fn fold_table_oracle_by_names<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     names: &[String],
+    challenges: &[B::F],
     label: &str,
 ) -> TrackedTableOracle<B> {
     let flat = table.tracked_oracles();
@@ -499,8 +570,7 @@ fn fold_table_oracle_by_names<B: SnarkBackend>(
         names.len(),
         "fold_table_oracle_by_names: perm side missing shared column(s) — LEFT/RIGHT diverged unexpectedly"
     );
-    let challenges = folding_challenges::<B::F>(indices.len());
-    let folded_col = table.fold(&indices, &challenges);
+    let folded_col = table.fold(&indices, challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];

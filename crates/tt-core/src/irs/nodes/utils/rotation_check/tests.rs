@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use ark_piop::{DefaultSnarkBackend, SnarkBackend};
+use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend, errors::SnarkError, verifier::errors::VerifierError,
+};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{Direction, GadgetNode, LEFT_LABEL, RIGHT_LABEL};
@@ -224,4 +226,31 @@ fn tampered_single_value_rejected() {
         run(1, Direction::Right, left, right).is_err(),
         "single tampered value must not verify"
     );
+}
+
+#[test]
+fn fixed_permutation_fingerprint_collision_rejected_by_verifier() {
+    // For a left rotation by one, the prescribed source indices are
+    // [3, 0, 1, 2]. The former deterministic row fold `value + 2*index`
+    // made these unequal values collide with the claimed output plus its
+    // canonical indices, so the complete proof incorrectly verified.
+    let left = vec![
+        F::from(10u64),
+        F::from(20u64),
+        F::from(30u64),
+        F::from(40u64),
+    ];
+    let colliding_claim = vec![
+        F::from(16u64),
+        F::from(18u64),
+        F::from(28u64),
+        F::from(38u64),
+    ];
+
+    assert!(matches!(
+        run(1, Direction::Left, left, colliding_claim),
+        Err(SnarkError::VerifierError(
+            VerifierError::VerifierCheckFailed(_)
+        ))
+    ));
 }
