@@ -468,7 +468,7 @@ fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>
 /// `false` boolean payloads, NULL string payloads, repeat-last for other
 /// columns. Public
 /// because plan-time witness scans (e.g. the LIKE gadget re-scanning a
-/// rematerialized input) must pad EXACTLY like the committed tables were
+/// compacted input) must pad EXACTLY like the committed tables were
 /// padded, or the scanned witness diverges from the commitments.
 pub fn pad_batches_to_power_of_two(
     schema: &Schema,
@@ -538,7 +538,7 @@ pub fn pad_batches_to_power_of_two(
             // segments, and the encoder marks every character of every
             // non-null row active; a repeated string would therefore put
             // active characters under an INACTIVE row slot, breaking the
-            // rematerialize DPUC's activator/length relation
+            // compaction DPUC's activator/length relation
             // (`Σ_{orig-ind = i} char-act = a[i]·l[i]`, which is `0` for a
             // padding slot). Null pads encode to length 0 with no
             // characters, exactly as a source table's own padding rows do.

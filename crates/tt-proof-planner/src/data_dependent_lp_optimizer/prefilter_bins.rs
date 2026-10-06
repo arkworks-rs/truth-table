@@ -14,7 +14,7 @@ use tt_core::irs::nodes::plan::exprs::fp_prefilter::{
 };
 use tt_core::irs::nodes::utils::sweep_factors::parse_like_pattern_bytes;
 
-use super::rematerialize::expressions_for_with_new_exprs;
+use super::compaction::expressions_for_with_new_exprs;
 use super::{DataDependentOptimizationRule, OptimizationHint, collect_blocking, row_count};
 
 /// Data-dependent rule that picks which fingerprint bins each LIKE
@@ -27,7 +27,7 @@ use super::{DataDependentOptimizationRule, OptimizationHint, collect_blocking, r
 /// fewer bins only lets more rows through. An empty list removes the
 /// pre-filter.
 ///
-/// Must run before `RematerializeRule`, whose decisions depend on how much
+/// Must run before `CompactionRule`, whose decisions depend on how much
 /// the pre-filter drops.
 #[derive(Debug, Default)]
 pub struct PrefilterBinsRule;

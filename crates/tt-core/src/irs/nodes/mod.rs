@@ -35,6 +35,7 @@ use crate::{
             cost::ProvingCost,
             hints::HintDF,
             plan::{
+                compaction,
                 exprs::{
                     aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
                     in_subquery, like, literal, scalar_function,
@@ -42,7 +43,7 @@ use crate::{
                 lps::{
                     aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan,
                 },
-                rematerialize, result_check,
+                result_check,
             },
         },
         tree::Tree,
@@ -334,16 +335,16 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::Extension(extension) => {
-                if let Some(remat) = extension
+                if let Some(compaction) = extension
                     .node
                     .as_any()
-                    .downcast_ref::<rematerialize::RematerializeLogicalNode>()
+                    .downcast_ref::<compaction::CompactionLogicalNode>()
                 {
                     Arc::new_cyclic(|_weak_self| {
-                        let input_tree = Tree::<B>::from_logical_plan(remat.input());
+                        let input_tree = Tree::<B>::from_logical_plan(compaction.input());
                         let input = input_tree.root().clone();
-                        let dpuc_base = rematerialize::single_side_string_base(&input_tree);
-                        let node = rematerialize::LpNode::new(input, dpuc_base);
+                        let dpuc_base = compaction::single_side_string_base(&input_tree);
+                        let node = compaction::LpNode::new(input, dpuc_base);
                         Node::Plan(PlanNode::LpBased(Arc::new(node)))
                     })
                 } else if extension

@@ -1,11 +1,11 @@
 //! Wiring for the Domain-Preserving Update Check (paper §4.2.2, the
-//! "Full String Validity Check"), **B1 variant**, on the rematerialize
+//! "Full String Validity Check"), **B1 variant**, on the compaction
 //! node's output.
 //!
-//! Rematerialize repacks a filtered table's active rows into a smaller
+//! Compaction repacks a filtered table's active rows into a smaller
 //! hypercube, freshly materializing every column — including a string
 //! column's char-domain side segments (`__chars`, `__orig_ind`,
-//! `__int_ind`) that the LIKE gadget reads. The base remat obligation
+//! `__int_ind`) that the LIKE gadget reads. The base compaction obligation
 //! (BoolCheck + a row-domain **Permutation** that folds every row-domain
 //! data column by name) already binds the row domain as a bijection —
 //! each new string's hash slots / `__length` / `__fingerprint` match a
@@ -22,7 +22,7 @@
 //!
 //! Scope: the single-string-column case (the LIKE pre-filter path, where
 //! the gap actually bites). Tables with zero or multiple string columns
-//! fall back to the base remat gadget — see [`single_string_base`].
+//! fall back to the base compaction gadget — see [`single_string_base`].
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -128,7 +128,7 @@ pub fn build_offset_plan_hint(output_df: DataFrame, base: &str) -> DataFusionRes
 
 /// Return the base name of the column iff the table has exactly one
 /// string column (detected by the `__chars` side segment). `None`
-/// disables the DPUC path and keeps the base remat gadget.
+/// disables the DPUC path and keeps the base compaction gadget.
 pub fn single_string_base<B: SnarkBackend>(table: &TrackedTable<B>) -> Option<String> {
     let mut found: Option<String> = None;
     for (field, col) in table.tracked_cols_iter() {
@@ -233,7 +233,7 @@ fn row_poly<B: SnarkBackend>(table: &TrackedTable<B>, name: &str) -> TrackedPoly
         .tracked_polys_iter()
         .find(|(f, _)| f.name() == name)
         .map(|(_, p)| p.clone())
-        .unwrap_or_else(|| panic!("rematerialize DPUC: row column {name} missing"))
+        .unwrap_or_else(|| panic!("compaction DPUC: row column {name} missing"))
 }
 
 fn row_oracle<B: SnarkBackend>(table: &TrackedTableOracle<B>, name: &str) -> TrackedOracle<B> {
@@ -241,7 +241,7 @@ fn row_oracle<B: SnarkBackend>(table: &TrackedTableOracle<B>, name: &str) -> Tra
         .tracked_oracles_iter()
         .find(|(f, _)| f.name() == name)
         .map(|(_, o)| o.clone())
-        .unwrap_or_else(|| panic!("rematerialize DPUC: row column {name} missing"))
+        .unwrap_or_else(|| panic!("compaction DPUC: row column {name} missing"))
 }
 
 /// Deterministic canonical index poly `[0, 1, …, 2^log_size − 1]`,

@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, utils::remat},
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, utils::compaction},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -21,7 +21,7 @@ pub const INPUT_SORT_EXPRS: &str = "__input_sort_exprs__";
 pub const OUTPUT_SORT_EXPRS: &str = "__output_sort_exprs__";
 pub struct GadgetNode<B: SnarkBackend> {
     sort_gadget: Arc<Node<B>>,
-    remat_gadget: Arc<Node<B>>,
+    compaction_gadget: Arc<Node<B>>,
     sort_specs: Vec<(String, bool, bool)>,
     // Carry the logical `fetch` through gadget planning so helper sort hints
     // mirror the top-k semantics of the enclosing Order By node.
@@ -192,7 +192,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.sort_gadget.clone(), self.remat_gadget.clone()]
+        vec![self.sort_gadget.clone(), self.compaction_gadget.clone()]
     }
 }
 
@@ -245,20 +245,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let mut remat_payload = match virtualized_ir.payload_for_node(&self.remat_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut compaction_payload =
+            match virtualized_ir.payload_for_node(&self.compaction_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
         if let Some(input) = payload.get(INPUT_LABEL).cloned() {
-            remat_payload.insert(remat::INPUT_LABEL.to_string(), input);
+            compaction_payload.insert(compaction::INPUT_LABEL.to_string(), input);
         }
         if let Some(output) = payload.get(OUTPUT_LABEL).cloned() {
-            remat_payload.insert(remat::OUTPUT_LABEL.to_string(), output);
+            compaction_payload.insert(compaction::OUTPUT_LABEL.to_string(), output);
         }
-        if !remat_payload.is_empty() {
+        if !compaction_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
-                self.remat_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(remat_payload)),
+                self.compaction_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(compaction_payload)),
             );
         }
         Ok(())
@@ -312,20 +313,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let mut remat_payload = match virtualized_ir.payload_for_node(&self.remat_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut compaction_payload =
+            match virtualized_ir.payload_for_node(&self.compaction_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
         if let Some(input) = payload.get(INPUT_LABEL).cloned() {
-            remat_payload.insert(remat::INPUT_LABEL.to_string(), input);
+            compaction_payload.insert(compaction::INPUT_LABEL.to_string(), input);
         }
         if let Some(output) = payload.get(OUTPUT_LABEL).cloned() {
-            remat_payload.insert(remat::OUTPUT_LABEL.to_string(), output);
+            compaction_payload.insert(compaction::OUTPUT_LABEL.to_string(), output);
         }
-        if !remat_payload.is_empty() {
+        if !compaction_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
-                self.remat_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(remat_payload)),
+                self.compaction_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(compaction_payload)),
             );
         }
         Ok(())
@@ -395,12 +397,12 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 ),
             ),
         )));
-        let remat_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::remat::GadgetNode::new(true),
+        let compaction_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::utils::compaction::GadgetNode::new(true),
         )));
         Self {
             sort_gadget,
-            remat_gadget,
+            compaction_gadget,
             sort_specs,
             fetch: sort.fetch,
         }

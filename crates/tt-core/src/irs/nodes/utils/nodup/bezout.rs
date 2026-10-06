@@ -1,6 +1,6 @@
 use super::GadgetNode;
 use crate::irs::nodes::ProverGadgetReadyIr;
-use crate::irs::nodes::utils::nodup::defragg::Defragmenter;
+use crate::irs::nodes::utils::nodup::compactor::Compactor;
 use crate::irs::payloads::PayloadStructure;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
@@ -41,10 +41,10 @@ impl<B: SnarkBackend> GadgetNode<B> {
         };
         let col = Self::single_col_from_table(prover, &input_table)?;
         ///////////////////// Deduplication check /////////////////////
-        let defraged_in_col = Defragmenter::defrag_col(prover, &col)?;
+        let compacted_in_col = Compactor::compact_col(prover, &col)?;
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
-        let num_vars = defraged_in_col.data_tracked_poly().log_size();
+        let num_vars = compacted_in_col.data_tracked_poly().log_size();
 
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
         let f_query_point: Vec<B::F> = if num_vars == 0 {
@@ -58,21 +58,22 @@ impl<B: SnarkBackend> GadgetNode<B> {
         ///////////////////// Compute the deduplicated polynomial /////////////////////
         // TODO: Make sure the randomness is provided safely
 
-        let dedup_mle =
-            if let Some(activator_tracked_poly) = defraged_in_col.activator_tracked_poly() {
-                let mut rng = ark_std::test_rng();
-                let dedup_mle: MLE<B::F> = p_prep(&mut rng, &defraged_in_col)?;
-                let dedup_tr_p: TrackedPoly<B> = prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
-                let dedup_wit_tr_p: TrackedPoly<B> =
-                    &(&dedup_tr_p - &defraged_in_col.data_tracked_poly()) * &activator_tracked_poly;
-                prover.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
-                dedup_mle
-            } else {
-                MLE::from_evaluations_vec(
-                    defraged_in_col.log_size(),
-                    defraged_in_col.data_tracked_poly().evaluations(),
-                )
-            };
+        let dedup_mle = if let Some(activator_tracked_poly) =
+            compacted_in_col.activator_tracked_poly()
+        {
+            let mut rng = ark_std::test_rng();
+            let dedup_mle: MLE<B::F> = p_prep(&mut rng, &compacted_in_col)?;
+            let dedup_tr_p: TrackedPoly<B> = prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
+            let dedup_wit_tr_p: TrackedPoly<B> =
+                &(&dedup_tr_p - &compacted_in_col.data_tracked_poly()) * &activator_tracked_poly;
+            prover.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
+            dedup_mle
+        } else {
+            MLE::from_evaluations_vec(
+                compacted_in_col.log_size(),
+                compacted_in_col.data_tracked_poly().evaluations(),
+            )
+        };
 
         ///////////// Compute the challenge /////////////////////
         let chall: B::F = prover.get_and_append_challenge(b"bezout")?;
@@ -160,11 +161,11 @@ impl<B: SnarkBackend> GadgetNode<B> {
 
         let tracked_col_oracle = Self::single_col_from_table_oracle(verifier, &input_table)?;
         ///////////////////// Deduplication check /////////////////////
-        let defraged_in_tracked_col_oracle =
-            Defragmenter::defrag_tracked_col_oracle(verifier, &tracked_col_oracle)?;
+        let compacted_in_tracked_col_oracle =
+            Compactor::compact_tracked_col_oracle(verifier, &tracked_col_oracle)?;
 
         ///////////////////// Some useful variables /////////////////////
-        let num_vars = defraged_in_tracked_col_oracle.log_size();
+        let num_vars = compacted_in_tracked_col_oracle.log_size();
         let f_query_point: Vec<B::F> = if num_vars == 0 {
             Vec::new()
         } else {
@@ -173,13 +174,13 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 .collect()
         };
 
-        if let Some(defraged_activator_tracked_col_oracle) =
-            defraged_in_tracked_col_oracle.activator_tracked_oracle()
+        if let Some(compacted_activator_tracked_col_oracle) =
+            compacted_in_tracked_col_oracle.activator_tracked_oracle()
         {
             let dedup_tr_cm = verifier.track_next_mv_com()?;
             let dedup_wit_tr_cm = &(&dedup_tr_cm
-                - &defraged_in_tracked_col_oracle.data_tracked_oracle())
-                * &defraged_activator_tracked_col_oracle;
+                - &compacted_in_tracked_col_oracle.data_tracked_oracle())
+                * &compacted_activator_tracked_col_oracle;
             verifier.add_mv_zerocheck_claim(dedup_wit_tr_cm.id());
         }
 

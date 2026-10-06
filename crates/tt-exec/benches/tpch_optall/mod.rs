@@ -1,12 +1,12 @@
 //! Three-config ablation benchmark crossing the pp_optimizer (PK-FK join
-//! specialization) and the data_dependent_lp_optimizer (rematerialize):
+//! specialization) and the data_dependent_lp_optimizer (compaction):
 //!
 //!   - `..._all_off` — both empty. Every join stays `MANY_TO_MANY` and no
-//!     rematerialize wrappers are emitted.
+//!     compaction wrappers are emitted.
 //!   - `..._pkfk_on_remat_off` — pp_optimizer enabled, data-dependent LP
 //!     optimizer empty (isolates PK-FK gain).
 //!   - `..._pkfk_off_remat_on` — pp_optimizer empty, data-dependent LP
-//!     optimizer enabled (isolates rematerialize gain).
+//!     optimizer enabled (isolates compaction gain).
 //!
 //! `all_on` is intentionally omitted: it is identical to the production
 //! wiring, so the baseline `tpch` bench already covers it.
@@ -37,17 +37,17 @@ use crate::support::{
 #[derive(Clone, Copy)]
 pub enum OptConfig {
     AllOff,
-    PkFkOnRematOff,
-    PkFkOffRematOn,
+    PkFkOnCompactionOff,
+    PkFkOffCompactionOn,
 }
 
 impl OptConfig {
-    /// Data-dependent LP optimizer rule list: defaults when rematerialize is
+    /// Data-dependent LP optimizer rule list: defaults when compaction is
     /// enabled by this config, empty otherwise.
     fn data_dependent_rules(self) -> Vec<Arc<dyn DataDependentOptimizationRule>> {
         match self {
-            OptConfig::PkFkOffRematOn => data_dependent_rules(),
-            OptConfig::AllOff | OptConfig::PkFkOnRematOff => vec![],
+            OptConfig::PkFkOffCompactionOn => data_dependent_rules(),
+            OptConfig::AllOff | OptConfig::PkFkOnCompactionOff => vec![],
         }
     }
 
@@ -55,8 +55,8 @@ impl OptConfig {
     /// this config, empty otherwise.
     fn pp_rules(self) -> Vec<Arc<dyn ProofPlanOptimizerRule<B>>> {
         match self {
-            OptConfig::PkFkOnRematOff => pp_rules::<B>(),
-            OptConfig::AllOff | OptConfig::PkFkOffRematOn => vec![],
+            OptConfig::PkFkOnCompactionOff => pp_rules::<B>(),
+            OptConfig::AllOff | OptConfig::PkFkOffCompactionOn => vec![],
         }
     }
 }
@@ -145,8 +145,8 @@ macro_rules! optall_query {
      $off_m:ident, $pkof_m:ident, $pkfo_m:ident,
      $off_n:literal, $pkof_n:literal, $pkfo_n:literal) => {
         define_optall_case_benches!($off_m, $off_n, $q, OptConfig::AllOff);
-        define_optall_case_benches!($pkof_m, $pkof_n, $q, OptConfig::PkFkOnRematOff);
-        define_optall_case_benches!($pkfo_m, $pkfo_n, $q, OptConfig::PkFkOffRematOn);
+        define_optall_case_benches!($pkof_m, $pkof_n, $q, OptConfig::PkFkOnCompactionOff);
+        define_optall_case_benches!($pkfo_m, $pkfo_n, $q, OptConfig::PkFkOffCompactionOn);
     };
 }
 

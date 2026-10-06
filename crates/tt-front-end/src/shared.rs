@@ -21,7 +21,7 @@ use proof_planner::data_dependent_pp_optimizer::{
 use proof_planner::pp_optimizer::{ProofPlanOptimizer, rules as pp_rules};
 use tt_core::ctx_oracles::CtxOracles;
 use tt_core::irs::nodes::plan::{
-    rematerialize::RematerializeLogicalNode, result_check::ResultCheckLogicalNode,
+    compaction::CompactionLogicalNode, result_check::ResultCheckLogicalNode,
 };
 
 /// Shared front-end configuration used by the prover, verifier, and data owner.
@@ -267,10 +267,10 @@ impl ExtensionPlanner for TTNoOpExtensionPlanner {
         physical_inputs: &[Arc<dyn ExecutionPlan>],
         _session_state: &SessionState,
     ) -> DataFusionResult<Option<Arc<dyn ExecutionPlan>>> {
-        // Rematerialize and ResultCheck affect proof construction, but they should
+        // Compaction and ResultCheck affect proof construction, but they should
         // not change the physical query execution path. Treat them as wrappers over
         // a single input execution plan.
-        let is_supported_noop = node.as_any().is::<RematerializeLogicalNode>()
+        let is_supported_noop = node.as_any().is::<CompactionLogicalNode>()
             || node.as_any().is::<ResultCheckLogicalNode>();
         if !is_supported_noop {
             return Ok(None);

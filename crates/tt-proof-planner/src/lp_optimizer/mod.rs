@@ -71,7 +71,7 @@ pub fn rules(_session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send 
         Arc::new(merge_filters::MergeConsecutiveFilters::new()),
         Arc::new(lift_join_filter::LiftJoinFilter::new()),
         Arc::new(customized_optimize_projections::OptimizeProjections::new()),
-        // Rematerialize is data-dependent, so prover emits hints and verifier replays them.
+        // Compaction is data-dependent, so prover emits hints and verifier replays them.
         Arc::new(AddResultCheck::new()),
     ]
 }

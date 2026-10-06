@@ -1,12 +1,12 @@
 //! Composite gadget for paper §4.2.2 Domain-Preserving Update (the
 //! "Full String Validity Check"), **B1 variant**.
 //!
-//! Rematerialize (compaction) repacks a filtered table's active rows into
+//! Compaction repacks a filtered table's active rows into
 //! a smaller hypercube, freshly re-emitting every column — including a
 //! string column's char-domain side segments (`__chars`, `__orig_ind`,
-//! `__int_ind`) that the LIKE gadget reads directly. The base remat
+//! `__int_ind`) that the LIKE gadget reads directly. The base compaction
 //! obligation is a row-domain **Permutation** (see
-//! [`crate::irs::nodes::utils::remat`]): it folds *every* row-domain data
+//! [`crate::irs::nodes::utils::compaction`]): it folds *every* row-domain data
 //! column by name, so it already binds each new string's hash slots,
 //! `__length`, and `__fingerprint` to a genuine source row as a
 //! bijection. What it does NOT see are the char-domain side segments —
@@ -43,7 +43,7 @@
 //!    active new chars are pairwise distinct — no position collisions.
 //!    The offset is challenge-free and injective, so the prover can stage
 //!    it as a concrete plan-time input hint ([`OFFSET_PLAN_HINT_LABEL`],
-//!    built by the rematerialize node from its compacted output) for the
+//!    built by the compaction node from its compacted output) for the
 //!    sort-based gadget's lex-sort; the verifier needs only the schema.
 //! 3. **Broadcast checks** (inline, one `LookupPIOP` per hash slot per
 //!    side): `HASHP_k_new[c] = HASH_SLOT_k_new[orig-ind_new[c]]` and the
@@ -118,7 +118,7 @@ pub const HASHP_SLOT_PREFIX: &str = "__dpuc_hashp__";
 /// int-ind` (`STRIDE = 2^char_domain`), fed to the no-dup and bound to its
 /// formula by a zerocheck. Present in NEW_CHAR only.
 pub const OFFSET_COL: &str = "__dpuc_offset__";
-/// Plan-time payload slot on the composite where the rematerialize parent
+/// Plan-time payload slot on the composite where the compaction parent
 /// stages the concrete offset column (prover only) for the sort-based
 /// no-dup child's planner; see `initialize_gadget_plans`.
 pub const OFFSET_PLAN_HINT_LABEL: &str = "__dpuc_offset_plan_hint__";
@@ -281,7 +281,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         // The sort-based no-dup lex-sorts its input at plan time, so the
-        // rematerialize parent (visited just before us in this PreOrder
+        // compaction parent (visited just before us in this PreOrder
         // pass) rebuilds the offset column from the compacted output and
         // leaves it under `OFFSET_PLAN_HINT_LABEL`. Fall back to the
         // schema-only hint when it is absent.
@@ -662,7 +662,7 @@ fn set_offset_nodup_plan_hint<B: SnarkBackend>(
         act_f.as_ref().clone(),
     ]);
     // Virtual on both fields, matching the prover's concrete hint
-    // (`rematerialize_dpuc::build_offset_plan_hint`): the offset is
+    // (`compaction_dpuc::build_offset_plan_hint`): the offset is
     // committed at runtime, not by the tracking pass.
     let mut should_materialize = IndexMap::new();
     should_materialize.insert(offset_f, false);

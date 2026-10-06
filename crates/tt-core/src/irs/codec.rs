@@ -24,7 +24,7 @@ use tracing::debug;
 
 use crate::errors::{TTError, TTResult};
 use crate::irs::nodes::plan::lps::join::gadget as gadget_join;
-use crate::irs::nodes::plan::{rematerialize, result_check};
+use crate::irs::nodes::plan::{compaction, result_check};
 use crate::irs::nodes::{IsNode, Node, PlanNode};
 use crate::irs::shared_ir::EmptyIr;
 use crate::irs::tree::Tree;
@@ -75,7 +75,7 @@ enum LogicalPlanRepr {
         skip: Option<ExprRepr>,
         fetch: Option<ExprRepr>,
     },
-    ExtensionRematerialize {
+    ExtensionCompaction {
         input: Box<LogicalPlanRepr>,
     },
     ExtensionResultCheck {
@@ -634,13 +634,13 @@ impl LogicalPlanRepr {
                 },
             },
             LogicalPlan::Extension(extension) => {
-                if let Some(remat) = extension
+                if let Some(compaction) = extension
                     .node
                     .as_any()
-                    .downcast_ref::<rematerialize::RematerializeLogicalNode>()
+                    .downcast_ref::<compaction::CompactionLogicalNode>()
                 {
-                    LogicalPlanRepr::ExtensionRematerialize {
-                        input: Box::new(LogicalPlanRepr::from_plan(remat.input())?),
+                    LogicalPlanRepr::ExtensionCompaction {
+                        input: Box::new(LogicalPlanRepr::from_plan(compaction.input())?),
                     }
                 } else if let Some(result_check) = extension
                     .node
@@ -797,9 +797,9 @@ impl LogicalPlanRepr {
                     input: input_plan,
                 }))
             }
-            LogicalPlanRepr::ExtensionRematerialize { input } => {
+            LogicalPlanRepr::ExtensionCompaction { input } => {
                 let input_plan = input.to_plan(ctx)?;
-                Ok(rematerialize::wrap_logical_plan(input_plan))
+                Ok(compaction::wrap_logical_plan(input_plan))
             }
             LogicalPlanRepr::ExtensionResultCheck { input } => {
                 let input_plan = input.to_plan(ctx)?;

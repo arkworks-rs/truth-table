@@ -1,7 +1,8 @@
-use crate::irs::nodes::plan::rematerialize_dpuc;
+use crate::irs::nodes::plan::compaction_dpuc;
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
-    utils::domain_preserving_update_check as dpuc_gadget_mod, utils::remat as remat_gadget,
+    utils::compaction as compaction_gadget,
+    utils::domain_preserving_update_check as dpuc_gadget_mod,
 };
 use crate::irs::payloads::PayloadStructure;
 use arithmetic::{
@@ -26,35 +27,35 @@ use std::cmp::Ordering;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-const REMAT_CONTIG_S_PREFIX: &str = "remat_contig_s";
+const COMPACTION_CONTIG_S_PREFIX: &str = "compaction_contig_s";
 
 pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
     input: Arc<Node<B>>,
-    // The gadget node for proving the rematerialize (compaction) operation:
+    // The gadget node for proving the compaction operation:
     // it asserts the output table is a row-domain permutation of the input's
-    // active rows (base remat gadget: BoolCheck + Permutation, folding every
+    // active rows (base compaction gadget: BoolCheck + Permutation, folding every
     // row-domain data column by name). This binds the row domain but NOT the
     // char-domain side segments of a string column.
     gadget: Arc<Node<B>>,
     // Present iff the table has exactly one string column: the
     // Domain-Preserving Update Check (paper §4.2.2) that closes the
     // char-domain gap the permutation leaves open. `dpuc_base` is that
-    // column's name. See `rematerialize_dpuc`.
+    // column's name. See `compaction_dpuc`.
     dpuc_gadget: Option<Arc<Node<B>>>,
     dpuc_base: Option<String>,
 }
 
 /// The base name of the single **side-emitting** string column of the
-/// remat input subtree, iff there is exactly one. Only white-box string
+/// compaction input subtree, iff there is exactly one. Only white-box string
 /// columns (LIKE / MCPM) receive char-domain side segments — a projected
 /// or equality-compared string column does not — so gating on
 /// [`Tree::required_side_columns`] (not the schema's string types) both
 /// attaches the DPUC child exactly when it will be active and matches the
 /// runtime `__chars`-side detection in
-/// [`rematerialize_dpuc::single_string_base`]. Computed at construction
+/// [`compaction_dpuc::single_string_base`]. Computed at construction
 /// from the already-built input subtree, whose white-box gadgets are the
 /// authority on which columns get side polys.
 pub fn single_side_string_base<B: SnarkBackend>(
@@ -70,11 +71,11 @@ pub fn single_side_string_base<B: SnarkBackend>(
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
-        "Rematerialize".to_string()
+        "Compaction".to_string()
     }
 
     fn display(&self) -> String {
-        format!("Rematerialize\nInput: {}", self.input.name())
+        format!("Compaction\nInput: {}", self.input.name())
     }
 
     fn cost(
@@ -146,7 +147,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(crate::irs::payloads::PayloadStructure::PlanPayload(updated)),
         );
 
-        let key = remat_contig_key(virtualized_ir.tree(), id);
+        let key = compaction_contig_key(virtualized_ir.tree(), id);
         tracker_rc
             .borrow_mut()
             .insert_miscellaneous_field(key, B::F::from(s as u64));
@@ -178,8 +179,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        gadget_payload.insert(remat_gadget::INPUT_LABEL.to_string(), input);
-        gadget_payload.insert(remat_gadget::OUTPUT_LABEL.to_string(), output);
+        gadget_payload.insert(compaction_gadget::INPUT_LABEL.to_string(), input);
+        gadget_payload.insert(compaction_gadget::OUTPUT_LABEL.to_string(), output);
         virtualized_ir.set_payload_for_node(
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
@@ -202,21 +203,17 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                 _ => None,
             };
             if let (Some(raw_input), Some(raw_output)) = (raw_input, raw_output)
-                && rematerialize_dpuc::single_string_base(&raw_output).as_deref()
+                && compaction_dpuc::single_string_base(&raw_output).as_deref()
                     == Some(base.as_str())
             {
-                let witnesses = rematerialize_dpuc::commit_witnesses_prover(
+                let witnesses = compaction_dpuc::commit_witnesses_prover(
                     &raw_input,
                     &raw_output,
                     base,
                     prover,
                 )?;
-                let payload = rematerialize_dpuc::build_payload_prover(
-                    &raw_input,
-                    &raw_output,
-                    base,
-                    witnesses,
-                );
+                let payload =
+                    compaction_dpuc::build_payload_prover(&raw_input, &raw_output, base, witnesses);
                 virtualized_ir.set_payload_for_node(
                     dpuc.id(),
                     Some(PayloadStructure::GadgetPayload(payload)),
@@ -238,13 +235,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         // next. Prover only — the verifier's planner needs schema alone.
         if let (Some(dpuc), Some(base)) = (&self.dpuc_gadget, &self.dpuc_base) {
             let output = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
-            let hint =
-                rematerialize_dpuc::build_offset_plan_hint(output.data_frame().clone(), base)
-                    .map_err(|e| {
-                        ark_piop::errors::SnarkError::Artifact(format!(
-                            "rematerialize DPUC offset plan hint: {e}"
-                        ))
-                    })?;
+            let hint = compaction_dpuc::build_offset_plan_hint(output.data_frame().clone(), base)
+                .map_err(|e| {
+                ark_piop::errors::SnarkError::Artifact(format!(
+                    "compaction DPUC offset plan hint: {e}"
+                ))
+            })?;
             let mut payload = match planned_ir.payload_for_node(&dpuc.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
@@ -271,7 +267,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
                     plan_node,
                 )
             }
-            Node::Gadget(_) => panic!("Rematerialize input cannot be a gadget node"),
+            Node::Gadget(_) => panic!("Compaction input cannot be a gadget node"),
         };
 
         let output_df = build_output_dataframe(input_hint_df.data_frame().clone());
@@ -300,10 +296,10 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
                     plan_node,
                 )
             }
-            Node::Gadget(_) => panic!("Rematerialize input cannot be a gadget node"),
+            Node::Gadget(_) => panic!("Compaction input cannot be a gadget node"),
         };
 
-        // Verifier planning only needs schema; rematerialize does not change schema.
+        // Verifier planning only needs schema; compaction does not change schema.
         let output_df = input_hint_df.data_frame().clone();
         let should_materialize = output_df
             .schema()
@@ -326,14 +322,14 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     {
         let extension = match _plan {
             LogicalPlan::Extension(extension) => extension,
-            _ => panic!("Expected LogicalPlan::Extension for Rematerialize"),
+            _ => panic!("Expected LogicalPlan::Extension for Compaction"),
         };
-        let remat = extension
+        let compaction = extension
             .node
             .as_any()
-            .downcast_ref::<RematerializeLogicalNode>()
-            .expect("Rematerialize extension node");
-        let input_tree = crate::irs::tree::Tree::<B>::from_logical_plan(remat.input());
+            .downcast_ref::<CompactionLogicalNode>()
+            .expect("Compaction extension node");
+        let input_tree = crate::irs::tree::Tree::<B>::from_logical_plan(compaction.input());
         let input = input_tree.root().clone();
         let dpuc_base = single_side_string_base(&input_tree);
         Self::new(input, dpuc_base)
@@ -342,7 +338,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     fn lp(&self) -> LogicalPlan {
         let input_lp = match self.input.as_ref() {
             Node::Plan(PlanNode::LpBased(node)) => node.lp(),
-            _ => panic!("Rematerialize input must be an LP node"),
+            _ => panic!("Compaction input must be an LP node"),
         };
         wrap_logical_plan(input_lp)
     }
@@ -370,7 +366,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             return Ok(());
         };
         let tracker_rc = input_act.tracker();
-        let key = remat_contig_key(virtualized_ir.tree(), id);
+        let key = compaction_contig_key(virtualized_ir.tree(), id);
         let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
         let s = field_to_usize::<B::F>(s_field)?;
 
@@ -424,8 +420,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        gadget_payload.insert(remat_gadget::INPUT_LABEL.to_string(), input);
-        gadget_payload.insert(remat_gadget::OUTPUT_LABEL.to_string(), output);
+        gadget_payload.insert(compaction_gadget::INPUT_LABEL.to_string(), input);
+        gadget_payload.insert(compaction_gadget::OUTPUT_LABEL.to_string(), output);
         virtualized_ir.set_payload_for_node(
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
@@ -444,20 +440,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 _ => None,
             };
             if let (Some(raw_input), Some(raw_output)) = (raw_input, raw_output)
-                && rematerialize_dpuc::single_string_base_verifier(&raw_output).as_deref()
+                && compaction_dpuc::single_string_base_verifier(&raw_output).as_deref()
                     == Some(base.as_str())
             {
                 let tracker = raw_output
                     .activator_tracked_poly()
-                    .expect("remat output activator")
+                    .expect("compaction output activator")
                     .tracker();
-                let witnesses = rematerialize_dpuc::track_witnesses_verifier(
+                let witnesses = compaction_dpuc::track_witnesses_verifier(
                     &raw_input,
                     &raw_output,
                     base,
                     &tracker,
                 )?;
-                let payload = rematerialize_dpuc::build_payload_verifier(
+                let payload = compaction_dpuc::build_payload_verifier(
                     &raw_input,
                     &raw_output,
                     base,
@@ -485,10 +481,10 @@ impl<B: SnarkBackend> LpNode<B> {
     pub fn new(input: Arc<Node<B>>, dpuc_base: Option<String>) -> Self {
         // `contigous: true` — the output activator is a deterministic
         // contig-one poly of weight s, so no separate contiguity check is
-        // needed beyond what the wrapped remat gadget provides.
-        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(remat_gadget::GadgetNode::new(
-            true,
-        ))));
+        // needed beyond what the wrapped compaction gadget provides.
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            compaction_gadget::GadgetNode::new(true),
+        )));
         // Single-string tables also carry the Domain-Preserving Update
         // Check, which binds the freshly re-emitted char-domain side
         // segments the permutation cannot see.
@@ -552,15 +548,15 @@ fn strip_row_id_tracked_oracle<B: SnarkBackend>(
     TrackedTableOracle::new(schema, cols, table.log_size())
 }
 
-/// A logical plan node that indicates that its input should be rematerialized.
+/// A logical plan node that indicates that its input should be compacted.
 /// On the logical plan level, this node behaves like an identity operation.
 #[derive(Debug, Clone)]
-pub struct RematerializeLogicalNode {
+pub struct CompactionLogicalNode {
     input: Arc<LogicalPlan>,
     schema: DFSchemaRef,
 }
 
-impl RematerializeLogicalNode {
+impl CompactionLogicalNode {
     pub fn new(input: LogicalPlan) -> Self {
         let schema = input.schema().clone();
         Self {
@@ -578,13 +574,13 @@ impl RematerializeLogicalNode {
     }
 }
 
-impl UserDefinedLogicalNode for RematerializeLogicalNode {
+impl UserDefinedLogicalNode for CompactionLogicalNode {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn name(&self) -> &str {
-        "Rematerialize"
+        "Compaction"
     }
 
     fn inputs(&self) -> Vec<&LogicalPlan> {
@@ -607,7 +603,7 @@ impl UserDefinedLogicalNode for RematerializeLogicalNode {
         Vec::new()
     }
 
-    /// Rematerialize is a pure pass-through on the logical plan level
+    /// Compaction is a pure pass-through on the logical plan level
     /// (input.schema() == self.schema()); each output column IS the
     /// child's same-indexed column. So route parent's requirements to
     /// the child unchanged. Without this override, the default `None`
@@ -619,7 +615,7 @@ impl UserDefinedLogicalNode for RematerializeLogicalNode {
     }
 
     fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Rematerialize")
+        write!(f, "Compaction")
     }
 
     fn with_exprs_and_inputs(
@@ -629,15 +625,15 @@ impl UserDefinedLogicalNode for RematerializeLogicalNode {
     ) -> datafusion_common::Result<Arc<dyn UserDefinedLogicalNode>> {
         if !exprs.is_empty() {
             return Err(DataFusionError::Plan(
-                "Rematerialize does not accept expressions".to_string(),
+                "Compaction does not accept expressions".to_string(),
             ));
         }
         if inputs.len() != 1 {
             return Err(DataFusionError::Plan(
-                "Rematerialize expects a single input".to_string(),
+                "Compaction expects a single input".to_string(),
             ));
         }
-        Ok(Arc::new(RematerializeLogicalNode::new(
+        Ok(Arc::new(CompactionLogicalNode::new(
             inputs.into_iter().next().unwrap(),
         )))
     }
@@ -663,7 +659,7 @@ impl UserDefinedLogicalNode for RematerializeLogicalNode {
 
 pub fn wrap_logical_plan(input: LogicalPlan) -> LogicalPlan {
     LogicalPlan::Extension(Extension {
-        node: Arc::new(RematerializeLogicalNode::new(input)),
+        node: Arc::new(CompactionLogicalNode::new(input)),
     })
 }
 
@@ -676,14 +672,14 @@ fn build_output_dataframe(input: DataFrame) -> DataFrame {
     let filtered = if has_activator {
         input
             .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
-            .expect("rematerialize activator filter should succeed")
+            .expect("compaction activator filter should succeed")
     } else {
         input
     };
     let sorted = crate::irs::nodes::hints::sort_by_row_id_if_present(filtered)
-        .expect("rematerialize output sort should succeed");
+        .expect("compaction output sort should succeed");
     reassign_row_id_to_natural_indices(sorted)
-        .expect("rematerialize row_id reassignment should succeed")
+        .expect("compaction row_id reassignment should succeed")
 }
 
 fn reassign_row_id_to_natural_indices(df: DataFrame) -> DataFusionResult<DataFrame> {
@@ -715,18 +711,18 @@ fn reassign_row_id_to_natural_indices(df: DataFrame) -> DataFusionResult<DataFra
     df.select(projection)
 }
 
-fn remat_contig_key<B: SnarkBackend>(
+fn compaction_contig_key<B: SnarkBackend>(
     tree: &crate::irs::tree::Tree<B>,
     id: crate::irs::nodes::NodeId,
 ) -> String {
     let path = structural_path_to_node(tree, id)
-        .unwrap_or_else(|| panic!("Rematerialize could not derive structural path for node {id}"));
+        .unwrap_or_else(|| panic!("Compaction could not derive structural path for node {id}"));
     let path = path
         .iter()
         .map(|index| index.to_string())
         .collect::<Vec<_>>()
         .join(".");
-    format!("{REMAT_CONTIG_S_PREFIX}_{path}")
+    format!("{COMPACTION_CONTIG_S_PREFIX}_{path}")
 }
 
 fn structural_path_to_node<B: SnarkBackend>(
@@ -769,7 +765,7 @@ fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkRes
             if *byte != 0u8 {
                 return Err(ark_piop::errors::SnarkError::VerifierError(
                     ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
-                        "rematerialize contig s does not fit into usize".to_string(),
+                        "compaction contig s does not fit into usize".to_string(),
                     ),
                 ));
             }
@@ -796,7 +792,7 @@ mod tests {
 
     type B = DefaultSnarkBackend;
 
-    /// `Filter(LIKE) ∘ Rematerialize ∘ Filter(tt_prefilter) ∘ TableScan`:
+    /// `Filter(LIKE) ∘ Compaction ∘ Filter(tt_prefilter) ∘ TableScan`:
     /// the compacted subtree reads no characters itself, yet the LIKE above
     /// it does, so the compaction must still bind the column's characters.
     #[test]

@@ -387,13 +387,13 @@ fn fold_table_oracle_to_single_col<B: SnarkBackend>(
 
 /// Compute the intersection of data-column names between LEFT and
 /// RIGHT, ordered by RIGHT's tracked_polys flat-view order. RIGHT is
-/// treated as the reference because for the rematerialize permutation
+/// treated as the reference because for the compaction permutation
 /// it is always a (non-strict) subset of LEFT — the compacted output's
 /// tracked columns are a subset of the filter's input's tracked columns.
 ///
 /// Returns an empty vector when RIGHT has no data columns (would be a
 /// degenerate perm anyway). If RIGHT names a column that LEFT does not
-/// carry (defensive, shouldn't happen for rematerialize), that name is
+/// carry (defensive, shouldn't happen for compaction), that name is
 /// silently dropped — the resulting fold still gives comparable
 /// multisets over the columns both sides do share.
 fn shared_data_field_names<B: SnarkBackend>(

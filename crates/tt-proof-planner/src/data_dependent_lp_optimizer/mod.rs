@@ -12,13 +12,13 @@ use datafusion_common::{
 use datafusion_expr::LogicalPlan;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::RuntimeFlavor;
-use tt_core::irs::nodes::plan::rematerialize::RematerializeLogicalNode;
+use tt_core::irs::nodes::plan::compaction::CompactionLogicalNode;
 
+mod compaction;
 mod prefilter_bins;
-mod rematerialize;
 mod truncate_empty_payload;
+pub use compaction::CompactionRule;
 pub use prefilter_bins::PrefilterBinsRule;
-pub use rematerialize::RematerializeRule;
 pub use truncate_empty_payload::TruncateEmptyPayloadRule;
 
 /// Verifier-replayable data-dependent optimization decisions. Each rule's
@@ -34,8 +34,8 @@ pub enum OptimizationHint {
         target_path: Vec<usize>,
         bins: Vec<Bin>,
     },
-    /// Wrap the LP subtree at `target_path` in a `RematerializeLogicalNode`.
-    Rematerialize { target_path: Vec<usize> },
+    /// Wrap the LP subtree at `target_path` in a `CompactionLogicalNode`.
+    Compaction { target_path: Vec<usize> },
     /// Replace the LP subtree at `target_path` with an `EmptyRelation`
     /// carrying the original subtree's schema. Emitted by
     /// [`TruncateEmptyPayloadRule`] when the prover observes that the
@@ -94,7 +94,7 @@ impl DataDependentOptimizer {
 
     /// Run every rule in order and return their merged hint set. Each rule
     /// sees the plan with the earlier rules' hints applied, so a later
-    /// decision (e.g. rematerializing after a pre-filter) reflects the
+    /// decision (e.g. compacting after a pre-filter) reflects the
     /// earlier ones; [`apply_optimization_hints`] applies the variants in the
     /// same order, so the verifier rebuilds the same plan.
     pub fn collect_hints(
@@ -122,11 +122,11 @@ impl DataDependentOptimizer {
 pub fn rules() -> Vec<Arc<dyn DataDependentOptimizationRule>> {
     // `TruncateEmptyPayloadRule` is available but not included here; callers
     // that want it can construct a `DataDependentOptimizer` with an extended
-    // rule list. Pre-filter bin counts come first: rematerialize decisions
+    // rule list. Pre-filter bin counts come first: compaction decisions
     // depend on how much the pre-filters drop.
     vec![
         Arc::new(PrefilterBinsRule::new()),
-        Arc::new(RematerializeRule::new()),
+        Arc::new(CompactionRule::new()),
     ]
 }
 
@@ -144,10 +144,10 @@ pub fn collect_data_dependent_hints(
 /// Apply every collected hint to the plan, dispatching per-variant.
 ///
 /// Pre-filter bin counts run first (they may remove a pre-filter, which
-/// shifts the paths below it, and rematerialize hints were collected on the
+/// shifts the paths below it, and compaction hints were collected on the
 /// plan after them). Truncate hints run next (they may eliminate entire
-/// subtrees, removing rematerialize targets that no longer need wrapping).
-/// Rematerialize hints run on whatever subtrees remain.
+/// subtrees, removing compaction targets that no longer need wrapping).
+/// Compaction hints run on whatever subtrees remain.
 pub fn apply_optimization_hints(
     plan: LogicalPlan,
     hints: &OptimizationHints,
@@ -159,7 +159,7 @@ pub fn apply_optimization_hints(
         return Ok(plan);
     }
 
-    let mut remat_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
+    let mut compaction_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
     let mut truncate_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
     let mut prefilter_bins: BTreeMap<Vec<usize>, Vec<Bin>> = BTreeMap::new();
     for hint in &hints.hints {
@@ -167,8 +167,8 @@ pub fn apply_optimization_hints(
             OptimizationHint::PrefilterBins { target_path, bins } => {
                 prefilter_bins.insert(target_path.clone(), bins.clone());
             }
-            OptimizationHint::Rematerialize { target_path } => {
-                remat_paths.insert(target_path.clone());
+            OptimizationHint::Compaction { target_path } => {
+                compaction_paths.insert(target_path.clone());
             }
             OptimizationHint::Truncate { target_path } => {
                 truncate_paths.insert(target_path.clone());
@@ -206,15 +206,15 @@ pub fn apply_optimization_hints(
         rewritten
     };
 
-    if remat_paths.is_empty() {
+    if compaction_paths.is_empty() {
         return Ok(plan);
     }
     let mut path = Vec::new();
-    let rewritten = rematerialize::apply_rematerialize_hints(plan, &mut path, &mut remat_paths)?;
-    if !remat_paths.is_empty() {
+    let rewritten = compaction::apply_compaction_hints(plan, &mut path, &mut compaction_paths)?;
+    if !compaction_paths.is_empty() {
         return Err(DataFusionError::Plan(format!(
-            "Unapplied rematerialize hints at paths: {:?}",
-            remat_paths
+            "Unapplied compaction hints at paths: {:?}",
+            compaction_paths
         )));
     }
     Ok(rewritten)
@@ -223,33 +223,33 @@ pub fn apply_optimization_hints(
 // ── Shared utilities for data-dependent rules ──────────────────────────────
 
 /// Count the rows produced by `plan` by executing it through DataFusion.
-/// Pre-existing rematerialize wrappers are stripped first so the row count
+/// Pre-existing compaction wrappers are stripped first so the row count
 /// reflects the underlying plan, not the wrapper layer.
 pub(crate) fn row_count(
     session_state: &SessionState,
     plan: &LogicalPlan,
 ) -> DataFusionResult<usize> {
-    let plan = strip_rematerialize(plan)?;
+    let plan = strip_compaction(plan)?;
     let df = DataFrame::new(session_state.clone(), plan);
     let batches = collect_blocking(df)?;
     Ok(batches.iter().map(|batch| batch.num_rows()).sum())
 }
 
-fn strip_rematerialize(plan: &LogicalPlan) -> DataFusionResult<LogicalPlan> {
+fn strip_compaction(plan: &LogicalPlan) -> DataFusionResult<LogicalPlan> {
     let transformed = plan.clone().transform_down(|node| {
         let LogicalPlan::Extension(extension) = &node else {
             return Ok(Transformed::no(node));
         };
-        if !extension.node.as_any().is::<RematerializeLogicalNode>() {
+        if !extension.node.as_any().is::<CompactionLogicalNode>() {
             return Ok(Transformed::no(node));
         }
-        let remat = extension
+        let compaction = extension
             .node
             .as_any()
-            .downcast_ref::<RematerializeLogicalNode>()
-            .expect("rematerialize extension node");
+            .downcast_ref::<CompactionLogicalNode>()
+            .expect("compaction extension node");
         Ok(Transformed::new(
-            remat.input().clone(),
+            compaction.input().clone(),
             true,
             TreeNodeRecursion::Continue,
         ))
