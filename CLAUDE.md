@@ -15,6 +15,10 @@
 - `--features honest-prover` makes the prover check each claim and name the
   gadget that fails. If it names nothing and verification still fails, the
   prover and verifier built different statements; compare the two sides.
+- The full end-to-end suite with `honest-prover` is far heavier than without:
+  the `filter` suite alone ran past 38 minutes and 46 GB. For a quick check
+  run the small tables only, e.g.
+  `cargo test --release -p tt-exec --features test-utils,honest-prover --test filter nation`.
 - `tt-fp-measure` and `tt-fp-calibrate` need `--features calibration`. A plain
   build leaves stale binaries in `target/release`.
 
@@ -29,3 +33,11 @@
 ## Conventions
 - No debugging or profiling code left in the repo.
 - Do not touch `paper.pdf` or `tt-results/` unless asked.
+- The operation that repacks active rows onto a smaller domain is called
+  **compaction**, as in the paper (eprint 2026/1260). Do not reintroduce
+  "rematerialize", "remat" or "defrag". The one exception is the `tpch_optall`
+  bench IDs (`..._remat_on` / `..._remat_off`): they are the keys of the
+  recorded results in `tt-results/`. "Materialize" is a different operation.
+- There is no column-toolbox crate. A raw PIOP lives in a `piop` module next
+  to the gadget node that wraps it (`irs/nodes/utils/<name>/piop/`); reuse the
+  existing one instead of copying it.
