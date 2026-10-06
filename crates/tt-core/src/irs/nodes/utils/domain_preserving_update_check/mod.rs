@@ -68,6 +68,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::irs::nodes::utils::lookup::piop::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use arithmetic::{
     ACTIVATOR_FIELD, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
@@ -76,7 +77,6 @@ use ark_piop::{
     SnarkBackend, errors::SnarkResult, piop::PIOP, prover::structs::polynomial::TrackedPoly,
     verifier::structs::oracle::TrackedOracle,
 };
-use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use indexmap::IndexMap;
 

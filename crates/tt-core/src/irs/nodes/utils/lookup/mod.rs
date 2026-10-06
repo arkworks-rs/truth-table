@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
+use crate::irs::nodes::utils::lookup::piop::{
+    HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput,
+};
 use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
-use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
 use datafusion::arrow::datatypes::{DataType, Field};
 use indexmap::IndexMap;
 
@@ -20,6 +22,7 @@ use crate::{
 };
 
 mod hints;
+pub mod piop;
 
 pub const INCLUDED_LABEL: &str = "_included_";
 pub const SUPER_LABEL: &str = "_super_";

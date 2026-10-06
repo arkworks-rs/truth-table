@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::irs::nodes::utils::lookup::piop::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use crate::irs::{
     nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, utils::prescr_perm},
     payloads::PayloadStructure,
@@ -14,7 +15,6 @@ use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
 use ark_piop::{SnarkBackend, piop::PIOP};
-use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion::prelude::lit;
 use datafusion_expr::Join;

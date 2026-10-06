@@ -1,4 +1,4 @@
-use crate::util::multiplicity_count::vec_multiplicity_count;
+use super::multiplicity_count::vec_multiplicity_count;
 use arithmetic::col::TrackedCol;
 use ark_ff::Zero;
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};

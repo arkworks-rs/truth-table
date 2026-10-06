@@ -28,6 +28,8 @@ use ark_piop::{
 use ark_piop::{errors::InputShapeError::EmptyInput, verifier::errors::VerifierError};
 use indexmap::IndexMap;
 use std::ops::Neg;
+pub mod piop;
+
 pub const FXS_LABEL: &str = "__fxs__";
 pub const GXS_LABEL: &str = "__gxs__";
 pub const MFXS_LABEL: &str = "__mfxs__";

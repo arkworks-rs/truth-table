@@ -3,6 +3,7 @@
 /// in another column. Internally, this PIOP invokes the `KeyedSumcheck`
 /// with the multiplicity polynomial of all 1 for the 'included_col' and a
 /// computed advice multiplicity for 'super_col'#[cfg(test)]
+mod multiplicity_count;
 pub(crate) mod utils;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::One;
@@ -21,7 +22,9 @@ use derivative::Derivative;
 use std::marker::PhantomData;
 use utils::calc_inclusion_multiplicity;
 
-use crate::keyed_sumcheck::{KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput};
+use crate::irs::nodes::utils::keyed_sumcheck::piop::{
+    KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
+};
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]

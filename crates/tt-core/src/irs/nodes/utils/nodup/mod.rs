@@ -30,7 +30,6 @@ mod binary_check;
 mod compaction_check;
 mod compactor;
 mod hints;
-mod keyed_sumcheck;
 pub(crate) mod perm_check;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

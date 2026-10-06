@@ -5,7 +5,7 @@
 //! node repacks the column onto the minimal hypercube and proves correctness by
 //! (1) checking the new activator is Boolean and (2) proving a multiset
 //! equality between the old and new data.  This module implements that two-step
-//! PIOP for one column in the column toolbox.
+//! PIOP for one column.
 
 use crate::irs::nodes::utils::nodup::binary_check::BinaryCheckPIOP;
 use crate::irs::nodes::utils::nodup::binary_check::BinaryCheckProverInput;

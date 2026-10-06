@@ -1,7 +1,7 @@
 //! A PIOP to check if the mulltisets of two columns are equal considering their
 //! multiplicities.
 //!
-//! More precisely, this PIOP checks if the union of the multisets of the activated elements in a set of columns with certain multiplicity polynomials is equal to the union of the multisets of the activated elements in another set of columns with other multiplicity polynomials. It's a genralization of the [Logup](https://eprint.iacr.org/2022/1530.pdf) protocol and is heavily used throughout other PIOPs in the `col-toolbox`.
+//! More precisely, this PIOP checks if the union of the multisets of the activated elements in a set of columns with certain multiplicity polynomials is equal to the union of the multisets of the activated elements in another set of columns with other multiplicity polynomials. It's a genralization of the [Logup](https://eprint.iacr.org/2022/1530.pdf) protocol and is heavily used throughout the other PIOPs.
 
 mod honest_prover;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
@@ -181,7 +181,7 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
         // check that the values of claimed sums are equal
         if lhs_v != rhs_v {
             tracing::debug!(
-                target: "col_toolbox::keyed_sumcheck",
+                target: "tt_core::keyed_sumcheck",
                 f_ids = %format_tracked_col_oracle_ids(&input.fxs),
                 g_ids = %format_tracked_col_oracle_ids(&input.gxs),
                 mf_ids = %format_tracked_oracle_opt_ids(&input.mfxs),

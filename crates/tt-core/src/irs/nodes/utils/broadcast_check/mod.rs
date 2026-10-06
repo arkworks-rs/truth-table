@@ -15,15 +15,15 @@
 //!   columns `src` (index 0) and `x'` (index 1). The table's activator
 //!   is `ac`.
 //!
-//! Reduces to a single [`col_toolbox::lookup::LookupPIOP`] on the
+//! Reduces to a single [`LookupPIOP`] on the
 //! fingerprinted pairs `(src + r·x')` ⊑ `(ind + r·x)` at a challenge `r`.
 //! Distinct `ind` values across active string rows is a well-formedness
 //! precondition on the caller.
 use std::marker::PhantomData;
 
+use crate::irs::nodes::utils::lookup::piop::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{SnarkBackend, errors::SnarkResult, piop::PIOP};
-use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use indexmap::IndexMap;
 
 use crate::{

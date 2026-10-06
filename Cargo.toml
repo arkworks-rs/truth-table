@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/tt-col-toolbox",
     "crates/tt-arithmetic",
     "crates/tt-tpch-data",
     "crates/tt-exec",
@@ -16,7 +15,6 @@ members = [
 # explicitly via `cargo build -p tt-poneglyph-bench` when generating Poneglyph
 # numbers.
 default-members = [
-    "crates/tt-col-toolbox",
     "crates/tt-arithmetic",
     "crates/tt-tpch-data",
     "crates/tt-exec",
