@@ -81,16 +81,16 @@ where
         payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
         // Side-domain string columns are restricted to base tables
-        // (TableScan) and Rematerialize outputs: intermediate operators
+        // (TableScan) and Compaction outputs: intermediate operators
         // denormalize string columns across join fan-outs, which would
         // produce char-level polys sized to (joined_rows × avg_len) and
         // blow past both the SRS ceiling and available memory. A
-        // Rematerialize output is a compacted single-table snapshot (no
+        // Compaction output is a compacted single-table snapshot (no
         // fan-out), and re-encoding it here is exactly what shrinks the
         // char domain for string gadgets above it. In both cases only
         // columns some white-box string gadget actually consumes get
         // side polys.
-        let side_filter = (node.name() == "TableScan" || node.name() == "Rematerialize")
+        let side_filter = (node.name() == "TableScan" || node.name() == "Compaction")
             .then_some(&self.side_columns);
         // Fingerprint limbs are owner-committed base-table data: only table
         // scans carry them, and only for pre-filtered columns (the

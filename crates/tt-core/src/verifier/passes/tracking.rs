@@ -205,8 +205,8 @@ where
                     )
                     .map(TrackedPayload::PlanPayload);
                 }
-                if node.name() == "Rematerialize" {
-                    // Rematerialize outputs re-emit side segments for the
+                if node.name() == "Compaction" {
+                    // Compaction outputs re-emit side segments for the
                     // gadget-consumed string columns (see
                     // ArithmetizationPass); consume their commitments in
                     // the same order the prover emitted them.

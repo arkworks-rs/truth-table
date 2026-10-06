@@ -18,7 +18,7 @@
 //! narrows it to the bins worth testing (or removes it), and when the
 //! pre-filter shrinks the
 //! row count below half the hypercube the data-dependent
-//! `RematerializeRule` wraps it in a `Rematerialize`, compacting the tables
+//! `CompactionRule` wraps it in a `Compaction`, compacting the tables
 //! the LIKE machinery sees.
 //!
 //! This runs as a deterministic post-pass AFTER the structural optimizer

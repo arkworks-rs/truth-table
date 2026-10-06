@@ -27,11 +27,11 @@ type GadgetPayload<T> = IndexMap<String, T>;
 
 mod bezout;
 mod binary_check;
-mod defragg;
+mod compaction_check;
+mod compactor;
 mod hints;
 mod keyed_sumcheck;
 pub(crate) mod perm_check;
-mod rematerialize_check;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {

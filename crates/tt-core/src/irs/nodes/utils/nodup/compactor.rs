@@ -1,4 +1,4 @@
-//! A tool to defragment a column by removing the non-activated elements
+//! A tool to compact a column by removing the non-activated elements
 use std::marker::PhantomData;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
@@ -11,17 +11,17 @@ use ark_std::log2;
 use ark_ff::One;
 use ark_ff::Zero;
 
-use crate::irs::nodes::utils::nodup::rematerialize_check::RematerializeCheck;
-use crate::irs::nodes::utils::nodup::rematerialize_check::RematerializeCheckProverInput;
-use crate::irs::nodes::utils::nodup::rematerialize_check::RematerializeCheckVerifierInput;
-/// A tool to defragment a column by removing the non-activated rows and
+use crate::irs::nodes::utils::nodup::compaction_check::CompactionCheck;
+use crate::irs::nodes::utils::nodup::compaction_check::CompactionCheckProverInput;
+use crate::irs::nodes::utils::nodup::compaction_check::CompactionCheckVerifierInput;
+/// A tool to compact a column by removing the non-activated rows and
 /// reducing the size of the underlying polynomial (as much as possible). It
-/// internally invokes the permutation-check to ensure that the defragmented
+/// internally invokes the permutation-check to ensure that the compacted
 /// column is still consistent with the original column.
-pub struct Defragmenter<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
+pub struct Compactor<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
-impl<B: SnarkBackend> Defragmenter<B> {
-    pub fn defrag_col(
+impl<B: SnarkBackend> Compactor<B> {
+    pub fn compact_col(
         tracker: &mut ArgProver<B>,
         col: &TrackedCol<B>,
     ) -> SnarkResult<TrackedCol<B>> {
@@ -37,7 +37,7 @@ impl<B: SnarkBackend> Defragmenter<B> {
             .filter(|value| !value.is_zero())
             .count();
         let new_nv: usize = if new_col_size == 0 {
-            // Avoid log2(0) by pinning the defragmented column to size 1.
+            // Avoid log2(0) by pinning the compacted column to size 1.
             0
         } else {
             log2(new_col_size) as usize
@@ -80,15 +80,15 @@ impl<B: SnarkBackend> Defragmenter<B> {
             col.field_ref(),
         );
 
-        let rematerialize_check_prover_input = RematerializeCheckProverInput {
+        let compaction_check_prover_input = CompactionCheckProverInput {
             input_tracked_col: col.clone(),
             output_tracked_col: new_col.clone(),
         };
-        RematerializeCheck::<B>::prove(tracker, rematerialize_check_prover_input)?;
+        CompactionCheck::<B>::prove(tracker, compaction_check_prover_input)?;
         Ok(new_col)
     }
 
-    pub fn defrag_tracked_col_oracle(
+    pub fn compact_tracked_col_oracle(
         verifier: &mut ArgVerifier<B>,
         tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<TrackedColOracle<B>> {
@@ -105,11 +105,11 @@ impl<B: SnarkBackend> Defragmenter<B> {
             tracked_col_oracle.field_ref().clone(),
         );
 
-        let rematerialize_check_verifier_input = RematerializeCheckVerifierInput {
+        let compaction_check_verifier_input = CompactionCheckVerifierInput {
             input_tracked_col_oracle: tracked_col_oracle.clone(),
             output_tracked_col_oracle: new_tracked_col_oracle.clone(),
         };
-        RematerializeCheck::<B>::verify(verifier, rematerialize_check_verifier_input)?;
+        CompactionCheck::<B>::verify(verifier, compaction_check_verifier_input)?;
         Ok(new_tracked_col_oracle)
     }
 }

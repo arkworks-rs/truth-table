@@ -296,13 +296,13 @@ the next power of two at or above $x$ and $D^+(x)$ for the strict one
 planner counts the padding, so a filter over a scan is compared against
 $T = D(|R|)$. Then
 \begin{align*}
-  \mathrm{remat}  &= [\lambda > 0] \wedge [D^+(s) < D^+(T)], &
-  (R', m', P)     &= \begin{cases} (s, m_s, s) & \mathrm{remat},\\
+  \mathrm{compact}  &= [\lambda > 0] \wedge [D^+(s) < D^+(T)], &
+  (R', m', P)     &= \begin{cases} (s, m_s, s) & \mathrm{compact},\\
                                     (|R|, m, T) & \text{otherwise,} \end{cases}\\
   \mathrm{second} &= [D^+(t) < D^+(P)], &
   m_t             &= t\, m' / R'.
 \end{align*}
-The survivors are compacted (``rematerialized'') iff remat, and the
+The survivors are compacted iff $\mathrm{compact}$, and the
 \textsc{like} runs on $(R', m')$. Every compaction of a string column
 carries a data-preserving update check (DPUC) binding the compacted
 characters to their source rows, so a compaction costs work over its
@@ -316,11 +316,11 @@ on the padded domain the stage actually runs on:
     && \text{(pre-filter check, paid once if any bin is tested)} \\
   &+ c_{\mathrm{limb}}\, \lambda
     && \text{(AND lookup per touched limb)} \\
-  &+ \mathrm{remat} \cdot a_r
+  &+ \mathrm{compact} \cdot a_r
     && \text{(fixed cost of compacting the survivors)} \\
-  &+ \mathrm{remat} \cdot a_{rs}\, D(s)
+  &+ \mathrm{compact} \cdot a_{rs}\, D(s)
     && \text{(compaction, per surviving row)} \\
-  &+ \mathrm{remat} \cdot a_{rc}\, D(m_s)
+  &+ \mathrm{compact} \cdot a_{rc}\, D(m_s)
     && \text{(compaction DPUC, per surviving character)} \\
   &+ a_c\, D(m')
     && \text{(\textsc{like}, per input character)} \\
@@ -351,7 +351,7 @@ power of two, then buys a whole step.
   \quad per extra literal char & $a_{cL}$ & $3.07 \times 10^{-6}$ \\
   touched limb & $c_{\mathrm{limb}}$ & $0.659$ s$^\dagger$ &
   \quad per extra factor & $a_{cn}$ & $8.42 \times 10^{-6}$ \\
-  remat & $a_r$ & $10.26$ s &
+  compaction & $a_r$ & $10.26$ s &
   \textsc{like} rows & $a_w$ & $6.21 \times 10^{-5}$ \\
   \quad rows & $a_{rs}$ & $1.05 \times 10^{-4}$ &
   \quad per extra literal char & $a_{wL}$ & $0$ \\

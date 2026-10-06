@@ -7,7 +7,7 @@
 //!   * String 1: `"ab"`, chars 2..=3, ind = 1.
 //! - Pattern factor: `"ab"` (ℓ = 2), Mode::Prefix.
 //! - Both strings match, so we get two marks — comfortably above the
-//!   Bezout NoDup size-1 defrag degeneracy.
+//!   Bezout NoDup size-1 compaction degeneracy.
 
 use std::sync::Arc;
 

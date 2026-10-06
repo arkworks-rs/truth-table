@@ -335,7 +335,7 @@ mod tests {
         coefficients[1] = 0.2; // pre-filter
         coefficients[2] = 0.1; // touched limb
         coefficients[6] = 1e-3; // LIKE chars
-        coefficients[10] = 1e-3; // second remat rows
+        coefficients[10] = 1e-3; // second compaction rows
         CostModel { coefficients }
     }
 

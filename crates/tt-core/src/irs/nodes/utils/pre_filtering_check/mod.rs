@@ -95,7 +95,7 @@ pub struct GadgetNode<B: SnarkBackend> {
     /// mode**: when no downstream gadget consumes the narrowed
     /// char-level activator (the plan-level composition — MCPM re-derives
     /// its own consistent pair via its internal LengthFilteringCheck, and
-    /// the remat path reads the rematerialized table's fresh side
+    /// the compaction path reads the compacted table's fresh side
     /// activator), `char-act'` has no consumer, so committing and
     /// DPUC-checking it proves a statement nothing relies on while
     /// costing char-domain-scale work. Row-only keeps the complete

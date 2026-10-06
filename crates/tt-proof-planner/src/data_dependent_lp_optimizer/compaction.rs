@@ -3,14 +3,14 @@ use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{BinaryExpr, Expr, LogicalPlan, Operator};
 use std::collections::BTreeSet;
 use tt_core::irs::nodes::plan::{
-    rematerialize::{RematerializeLogicalNode, wrap_logical_plan},
+    compaction::{CompactionLogicalNode, wrap_logical_plan},
     result_check::ResultCheckLogicalNode,
 };
 
 use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
 
 /// Data-dependent rule that wraps Filter / Aggregate nodes in a
-/// `RematerializeLogicalNode` whenever the node's output row count fits in
+/// `CompactionLogicalNode` whenever the node's output row count fits in
 /// a strictly smaller power-of-two hypercube than its input — unless
 /// nothing downstream would read the compacted table. A node in the
 /// *result tail* (only Projections and SubqueryAliases between it and the
@@ -21,17 +21,17 @@ use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
 /// excluded because wrapping it triggers prover-side `FalseClaim` panics on
 /// queries with explicit `LIMIT` (Q3, Q10).
 #[derive(Debug, Default)]
-pub struct RematerializeRule;
+pub struct CompactionRule;
 
-impl RematerializeRule {
+impl CompactionRule {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl DataDependentOptimizationRule for RematerializeRule {
+impl DataDependentOptimizationRule for CompactionRule {
     fn name(&self) -> &str {
-        "rematerialize"
+        "compaction"
     }
 
     fn collect_hints(
@@ -41,20 +41,20 @@ impl DataDependentOptimizationRule for RematerializeRule {
     ) -> DataFusionResult<Vec<OptimizationHint>> {
         let mut hints = Vec::new();
         let mut path = Vec::new();
-        collect_rematerialize_hints(session_state, plan, false, &mut path, &mut hints)?;
+        collect_compaction_hints(session_state, plan, false, &mut path, &mut hints)?;
         Ok(hints)
     }
 }
 
-fn collect_rematerialize_hints(
+fn collect_compaction_hints(
     session_state: &SessionState,
     plan: &LogicalPlan,
     in_result_tail: bool,
     path: &mut Vec<usize>,
     hints: &mut Vec<OptimizationHint>,
 ) -> DataFusionResult<()> {
-    if !in_result_tail && should_rematerialize(session_state, plan)? {
-        hints.push(OptimizationHint::Rematerialize {
+    if !in_result_tail && should_compact(session_state, plan)? {
+        hints.push(OptimizationHint::Compaction {
             target_path: path.clone(),
         });
         // Keep walking: stacked shrinking filters (e.g. the LIKE
@@ -68,21 +68,21 @@ fn collect_rematerialize_hints(
 
     for (idx, input) in plan.inputs().into_iter().enumerate() {
         path.push(idx);
-        collect_rematerialize_hints(session_state, input, child_in_result_tail, path, hints)?;
+        collect_compaction_hints(session_state, input, child_in_result_tail, path, hints)?;
         path.pop();
     }
     Ok(())
 }
 
-pub(super) fn apply_rematerialize_hints(
+pub(super) fn apply_compaction_hints(
     plan: LogicalPlan,
     path: &mut Vec<usize>,
     remaining_paths: &mut BTreeSet<Vec<usize>>,
 ) -> DataFusionResult<LogicalPlan> {
-    apply_rematerialize_hints_with_result_check_guard(plan, path, remaining_paths, false)
+    apply_compaction_hints_with_result_check_guard(plan, path, remaining_paths, false)
 }
 
-fn apply_rematerialize_hints_with_result_check_guard(
+fn apply_compaction_hints_with_result_check_guard(
     plan: LogicalPlan,
     path: &mut Vec<usize>,
     remaining_paths: &mut BTreeSet<Vec<usize>>,
@@ -90,7 +90,7 @@ fn apply_rematerialize_hints_with_result_check_guard(
 ) -> DataFusionResult<LogicalPlan> {
     let was_hit = remaining_paths.remove(path);
 
-    // Match `collect_rematerialize_hints`, so a hint collected elsewhere
+    // Match `collect_compaction_hints`, so a hint collected elsewhere
     // (an older proof, a different rule set) can never wrap a tail node.
     let child_in_result_tail = child_in_result_tail(&plan, in_result_tail);
 
@@ -103,7 +103,7 @@ fn apply_rematerialize_hints_with_result_check_guard(
         .enumerate()
         .map(|(idx, input)| {
             path.push(idx);
-            let rewritten = apply_rematerialize_hints_with_result_check_guard(
+            let rewritten = apply_compaction_hints_with_result_check_guard(
                 input.clone(),
                 path,
                 remaining_paths,
@@ -119,7 +119,7 @@ fn apply_rematerialize_hints_with_result_check_guard(
         if in_result_tail {
             return Ok(rewritten);
         }
-        ensure_rematerialize_target(&rewritten, path)?;
+        ensure_compaction_target(&rewritten, path)?;
         Ok(wrap_logical_plan(rewritten))
     } else {
         Ok(rewritten)
@@ -156,19 +156,19 @@ pub(super) fn expressions_for_with_new_exprs(plan: &LogicalPlan) -> Vec<Expr> {
     plan.expressions()
 }
 
-fn ensure_rematerialize_target(plan: &LogicalPlan, path: &[usize]) -> DataFusionResult<()> {
-    if supports_rematerialize(plan) {
+fn ensure_compaction_target(plan: &LogicalPlan, path: &[usize]) -> DataFusionResult<()> {
+    if supports_compaction(plan) {
         return Ok(());
     }
     Err(DataFusionError::Plan(format!(
-        "Rematerialize hint cannot be applied at path {:?} to plan node {}",
+        "Compaction hint cannot be applied at path {:?} to plan node {}",
         path,
         plan.display()
     )))
 }
 
-fn supports_rematerialize(plan: &LogicalPlan) -> bool {
-    // Limit is excluded: wrapping a Limit in Rematerialize triggers
+fn supports_compaction(plan: &LogicalPlan) -> bool {
+    // Limit is excluded: wrapping a Limit in Compaction triggers
     // `HonestProverError(FalseClaim)` on queries with explicit LIMIT (Q3, Q10).
     // Needs an IR-side investigation before re-enabling.
     matches!(plan, LogicalPlan::Filter(_) | LogicalPlan::Aggregate(_))
@@ -195,16 +195,13 @@ fn is_result_check_plan(plan: &LogicalPlan) -> bool {
     )
 }
 
-fn should_rematerialize(
-    session_state: &SessionState,
-    plan: &LogicalPlan,
-) -> DataFusionResult<bool> {
-    let is_rematerialize_extension = matches!(
+fn should_compact(session_state: &SessionState, plan: &LogicalPlan) -> DataFusionResult<bool> {
+    let is_compaction_extension = matches!(
         plan,
         LogicalPlan::Extension(extension)
-            if extension.node.as_any().is::<RematerializeLogicalNode>()
+            if extension.node.as_any().is::<CompactionLogicalNode>()
     );
-    if is_rematerialize_extension {
+    if is_compaction_extension {
         return Ok(false);
     }
 

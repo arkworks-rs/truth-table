@@ -1,7 +1,7 @@
-//! Rematerialize a single tracked column.
+//! Compact a single tracked column.
 //!
 //! A filter or limit can leave a column with many inactive rows while it still
-//! lives on the original hypercube dimension.  The paper’s rematerialization
+//! lives on the original hypercube dimension.  The paper’s compaction
 //! node repacks the column onto the minimal hypercube and proves correctness by
 //! (1) checking the new activator is Boolean and (2) proving a multiset
 //! equality between the old and new data.  This module implements that two-step
@@ -23,16 +23,16 @@ use ark_piop::{
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
-pub struct RematerializeCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
+pub struct CompactionCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct RematerializeCheckProverInput<B: SnarkBackend> {
+pub struct CompactionCheckProverInput<B: SnarkBackend> {
     pub input_tracked_col: TrackedCol<B>,
     pub output_tracked_col: TrackedCol<B>,
 }
 
-impl<B: SnarkBackend> DeepClone<B> for RematerializeCheckProverInput<B> {
+impl<B: SnarkBackend> DeepClone<B> for CompactionCheckProverInput<B> {
     fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             input_tracked_col: self.input_tracked_col.deep_clone(prover.clone()),
@@ -41,18 +41,18 @@ impl<B: SnarkBackend> DeepClone<B> for RematerializeCheckProverInput<B> {
     }
 }
 
-pub struct RematerializeCheckVerifierInput<B: SnarkBackend> {
+pub struct CompactionCheckVerifierInput<B: SnarkBackend> {
     pub input_tracked_col_oracle: TrackedColOracle<B>,
     pub output_tracked_col_oracle: TrackedColOracle<B>,
 }
-impl<B: SnarkBackend> PIOP<B> for RematerializeCheck<B> {
-    type ProverInput = RematerializeCheckProverInput<B>;
+impl<B: SnarkBackend> PIOP<B> for CompactionCheck<B> {
+    type ProverInput = CompactionCheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = RematerializeCheckVerifierInput<B>;
+    type VerifierInput = CompactionCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {

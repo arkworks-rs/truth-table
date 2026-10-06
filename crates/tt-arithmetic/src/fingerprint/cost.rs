@@ -7,7 +7,7 @@
 //!    a bin to test: a row-domain witness and one zerocheck over the product
 //!    of the tested bins' committed columns (a *limb* is one bin; see
 //!    [`super::LIMB_BITS`]), priced per tested bin;
-//! 2. a rematerialize of the survivors — only when they fit a strictly
+//! 2. a compaction of the survivors — only when they fit a strictly
 //!    smaller hypercube than the input (`next_pow2⁺(s) < next_pow2⁺(n)`):
 //!    a row-domain permutation and the char-domain DPUC over the compacted
 //!    strings;
@@ -17,7 +17,7 @@
 //! 4. the result check, priced separately when the matches fit a strictly
 //!    smaller hypercube than the LIKE's input rows.
 //!
-//! Stage 4 is named for a second rematerialize of the LIKE output, which
+//! Stage 4 is named for a second compaction of the LIKE output, which
 //! the planner no longer performs; the fit keeps only a small
 //! per-character term for it, and the per-stage split of this model is
 //! not to be read as a breakdown.
@@ -68,7 +68,7 @@ pub struct Shape {
     pub factors: usize,
 }
 
-/// The planner's rematerialize test: `next_power_of_two_strict`.
+/// The planner's compaction test: `next_power_of_two_strict`.
 fn pow2_strict(x: usize) -> usize {
     if x <= 1 {
         x + 1
@@ -89,15 +89,15 @@ pub const TERMS: [&str; 15] = [
     "floor",
     "prefilter",
     "touched_limb",
-    "remat",
-    "remat_rows",
-    "remat_chars",
+    "compaction",
+    "compaction_rows",
+    "compaction_chars",
     "like_chars",
     "like_chars_per_extra_literal_char",
     "like_chars_per_extra_factor",
-    "second_remat",
-    "second_remat_rows",
-    "second_remat_output_chars",
+    "second_compaction",
+    "second_compaction_rows",
+    "second_compaction_output_chars",
     "like_rows",
     "like_rows_per_extra_literal_char",
     "like_rows_per_extra_factor",
@@ -113,10 +113,10 @@ pub fn terms(shape: &Shape) -> [f64; NUM_TERMS] {
     // to a power of two, so a filter straight over the scan is compared
     // against the padded row count.
     let table_rows = shape.rows.next_power_of_two();
-    let remat = prefilter && pow2_strict(shape.survivors) < pow2_strict(table_rows);
+    let compaction = prefilter && pow2_strict(shape.survivors) < pow2_strict(table_rows);
     // What the LIKE sees, and the row count the planner compares its
     // matches against.
-    let (like_rows, like_chars, planner_rows) = if remat {
+    let (like_rows, like_chars, planner_rows) = if compaction {
         (shape.survivors, shape.survivor_chars, shape.survivors)
     } else {
         (shape.rows, shape.chars, table_rows)
@@ -131,9 +131,9 @@ pub fn terms(shape: &Shape) -> [f64; NUM_TERMS] {
         1.0,
         on(prefilter),
         shape.touched_limbs as f64,
-        on(remat),
-        on(remat) * domain(shape.survivors as f64),
-        on(remat) * domain(shape.survivor_chars),
+        on(compaction),
+        on(compaction) * domain(shape.survivors as f64),
+        on(compaction) * domain(shape.survivor_chars),
         like_domain,
         like_domain * (shape.literal_len as f64 - 1.0),
         like_domain * (shape.factors as f64 - 1.0),
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(t[3], 1.0);
         assert_eq!(t[9], 1.0);
         // A table with no padding and a pre-filter that drops nothing: no
-        // remat, and stage 4 only when matches shrink.
+        // compaction, and stage 4 only when matches shrink.
         let mut full = shape(1 << 18, 1 << 18, 1);
         full.rows = 1 << 18;
         let t = terms(&full);

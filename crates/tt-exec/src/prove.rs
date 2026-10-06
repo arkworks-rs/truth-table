@@ -119,7 +119,7 @@ impl ProveBuilder {
     }
 
     /// Override the data-dependent optimizer rule list. Primarily used by
-    /// ablation benchmarks that want to disable rematerialize (or future
+    /// ablation benchmarks that want to disable compaction (or future
     /// data-dependent rules) without rebuilding the production rule set.
     pub fn with_data_dependent_rules(
         mut self,

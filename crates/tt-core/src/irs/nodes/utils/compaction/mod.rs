@@ -27,7 +27,7 @@ pub struct GadgetNode<B: SnarkBackend> {
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
-        "Rematerialization".to_string()
+        "CompactionCheck".to_string()
     }
 
     fn display(&self) -> String {
@@ -75,11 +75,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let input = payload
             .get(INPUT_LABEL)
             .cloned()
-            .unwrap_or_else(|| panic!("Rematerialization gadget missing {}", INPUT_LABEL));
+            .unwrap_or_else(|| panic!("Compaction gadget missing {}", INPUT_LABEL));
         let output = payload
             .get(OUTPUT_LABEL)
             .cloned()
-            .unwrap_or_else(|| panic!("Rematerialization gadget missing {}", OUTPUT_LABEL));
+            .unwrap_or_else(|| panic!("Compaction gadget missing {}", OUTPUT_LABEL));
 
         populate_bool_payload_prover(&self.bool_check_gadget, &output, virtualized_ir)?;
         populate_perm_payloads_prover(&self.perm_check_gadget, &input, &output, virtualized_ir)?;
@@ -118,11 +118,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let input = payload
             .get(INPUT_LABEL)
             .cloned()
-            .unwrap_or_else(|| panic!("Rematerialization gadget missing {}", INPUT_LABEL));
+            .unwrap_or_else(|| panic!("Compaction gadget missing {}", INPUT_LABEL));
         let output = payload
             .get(OUTPUT_LABEL)
             .cloned()
-            .unwrap_or_else(|| panic!("Rematerialization gadget missing {}", OUTPUT_LABEL));
+            .unwrap_or_else(|| panic!("Compaction gadget missing {}", OUTPUT_LABEL));
 
         populate_bool_payload_verifier(&self.bool_check_gadget, &output, virtualized_ir)?;
         populate_perm_payloads_verifier(&self.perm_check_gadget, &input, &output, virtualized_ir)?;
@@ -198,7 +198,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
 fn bool_table_from_output_prover<B: SnarkBackend>(output: &TrackedTable<B>) -> TrackedTable<B> {
     let activator = output
         .activator_tracked_poly()
-        .expect("Rematerialization output should carry an activator column");
+        .expect("Compaction output should carry an activator column");
     // Use a non-system field name so BoolCheck treats it as data.
     let field = Arc::new(Field::new("data", DataType::Boolean, false));
     let mut tracked_polys = IndexMap::new();
@@ -212,7 +212,7 @@ fn bool_table_from_output_verifier<B: SnarkBackend>(
 ) -> TrackedTableOracle<B> {
     let activator = output
         .activator_tracked_poly()
-        .expect("Rematerialization output should carry an activator column");
+        .expect("Compaction output should carry an activator column");
     // Use a non-system field name so BoolCheck treats it as data.
     let field = Arc::new(Field::new("data", DataType::Boolean, false));
     let mut tracked_oracles = IndexMap::new();

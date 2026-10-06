@@ -12,7 +12,7 @@ end_to_end_tests!(&["nation"] => [
     simple_like_infix_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%haggle%'"#,
     // `%slyly%` leaves more pre-filter survivors than true matches (10 vs
     // 8 under the 128-bin rule), so `next_pow2(matches) < next_pow2(survivors)`
-    // and the planner compacts a SECOND time after the LIKE — a rematerialize
+    // and the planner compacts a SECOND time after the LIKE — a compaction
     // + DPUC + lookup stage that the `%haggle%` shape never reaches. The
     // ORDER BY is what keeps that compaction: a LIKE whose output only
     // reaches a projection and the result check is no longer compacted.
@@ -90,7 +90,7 @@ end_to_end_tests!(&["orders"] => [
     // pre-filter really runs.
     like_infix_orders_special_requests => r#"SELECT o_orderkey FROM orders WHERE o_comment LIKE '%special%requests%'"#,
     // 5 110 survivors under the old entropy rule: 2^13 compacted rows with
-    // 2^19 chars, so the rematerialization's offset no-dup sorts a column
+    // 2^19 chars, so the compaction's offset no-dup sorts a column
     // of 2^19 rows. That size once broke the sort's window-function diffs
     // at a batch boundary (a zero diff the strict sign check rejects);
     // diffs are now computed on collected arrays for every integer type.

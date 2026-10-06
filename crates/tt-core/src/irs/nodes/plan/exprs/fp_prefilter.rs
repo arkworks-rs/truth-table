@@ -8,8 +8,8 @@
 //! which of the pattern's bins the pre-filter tests (the prover's greedy
 //! under the cost model), or drops the pre-filter when testing none is
 //! cheapest. When the pre-filter drops
-//! enough rows the data-dependent `RematerializeRule` wraps this node's
-//! Filter in a `Rematerialize`, shrinking both the row and char domains
+//! enough rows the data-dependent `CompactionRule` wraps this node's
+//! Filter in a `Compaction`, shrinking both the row and char domains
 //! MCPM sees.
 //!
 //! The predicate is the `tt_prefilter(col, pattern, bins)` scalar UDF
@@ -744,10 +744,10 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     }
 
     /// The pre-filter reads only fingerprint limbs, but the LIKE above it
-    /// reads this column's characters. A `Rematerialize` over the
+    /// reads this column's characters. A `Compaction` over the
     /// pre-filter compacts those characters, and decides whether to bind
     /// them (the DPUC) from its input subtree's side columns
-    /// ([`crate::irs::nodes::plan::rematerialize::single_side_string_base`]).
+    /// ([`crate::irs::nodes::plan::compaction::single_side_string_base`]).
     /// Without this declaration that compaction re-emits the characters
     /// unbound.
     fn required_side_columns(&self) -> Vec<String> {
@@ -984,7 +984,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         .clone();
         // Row-only PIOP 8: the plan-level composition never consumes the
         // narrowed char activator (MCPM re-derives its own consistent
-        // pair, and the remat path uses the rematerialized table's fresh
+        // pair, and the compaction path uses the compacted table's fresh
         // side activator), so the char-domain DPUC half is omitted.
         let gadget = phi.map(|phi| {
             Arc::new(Node::<B>::Gadget(Arc::new(

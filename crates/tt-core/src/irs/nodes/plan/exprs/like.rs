@@ -1379,7 +1379,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             std::sync::Arc::new(df.schema().as_arrow().clone());
         let batches = collect_blocking_like(df).ok()?;
         let schema = batches.first().map_or(schema, |b| b.schema());
-        // A rematerialized input yields raw (non-power-of-two) row counts;
+        // A compacted input yields raw (non-power-of-two) row counts;
         // pad with the same canonical inactive padding the materialization
         // pass applied to the committed tables, so the scanned witness
         // matches the commitments row for row. No-op when already padded.
