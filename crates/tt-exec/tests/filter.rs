@@ -10,6 +10,29 @@ end_to_end_tests!(&["lineitem"] => [
 
 end_to_end_tests!(&["nation"] => [
     simple_like_infix_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%haggle%'"#,
+    // `%slyly%` leaves more pre-filter survivors than true matches (10 vs
+    // 8 under the 128-bin rule), so `next_pow2(matches) < next_pow2(survivors)`
+    // and the planner compacts a SECOND time after the LIKE — a rematerialize
+    // + DPUC + lookup stage that the `%haggle%` shape never reaches. The
+    // ORDER BY is what keeps that compaction: a LIKE whose output only
+    // reaches a projection and the result check is no longer compacted.
+    // Without this case the second-stage DPUC has no verifying coverage.
+    like_infix_nation_second_compaction => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%slyly%' ORDER BY n_name"#,
+    // The same LIKE with nothing but the projection above it: the planner
+    // now leaves its output uncompacted, and the result check takes the
+    // LIKE's own domain.
+    like_infix_nation_uncompacted_tail => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%slyly%'"#,
+    // Multi-factor LIKE: factors match in order, without overlap, and a row
+    // that misses a factor is out (13 rows).
+    like_two_factors_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%the%ly%'"#,
+    // No row has the first factor, so nothing matches — even rows that
+    // have the second one.
+    like_first_factor_absent_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%zqzq%the%'"#,
+    // A repeated factor needs two separate occurrences (17 rows).
+    like_repeated_factor_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%ly%ly%'"#,
+    // Suffix on the LAST string, whose successor slot is padding.
+    like_suffix_last_string_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%be'"#,
+    like_prefix_and_suffix_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE 'y%be'"#,
 ]);
 
 // Small-scale equality-filter reproducer on `part` (16k rows → nv=14).
@@ -61,8 +84,25 @@ async fn equality_filter_orders() {
     .expect("end-to-end: equality_filter_orders");
 }
 
+end_to_end_tests!(&["orders"] => [
+    // `o_comment` (75 000 rows) gets its own rule at commit, like every
+    // string column. The pattern matches 910 rows (1.2 %), so the
+    // pre-filter really runs.
+    like_infix_orders_special_requests => r#"SELECT o_orderkey FROM orders WHERE o_comment LIKE '%special%requests%'"#,
+    // 5 110 survivors under the old entropy rule: 2^13 compacted rows with
+    // 2^19 chars, so the rematerialization's offset no-dup sorts a column
+    // of 2^19 rows. That size once broke the sort's window-function diffs
+    // at a batch boundary (a zero diff the strict sign check rejects);
+    // diffs are now computed on collected arrays for every integer type.
+    like_infix_orders_final_requests => r#"SELECT o_orderkey FROM orders WHERE o_comment LIKE '%final%requests%'"#,
+]);
+
 end_to_end_tests!(&["lineitem"] => [
     simple_like_infix_lineitem => r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%green%'"#,
+    // Matches nothing, and the pre-filter's chosen bins keep no row either,
+    // so the LIKE sees an empty input: its plan hints must still be built
+    // from the padded empty table.
+    like_prefilter_keeps_no_row => r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%quickly%xylophone%'"#,
 ]);
 
 /// Bench-scale lineitem LIKE: routed through

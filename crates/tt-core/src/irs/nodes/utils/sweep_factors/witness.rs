@@ -5,8 +5,8 @@
 //! `[(pat_j, mode_j)]`, this module computes every per-factor witness
 //! column that `SweepFactors` expects: `occurs`, `match`, `mark`,
 //! `start`, `match_broadcast`, `start_broadcast`, `leftmost_mask`,
-//! `rotated_char`, plus mode-specific `att_mask` (suffix) and
-//! `rotated_bnd` (infix), plus per-inter-factor `past`.
+//! `rotated_char`, plus mode-specific `rotated_bnd` (infix and suffix),
+//! `rotated_int_ind` and `end` (suffix), plus per-inter-factor `past`.
 //!
 //! Additionally emits the outer MCPM witnesses driven by SweepFactors's
 //! output: length-filter outputs `(char_act_old_prime, a_old_prime)`
@@ -17,9 +17,9 @@
 //!
 //! For each factor `j` (processed in order):
 //! 1. Compute effective char-alive `alive_c_{j-1}` (= `char_act` for
-//!    j=0, else `alive_c_{j-2} · past_{j-1}`).
+//!    j=0, else `alive_c_{j-2} · past_{j-1} · match_broadcast_{j-1}`).
 //! 2. Compute `att_mask_j` from `alive_c_{j-1}` and `bnd` per the
-//!    factor's mode.
+//!    factor's mode (a suffix occurrence must also end its string).
 //! 3. Compute `occurs_j[c]`: `1` iff `att_mask_j[c] = 1` AND the
 //!    rotated char columns at position `c` match `pat_j` exactly.
 //! 4. Choose `mark_j[c]` = leftmost `c` per string with `occurs_j[c]
@@ -30,8 +30,10 @@
 //!    else 0 for unmatched.
 //! 7. Compute `start_broadcast_j[c] = start_j[orig_ind[c]]`.
 //! 8. Compute `leftmost_mask_j[c] = 1 iff int_ind[c] < start_broadcast_j[c]`.
-//! 9. If `j < t-1`, compute `past_j[c] = 1 iff int_ind[c] >
-//!    start_broadcast_j[c]`.
+//! 9. If `j < t-1`, compute `past_j[c] = 1 iff int_ind[c] ≥
+//!    start_broadcast_j[c] + |pat_j|` and keep alive only the chars after
+//!    the occurrence inside matched strings:
+//!    `alive_c_j = alive_c_{j-1} · past_j · match_broadcast_j`.
 //!
 //! # Types
 //!
@@ -94,6 +96,15 @@ pub struct ScannedTables<F: PrimeField> {
 pub struct McpmWitness<F: PrimeField> {
     /// Per-factor witnesses, one entry per factor (0-indexed).
     pub per_factor: Vec<FactorWitness<F>>,
+    /// `char^{(δ)}` for δ < `max_j k_j`, shared by every factor:
+    /// a rotation depends only on its shift, never on which factor asked
+    /// for it, so factor `j` reads the first `k_j` of these. Sharing them
+    /// keeps one copy of each column instead of one per factor.
+    pub rotated_chars: Vec<Vec<F>>,
+    /// `bnd^{(δ)}` for `1 ≤ δ < max k_j` over the infix and suffix
+    /// factors, shared the same way; empty when no factor masks with
+    /// `bnd`. Factor `j` reads the first `k_j - 1`.
+    pub rotated_bnd: Vec<Vec<F>>,
     /// LFC output: char_act_old_prime (char-level boolean).
     pub char_act_old_prime: Vec<F>,
     /// LFC output: a_old_prime (str-level boolean).
@@ -108,8 +119,6 @@ pub struct McpmWitness<F: PrimeField> {
 
 #[derive(Clone)]
 pub struct FactorWitness<F: PrimeField> {
-    /// `char^{(δ)}` for δ = 0..k-1. `char^{(0)} = char`.
-    pub rotated_chars: Vec<Vec<F>>,
     pub occurs: Vec<F>,
     pub match_str: Vec<F>,
     pub mark: Vec<F>,
@@ -117,10 +126,12 @@ pub struct FactorWitness<F: PrimeField> {
     pub match_broadcast: Vec<F>,
     pub start_broadcast: Vec<F>,
     pub leftmost_mask: Vec<F>,
-    /// Suffix mode only.
-    pub att_mask: Option<Vec<F>>,
-    /// Infix mode, k ≥ 2 only. Columns `bnd(1), …, bnd(k-1)` in order.
-    pub rotated_bnd: Option<Vec<Vec<F>>>,
+    /// Suffix mode only: `int_ind(k)`, the internal index rotated left by
+    /// `k`.
+    pub rotated_int_ind: Option<Vec<F>>,
+    /// Suffix mode only: `end[c] = 1 iff int_ind(k)[c] ≠ int_ind[c] + k`,
+    /// i.e. an occurrence at `c` ends its string.
+    pub end: Option<Vec<F>>,
     /// For `j < t - 1` only.
     pub past: Option<Vec<F>>,
 }
@@ -180,6 +191,28 @@ pub fn compute_mcpm_witness<F: PrimeField>(
         })
         .collect();
 
+    // ---- Shared rotations ----
+    // `shift_left` depends only on the shift, so every factor's `char^{(δ)}`
+    // and `bnd^{(δ)}` at the same δ are the same column. Build each once for
+    // the widest factor and let the others read a prefix.
+    let max_k = factors.iter().map(|(pat, _)| pat.len()).max().unwrap_or(0);
+    let mut rotated_chars: Vec<Vec<F>> = Vec::with_capacity(max_k);
+    if max_k > 0 {
+        rotated_chars.push(tables.char.clone());
+    }
+    for delta in 1..max_k {
+        rotated_chars.push(shift_left(&tables.char, delta));
+    }
+    let max_bnd_k = factors
+        .iter()
+        .filter(|(_, mode)| matches!(mode, Mode::Infix | Mode::Suffix))
+        .map(|(pat, _)| pat.len())
+        .max()
+        .unwrap_or(0);
+    let rotated_bnd: Vec<Vec<F>> = (1..max_bnd_k)
+        .map(|delta| shift_left(&tables.bnd, delta))
+        .collect();
+
     // ---- Sweep per factor ----
     let mut per_factor: Vec<FactorWitness<F>> = Vec::with_capacity(t);
     let mut alive_c: Vec<F> = char_act_old_prime.clone();
@@ -191,52 +224,56 @@ pub fn compute_mcpm_witness<F: PrimeField>(
     for (j, (pat, mode)) in factors.iter().enumerate() {
         let k = pat.len();
 
-        // Precompute rotated char columns: char^(δ) for δ = 0..k-1.
-        let mut rotated_chars: Vec<Vec<F>> = Vec::with_capacity(k);
-        rotated_chars.push(tables.char.clone());
-        for delta in 1..k {
-            rotated_chars.push(shift_left(&tables.char, delta));
-        }
-
-        // Precompute rotated bnd columns for infix mode: bnd(δ) for δ = 1..k-1.
+        // This factor's view of the shared rotations: char^(δ) for
+        // δ = 0..k-1, and (infix and suffix, k ≥ 2) bnd(δ) for δ = 1..k-1.
         // bnd(0) = bnd is implicit.
-        let rotated_bnd: Option<Vec<Vec<F>>> = match mode {
-            Mode::Infix if k >= 2 => {
-                Some((1..k).map(|delta| shift_left(&tables.bnd, delta)).collect())
-            }
+        let rotated_chars = &rotated_chars[..k];
+        let rotated_bnd: Option<&[Vec<F>]> = match mode {
+            Mode::Infix | Mode::Suffix if k >= 2 => Some(&rotated_bnd[..k - 1]),
             _ => None,
+        };
+
+        // Suffix: an occurrence at c ends its string iff the slot k to its
+        // right is not the next char of the same string (it starts the
+        // next string or is padding, both internal index 0).
+        let (rotated_int_ind, end) = match mode {
+            Mode::Suffix => {
+                let rotated = shift_left(&tables.int_ind, k);
+                let end: Vec<F> = (0..n_chars)
+                    .map(|c| {
+                        if rotated[c] != tables.int_ind[c] + F::from(k as u64) {
+                            F::one()
+                        } else {
+                            F::zero()
+                        }
+                    })
+                    .collect();
+                (Some(rotated), Some(end))
+            }
+            _ => (None, None),
         };
 
         // Compute att_mask.
         //   Prefix: alive_c · bnd
-        //   Suffix: ρ_{-k}(alive_c · bnd)
         //   Infix:  alive_c · (1 − Σ_{δ=1..k-1} bnd(δ))
-        let (att_mask, att_mask_witness_slot): (Vec<F>, Option<Vec<F>>) = match mode {
-            Mode::Prefix => {
-                let am: Vec<F> = (0..n_chars).map(|c| alive_c[c] * tables.bnd[c]).collect();
-                (am, None)
-            }
-            Mode::Suffix => {
-                let base: Vec<F> = (0..n_chars).map(|c| alive_c[c] * tables.bnd[c]).collect();
-                let am = shift_left(&base, k);
-                let am_clone = am.clone();
-                (am, Some(am_clone))
-            }
-            Mode::Infix => {
-                let am: Vec<F> = (0..n_chars)
-                    .map(|c| {
-                        // 1 - Σ bnd(δ) for δ = 1..k-1
-                        let mut sum = F::zero();
-                        if let Some(rb) = rotated_bnd.as_ref() {
-                            for col in rb.iter() {
-                                sum += col[c];
-                            }
+        //   Suffix: the infix mask · end
+        let att_mask: Vec<F> = match mode {
+            Mode::Prefix => (0..n_chars).map(|c| alive_c[c] * tables.bnd[c]).collect(),
+            Mode::Infix | Mode::Suffix => (0..n_chars)
+                .map(|c| {
+                    let mut sum = F::zero();
+                    if let Some(rb) = rotated_bnd.as_ref() {
+                        for col in rb.iter() {
+                            sum += col[c];
                         }
-                        alive_c[c] * (F::one() - sum)
-                    })
-                    .collect();
-                (am, None)
-            }
+                    }
+                    let base = alive_c[c] * (F::one() - sum);
+                    match end.as_ref() {
+                        Some(end) => base * end[c],
+                        None => base,
+                    }
+                })
+                .collect(),
         };
 
         // occurs[c] = 1 iff att_mask[c]=1 AND rotated_chars[δ][c] == pat[δ] for all δ.
@@ -324,12 +361,13 @@ pub fn compute_mcpm_witness<F: PrimeField>(
             })
             .collect();
 
-        // past[c] = 1 iff int_ind[c] > start_broadcast[c] (only if j < t-1).
+        // past[c] = 1 iff int_ind[c] >= start_broadcast[c] + k (only if
+        // j < t-1): the next factor starts after this occurrence ends.
         let past: Option<Vec<F>> = if j + 1 < t {
             Some(
                 (0..n_chars)
                     .map(|c| {
-                        if as_usize(tables.int_ind[c]) > as_usize(start_broadcast[c]) {
+                        if as_usize(tables.int_ind[c]) >= as_usize(start_broadcast[c]) + k {
                             F::one()
                         } else {
                             F::zero()
@@ -341,17 +379,17 @@ pub fn compute_mcpm_witness<F: PrimeField>(
             None
         };
 
-        // Update alive_c state for next round via past_j. alive_h is
-        // implicit — the next round's activator is match_{j} which is
-        // the current factor's `match_str`, already captured in
-        // `per_factor` and available to the caller.
+        // Update alive_c for the next round: chars past this occurrence,
+        // inside strings that matched this factor. alive_h is implicit —
+        // the next round's activator is match_{j}, captured in
+        // `per_factor`.
         if let Some(ref p) = past {
-            let new_alive_c: Vec<F> = (0..n_chars).map(|c| alive_c[c] * p[c]).collect();
-            alive_c = new_alive_c;
+            alive_c = (0..n_chars)
+                .map(|c| alive_c[c] * p[c] * match_broadcast[c])
+                .collect();
         }
 
         per_factor.push(FactorWitness {
-            rotated_chars,
             occurs,
             match_str,
             mark,
@@ -359,8 +397,8 @@ pub fn compute_mcpm_witness<F: PrimeField>(
             match_broadcast,
             start_broadcast,
             leftmost_mask,
-            att_mask: att_mask_witness_slot,
-            rotated_bnd,
+            rotated_int_ind,
+            end,
             past,
         });
     }
@@ -384,6 +422,8 @@ pub fn compute_mcpm_witness<F: PrimeField>(
 
     McpmWitness {
         per_factor,
+        rotated_chars,
+        rotated_bnd,
         char_act_old_prime,
         a_old_prime,
         char_act_new,
@@ -457,13 +497,14 @@ mod tests {
         assert_eq!(w.per_factor[0].mark, u(&[1, 0, 0, 0, 1, 0, 0, 0]));
         assert_eq!(w.per_factor[0].start, u(&[0, 0, 0, 0, 0, 0, 0, 0]));
         assert_eq!(w.per_factor[0].leftmost_mask, u(&[0, 0, 0, 0, 0, 0, 0, 0]));
+        // Past "ab": only chars at int_ind ≥ 0 + 2.
         assert_eq!(
             w.per_factor[0].past.as_ref().unwrap(),
-            &u(&[0, 1, 1, 1, 0, 1, 1, 1])
+            &u(&[0, 0, 1, 1, 0, 0, 1, 1])
         );
 
         // Factor 1 = "cd" (against alive_c_0 = char_act_old_prime = all 1s,
-        // gated by past_0). Match at int_ind = 2 of each string.
+        // gated by past_0 and match_0). Match at int_ind = 2 of each string.
         assert_eq!(w.per_factor[1].occurs, u(&[0, 0, 1, 0, 0, 0, 1, 0]));
         assert_eq!(w.per_factor[1].match_str, u(&[1, 1, 0, 0, 0, 0, 0, 0]));
         assert_eq!(w.per_factor[1].mark, u(&[0, 0, 1, 0, 0, 0, 1, 0]));
@@ -516,5 +557,101 @@ mod tests {
         assert_eq!(w.per_factor[0].occurs, u(&[0, 0, 0, 0]));
         assert_eq!(w.per_factor[0].match_str, u(&[0, 0, 0, 0]));
         assert_eq!(w.a_new, u(&[0, 0, 0, 0]));
+    }
+
+    use ark_ff::{One, Zero};
+
+    /// SQL LIKE with `%` only: the reference the honest witness must agree
+    /// with.
+    fn sql_like(s: &[u8], p: &[u8]) -> bool {
+        match p.split_first() {
+            None => s.is_empty(),
+            Some((b'%', rest)) => (0..=s.len()).any(|i| sql_like(&s[i..], rest)),
+            Some((&c, rest)) => s.first() == Some(&c) && sql_like(&s[1..], rest),
+        }
+    }
+
+    /// Lay `strings` out as the scanned tables (all strings active).
+    fn tables_of(strings: &[Vec<u8>]) -> ScannedTables<F> {
+        let n_strs = strings.len().next_power_of_two().max(2);
+        let total: usize = strings.iter().map(Vec::len).sum();
+        let n_chars = total.next_power_of_two().max(2);
+        let (mut char, mut orig_ind, mut int_ind, mut bnd, mut char_act) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for (i, s) in strings.iter().enumerate() {
+            for (j, &b) in s.iter().enumerate() {
+                char.push(F::from(b as u64));
+                orig_ind.push(F::from(i as u64));
+                int_ind.push(F::from(j as u64));
+                bnd.push(F::from(u64::from(j == 0)));
+                char_act.push(F::one());
+            }
+        }
+        for v in [
+            &mut char,
+            &mut orig_ind,
+            &mut int_ind,
+            &mut bnd,
+            &mut char_act,
+        ] {
+            v.resize(n_chars, F::zero());
+        }
+        let mut a = vec![F::one(); strings.len()];
+        a.resize(n_strs, F::zero());
+        let mut l: Vec<F> = strings.iter().map(|s| F::from(s.len() as u64)).collect();
+        l.resize(n_strs, F::zero());
+        ScannedTables {
+            char,
+            orig_ind,
+            int_ind,
+            bnd,
+            char_act,
+            char_domain: n_chars.trailing_zeros() as usize,
+            ind: (0..n_strs).map(|i| F::from(i as u64)).collect(),
+            a,
+            l,
+            str_domain: n_strs.trailing_zeros() as usize,
+        }
+    }
+
+    #[test]
+    fn witness_verdict_matches_sql_like() {
+        let mut state = 0x853c_49e6_748f_ea9bu64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % bound as u64) as usize
+        };
+        for round in 0..300 {
+            let strings: Vec<Vec<u8>> = (0..1 + next(6))
+                .map(|_| (0..1 + next(8)).map(|_| b"abc"[next(3)]).collect())
+                .collect();
+            let mut pattern = Vec::new();
+            if next(3) != 0 {
+                pattern.push(b'%');
+            }
+            for f in 0..1 + next(3) {
+                if f > 0 {
+                    pattern.push(b'%');
+                }
+                pattern.extend((0..1 + next(3)).map(|_| b"abc"[next(3)]));
+            }
+            if next(3) != 0 || !pattern.contains(&b'%') {
+                pattern.push(b'%');
+            }
+            let text = String::from_utf8(pattern.clone()).unwrap();
+            let factors =
+                crate::irs::nodes::utils::sweep_factors::parse_like_pattern::<F>(&text).unwrap();
+            let w = compute_mcpm_witness(&tables_of(&strings), &factors);
+            for (i, s) in strings.iter().enumerate() {
+                assert_eq!(
+                    w.a_new[i] == F::one(),
+                    sql_like(s, &pattern),
+                    "round {round}: {:?} LIKE {text:?}",
+                    String::from_utf8_lossy(s)
+                );
+            }
+        }
     }
 }

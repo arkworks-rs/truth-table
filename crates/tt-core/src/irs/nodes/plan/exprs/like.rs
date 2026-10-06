@@ -499,17 +499,35 @@ impl<B: SnarkBackend> ExprNode<B> {
             match_broadcast: TrackedPoly<B>,
             start_broadcast: TrackedPoly<B>,
             leftmost_mask: TrackedPoly<B>,
-            att_mask: Option<TrackedPoly<B>>,
             rotated_bnd: Option<Vec<TrackedPoly<B>>>,
+            rotated_int_ind: Option<TrackedPoly<B>>,
+            end: Option<TrackedPoly<B>>,
             past: Option<TrackedPoly<B>>,
         }
 
+        // The rotations are shared by every factor (see `McpmWitness`), so
+        // they are committed once here rather than once per factor, and each
+        // factor below takes the prefix it needs. The verifier tracks them in
+        // exactly this order.
+        //
+        // This sharing buys no time: a clean A/B on a two-factor pattern
+        // (2^23 chars, no pre-filter) measured 398.7 s / 80.34 GB with one
+        // copy per factor against 403.7 s / 80.40 GB shared. What an extra
+        // factor costs is its own gadget proofs in `FactorPlacement`, not
+        // its commitments — do not re-run that experiment.
+        let mut shared_rotated_chars = Vec::with_capacity(witness.rotated_chars.len());
+        for col in witness.rotated_chars.iter() {
+            shared_rotated_chars.push(commit_prover(&tracker_rc, char_domain, col.clone())?);
+        }
+        let mut shared_rotated_bnd = Vec::with_capacity(witness.rotated_bnd.len());
+        for col in witness.rotated_bnd.iter() {
+            shared_rotated_bnd.push(commit_prover(&tracker_rc, char_domain, col.clone())?);
+        }
+
         let mut per_factor_polys: Vec<FactorPolys<B>> = Vec::with_capacity(self.factors.len());
-        for fw in witness.per_factor.iter() {
-            let mut rotated_chars = Vec::with_capacity(fw.rotated_chars.len());
-            for col in fw.rotated_chars.iter() {
-                rotated_chars.push(commit_prover(&tracker_rc, char_domain, col.clone())?);
-            }
+        for ((pat, mode), fw) in self.factors.iter().zip(witness.per_factor.iter()) {
+            let k = pat.len();
+            let rotated_chars = shared_rotated_chars[..k].to_vec();
             let occurs = commit_prover(&tracker_rc, char_domain, fw.occurs.clone())?;
             let match_str = commit_prover(&tracker_rc, str_domain, fw.match_str.clone())?;
             let mark = commit_prover(&tracker_rc, char_domain, fw.mark.clone())?;
@@ -519,19 +537,17 @@ impl<B: SnarkBackend> ExprNode<B> {
             let start_broadcast =
                 commit_prover(&tracker_rc, char_domain, fw.start_broadcast.clone())?;
             let leftmost_mask = commit_prover(&tracker_rc, char_domain, fw.leftmost_mask.clone())?;
-            let att_mask = if let Some(am) = &fw.att_mask {
-                Some(commit_prover(&tracker_rc, char_domain, am.clone())?)
-            } else {
-                None
+            let rotated_bnd = match mode {
+                Mode::Infix | Mode::Suffix if k >= 2 => Some(shared_rotated_bnd[..k - 1].to_vec()),
+                _ => None,
             };
-            let rotated_bnd = if let Some(rb) = &fw.rotated_bnd {
-                let mut cols = Vec::with_capacity(rb.len());
-                for col in rb.iter() {
-                    cols.push(commit_prover(&tracker_rc, char_domain, col.clone())?);
-                }
-                Some(cols)
-            } else {
-                None
+            let rotated_int_ind = match &fw.rotated_int_ind {
+                Some(col) => Some(commit_prover(&tracker_rc, char_domain, col.clone())?),
+                None => None,
+            };
+            let end = match &fw.end {
+                Some(col) => Some(commit_prover(&tracker_rc, char_domain, col.clone())?),
+                None => None,
             };
             let past = if let Some(p) = &fw.past {
                 Some(commit_prover(&tracker_rc, char_domain, p.clone())?)
@@ -547,8 +563,9 @@ impl<B: SnarkBackend> ExprNode<B> {
                 match_broadcast,
                 start_broadcast,
                 leftmost_mask,
-                att_mask,
                 rotated_bnd,
+                rotated_int_ind,
+                end,
                 past,
             });
         }
@@ -719,19 +736,6 @@ impl<B: SnarkBackend> ExprNode<B> {
                     ),
                 );
             }
-            if let Some(am) = fp.att_mask {
-                let am_f = Arc::new(Field::new("att_mask", DataType::UInt64, false));
-                let mut polys = IndexMap::new();
-                polys.insert(am_f.clone(), am);
-                mcpm_payload.insert(
-                    factor_label(j, "att_mask"),
-                    TrackedTable::new(
-                        Some(Schema::new(vec![am_f.as_ref().clone()])),
-                        polys,
-                        char_domain,
-                    ),
-                );
-            }
             if let Some(rb) = fp.rotated_bnd {
                 let mut polys = IndexMap::new();
                 let mut fields = Vec::with_capacity(rb.len());
@@ -745,6 +749,21 @@ impl<B: SnarkBackend> ExprNode<B> {
                     factor_label(j, "rotated_bnd"),
                     TrackedTable::new(Some(Schema::new(fields)), polys, char_domain),
                 );
+            }
+            for (label, col) in [("rotated_int_ind", fp.rotated_int_ind), ("end", fp.end)] {
+                if let Some(col) = col {
+                    let f = Arc::new(Field::new(label, DataType::UInt64, false));
+                    let mut polys = IndexMap::new();
+                    polys.insert(f.clone(), col);
+                    mcpm_payload.insert(
+                        factor_label(j, label),
+                        TrackedTable::new(
+                            Some(Schema::new(vec![f.as_ref().clone()])),
+                            polys,
+                            char_domain,
+                        ),
+                    );
+                }
             }
             if let Some(past) = fp.past {
                 let past_f = Arc::new(Field::new("past", DataType::UInt64, false));
@@ -911,18 +930,35 @@ impl<B: SnarkBackend> ExprNode<B> {
             match_broadcast: TrackedOracle<B>,
             start_broadcast: TrackedOracle<B>,
             leftmost_mask: TrackedOracle<B>,
-            att_mask: Option<TrackedOracle<B>>,
             rotated_bnd: Option<Vec<TrackedOracle<B>>>,
+            rotated_int_ind: Option<TrackedOracle<B>>,
+            end: Option<TrackedOracle<B>>,
             past: Option<TrackedOracle<B>>,
+        }
+
+        // Mirror of the prover's shared-rotation commits: one set for the
+        // whole sweep, widest factor first, then each factor's prefix.
+        let max_k = self.factors.iter().map(|(p, _)| p.len()).max().unwrap_or(0);
+        let mut shared_rotated_chars = Vec::with_capacity(max_k);
+        for _ in 0..max_k {
+            shared_rotated_chars.push(track_next_verifier(&tracker_rc)?);
+        }
+        let max_bnd_k = self
+            .factors
+            .iter()
+            .filter(|(_, mode)| matches!(mode, Mode::Infix | Mode::Suffix))
+            .map(|(p, _)| p.len())
+            .max()
+            .unwrap_or(0);
+        let mut shared_rotated_bnd = Vec::with_capacity(max_bnd_k.saturating_sub(1));
+        for _ in 1..max_bnd_k {
+            shared_rotated_bnd.push(track_next_verifier(&tracker_rc)?);
         }
 
         let mut per_factor_oracles: Vec<FactorOracles<B>> = Vec::with_capacity(self.factors.len());
         for (j, (pat, mode)) in self.factors.iter().enumerate() {
             let k = pat.len();
-            let mut rotated_chars = Vec::with_capacity(k);
-            for _ in 0..k {
-                rotated_chars.push(track_next_verifier(&tracker_rc)?);
-            }
+            let rotated_chars = shared_rotated_chars[..k].to_vec();
             let occurs = track_next_verifier(&tracker_rc)?;
             let match_str = track_next_verifier(&tracker_rc)?;
             let mark = track_next_verifier(&tracker_rc)?;
@@ -930,19 +966,18 @@ impl<B: SnarkBackend> ExprNode<B> {
             let match_broadcast = track_next_verifier(&tracker_rc)?;
             let start_broadcast = track_next_verifier(&tracker_rc)?;
             let leftmost_mask = track_next_verifier(&tracker_rc)?;
-            let att_mask = if matches!(mode, Mode::Suffix) {
-                Some(track_next_verifier(&tracker_rc)?)
+            let rotated_bnd = if matches!(mode, Mode::Infix | Mode::Suffix) && k >= 2 {
+                Some(shared_rotated_bnd[..k - 1].to_vec())
             } else {
                 None
             };
-            let rotated_bnd = if matches!(mode, Mode::Infix) && k >= 2 {
-                let mut cols = Vec::with_capacity(k - 1);
-                for _ in 1..k {
-                    cols.push(track_next_verifier(&tracker_rc)?);
-                }
-                Some(cols)
+            let (rotated_int_ind, end) = if matches!(mode, Mode::Suffix) {
+                (
+                    Some(track_next_verifier(&tracker_rc)?),
+                    Some(track_next_verifier(&tracker_rc)?),
+                )
             } else {
-                None
+                (None, None)
             };
             let past = if j + 1 < self.factors.len() {
                 Some(track_next_verifier(&tracker_rc)?)
@@ -958,8 +993,9 @@ impl<B: SnarkBackend> ExprNode<B> {
                 match_broadcast,
                 start_broadcast,
                 leftmost_mask,
-                att_mask,
                 rotated_bnd,
+                rotated_int_ind,
+                end,
                 past,
             });
         }
@@ -1130,19 +1166,6 @@ impl<B: SnarkBackend> ExprNode<B> {
                     ),
                 );
             }
-            if let Some(am) = fo.att_mask {
-                let am_f = Arc::new(Field::new("att_mask", DataType::UInt64, false));
-                let mut oracles = IndexMap::new();
-                oracles.insert(am_f.clone(), am);
-                mcpm_payload.insert(
-                    factor_label(j, "att_mask"),
-                    TrackedTableOracle::new(
-                        Some(Schema::new(vec![am_f.as_ref().clone()])),
-                        oracles,
-                        char_domain,
-                    ),
-                );
-            }
             if let Some(rb) = fo.rotated_bnd {
                 let mut oracles = IndexMap::new();
                 let mut fields = Vec::with_capacity(rb.len());
@@ -1156,6 +1179,21 @@ impl<B: SnarkBackend> ExprNode<B> {
                     factor_label(j, "rotated_bnd"),
                     TrackedTableOracle::new(Some(Schema::new(fields)), oracles, char_domain),
                 );
+            }
+            for (label, col) in [("rotated_int_ind", fo.rotated_int_ind), ("end", fo.end)] {
+                if let Some(col) = col {
+                    let f = Arc::new(Field::new(label, DataType::UInt64, false));
+                    let mut oracles = IndexMap::new();
+                    oracles.insert(f.clone(), col);
+                    mcpm_payload.insert(
+                        factor_label(j, label),
+                        TrackedTableOracle::new(
+                            Some(Schema::new(vec![f.as_ref().clone()])),
+                            oracles,
+                            char_domain,
+                        ),
+                    );
+                }
             }
             if let Some(past) = fo.past {
                 let past_f = Arc::new(Field::new("past", DataType::UInt64, false));
@@ -1333,12 +1371,24 @@ impl<B: SnarkBackend> ExprNode<B> {
             _ => return None,
         };
         let df = child_hint.data_frame().clone();
-
+        // An input with no rows (a pre-filter that kept none, the pattern
+        // matching nothing) collects to no batches; it still has a schema,
+        // and the padding below turns it into the same inactive rows the
+        // committed tables got.
+        let schema: datafusion::arrow::datatypes::SchemaRef =
+            std::sync::Arc::new(df.schema().as_arrow().clone());
         let batches = collect_blocking_like(df).ok()?;
-        if batches.is_empty() {
-            return None;
-        }
-        let schema = batches[0].schema();
+        let schema = batches.first().map_or(schema, |b| b.schema());
+        // A rematerialized input yields raw (non-power-of-two) row counts;
+        // pad with the same canonical inactive padding the materialization
+        // pass applied to the committed tables, so the scanned witness
+        // matches the commitments row for row. No-op when already padded.
+        let (batches, _row_count) =
+            crate::prover::passes::materialization::pad_batches_to_power_of_two(
+                schema.as_ref(),
+                batches,
+            )
+            .ok()?;
         let combined = datafusion::arrow::compute::concat_batches(&schema, &batches).ok()?;
 
         // Locate the Utf8/Utf8View column (the string column). Skip

@@ -4,9 +4,11 @@ PoneglyphDB, side-by-side per query.
 Reads tidy/tpch_pgn.csv. Both systems use Q=q{N} in that CSV; System
 distinguishes which prover produced the row.
 
-Output:
+Outputs:
   figures/tpch_pgn_combined.pdf — single PDF with prover time, verifier time,
                                    and proof size side-by-side, sharing one legend.
+  figures/tpch_pgn_prover.pdf, tpch_pgn_verifier.pdf, tpch_pgn_proof_size.pdf
+                                 — the same three panels as standalone figures.
 
 Usage:
   python3 tt-results/scripts/plot_pgn.py
@@ -126,19 +128,12 @@ def draw_panel(ax, value_key, ylabel):
     ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
 
 
-# Width chosen so each subplot's aspect ratio matches the original single-panel
-# figsize (10, 5.2 → 1.92:1). With height 8, each subplot wants ~15.4 wide, so
-# total width ≈ 46.
-fig, axes = plt.subplots(1, 3, figsize=(46, 8))
 panels = [
-    ("prover", "Prover Time (s)"),
-    ("verifier", "Verifier Time (ms)"),
-    ("proof_size", "Proof Size (KB)"),
+    ("prover", "Prover Time (s)", "tpch_pgn_prover.pdf"),
+    ("verifier", "Verifier Time (ms)", "tpch_pgn_verifier.pdf"),
+    ("proof_size", "Proof Size (KB)", "tpch_pgn_proof_size.pdf"),
 ]
-for ax, (key, ylabel) in zip(axes, panels):
-    draw_panel(ax, key, ylabel)
 
-# Single shared legend, centered below all three panels.
 legend_handles = [
     plt.Rectangle(
         (0, 0),
@@ -152,20 +147,39 @@ legend_handles = [
     for i in range(len(series_specs))
 ]
 legend_labels = [label for label, _ in series_specs]
-
-fig.legend(
+legend_style = dict(
     handles=legend_handles,
     labels=legend_labels,
     ncol=len(series_specs),
     loc="lower center",
-    bbox_to_anchor=(0.5, -0.02),
     handlelength=2.2,
     handleheight=1.4,
     borderpad=0.6,
     columnspacing=1.6,
 )
 
+# Width chosen so each subplot's aspect ratio matches the original single-panel
+# figsize (10, 5.2 → 1.92:1). With height 8, each subplot wants ~15.4 wide, so
+# total width ≈ 46.
+PANEL_FIGSIZE = (15.4, 8)
+
+fig, axes = plt.subplots(1, 3, figsize=(46, 8))
+for ax, (key, ylabel, _) in zip(axes, panels):
+    draw_panel(ax, key, ylabel)
+
+# Single shared legend, centered below all three panels.
+fig.legend(bbox_to_anchor=(0.5, -0.02), **legend_style)
+
 # Reserve room at the bottom for the figure-level legend.
 fig.tight_layout(rect=[0, 0.10, 1, 1])
 fig.savefig(figures_dir / "tpch_pgn_combined.pdf", bbox_inches="tight")
 plt.close(fig)
+
+# Standalone per-metric figures, legend above the axes.
+for key, ylabel, filename in panels:
+    fig, ax = plt.subplots(figsize=PANEL_FIGSIZE)
+    draw_panel(ax, key, ylabel)
+    ax.legend(bbox_to_anchor=(0.5, 1.02), **legend_style)
+    fig.tight_layout()
+    fig.savefig(figures_dir / filename, bbox_inches="tight")
+    plt.close(fig)

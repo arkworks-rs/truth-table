@@ -21,21 +21,26 @@
 //! 3. **FactorPlacement(p_j)** — one child; consumes the rebuilt inputs
 //!    plus the per-factor payload (occurs / match / mark / start /
 //!    match_broadcast / start_broadcast / leftmost_mask + mode-specific
-//!    att_mask / rotated_bnd).
+//!    rotated_bnd / rotated_int_ind / end).
 //! 4. **Past check** (only for `j < t − 1`) — prover commits `past_j`, a
-//!    boolean char-level column with `past_j[c] = 1 iff int_ind[c] >
-//!    start'_j[c]`. Discharged by:
+//!    boolean char-level column with `past_j[c] = 1 iff int_ind[c] ≥
+//!    start'_j[c] + k_j` (the char lies after the end of the occurrence,
+//!    so factors never overlap — SQL LIKE semantics). Discharged by:
 //!    - `BoolCheck` on `past_j`,
 //!    - `SignNode(NonNegative)` on the mask-selected difference
-//!      `past_j · (int_ind − start'_j − 1) + (1 − past_j) ·
-//!      (start'_j − int_ind)`, activated by `alive_c_{j-1}`.
+//!      `past_j · (int_ind − start'_j − k_j) + (1 − past_j) ·
+//!      (start'_j + k_j − 1 − int_ind)`, activated by `alive_c_{j-1}`.
 //!
 //!    Note: `start'_j` (the char-level broadcast of `start_j`) is
 //!    already committed and verified inside `FactorPlacement(p_j)` — we
 //!    reuse it here without an extra `BroadcastCheck`.
-//! 5. **Activator update** — `alive_c_j := alive_c_{j-1} · past_j`
-//!    (chars past the j-th mark stay alive), `alive_h_j := match_j`
-//!    (strings that matched factor j stay alive).
+//! 5. **Activator update** — `alive_c_j := alive_c_{j-1} · past_j ·
+//!    match'_j` (chars after the j-th occurrence, inside strings that
+//!    matched factor j, stay alive), `alive_h_j := match_j` (strings that
+//!    matched factor j stay alive). `match'_j` is the broadcast of `match_j`
+//!    that `FactorPlacement(p_j)` already checks, so the two activators stay
+//!    consistent: a string that misses factor j has no live char left for
+//!    factor j+1.
 //!
 //! # Output
 //!
@@ -55,8 +60,8 @@
 //!   - `"occurs"`, `"match"`, `"mark"`, `"start"`, `"match_broadcast"`,
 //!     `"start_broadcast"`, `"leftmost_mask"` — FactorPlacement
 //!     witnesses (see that module's docs).
-//!   - `"att_mask"` — suffix mode only.
-//!   - `"rotated_bnd"` — infix mode only when `k_j ≥ 2`.
+//!   - `"rotated_bnd"` — infix and suffix modes only, when `k_j ≥ 2`.
+//!   - `"rotated_int_ind"`, `"end"` — suffix mode only.
 //!   - `"past"` — for `j < t − 1` only. Boolean char-level column.
 
 use std::marker::PhantomData;
@@ -123,6 +128,20 @@ pub const STR_INPUT_LABEL: &str = "__str_input__";
 pub fn parse_like_pattern<F: ark_ff::PrimeField>(
     pattern: &str,
 ) -> Result<Vec<(Vec<F>, Mode)>, String> {
+    Ok(parse_like_pattern_bytes(pattern)?
+        .into_iter()
+        .map(|(seg, mode)| {
+            let literal: Vec<F> = seg.into_iter().map(|b| F::from(b as u64)).collect();
+            (literal, mode)
+        })
+        .collect())
+}
+
+/// Byte-level core of [`parse_like_pattern`]: same wildcard/escape
+/// semantics, but factors stay raw bytes. Used by callers that need the
+/// literal bytes rather than field elements (e.g. the fingerprint
+/// pre-filter, which hashes factor bytes into the pattern fingerprint).
+pub fn parse_like_pattern_bytes(pattern: &str) -> Result<Vec<(Vec<u8>, Mode)>, String> {
     if pattern.is_empty() {
         return Ok(Vec::new());
     }
@@ -169,7 +188,7 @@ pub fn parse_like_pattern<F: ark_ff::PrimeField>(
     }
 
     let last_idx = non_empty.len() - 1;
-    let mut factors: Vec<(Vec<F>, Mode)> = Vec::with_capacity(non_empty.len());
+    let mut factors: Vec<(Vec<u8>, Mode)> = Vec::with_capacity(non_empty.len());
     for (idx, seg) in non_empty.into_iter().enumerate() {
         let mode = if idx == 0 && !starts_with_wild {
             Mode::Prefix
@@ -178,8 +197,7 @@ pub fn parse_like_pattern<F: ark_ff::PrimeField>(
         } else {
             Mode::Infix
         };
-        let literal: Vec<F> = seg.into_iter().map(|b| F::from(b as u64)).collect();
-        factors.push((literal, mode));
+        factors.push((seg, mode));
     }
     Ok(factors)
 }
@@ -187,7 +205,8 @@ pub fn parse_like_pattern<F: ark_ff::PrimeField>(
 /// Payload label for the per-factor `name` slot at factor index `j`
 /// (0-indexed). Slots: `"rotated_char"`, `"occurs"`, `"match"`, `"mark"`,
 /// `"start"`, `"match_broadcast"`, `"start_broadcast"`, `"leftmost_mask"`,
-/// `"att_mask"` (suffix only), `"rotated_bnd"` (infix, k ≥ 2 only), and
+/// `"rotated_bnd"` (infix and suffix, k ≥ 2 only), `"rotated_int_ind"` and
+/// `"end"` (suffix only), and
 /// `"past"` (for `j < t − 1` only).
 pub fn factor_label(j: usize, name: &str) -> String {
     format!("__f{j}_{name}__")
@@ -349,10 +368,13 @@ struct FactorProver<B: SnarkBackend> {
     match_broadcast: TrackedTable<B>,
     start_broadcast: TrackedTable<B>,
     leftmost_mask: TrackedTable<B>,
-    att_mask: Option<TrackedTable<B>>,
     rotated_bnd: Option<TrackedTable<B>>,
-    // Convenience: the single data column of `match_str`, `start_broadcast`, `past`.
+    rotated_int_ind: Option<TrackedTable<B>>,
+    end: Option<TrackedTable<B>>,
+    // Convenience: the single data column of `match_str`, `match_broadcast`,
+    // `start_broadcast`, `past`.
     match_col: TrackedPoly<B>,
+    match_broadcast_col: TrackedPoly<B>,
     start_broadcast_col: TrackedPoly<B>,
     past_col: Option<TrackedPoly<B>>,
 }
@@ -366,9 +388,11 @@ struct FactorVerifier<B: SnarkBackend> {
     match_broadcast: TrackedTableOracle<B>,
     start_broadcast: TrackedTableOracle<B>,
     leftmost_mask: TrackedTableOracle<B>,
-    att_mask: Option<TrackedTableOracle<B>>,
     rotated_bnd: Option<TrackedTableOracle<B>>,
+    rotated_int_ind: Option<TrackedTableOracle<B>>,
+    end: Option<TrackedTableOracle<B>>,
     match_col: TrackedOracle<B>,
+    match_broadcast_col: TrackedOracle<B>,
     start_broadcast_col: TrackedOracle<B>,
     past_col: Option<TrackedOracle<B>>,
 }
@@ -423,26 +447,27 @@ fn extract_factor_prover<B: SnarkBackend>(
         .unwrap_or_else(|| panic!("SweepFactors: missing leftmost_mask for factor {j}"))
         .clone();
 
-    let att_mask = match mode {
-        Mode::Suffix => Some(
-            payload
-                .get(&factor_label(j, "att_mask"))
-                .unwrap_or_else(|| panic!("SweepFactors: missing att_mask for suffix factor {j}"))
-                .clone(),
-        ),
-        _ => None,
-    };
     let rotated_bnd = match mode {
-        Mode::Infix if pattern_len >= 2 => Some(
+        Mode::Infix | Mode::Suffix if pattern_len >= 2 => Some(
             payload
                 .get(&factor_label(j, "rotated_bnd"))
                 .unwrap_or_else(|| {
-                    panic!("SweepFactors: missing rotated_bnd for infix factor {j} (k ≥ 2)")
+                    panic!("SweepFactors: missing rotated_bnd for factor {j} (k ≥ 2)")
                 })
                 .clone(),
         ),
         _ => None,
     };
+    let suffix_col = |name: &str| {
+        matches!(mode, Mode::Suffix).then(|| {
+            payload
+                .get(&factor_label(j, name))
+                .unwrap_or_else(|| panic!("SweepFactors: missing {name} for suffix factor {j}"))
+                .clone()
+        })
+    };
+    let rotated_int_ind = suffix_col("rotated_int_ind");
+    let end = suffix_col("end");
     let past = if has_past {
         Some(
             payload
@@ -455,6 +480,7 @@ fn extract_factor_prover<B: SnarkBackend>(
     };
 
     let match_col = single_col(&match_str);
+    let match_broadcast_col = single_col(&match_broadcast);
     let start_broadcast_col = single_col(&start_broadcast);
     let past_col = past.as_ref().map(single_col);
     let _ = past;
@@ -468,9 +494,11 @@ fn extract_factor_prover<B: SnarkBackend>(
         match_broadcast,
         start_broadcast,
         leftmost_mask,
-        att_mask,
         rotated_bnd,
+        rotated_int_ind,
+        end,
         match_col,
+        match_broadcast_col,
         start_broadcast_col,
         past_col,
     }
@@ -526,26 +554,27 @@ fn extract_factor_verifier<B: SnarkBackend>(
         .unwrap_or_else(|| panic!("SweepFactors: missing leftmost_mask for factor {j}"))
         .clone();
 
-    let att_mask = match mode {
-        Mode::Suffix => Some(
-            payload
-                .get(&factor_label(j, "att_mask"))
-                .unwrap_or_else(|| panic!("SweepFactors: missing att_mask for suffix factor {j}"))
-                .clone(),
-        ),
-        _ => None,
-    };
     let rotated_bnd = match mode {
-        Mode::Infix if pattern_len >= 2 => Some(
+        Mode::Infix | Mode::Suffix if pattern_len >= 2 => Some(
             payload
                 .get(&factor_label(j, "rotated_bnd"))
                 .unwrap_or_else(|| {
-                    panic!("SweepFactors: missing rotated_bnd for infix factor {j} (k ≥ 2)")
+                    panic!("SweepFactors: missing rotated_bnd for factor {j} (k ≥ 2)")
                 })
                 .clone(),
         ),
         _ => None,
     };
+    let suffix_col = |name: &str| {
+        matches!(mode, Mode::Suffix).then(|| {
+            payload
+                .get(&factor_label(j, name))
+                .unwrap_or_else(|| panic!("SweepFactors: missing {name} for suffix factor {j}"))
+                .clone()
+        })
+    };
+    let rotated_int_ind = suffix_col("rotated_int_ind");
+    let end = suffix_col("end");
     let past = if has_past {
         Some(
             payload
@@ -558,6 +587,7 @@ fn extract_factor_verifier<B: SnarkBackend>(
     };
 
     let match_col = single_col_oracle(&match_str);
+    let match_broadcast_col = single_col_oracle(&match_broadcast);
     let start_broadcast_col = single_col_oracle(&start_broadcast);
     let past_col = past.as_ref().map(single_col_oracle);
     let _ = past;
@@ -571,9 +601,11 @@ fn extract_factor_verifier<B: SnarkBackend>(
         match_broadcast,
         start_broadcast,
         leftmost_mask,
-        att_mask,
         rotated_bnd,
+        rotated_int_ind,
+        end,
         match_col,
+        match_broadcast_col,
         start_broadcast_col,
         past_col,
     }
@@ -929,11 +961,17 @@ fn set_factor_placement_payload_prover<B: SnarkBackend>(
         factor_placement::LEFTMOST_MASK_LABEL.to_string(),
         factor.leftmost_mask.clone(),
     );
-    if let Some(ref am) = factor.att_mask {
-        child.insert(factor_placement::ATT_MASK_LABEL.to_string(), am.clone());
-    }
     if let Some(ref rb) = factor.rotated_bnd {
         child.insert(factor_placement::ROTATED_BND_LABEL.to_string(), rb.clone());
+    }
+    if let Some(ref ri) = factor.rotated_int_ind {
+        child.insert(
+            factor_placement::ROTATED_INT_IND_LABEL.to_string(),
+            ri.clone(),
+        );
+    }
+    if let Some(ref end) = factor.end {
+        child.insert(factor_placement::END_LABEL.to_string(), end.clone());
     }
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(child)));
 }
@@ -995,30 +1033,39 @@ fn set_factor_placement_payload_verifier<B: SnarkBackend>(
         factor_placement::LEFTMOST_MASK_LABEL.to_string(),
         factor.leftmost_mask.clone(),
     );
-    if let Some(ref am) = factor.att_mask {
-        child.insert(factor_placement::ATT_MASK_LABEL.to_string(), am.clone());
-    }
     if let Some(ref rb) = factor.rotated_bnd {
         child.insert(factor_placement::ROTATED_BND_LABEL.to_string(), rb.clone());
+    }
+    if let Some(ref ri) = factor.rotated_int_ind {
+        child.insert(
+            factor_placement::ROTATED_INT_IND_LABEL.to_string(),
+            ri.clone(),
+        );
+    }
+    if let Some(ref end) = factor.end {
+        child.insert(factor_placement::END_LABEL.to_string(), end.clone());
     }
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(child)));
 }
 
 /// Build the derived `sign_input` polynomial for the per-factor past
-/// check:
-///   `past · (int_ind − start' − 1) + (1 − past) · (start' − int_ind)`
-/// Non-negative iff `past` truthfully indicates `int_ind > start'`.
+/// check of a factor of length `k`:
+///   `past · (int_ind − start' − k) + (1 − past) · (start' + k − 1 − int_ind)`
+/// Non-negative iff `past` truthfully indicates `int_ind ≥ start' + k`, i.e.
+/// the char lies after the end of the factor's occurrence.
 fn build_past_sign_input_poly<B: SnarkBackend>(
     past: &TrackedPoly<B>,
     int_ind: &TrackedPoly<B>,
     start_broadcast: &TrackedPoly<B>,
+    k: usize,
     log_size: usize,
 ) -> TrackedPoly<B> {
+    let k = B::F::from(k as u64);
     let int_minus_start = int_ind - start_broadcast;
-    let int_minus_start_minus_one = int_minus_start.sub_scalar_poly(B::F::from(1u64));
-    let start_minus_int = start_broadcast - int_ind;
+    let int_minus_start_minus_k = int_minus_start.sub_scalar_poly(k);
+    let start_minus_int = (start_broadcast - int_ind).add_scalar_poly(k - B::F::from(1u64));
 
-    let term1 = past * &int_minus_start_minus_one;
+    let term1 = past * &int_minus_start_minus_k;
     let one_minus_past = past
         .mul_scalar_poly(-B::F::from(1u64))
         .add_scalar_poly(B::F::from(1u64));
@@ -1032,13 +1079,15 @@ fn build_past_sign_input_oracle<B: SnarkBackend>(
     past: &TrackedOracle<B>,
     int_ind: &TrackedOracle<B>,
     start_broadcast: &TrackedOracle<B>,
+    k: usize,
     log_size: usize,
 ) -> TrackedOracle<B> {
+    let k = B::F::from(k as u64);
     let int_minus_start = int_ind - start_broadcast;
-    let int_minus_start_minus_one = int_minus_start.sub_scalar_oracle(B::F::from(1u64));
-    let start_minus_int = start_broadcast - int_ind;
+    let int_minus_start_minus_k = int_minus_start.sub_scalar_oracle(k);
+    let start_minus_int = (start_broadcast - int_ind).add_scalar_oracle(k - B::F::from(1u64));
 
-    let term1 = past * &int_minus_start_minus_one;
+    let term1 = past * &int_minus_start_minus_k;
     let one_minus_past = past
         .mul_scalar_oracle(-B::F::from(1u64))
         .add_scalar_oracle(B::F::from(1u64));
@@ -1131,6 +1180,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                     past,
                     &int_ind,
                     &factor.start_broadcast_col,
+                    pattern.len(),
                     char_domain,
                 );
                 set_sign_past_payload_prover(
@@ -1141,8 +1191,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                     virtualized_ir,
                 );
 
-                // 5) Alive updates for the next round.
-                alive_c = &alive_c * past;
+                // 5) Alive updates for the next round: chars after this
+                //    factor's occurrence, inside strings that matched it.
+                alive_c = &(&alive_c * past) * &factor.match_broadcast_col;
                 alive_h = factor.match_col.clone();
             }
         }
@@ -1272,6 +1323,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                     past,
                     &int_ind,
                     &factor.start_broadcast_col,
+                    pattern.len(),
                     char_domain,
                 );
                 set_sign_past_payload_verifier(
@@ -1282,7 +1334,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                     virtualized_ir,
                 );
 
-                alive_c = &alive_c * past;
+                alive_c = &(&alive_c * past) * &factor.match_broadcast_col;
                 alive_h = factor.match_col.clone();
             }
         }

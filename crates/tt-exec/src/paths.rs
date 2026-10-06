@@ -14,3 +14,12 @@ pub fn workspace_root_dir() -> PathBuf {
 pub fn workspace_artifacts_dir() -> PathBuf {
     workspace_root_dir().join("artifacts")
 }
+
+/// The prover's share of a table commitment written next to `oracle`: the
+/// fingerprint bin commitments the oracle seals under Merkle roots
+/// (`<oracle>.bins`). The verifier never needs it.
+pub fn fingerprint_bins_path(oracle: &Path) -> PathBuf {
+    let mut name = oracle.as_os_str().to_owned();
+    name.push(".bins");
+    PathBuf::from(name)
+}

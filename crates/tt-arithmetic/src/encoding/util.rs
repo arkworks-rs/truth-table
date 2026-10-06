@@ -17,6 +17,24 @@ pub(crate) fn encode_hashed_bytes<F: PrimeField>(bytes: &[u8]) -> Vec<F> {
     encode_bytes_to_fields::<F>(&hash_bytes)
 }
 
+/// `(0..n).map(f)` collected in order, in parallel when the `parallel`
+/// feature is on.
+pub(crate) fn map_indices<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
+    #[cfg(feature = "parallel")]
+    {
+        use rayon::prelude::*;
+        (0..n)
+            .into_par_iter()
+            .with_min_len(1 << 10)
+            .map(f)
+            .collect()
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        (0..n).map(f).collect()
+    }
+}
+
 pub(crate) fn field_element_byte_capacity<F: PrimeField>() -> usize {
     let bits = F::MODULUS_BIT_SIZE as usize;
     let bytes = bits.div_ceil(8);

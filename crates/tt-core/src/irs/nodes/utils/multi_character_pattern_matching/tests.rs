@@ -345,7 +345,8 @@ fn honest_two_infix_verifies() {
     let match_broadcast_0 = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let start_broadcast_0 = u(&[0, 0, 0, 0, 0, 0, 0, 0]);
     let leftmost_mask_0 = u(&[0, 0, 0, 0, 0, 0, 0, 0]);
-    let past_0 = u(&[0, 1, 1, 1, 0, 1, 1, 1]);
+    // past_0[c] = 1 iff int_ind[c] ≥ start_broadcast_0[c] + |"ab"| = 2.
+    let past_0 = u(&[0, 0, 1, 1, 0, 0, 1, 1]);
 
     // ---- Factor 1: "cd" ----
     let occurs_1 = u(&[0, 0, 1, 0, 0, 0, 1, 0]);

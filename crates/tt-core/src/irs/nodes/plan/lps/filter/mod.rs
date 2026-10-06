@@ -116,7 +116,17 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         // Keep the existing log size when set; otherwise inherit from the input.
         let log_size = input_table.log_size();
 
-        let updated_table = TrackedTable::new(schema.clone(), merged_polys.clone(), log_size);
+        // Propagate side (char-domain) segments by reference so string
+        // gadgets above this filter (LIKE / pre-filter) can still bind
+        // to them. The side activator is left untouched; consumers
+        // narrow it against the row activator themselves.
+        let side_cols = input_table.side_cols();
+        let updated_table = TrackedTable::new_with_side_cols(
+            schema.clone(),
+            merged_polys.clone(),
+            log_size,
+            side_cols,
+        );
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
@@ -254,7 +264,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         // Keep the existing log size when set; otherwise inherit from the input.
         let log_size = input_table.log_size();
 
-        let updated_table = TrackedTableOracle::new(schema, merged_polys, log_size);
+        // Mirror the prover: propagate side (char-domain) oracles.
+        let side_cols = input_table.side_cols();
+        let updated_table =
+            TrackedTableOracle::new_with_side_cols(schema, merged_polys, log_size, side_cols);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }

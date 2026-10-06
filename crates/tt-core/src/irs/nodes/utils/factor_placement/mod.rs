@@ -5,7 +5,7 @@
 //! fingerprint coefficients `r_0, ..., r_{ℓ-1}`, and the tuple columns
 //! `(bnd, orig-ind, int-ind, ind)`, this gadget proves that the prover-sent
 //! witnesses `(occurs, match, mark, start)` — plus mode-dependent
-//! `(att_mask, {bnd^(δ)}_{δ=1..ℓ-1})` — correctly identify the *leftmost*
+//! `({bnd^(δ)}_{δ=1..ℓ-1}, int-ind^(ℓ), end)` — correctly identify the *leftmost*
 //! occurrence of `str` at each string's admissible window, honouring `mode`
 //! (prefix / suffix / infix).
 //!
@@ -49,11 +49,14 @@
 //! - [`START_LABEL`] — string-level table `{ start }`, no activator.
 //! - [`MATCH_BROADCAST_LABEL`] — char-level table `{ match' }` — the
 //!   prover's broadcast of `match` to the char level, no activator.
-//! - [`ATT_MASK_LABEL`] — **suffix only** — char-level table `{ att_mask }`
-//!   containing `ρ_{-ℓ}(char-act · bnd)`. Verified by an extra
-//!   `RotationCheck(Direction::Left, shift=ℓ)` child. Ignored for prefix
-//!   and infix.
-//! - [`ROTATED_BND_LABEL`] — **infix only** — char-level table with
+//! - [`ROTATED_INT_IND_LABEL`] — **suffix only** — char-level table
+//!   `{ int-ind^(ℓ) }` = `ρ_{-ℓ}(int-ind)`, verified by an extra
+//!   `RotationCheck(Direction::Left, shift=ℓ)` child.
+//! - [`END_LABEL`] — **suffix only** — char-level boolean `{ end }` with
+//!   `end[c] = 1 iff int-ind^(ℓ)[c] ≠ int-ind[c] + ℓ`: an occurrence at `c`
+//!   ends its string (the slot `ℓ` to the right starts the next string or
+//!   is padding, both with internal index 0). Pinned inline, see below.
+//! - [`ROTATED_BND_LABEL`] — **infix and suffix** — char-level table with
 //!   `ℓ − 1` data columns holding `bnd(1), ..., bnd(ℓ-1)` in insertion
 //!   order (each successive column is a shift-left-by-1 of the previous;
 //!   `bnd(0)` is the input `bnd` column). Verified by `ℓ − 1`
@@ -81,16 +84,22 @@
 //! - `SignNode(NonNegative)` on the Step 4e mask-selected difference,
 //!   activated by `char-act`.
 //! - (Suffix only) `RotationCheck(Direction::Left, shift=ℓ)` on
-//!   `(char-act · bnd, att_mask)` — proves `att_mask = ρ_{-ℓ}(char-act · bnd)`.
-//! - (Infix only) `ℓ − 1` `RotationCheck(Direction::Left, shift=1)`
+//!   `(int-ind, int-ind^(ℓ))`.
+//! - (Infix and suffix) `ℓ − 1` `RotationCheck(Direction::Left, shift=1)`
 //!   children forming the chain `bnd(δ-1) → bnd(δ)` for `δ = 1..ℓ-1`.
 //!
 //! Inline claims emitted by `prove`/`verify`:
 //! - `att_mask` derivation depends on mode:
 //!   - Prefix: `char-act · bnd` (derived).
-//!   - Suffix: payload-supplied `att_mask`.
 //!   - Infix: `char-act · (1 − Σ_{δ=1..ℓ-1} bnd(δ))` (derived from the
 //!     payload-supplied rotated `bnd` columns).
+//!   - Suffix: the infix mask times `end`, where with
+//!     `d := int-ind^(ℓ) − int-ind − ℓ` the inline claims
+//!     `char-act · end · (1 − end) = 0`, `char-act · (1 − end) · d = 0` and
+//!     NoZero `char-act · end · d + (1 − char-act · end)` pin `end` to
+//!     `[d ≠ 0]` on every active char. (Anchoring on the next string's
+//!     activator instead would miss the last string and any string whose
+//!     successor is inactive.)
 //! - Fingerprint challenges `r_0, ..., r_{ℓ-1}` are sampled here (unique
 //!   transcript tag per gadget instance).
 //! - `wf := Σ r_δ · char^(δ)`, `pf := Σ r_δ · str[δ]`, `diff := wf − pf`.
@@ -146,9 +155,11 @@ pub const MATCH_LABEL: &str = "__match__";
 pub const MARK_LABEL: &str = "__mark__";
 pub const START_LABEL: &str = "__start__";
 pub const MATCH_BROADCAST_LABEL: &str = "__match_broadcast__";
-/// Suffix-only: prover-committed `att_mask = ρ_{-ℓ}(char-act · bnd)`.
-pub const ATT_MASK_LABEL: &str = "__att_mask__";
-/// Infix-only: prover-committed rotated `bnd(1), ..., bnd(ℓ-1)` columns,
+/// Suffix-only: prover-committed `ρ_{-ℓ}(int-ind)`.
+pub const ROTATED_INT_IND_LABEL: &str = "__rotated_int_ind__";
+/// Suffix-only: prover-committed boolean `end` (see the module docs).
+pub const END_LABEL: &str = "__end__";
+/// Infix and suffix: prover-committed rotated `bnd(1), ..., bnd(ℓ-1)` columns,
 /// in insertion order (each is shift-left-by-1 of the previous, with
 /// `bnd(0)` being the input `bnd`). May be absent when `ℓ = 1`.
 pub const ROTATED_BND_LABEL: &str = "__rotated_bnd__";
@@ -190,9 +201,9 @@ pub struct GadgetNode<B: SnarkBackend> {
     nodup_mark: Arc<Node<B>>,
     /// Step 4d: Lookup on `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`.
     lookup_placement: Arc<Node<B>>,
-    /// Suffix only: proves `att_mask = ρ_{-ℓ}(char-act · bnd)`.
-    att_mask_rot_check: Option<Arc<Node<B>>>,
-    /// Infix only: `ℓ − 1` rotation checks in a chain, each proving
+    /// Suffix only: proves `int-ind^(ℓ) = ρ_{-ℓ}(int-ind)`.
+    int_ind_rot_check: Option<Arc<Node<B>>>,
+    /// Infix and suffix: `ℓ − 1` rotation checks in a chain, each proving
     /// `bnd(δ) = ρ_{-1}(bnd(δ-1))` for `δ = 1..ℓ-1`.
     bnd_rot_checks: Vec<Arc<Node<B>>>,
     /// Step 4(e): BoolCheck on the prover-committed `mask` column.
@@ -235,7 +246,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             nodup_mode,
         ))));
         let lookup_placement = Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
-        let att_mask_rot_check = match mode {
+        let int_ind_rot_check = match mode {
             Mode::Prefix => None,
             Mode::Suffix => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 rotation_check::GadgetNode::new(pattern.len(), rotation_check::Direction::Left),
@@ -243,7 +254,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Mode::Infix => None,
         };
         let bnd_rot_checks: Vec<Arc<Node<B>>> = match mode {
-            Mode::Infix => (1..pattern.len())
+            Mode::Infix | Mode::Suffix => (1..pattern.len())
                 .map(|_| {
                     Arc::new(Node::<B>::Gadget(Arc::new(
                         rotation_check::GadgetNode::new(1, rotation_check::Direction::Left),
@@ -269,7 +280,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             broadcast_match,
             nodup_mark,
             lookup_placement,
-            att_mask_rot_check,
+            int_ind_rot_check,
             bnd_rot_checks,
             bool_leftmost_mask,
             broadcast_start,
@@ -313,7 +324,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             self.nodup_mark.clone(),
             self.lookup_placement.clone(),
         ];
-        if let Some(ref child) = self.att_mask_rot_check {
+        if let Some(ref child) = self.int_ind_rot_check {
             out.push(child.clone());
         }
         out.extend(self.bnd_rot_checks.iter().cloned());
@@ -351,10 +362,11 @@ struct InputsProver<B: SnarkBackend> {
     // start is committed but currently unused pending Step 4e wiring.
     start: TrackedPoly<B>,
     match_broadcast: TrackedPoly<B>,
-    /// Suffix only: prover-committed `att_mask = ρ_{-ℓ}(char-act · bnd)`.
-    att_mask: Option<TrackedPoly<B>>,
-    /// Infix only: prover-committed `bnd(1), ..., bnd(ℓ-1)`. Empty for
-    /// non-infix modes or when `ℓ = 1`.
+    /// Suffix only: prover-committed `ρ_{-ℓ}(int-ind)` and `end`.
+    rotated_int_ind: Option<TrackedPoly<B>>,
+    end: Option<TrackedPoly<B>>,
+    /// Infix and suffix: prover-committed `bnd(1), ..., bnd(ℓ-1)`. Empty
+    /// for prefix mode or when `ℓ = 1`.
     rotated_bnds: Vec<TrackedPoly<B>>,
     /// Step 4(e): char-level `start'` where `start'[c] = start[orig_ind[c]]`.
     start_broadcast: TrackedPoly<B>,
@@ -379,9 +391,10 @@ struct InputsVerifier<B: SnarkBackend> {
     mark: TrackedOracle<B>,
     start: TrackedOracle<B>,
     match_broadcast: TrackedOracle<B>,
-    /// Suffix only: prover-committed `att_mask`.
-    att_mask: Option<TrackedOracle<B>>,
-    /// Infix only: prover-committed `bnd(1), ..., bnd(ℓ-1)`.
+    /// Suffix only: prover-committed `ρ_{-ℓ}(int-ind)` and `end`.
+    rotated_int_ind: Option<TrackedOracle<B>>,
+    end: Option<TrackedOracle<B>>,
+    /// Infix and suffix: prover-committed `bnd(1), ..., bnd(ℓ-1)`.
     rotated_bnds: Vec<TrackedOracle<B>>,
     /// Step 4(e): char-level `start'`.
     start_broadcast: TrackedOracle<B>,
@@ -423,19 +436,18 @@ fn extract_prover_inputs<B: SnarkBackend>(
     let leftmost_mask_t = payload
         .get(LEFTMOST_MASK_LABEL)
         .expect("missing LEFTMOST_MASK");
-    let att_mask_t = match mode {
-        Mode::Suffix => Some(
-            payload
-                .get(ATT_MASK_LABEL)
-                .expect("missing ATT_MASK (suffix)"),
-        ),
-        _ => None,
-    };
+    let rotated_int_ind_t = matches!(mode, Mode::Suffix).then(|| {
+        payload
+            .get(ROTATED_INT_IND_LABEL)
+            .expect("missing ROTATED_INT_IND (suffix)")
+    });
+    let end_t =
+        matches!(mode, Mode::Suffix).then(|| payload.get(END_LABEL).expect("missing END (suffix)"));
     let rotated_bnds_t = match mode {
-        Mode::Infix if pattern_len >= 2 => Some(
+        Mode::Infix | Mode::Suffix if pattern_len >= 2 => Some(
             payload
                 .get(ROTATED_BND_LABEL)
-                .expect("missing ROTATED_BND (infix with ℓ ≥ 2)"),
+                .expect("missing ROTATED_BND (ℓ ≥ 2)"),
         ),
         _ => None,
     };
@@ -484,7 +496,8 @@ fn extract_prover_inputs<B: SnarkBackend>(
     let match_broadcast = single_col(mbcast_t, "MATCH_BROADCAST");
     let start_broadcast = single_col(start_bcast_t, "START_BROADCAST");
     let leftmost_mask = single_col(leftmost_mask_t, "LEFTMOST_MASK");
-    let att_mask = att_mask_t.map(|t| single_col(t, "ATT_MASK"));
+    let rotated_int_ind = rotated_int_ind_t.map(|t| single_col(t, "ROTATED_INT_IND"));
+    let end = end_t.map(|t| single_col(t, "END"));
     let rotated_bnds: Vec<TrackedPoly<B>> = match rotated_bnds_t {
         Some(t) => {
             let indices = t.data_tracked_polys_indices();
@@ -519,7 +532,8 @@ fn extract_prover_inputs<B: SnarkBackend>(
         mark,
         start,
         match_broadcast,
-        att_mask,
+        rotated_int_ind,
+        end,
         rotated_bnds,
         start_broadcast,
         leftmost_mask,
@@ -560,19 +574,18 @@ fn extract_verifier_inputs<B: SnarkBackend>(
     let leftmost_mask_t = payload
         .get(LEFTMOST_MASK_LABEL)
         .expect("missing LEFTMOST_MASK");
-    let att_mask_t = match mode {
-        Mode::Suffix => Some(
-            payload
-                .get(ATT_MASK_LABEL)
-                .expect("missing ATT_MASK (suffix)"),
-        ),
-        _ => None,
-    };
+    let rotated_int_ind_t = matches!(mode, Mode::Suffix).then(|| {
+        payload
+            .get(ROTATED_INT_IND_LABEL)
+            .expect("missing ROTATED_INT_IND (suffix)")
+    });
+    let end_t =
+        matches!(mode, Mode::Suffix).then(|| payload.get(END_LABEL).expect("missing END (suffix)"));
     let rotated_bnds_t = match mode {
-        Mode::Infix if pattern_len >= 2 => Some(
+        Mode::Infix | Mode::Suffix if pattern_len >= 2 => Some(
             payload
                 .get(ROTATED_BND_LABEL)
-                .expect("missing ROTATED_BND (infix with ℓ ≥ 2)"),
+                .expect("missing ROTATED_BND (ℓ ≥ 2)"),
         ),
         _ => None,
     };
@@ -621,7 +634,8 @@ fn extract_verifier_inputs<B: SnarkBackend>(
     let match_broadcast = single_col_oracle(mbcast_t, "MATCH_BROADCAST");
     let start_broadcast = single_col_oracle(start_bcast_t, "START_BROADCAST");
     let leftmost_mask = single_col_oracle(leftmost_mask_t, "LEFTMOST_MASK");
-    let att_mask = att_mask_t.map(|t| single_col_oracle(t, "ATT_MASK"));
+    let rotated_int_ind = rotated_int_ind_t.map(|t| single_col_oracle(t, "ROTATED_INT_IND"));
+    let end = end_t.map(|t| single_col_oracle(t, "END"));
     let rotated_bnds: Vec<TrackedOracle<B>> = match rotated_bnds_t {
         Some(t) => {
             let indices = t.data_tracked_oracles_indices();
@@ -656,7 +670,8 @@ fn extract_verifier_inputs<B: SnarkBackend>(
         mark,
         start,
         match_broadcast,
-        att_mask,
+        rotated_int_ind,
+        end,
         rotated_bnds,
         start_broadcast,
         leftmost_mask,
@@ -833,76 +848,68 @@ fn set_nodup_mark_payload_verifier<B: SnarkBackend>(
 }
 
 /// Suffix-only: wire the `RotationCheck` child that proves
-/// `att_mask = ρ_{-ℓ}(char-act · bnd)`.
-fn set_att_mask_rot_check_payload_prover<B: SnarkBackend>(
+/// `int-ind^(ℓ) = ρ_{-ℓ}(int-ind)`.
+fn set_int_ind_rot_check_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     inputs: &InputsProver<B>,
     ir: &mut GadgetReadyIr<B>,
 ) {
     let char_domain = inputs.char_input.log_size();
-    let att_mask = inputs
-        .att_mask
+    let rotated = inputs
+        .rotated_int_ind
         .as_ref()
-        .expect("suffix: att_mask must be populated");
-
-    let char_act_bnd = resize_poly(&(&inputs.char_act * &inputs.bnd), char_domain);
-    let left_f = u64_field("char_act_bnd");
-    let mut left_polys = IndexMap::new();
-    left_polys.insert(left_f.clone(), char_act_bnd);
-    let left = TrackedTable::new(
-        Some(Schema::new(vec![left_f.as_ref().clone()])),
-        left_polys,
-        char_domain,
-    );
-
-    let right_f = u64_field("att_mask");
-    let mut right_polys = IndexMap::new();
-    right_polys.insert(right_f.clone(), att_mask.clone());
-    let right = TrackedTable::new(
-        Some(Schema::new(vec![right_f.as_ref().clone()])),
-        right_polys,
-        char_domain,
-    );
-
+        .expect("suffix: rotated_int_ind must be populated");
+    let table = |name: &str, poly: TrackedPoly<B>| {
+        let f = u64_field(name);
+        let mut polys = IndexMap::new();
+        polys.insert(f.clone(), poly);
+        TrackedTable::new(
+            Some(Schema::new(vec![f.as_ref().clone()])),
+            polys,
+            char_domain,
+        )
+    };
     let mut payload = IndexMap::new();
-    payload.insert(rotation_check::LEFT_LABEL.to_string(), left);
-    payload.insert(rotation_check::RIGHT_LABEL.to_string(), right);
+    payload.insert(
+        rotation_check::LEFT_LABEL.to_string(),
+        table("int_ind", inputs.int_ind.clone()),
+    );
+    payload.insert(
+        rotation_check::RIGHT_LABEL.to_string(),
+        table("rotated_int_ind", rotated.clone()),
+    );
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
-fn set_att_mask_rot_check_payload_verifier<B: SnarkBackend>(
+fn set_int_ind_rot_check_payload_verifier<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     inputs: &InputsVerifier<B>,
     ir: &mut VerifierGadgetReadyIr<B>,
 ) {
     let char_domain = inputs.char_input.log_size();
-    let att_mask = inputs
-        .att_mask
+    let rotated = inputs
+        .rotated_int_ind
         .as_ref()
-        .expect("suffix: att_mask must be populated");
-
-    let char_act_bnd = resize_oracle(&(&inputs.char_act * &inputs.bnd), char_domain);
-    let left_f = u64_field("char_act_bnd");
-    let mut left_oracles = IndexMap::new();
-    left_oracles.insert(left_f.clone(), char_act_bnd);
-    let left = TrackedTableOracle::new(
-        Some(Schema::new(vec![left_f.as_ref().clone()])),
-        left_oracles,
-        char_domain,
-    );
-
-    let right_f = u64_field("att_mask");
-    let mut right_oracles = IndexMap::new();
-    right_oracles.insert(right_f.clone(), att_mask.clone());
-    let right = TrackedTableOracle::new(
-        Some(Schema::new(vec![right_f.as_ref().clone()])),
-        right_oracles,
-        char_domain,
-    );
-
+        .expect("suffix: rotated_int_ind must be populated");
+    let table = |name: &str, oracle: TrackedOracle<B>| {
+        let f = u64_field(name);
+        let mut oracles = IndexMap::new();
+        oracles.insert(f.clone(), oracle);
+        TrackedTableOracle::new(
+            Some(Schema::new(vec![f.as_ref().clone()])),
+            oracles,
+            char_domain,
+        )
+    };
     let mut payload = IndexMap::new();
-    payload.insert(rotation_check::LEFT_LABEL.to_string(), left);
-    payload.insert(rotation_check::RIGHT_LABEL.to_string(), right);
+    payload.insert(
+        rotation_check::LEFT_LABEL.to_string(),
+        table("int_ind", inputs.int_ind.clone()),
+    );
+    payload.insert(
+        rotation_check::RIGHT_LABEL.to_string(),
+        table("rotated_int_ind", rotated.clone()),
+    );
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
@@ -1523,8 +1530,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         // executes before the Lookup child's initialize_gadgets).
         let gamma = prover.get_and_append_challenge(b"factor_placement_gamma")?;
         set_lookup_placement_payload_prover(&self.lookup_placement, &inputs, gamma, virtualized_ir);
-        if let Some(ref rot_check) = self.att_mask_rot_check {
-            set_att_mask_rot_check_payload_prover(rot_check, &inputs, virtualized_ir);
+        if let Some(ref rot_check) = self.int_ind_rot_check {
+            set_int_ind_rot_check_payload_prover(rot_check, &inputs, virtualized_ir);
         }
         if !self.bnd_rot_checks.is_empty() {
             set_bnd_chain_rot_check_payloads_prover(&self.bnd_rot_checks, &inputs, virtualized_ir);
@@ -1616,8 +1623,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             gamma,
             virtualized_ir,
         );
-        if let Some(ref rot_check) = self.att_mask_rot_check {
-            set_att_mask_rot_check_payload_verifier(rot_check, &inputs, virtualized_ir);
+        if let Some(ref rot_check) = self.int_ind_rot_check {
+            set_int_ind_rot_check_payload_verifier(rot_check, &inputs, virtualized_ir);
         }
         if !self.bnd_rot_checks.is_empty() {
             set_bnd_chain_rot_check_payloads_verifier(
@@ -1706,17 +1713,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         }
 
         // Prefix: att_mask := char-act · bnd (derived).
-        // Suffix: att_mask is payload-supplied; the RotationCheck child
-        //         proves it equals ρ_{-ℓ}(char-act · bnd).
         // Infix:  att_mask := char-act · (1 - Σ_{δ=1..ℓ-1} bnd(δ)) (derived
         //         from the payload-supplied rotated bnd columns).
+        // Suffix: the infix mask · end, with `end` pinned below.
         let att_mask = match self.mode {
             Mode::Prefix => resize_poly(&(&inputs.char_act * &inputs.bnd), char_domain),
-            Mode::Suffix => inputs
-                .att_mask
-                .clone()
-                .expect("suffix: att_mask must be populated"),
-            Mode::Infix => {
+            Mode::Infix | Mode::Suffix => {
                 // sum := Σ_{δ=1..ℓ-1} bnd(δ)
                 let one_minus_sum = if inputs.rotated_bnds.is_empty() {
                     // ℓ = 1: sum is empty, so 1 - 0 = 1 (constant 1 poly).
@@ -1732,9 +1734,34 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     sum.mul_scalar_poly(-B::F::from(1u64))
                         .add_scalar_poly(B::F::from(1u64))
                 };
-                resize_poly(&(&inputs.char_act * &one_minus_sum), char_domain)
+                let base = resize_poly(&(&inputs.char_act * &one_minus_sum), char_domain);
+                match &inputs.end {
+                    Some(end) => resize_poly(&(&base * end), char_domain),
+                    None => base,
+                }
             }
         };
+
+        // Suffix: pin `end = [d ≠ 0]` on active chars, d = int-ind^(ℓ) − int-ind − ℓ.
+        if let (Some(end), Some(rotated)) = (&inputs.end, &inputs.rotated_int_ind) {
+            let d =
+                (rotated - &inputs.int_ind).sub_scalar_poly(B::F::from(self.pattern.len() as u64));
+            let d = resize_poly(&d, char_domain);
+            let one_minus_end = end
+                .mul_scalar_poly(-B::F::from(1u64))
+                .add_scalar_poly(B::F::from(1u64));
+            let act_end = resize_poly(&(&inputs.char_act * end), char_domain);
+            let boolean = &act_end * &one_minus_end;
+            prover.add_mv_zerocheck_claim(resize_poly(&boolean, char_domain).id())?;
+            let act_not_end = resize_poly(&(&inputs.char_act * &one_minus_end), char_domain);
+            let same_string = &act_not_end * &d;
+            prover.add_mv_zerocheck_claim(resize_poly(&same_string, char_domain).id())?;
+            let one_minus_act_end = act_end
+                .mul_scalar_poly(-B::F::from(1u64))
+                .add_scalar_poly(B::F::from(1u64));
+            let ends = &resize_poly(&(&act_end * &d), char_domain) + &one_minus_act_end;
+            prover.add_mv_nozerocheck_claim(resize_poly(&ends, char_domain).id())?;
+        }
 
         // diff := Σ r_δ · char^(δ) − pf
         let diff = build_diff_poly::<B>(&inputs.rotated_chars, &self.pattern, &coeffs, char_domain);
@@ -1855,11 +1882,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let att_mask = match self.mode {
             Mode::Prefix => resize_oracle(&(&inputs.char_act * &inputs.bnd), char_domain),
-            Mode::Suffix => inputs
-                .att_mask
-                .clone()
-                .expect("suffix: att_mask must be populated"),
-            Mode::Infix => {
+            Mode::Infix | Mode::Suffix => {
                 let one_minus_sum = if inputs.rotated_bnds.is_empty() {
                     inputs
                         .bnd
@@ -1873,9 +1896,33 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     sum.mul_scalar_oracle(-B::F::from(1u64))
                         .add_scalar_oracle(B::F::from(1u64))
                 };
-                resize_oracle(&(&inputs.char_act * &one_minus_sum), char_domain)
+                let base = resize_oracle(&(&inputs.char_act * &one_minus_sum), char_domain);
+                match &inputs.end {
+                    Some(end) => resize_oracle(&(&base * end), char_domain),
+                    None => base,
+                }
             }
         };
+
+        if let (Some(end), Some(rotated)) = (&inputs.end, &inputs.rotated_int_ind) {
+            let d = (rotated - &inputs.int_ind)
+                .sub_scalar_oracle(B::F::from(self.pattern.len() as u64));
+            let d = resize_oracle(&d, char_domain);
+            let one_minus_end = end
+                .mul_scalar_oracle(-B::F::from(1u64))
+                .add_scalar_oracle(B::F::from(1u64));
+            let act_end = resize_oracle(&(&inputs.char_act * end), char_domain);
+            let boolean = &act_end * &one_minus_end;
+            verifier.add_mv_zerocheck_claim(resize_oracle(&boolean, char_domain).id());
+            let act_not_end = resize_oracle(&(&inputs.char_act * &one_minus_end), char_domain);
+            let same_string = &act_not_end * &d;
+            verifier.add_mv_zerocheck_claim(resize_oracle(&same_string, char_domain).id());
+            let one_minus_act_end = act_end
+                .mul_scalar_oracle(-B::F::from(1u64))
+                .add_scalar_oracle(B::F::from(1u64));
+            let ends = &resize_oracle(&(&act_end * &d), char_domain) + &one_minus_act_end;
+            verifier.add_mv_nozerocheck_claim(resize_oracle(&ends, char_domain).id());
+        }
 
         let diff =
             build_diff_oracle::<B>(&inputs.rotated_chars, &self.pattern, &coeffs, char_domain);

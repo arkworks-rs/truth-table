@@ -272,8 +272,8 @@ fn honest_t2_two_infix_verifies() {
     let match_broadcast_0 = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let start_broadcast_0 = u(&[0, 0, 0, 0, 0, 0, 0, 0]);
     let leftmost_mask_0 = u(&[0, 0, 0, 0, 0, 0, 0, 0]);
-    // past_0[c] = 1 iff int_ind[c] > start_broadcast_0[c] = 0.
-    let past_0 = u(&[0, 1, 1, 1, 0, 1, 1, 1]);
+    // past_0[c] = 1 iff int_ind[c] ≥ start_broadcast_0[c] + |"ab"| = 2.
+    let past_0 = u(&[0, 0, 1, 1, 0, 0, 1, 1]);
 
     // ---- Factor 1: "cd" ----
     // Only chars past the "ab" mark (past_0=1) participate. At those
@@ -761,7 +761,9 @@ fn honest_t2_prefix_then_infix_verifies_via_witness_computer() {
         );
 
     for (j, fw) in w.per_factor.iter().enumerate() {
-        let rot_cols: Vec<(Arc<Field>, Vec<F>)> = fw
+        // The rotations are shared by the whole sweep; this fixture's
+        // factors are all the same length, so each takes all of them.
+        let rot_cols: Vec<(Arc<Field>, Vec<F>)> = w
             .rotated_chars
             .iter()
             .enumerate()
@@ -855,7 +857,8 @@ fn honest_t2_prefix_then_infix_verifies_via_witness_computer() {
                 },
             );
 
-        if let Some(ref rb) = fw.rotated_bnd {
+        if !w.rotated_bnd.is_empty() {
+            let rb = &w.rotated_bnd;
             // Only one rotated_bnd col for ℓ = 2.
             builder = builder.with_table(
                 gadget_id,
@@ -891,10 +894,9 @@ fn honest_t2_prefix_then_infix_verifies_via_witness_computer() {
 // Malicious-prover soundness tests for SweepFactors
 // -----------------------------------------------------------------------------
 
-/// Malicious mask: swap `past_0` to something that lies about
-/// `int_ind > start'`. The Sign gadget should reject.
-#[test]
-fn malicious_past_wrong_flags_rejected() {
+/// Malicious mask: flip `past_0` at char `flip`, lying about
+/// `int_ind ≥ start' + |pat|`. The Sign gadget should reject.
+fn past_flip_rejected(flip: usize) {
     const STR_NV: usize = 3;
     const CHAR_NV: usize = 3;
 
@@ -941,12 +943,12 @@ fn malicious_past_wrong_flags_rejected() {
     };
     let mut w = compute_mcpm_witness(&tables, &factors);
 
-    // Flip past_0 to the wrong value at position c=0. Honest is 0 (int_ind
-    // = 0 is NOT > start_broadcast = 0), attacker claims 1. This should
-    // fail the NonNegative Sign check: sign_input at c=0 becomes
-    //   1 * (0 - 0 - 1) + 0 * (0 - 0) = -1 < 0.
+    // Flip past_0 to the wrong value at `flip`. Honest is 0 there (int_ind
+    // < start_broadcast + 2 = 2), attacker claims 1, so the NonNegative
+    // Sign check sees 1 · (int_ind − 0 − 2) < 0.
     let past = w.per_factor[0].past.as_mut().unwrap();
-    past[0] = F::from(1u64);
+    assert_eq!(past[flip], F::from(0u64));
+    past[flip] = F::from(1u64);
 
     // Wire and expect failure.
     let harness = wire_from_witness(&tables, &w, gadget, gadget_id, STR_NV, CHAR_NV);
@@ -954,6 +956,18 @@ fn malicious_past_wrong_flags_rejected() {
         run_gadget_pipeline(harness).is_err(),
         "malicious past_0 flip should be rejected"
     );
+}
+
+#[test]
+fn malicious_past_before_the_occurrence_rejected() {
+    past_flip_rejected(0);
+}
+
+/// Claiming the second char of the "ab" occurrence is past it would let
+/// the next factor overlap the first — not SQL LIKE.
+#[test]
+fn malicious_past_overlapping_the_occurrence_rejected() {
+    past_flip_rejected(1);
 }
 
 /// Malicious mask: swap `leftmost_mask_1` to lie about `int_ind <
@@ -1082,7 +1096,9 @@ fn wire_from_witness(
         );
 
     for (j, fw) in w.per_factor.iter().enumerate() {
-        let rot_cols: Vec<(Arc<Field>, Vec<F>)> = fw
+        // The rotations are shared by the whole sweep; this fixture's
+        // factors are all the same length, so each takes all of them.
+        let rot_cols: Vec<(Arc<Field>, Vec<F>)> = w
             .rotated_chars
             .iter()
             .enumerate()
@@ -1176,7 +1192,8 @@ fn wire_from_witness(
                 },
             );
 
-        if let Some(ref rb) = fw.rotated_bnd {
+        if !w.rotated_bnd.is_empty() {
+            let rb = &w.rotated_bnd;
             builder = builder.with_table(
                 gadget_id,
                 &factor_label(j, "rotated_bnd"),

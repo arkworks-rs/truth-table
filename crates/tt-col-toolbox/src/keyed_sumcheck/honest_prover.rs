@@ -195,7 +195,7 @@ where
             }
         }
 
-        for (_, count) in bookkeeping_map.iter() {
+        for count in bookkeeping_map.values() {
             if *count != B::F::zero() {
                 use ark_piop::{
                     errors::SnarkError,

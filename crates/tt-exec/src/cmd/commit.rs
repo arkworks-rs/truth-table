@@ -19,6 +19,12 @@ pub struct Commit {
     #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::AnyPath)]
     pub output_path: Option<PathBuf>,
 
+    /// Bins of every string column's rule, at most 2048: one bin for each
+    /// of the column's most common features. Defaults to 2048; 0 commits
+    /// no fingerprints.
+    #[arg(long, value_name = "BINS")]
+    pub fp_bins: Option<usize>,
+
     /// Print how long the command takes to execute
     #[arg(long)]
     pub timed: bool,
@@ -37,6 +43,7 @@ impl Runnable for Commit {
             .with_parquet_path(parquet_path)
             .with_pk_path(self.pk_path)
             .with_output_path(self.output_path)
+            .with_fp_width(self.fp_bins)
             .build()?;
 
         let output = runner.run().await?;

@@ -60,8 +60,17 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
         ctx_oracles: CtxOracles<B>,
         output_memtable: Option<Arc<MemTable>>,
         side_columns: std::collections::BTreeSet<String>,
+        fingerprint_columns: arithmetic::encoding::FingerprintSelection,
+        fingerprint_openings: tt_core::prover::passes::tracking::FingerprintOpenings,
     ) -> VerifierTrackingPass<B> {
-        VerifierTrackingPass::new(arg_verifier, ctx_oracles, output_memtable, side_columns)
+        VerifierTrackingPass::new(
+            arg_verifier,
+            ctx_oracles,
+            output_memtable,
+            side_columns,
+            fingerprint_columns,
+            fingerprint_openings,
+        )
     }
 }
 
@@ -128,11 +137,14 @@ impl<B: SnarkBackend> TTVerifier<B> {
         // from the same IR tree the prover used, so both sides expect the
         // same per-column side commitments without a wire hint.
         let side_columns = gadget_planned_ir.tree().required_side_columns();
+        let fingerprint_columns = gadget_planned_ir.tree().required_fingerprint_columns();
         let verifier_tracking_pass = self.verifier_config().tracking_pass(
             arg_verifier.clone(),
             self.shared_config().ctx_oracles().clone(),
             output_memtable,
             side_columns,
+            fingerprint_columns,
+            proof.fingerprint_openings().clone(),
         );
         let mut tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
         verifier_tracking_pass.finish(&mut tracked_ir).await?;

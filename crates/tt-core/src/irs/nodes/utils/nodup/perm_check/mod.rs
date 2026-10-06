@@ -58,7 +58,7 @@ impl<B: SnarkBackend> PIOP<B> for PermPIOP<B> {
         for elem in input.right_col.effective_iter() {
             *bookkeeping_map.entry(elem).or_insert(-1) -= 1;
         }
-        for (_, count) in bookkeeping_map.iter() {
+        for count in bookkeeping_map.values() {
             if *count != 0 {
                 return Err(ark_piop::errors::SnarkError::ProverError(
                     ark_piop::prover::errors::ProverError::HonestProverError(

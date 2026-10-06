@@ -1,6 +1,7 @@
 use crate::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD,
     col_oracle::{OracleBundle, TrackedColOracle},
+    fingerprint::merkle::{self, BinTree, Hash},
     table::TrackedTable,
 };
 use ark_piop::SnarkBackend;
@@ -21,6 +22,10 @@ use std::fmt::Display;
 use std::{convert::TryFrom, sync::Arc};
 
 pub const CONSTRAINTS_SUMMARY_METADATA_KEY: &str = "tt.constraints.summary";
+/// Schema-metadata key holding the table's per-column fingerprint rules, as
+/// TOML. The data owner writes it at commit; prover and verifier both read it
+/// back, so neither can fingerprint a column differently from the other.
+pub const FINGERPRINT_RULES_METADATA_KEY: &str = "tt.fingerprint.rules";
 pub const EXTERNAL_COMMITMENT_SOURCE_METADATA_KEY: &str = "tt.external_commitment_source";
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
@@ -722,6 +727,39 @@ pub struct ArithTableOracle<B: SnarkBackend> {
     /// Side-domain commitments (data + activator pairs) keyed by side
     /// segment field reference (e.g. `<col>__chars`).
     side_commitments: IndexMap<FieldRef, ArithSideColOracle<B>>,
+    /// Per string column, its fingerprint bin commitments sealed under a
+    /// Merkle root (see [`Self::seal_fingerprints`]). The `__fp{b}` fields
+    /// then live here, not in `schema` and `commitments`.
+    fingerprints: IndexMap<String, FingerprintBinsOracle<B>>,
+}
+
+/// One string column's fingerprint bins, sealed under the root of a
+/// [`BinTree`] whose leaf `b` is bin `b`'s commitment.
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
+pub struct FingerprintBinsOracle<B: SnarkBackend> {
+    pub root: Hash,
+    pub num_bins: usize,
+    /// Bin `b`'s commitment at position `b`. Only the prover holds them: the
+    /// data owner writes them apart from the oracle (see
+    /// [`ArithTableOracle::serialize_fingerprint_bins`]), and a verifier's
+    /// oracle carries the root alone.
+    bins: Option<Vec<<B::MvPCS as PCS<B::F>>::Commitment>>,
+}
+
+/// A multivariate commitment of backend `B`.
+type Commitment<B> = <<B as SnarkBackend>::MvPCS as PCS<<B as SnarkBackend>::F>>::Commitment;
+
+fn commitment_bytes<C: CanonicalSerialize>(commitment: &C) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    commitment
+        .serialize_compressed(&mut bytes)
+        .expect("serializing a commitment into memory cannot fail");
+    bytes
+}
+
+fn bin_tree<C: CanonicalSerialize>(bins: &[C]) -> BinTree {
+    BinTree::new(&bins.iter().map(commitment_bytes).collect::<Vec<_>>())
 }
 
 impl<B: SnarkBackend> Display for ArithTableOracle<B> {
@@ -780,6 +818,17 @@ fn constraints_summary_label(schema: Option<&Schema>) -> Option<String> {
 }
 
 impl<B: SnarkBackend> ArithTableOracle<B> {
+    /// The table's per-column fingerprint rules, or `None` when it was
+    /// committed before per-column rules (every column then takes the default
+    /// scheme, exactly as that table was encoded).
+    pub fn fingerprint_rules(&self) -> Option<crate::fingerprint::FingerprintRules> {
+        let raw = self
+            .schema_ref()?
+            .metadata()
+            .get(FINGERPRINT_RULES_METADATA_KEY)?;
+        crate::fingerprint::FingerprintRules::from_toml_str(raw).ok()
+    }
+
     /// Constructs a new `ArithTableOracle` with no side commitments.
     pub fn new(
         schema: Option<Schema>,
@@ -807,7 +856,159 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
             commitments,
             log_size,
             side_commitments,
+            fingerprints: IndexMap::new(),
         }
+    }
+
+    /// The same oracle with `side_commitments` in place of its own.
+    pub fn with_side_commitments(
+        mut self,
+        side_commitments: IndexMap<FieldRef, ArithSideColOracle<B>>,
+    ) -> Self {
+        self.side_commitments = side_commitments;
+        self
+    }
+
+    /// Move every fingerprint bin commitment (`<col>__fp{b}`) out of the
+    /// schema and commitments, sealing each column's bins under the root of
+    /// a Merkle tree over them. A query then reveals only the bins it
+    /// tests, each opened against the root. Bins stay in memory for the
+    /// prover; serializing the oracle writes the roots alone.
+    pub fn seal_fingerprints(mut self) -> Self {
+        let mut bins: IndexMap<String, Vec<(usize, Commitment<B>)>> = IndexMap::new();
+        self.commitments.retain(|field, commitment| {
+            match crate::encoding::fingerprint_limb_of(field.name()) {
+                Some((column, bin)) => {
+                    bins.entry(column.to_string())
+                        .or_default()
+                        .push((bin, commitment.clone()));
+                    false
+                }
+                None => true,
+            }
+        });
+        if bins.is_empty() {
+            return self;
+        }
+        if let Some(schema) = self.schema.take() {
+            let fields: Vec<FieldRef> = schema
+                .fields()
+                .iter()
+                .filter(|f| crate::encoding::fingerprint_limb_of(f.name()).is_none())
+                .cloned()
+                .collect();
+            self.schema = Some(Schema::new_with_metadata(fields, schema.metadata().clone()));
+        }
+        for (column, mut column_bins) in bins {
+            column_bins.sort_by_key(|(bin, _)| *bin);
+            assert!(
+                column_bins
+                    .iter()
+                    .enumerate()
+                    .all(|(i, (bin, _))| i == *bin),
+                "column {column}: fingerprint bins must be 0..n"
+            );
+            let commitments: Vec<_> = column_bins.into_iter().map(|(_, c)| c).collect();
+            let root = bin_tree(&commitments).root();
+            self.fingerprints.insert(
+                column,
+                FingerprintBinsOracle {
+                    root,
+                    num_bins: commitments.len(),
+                    bins: Some(commitments),
+                },
+            );
+        }
+        self
+    }
+
+    /// Per string column, its sealed fingerprint bins.
+    pub fn fingerprints(&self) -> &IndexMap<String, FingerprintBinsOracle<B>> {
+        &self.fingerprints
+    }
+
+    /// Bin `bin`'s commitment in `column`, when this oracle holds the bins
+    /// (the prover's).
+    pub fn fingerprint_bin(
+        &self,
+        column: &str,
+        bin: usize,
+    ) -> Option<&<B::MvPCS as PCS<B::F>>::Commitment> {
+        self.fingerprints.get(column)?.bins.as_ref()?.get(bin)
+    }
+
+    /// The multiproof opening `bins` (sorted, distinct) of `column`, when
+    /// this oracle holds the bins.
+    pub fn open_fingerprint_bins(&self, column: &str, bins: &[usize]) -> Option<Vec<Hash>> {
+        let sealed = self.fingerprints.get(column)?;
+        let all = sealed.bins.as_ref()?;
+        bins.iter()
+            .all(|&b| b < all.len())
+            .then(|| bin_tree(all).open(bins))
+    }
+
+    /// Check that `opened` (bin, commitment) pairs, sorted by bin, are
+    /// `column`'s committed bins, against its root.
+    pub fn verify_fingerprint_bins(
+        &self,
+        column: &str,
+        opened: &[(usize, &Commitment<B>)],
+        siblings: &[Hash],
+    ) -> bool {
+        let Some(sealed) = self.fingerprints.get(column) else {
+            return false;
+        };
+        let bytes: Vec<(usize, Vec<u8>)> = opened
+            .iter()
+            .map(|&(bin, c)| (bin, commitment_bytes(c)))
+            .collect();
+        let leaves: Vec<(usize, &[u8])> = bytes.iter().map(|(b, v)| (*b, &v[..])).collect();
+        merkle::verify(&sealed.root, sealed.num_bins, &leaves, siblings)
+    }
+
+    /// Write the fingerprint bin commitments the serialized oracle leaves
+    /// out: the prover's share of the commitment.
+    pub fn serialize_fingerprint_bins<W: Write>(
+        &self,
+        mut writer: W,
+    ) -> Result<(), SerializationError> {
+        (self.fingerprints.len() as u64).serialize_compressed(&mut writer)?;
+        for (column, sealed) in &self.fingerprints {
+            let bins = sealed
+                .bins
+                .as_ref()
+                .ok_or(SerializationError::InvalidData)?;
+            column
+                .as_bytes()
+                .to_vec()
+                .serialize_compressed(&mut writer)?;
+            bins.serialize_compressed(&mut writer)?;
+        }
+        Ok(())
+    }
+
+    /// Attach bin commitments written by [`Self::serialize_fingerprint_bins`],
+    /// checking each column's against its root.
+    pub fn attach_fingerprint_bins<R: Read>(
+        &mut self,
+        mut reader: R,
+    ) -> Result<(), SerializationError> {
+        let count = u64::deserialize_compressed(&mut reader)?;
+        for _ in 0..count {
+            let column = String::from_utf8(Vec::<u8>::deserialize_compressed(&mut reader)?)
+                .map_err(|_| SerializationError::InvalidData)?;
+            let bins =
+                Vec::<<B::MvPCS as PCS<B::F>>::Commitment>::deserialize_compressed(&mut reader)?;
+            let sealed = self
+                .fingerprints
+                .get_mut(&column)
+                .ok_or(SerializationError::InvalidData)?;
+            if bins.len() != sealed.num_bins || bin_tree(&bins).root() != sealed.root {
+                return Err(SerializationError::InvalidData);
+            }
+            sealed.bins = Some(bins);
+        }
+        Ok(())
     }
 
     /// Read-only access to side-domain commitment entries.
@@ -932,6 +1133,7 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
             commitments,
             log_size: table_oracle.log_size(),
             side_commitments,
+            fingerprints: IndexMap::new(),
         }
     }
 
@@ -981,6 +1183,17 @@ where
         }
 
         (self.log_size as u64).serialize_with_mode(&mut writer, compress)?;
+
+        // Fingerprint bins: each column's root, never the bins themselves.
+        (self.fingerprints.len() as u64).serialize_with_mode(&mut writer, compress)?;
+        for (column, sealed) in &self.fingerprints {
+            column
+                .as_bytes()
+                .to_vec()
+                .serialize_with_mode(&mut writer, compress)?;
+            sealed.root.serialize_with_mode(&mut writer, compress)?;
+            (sealed.num_bins as u64).serialize_with_mode(&mut writer, compress)?;
+        }
         Ok(())
     }
 
@@ -1009,7 +1222,14 @@ where
             size += commitment.serialized_size(compress);
         }
 
-        size + (self.log_size as u64).serialized_size(compress)
+        size += (self.log_size as u64).serialized_size(compress);
+        size += (self.fingerprints.len() as u64).serialized_size(compress);
+        for (column, sealed) in &self.fingerprints {
+            size += column.as_bytes().to_vec().serialized_size(compress)
+                + sealed.root.serialized_size(compress)
+                + (sealed.num_bins as u64).serialized_size(compress);
+        }
+        size
     }
 }
 
@@ -1065,13 +1285,41 @@ where
         let log_size =
             usize::try_from(log_size_raw).map_err(|_| SerializationError::InvalidData)?;
 
+        // Fingerprint roots. An oracle written before bins were sealed ends
+        // here and carries its bins inline instead; sealing them now gives
+        // prover and verifier the same roots either way.
+        let mut fingerprints = IndexMap::new();
+        if let Ok(count) = u64::deserialize_with_mode(&mut reader, compress, validate) {
+            for _ in 0..count {
+                let column = String::from_utf8(Vec::<u8>::deserialize_with_mode(
+                    &mut reader,
+                    compress,
+                    validate,
+                )?)
+                .map_err(|_| SerializationError::InvalidData)?;
+                let root = Hash::deserialize_with_mode(&mut reader, compress, validate)?;
+                let num_bins = u64::deserialize_with_mode(&mut reader, compress, validate)?;
+                fingerprints.insert(
+                    column,
+                    FingerprintBinsOracle {
+                        root,
+                        num_bins: usize::try_from(num_bins)
+                            .map_err(|_| SerializationError::InvalidData)?,
+                        bins: None,
+                    },
+                );
+            }
+        }
+
         Ok(Self {
             _phantom: std::marker::PhantomData,
             schema,
             commitments,
             log_size,
             side_commitments: IndexMap::new(),
-        })
+            fingerprints,
+        }
+        .seal_fingerprints())
     }
 }
 

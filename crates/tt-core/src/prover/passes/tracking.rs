@@ -71,7 +71,14 @@ pub struct TrackingPass<'a, B: SnarkBackend> {
     total_committed: Cell<usize>, // Track committed polynomial count across the entire pass.
     arith_payloads: &'a IndexMap<NodeId, Option<ArithPayload<B::F>>>,
     output_memtable: Option<Arc<MemTable>>,
+    /// One multiproof per table-scan column whose fingerprint bins this
+    /// proof opens, in tracking order (see [`FingerprintOpenings`]).
+    fingerprint_openings: RefCell<FingerprintOpenings>,
 }
+
+/// The Merkle multiproofs opening the fingerprint bins a proof tests, one
+/// per (table scan, column) in the order both sides track them.
+pub type FingerprintOpenings = Vec<Vec<arithmetic::fingerprint::merkle::Hash>>;
 
 impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
     pub fn new(
@@ -84,7 +91,13 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
             total_committed: Cell::new(0),
             arith_payloads,
             output_memtable,
+            fingerprint_openings: RefCell::new(Vec::new()),
         }
+    }
+
+    /// The multiproofs of the fingerprint bins this pass opened.
+    pub fn take_fingerprint_openings(&self) -> FingerprintOpenings {
+        self.fingerprint_openings.take()
     }
 
     pub async fn finish(&self, tracked_ir: &mut TrackedIr<B>) -> crate::errors::TTResult<()> {
@@ -99,7 +112,7 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
         let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         // Final output table: no side segments — no downstream PIOP consumes them.
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None);
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None, None);
         let tracked_table = Self::track_arith_table_without_commitment(&arith_table, &self.prover)?;
         let gadget_id = root
             .children()
@@ -220,6 +233,7 @@ where
                         &self.prover,
                         &self.total_committed,
                         oracle.is_external_commitment_source(),
+                        &self.fingerprint_openings,
                     ),
                 ))
             }
@@ -243,6 +257,7 @@ where
                             &self.prover,
                             &self.total_committed,
                             false,
+                            &self.fingerprint_openings,
                         ),
                     );
                 }
@@ -274,6 +289,7 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
     prover: &RefCell<ArgProver<B>>,
     total_committed: &Cell<usize>,
     external_commitments: bool,
+    fingerprint_openings: &RefCell<FingerprintOpenings>,
 ) -> TrackedTable<B> {
     debug!(
         poly_count = arith_table.polynomials().len(),
@@ -283,19 +299,32 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
     );
     let mut tracked_polys = IndexMap::with_capacity(arith_table.polynomials().len());
     let mut prover_borrow = prover.borrow_mut();
+    // Fingerprint bins opened per column, in tracking order.
+    let mut opened: IndexMap<&str, Vec<usize>> = IndexMap::new();
     for (field_ref, mle_arc) in arith_table.polynomials() {
-        let commitment = oracle
-            .commitments()
-            .get(field_ref)
-            .expect("commitment oracle missing field")
-            .clone();
         // TableScan can reuse commitments from ctx_oracles; those commitments
         // must remain trackable but should not be counted as proof-emitted PCS
         // commitments.
-        let binding = if external_commitments {
+        let mut binding = if external_commitments {
             CommitmentBinding::External
         } else {
             CommitmentBinding::ProofEmitted
+        };
+        let commitment = match oracle.commitments().get(field_ref) {
+            Some(commitment) => commitment.clone(),
+            // A fingerprint bin the oracle seals under its column's root: the
+            // proof carries its commitment, opened against the root.
+            None => {
+                let (column, bin) = arithmetic::encoding::fingerprint_limb_of(field_ref.name())
+                    .expect("commitment oracle missing field");
+                let commitment = oracle
+                    .fingerprint_bin(column, bin)
+                    .expect("oracle holds no bins for a fingerprint column (missing .bins file?)")
+                    .clone();
+                opened.entry(column).or_default().push(bin);
+                binding = CommitmentBinding::ProofEmitted;
+                commitment
+            }
         };
         // Compression is applied inside `track_mat_mv_p_with_commitment` in
         // ark-piop — the ArgProver wrapper hands the poly through unchanged,
@@ -304,9 +333,15 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
             .track_mat_mv_poly_with_commitment(mle_arc, commitment, binding)
             .expect("failed to track polynomial with commitment");
         tracked_polys.insert(field_ref.clone(), tracked_poly);
-        if !external_commitments {
+        if binding == CommitmentBinding::ProofEmitted {
             total_committed.set(total_committed.get() + 1);
         }
+    }
+    for (column, bins) in opened {
+        let siblings = oracle
+            .open_fingerprint_bins(column, &bins)
+            .expect("opened bins are the oracle's");
+        fingerprint_openings.borrow_mut().push(siblings);
     }
 
     // Side-domain columns: each side col contributes (data, activator) tracked

@@ -259,6 +259,9 @@ where
             panic!("PreOrder passes are not supported in parallel traversal");
         }
         pass.begin_pass(self);
+        // `begin_pass` opens its scopes on this thread, but `transform` runs on
+        // rayon workers; carry the schema-only context onto each of them.
+        let schema_ctx = crate::irs::nodes::hints::scoped_schema_only_ctx();
         use rayon::prelude::*;
         let out_vec: Vec<(NodeId, Option<POut>)> = self
             .tree
@@ -278,7 +281,9 @@ where
                 // Those detached nodes may still exist in arena but have no payload entry.
                 // Skip transforming them in parallel traversal.
                 let maybe = if self.payloads.contains_key(id) {
-                    pass.transform(node, *id, input_payload)
+                    crate::irs::nodes::hints::with_schema_only_ctx_scope(schema_ctx.clone(), || {
+                        pass.transform(node, *id, input_payload)
+                    })
                 } else {
                     None
                 };

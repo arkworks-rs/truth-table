@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use arithmetic::{
@@ -666,36 +665,100 @@ fn active_mask_from_optional<F: ark_ff::Field>(values: Option<&Vec<F>>, size: us
     }
 }
 
+/// How often each active super row's value tuple occurs among the active
+/// included rows, placed on the tuple's first active super row (later
+/// duplicates get 0).
+///
+/// Sort-based and parallel: on a 2^23-row character domain the previous
+/// string-keyed sequential hash count was the longest single-threaded
+/// stretch of a proof (13.8 s), and a parallel hash map over field
+/// elements still spent half its time hashing and rehashing. Single-column
+/// tables (the common case) sort the field elements themselves; wider
+/// tables sort row tuples.
 fn expected_lookup_multiplicities_from_values<B: SnarkBackend>(
     super_values: &[Vec<B::F>],
     included_values: &[Vec<B::F>],
     super_active: &[bool],
     included_active: &[bool],
 ) -> Vec<B::F> {
-    let mut included_counts = std::collections::HashMap::<String, u64>::new();
-    for (row, is_active) in included_active.iter().enumerate() {
-        if !*is_active {
-            continue;
+    let counts: Vec<u64> = match (super_values, included_values) {
+        ([sup], [inc]) => first_occurrence_counts(
+            |row| sup[row],
+            super_active,
+            |row| inc[row],
+            included_active,
+        ),
+        _ => first_occurrence_counts(
+            |row| super_values.iter().map(|col| col[row]).collect::<Vec<_>>(),
+            super_active,
+            |row| {
+                included_values
+                    .iter()
+                    .map(|col| col[row])
+                    .collect::<Vec<_>>()
+            },
+            included_active,
+        ),
+    };
+    counts.into_iter().map(B::F::from).collect()
+}
+
+/// For every active super row that is the first with its key: how many
+/// active included rows have that key. Every other row gets 0.
+fn first_occurrence_counts<K, S, I>(
+    super_key: S,
+    super_active: &[bool],
+    included_key: I,
+    included_active: &[bool],
+) -> Vec<u64>
+where
+    K: Ord + Send,
+    S: Fn(usize) -> K + Sync,
+    I: Fn(usize) -> K + Sync,
+{
+    use rayon::prelude::*;
+
+    let mut included: Vec<K> = (0..included_active.len())
+        .into_par_iter()
+        .filter(|&row| included_active[row])
+        .map(&included_key)
+        .collect();
+    included.par_sort_unstable();
+    // (key, count) runs, in key order.
+    let mut included_runs: Vec<(K, u64)> = Vec::new();
+    for key in included {
+        match included_runs.last_mut() {
+            Some((last, n)) if *last == key => *n += 1,
+            _ => included_runs.push((key, 1)),
         }
-        let key = key_at_row(included_values, row);
-        *included_counts.entry(key).or_insert(0) += 1;
     }
 
-    let mut seen_active_super = HashSet::<String>::new();
-    let mut multiplicities = vec![B::F::from(0u64); super_active.len()];
-    for (row, out) in multiplicities
-        .iter_mut()
-        .enumerate()
-        .take(super_active.len())
-    {
-        if !super_active[row] {
+    // Active super rows by key, ties by row: the first of each run is the
+    // key's first occurrence.
+    let mut sup: Vec<(K, usize)> = (0..super_active.len())
+        .into_par_iter()
+        .filter(|&row| super_active[row])
+        .map(|row| (super_key(row), row))
+        .collect();
+    sup.par_sort_unstable();
+
+    let mut counts = vec![0u64; super_active.len()];
+    let mut runs = included_runs.iter().peekable();
+    let mut previous: Option<&K> = None;
+    for (key, row) in &sup {
+        if previous == Some(key) {
             continue;
         }
-        let key = key_at_row(super_values, row);
-        if seen_active_super.insert(key.clone()) {
-            let count = included_counts.get(&key).copied().unwrap_or(0);
-            *out = B::F::from(count);
+        previous = Some(key);
+        // Both sides are sorted: advance the included runs to this key.
+        while runs.peek().is_some_and(|(k, _)| k < key) {
+            runs.next();
+        }
+        if let Some((k, n)) = runs.peek()
+            && k == key
+        {
+            counts[*row] = *n;
         }
     }
-    multiplicities
+    counts
 }

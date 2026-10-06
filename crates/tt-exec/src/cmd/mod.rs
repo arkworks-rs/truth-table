@@ -9,6 +9,9 @@ pub mod verify;
 use anyhow::Result;
 use std::time::Instant;
 
+// async_trait marks the boxed futures it generates `#[must_use]`, which
+// newer clippy reports as doubled.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait(?Send)]
 pub trait Runnable: Sized {
     async fn run(self) -> Result<()>;

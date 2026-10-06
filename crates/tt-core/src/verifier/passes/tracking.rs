@@ -1,6 +1,10 @@
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use ark_ff::{Field, Zero};
-use ark_piop::{SnarkBackend, types::CommitmentBinding, verifier::ArgVerifier};
+use ark_piop::{
+    SnarkBackend,
+    types::CommitmentBinding,
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
+};
 use datafusion::{
     arrow::datatypes::{FieldRef, Schema},
     datasource::{MemTable, TableProvider},
@@ -18,6 +22,7 @@ use crate::{
         nodes::{Node, NodeId},
         payloads::{HintDFPayload, PayloadStructure},
     },
+    prover::passes::tracking::FingerprintOpenings,
     prover::{
         passes::{
             arithmetization::arithmetize_materialized_table,
@@ -43,6 +48,49 @@ pub struct TrackingPass<B: SnarkBackend> {
     /// commitments only for these columns, so the verifier must expect
     /// exactly the same set to keep the transcript in sync.
     side_columns: std::collections::BTreeSet<String>,
+    /// The fingerprint limbs, per column, a pre-filter tests (from
+    /// `Tree::required_fingerprint_columns`). Table scans carry exactly
+    /// these `__fp{j}` segments, as on the prover side.
+    fingerprint_columns: arithmetic::encoding::FingerprintSelection,
+    /// The proof's multiproofs for the fingerprint bins it opens.
+    fingerprint_openings: OpeningCursor,
+}
+
+/// Walks the proof's fingerprint multiproofs in the order the scans open
+/// them, remembering the first that fails.
+struct OpeningCursor {
+    openings: FingerprintOpenings,
+    next: std::cell::Cell<usize>,
+    failure: RefCell<Option<String>>,
+}
+
+impl OpeningCursor {
+    fn next(&self) -> Option<&[arithmetic::fingerprint::merkle::Hash]> {
+        let at = self.next.get();
+        self.next.set(at + 1);
+        self.openings.get(at).map(Vec::as_slice)
+    }
+
+    fn fail(&self, why: String) {
+        self.failure.borrow_mut().get_or_insert(why);
+    }
+
+    /// Every opening was checked and held, and none is left over.
+    fn check(&self) -> TTResult<()> {
+        let failure = self.failure.borrow().clone().or_else(|| {
+            (self.next.get() != self.openings.len()).then(|| {
+                format!(
+                    "proof carries {} fingerprint openings, the query opens {}",
+                    self.openings.len(),
+                    self.next.get()
+                )
+            })
+        });
+        match failure {
+            Some(why) => Err(DataFusionError::Internal(why).into()),
+            None => Ok(()),
+        }
+    }
 }
 
 impl<B: SnarkBackend> TrackingPass<B> {
@@ -51,12 +99,20 @@ impl<B: SnarkBackend> TrackingPass<B> {
         ctx_oracles: CtxOracles<B>,
         output_memtable: Option<Arc<MemTable>>,
         side_columns: std::collections::BTreeSet<String>,
+        fingerprint_columns: arithmetic::encoding::FingerprintSelection,
+        fingerprint_openings: FingerprintOpenings,
     ) -> Self {
         Self {
             verifier: RefCell::new(verifier),
             ctx_oracles,
             output_memtable,
             side_columns,
+            fingerprint_columns,
+            fingerprint_openings: OpeningCursor {
+                openings: fingerprint_openings,
+                next: std::cell::Cell::new(0),
+                failure: RefCell::new(None),
+            },
         }
     }
 
@@ -64,6 +120,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
         &self,
         tracked_ir: &mut crate::verifier::irs::TrackedIr<B>,
     ) -> TTResult<()> {
+        self.fingerprint_openings.check()?;
         let Some(output_memtable) = self.output_memtable.clone() else {
             return Ok(());
         };
@@ -74,7 +131,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
 
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         // Final output table: no side segments — no downstream PIOP consumes them.
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None);
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None, None);
         let tracked_table = Self::track_output_table_oracle(&arith_table, &self.verifier);
         let gadget_id = root
             .children()
@@ -133,22 +190,37 @@ where
                             oracle,
                             &self.verifier,
                             &self.side_columns,
+                            &self.fingerprint_columns,
+                            &self.fingerprint_openings,
                         )
                         .map(TrackedPayload::PlanPayload);
                     }
                     // TableScan without cached oracle: prover emits side commits
                     // for the gadget-consumed columns, verifier must consume them.
-                    return track_hint_df(hint_df, &self.verifier, Some(&self.side_columns))
+                    return track_hint_df(
+                        hint_df,
+                        &self.verifier,
+                        Some(&self.side_columns),
+                        Some(&self.fingerprint_columns),
+                    )
+                    .map(TrackedPayload::PlanPayload);
+                }
+                if node.name() == "Rematerialize" {
+                    // Rematerialize outputs re-emit side segments for the
+                    // gadget-consumed string columns (see
+                    // ArithmetizationPass); consume their commitments in
+                    // the same order the prover emitted them.
+                    return track_hint_df(hint_df, &self.verifier, Some(&self.side_columns), None)
                         .map(TrackedPayload::PlanPayload);
                 }
                 // Intermediate operator: prover skips side segments (see
                 // ArithmetizationPass), so verifier must skip them too.
-                track_hint_df(hint_df, &self.verifier, None).map(TrackedPayload::PlanPayload)
+                track_hint_df(hint_df, &self.verifier, None, None).map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (key, hint_df) in map.iter() {
-                    if let Some(table) = track_hint_df(hint_df, &self.verifier, None) {
+                    if let Some(table) = track_hint_df(hint_df, &self.verifier, None, None) {
                         out.insert(key.clone(), table);
                     }
                 }
@@ -171,6 +243,8 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     oracle: &ArithTableOracle<B>,
     verifier: &RefCell<ArgVerifier<B>>,
     side_columns: &std::collections::BTreeSet<String>,
+    fingerprint_columns: &arithmetic::encoding::FingerprintSelection,
+    fingerprint_openings: &OpeningCursor,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
@@ -196,8 +270,28 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
         })
         .collect();
 
+    // Fingerprint bins opened per column: the oracle holds only each
+    // column's root, so their commitments come from the proof, opened
+    // against it.
+    let mut opened: IndexMap<String, Vec<(usize, TrackedOracle<B>)>> = IndexMap::new();
     for qualified_field in &materialized {
-        for segment_field in segment_fields::<B>(qualified_field) {
+        let fingerprint =
+            arithmetic::encoding::selected_limbs(fingerprint_columns, qualified_field.name());
+        for segment_field in segment_fields::<B>(qualified_field, fingerprint) {
+            if let Some((column, bin)) =
+                arithmetic::encoding::fingerprint_limb_of(segment_field.name())
+                && oracle.fingerprints().contains_key(column)
+            {
+                let tracked_oracle = verifier
+                    .track_next_mv_com()
+                    .expect("verifier should track an opened fingerprint bin");
+                opened
+                    .entry(column.to_string())
+                    .or_default()
+                    .push((bin, tracked_oracle.clone()));
+                tracked_oracles.insert(segment_field, tracked_oracle);
+                continue;
+            }
             let commitment = oracle
                 .commitments()
                 .get(&segment_field)
@@ -224,9 +318,26 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
             if log_size == 0 {
                 log_size = tracked_oracle.log_size();
             } else {
-                debug_assert_eq!(log_size, tracked_oracle.log_size());
+                assert_eq!(
+                    log_size,
+                    tracked_oracle.log_size(),
+                    "segments of one table must share a log_size"
+                );
             }
             tracked_oracles.insert(segment_field, tracked_oracle);
+        }
+    }
+    for (column, bins) in &opened {
+        let commitments: Vec<_> = bins.iter().map(|(bin, t)| (*bin, t.commitment())).collect();
+        let leaves: Vec<_> = commitments.iter().map(|(bin, c)| (*bin, c)).collect();
+        let holds = fingerprint_openings
+            .next()
+            .is_some_and(|siblings| oracle.verify_fingerprint_bins(column, &leaves, siblings));
+        if !holds {
+            fingerprint_openings.fail(format!(
+                "fingerprint bins {:?} of column {column} do not open against its committed root",
+                bins.iter().map(|(bin, _)| bin).collect::<Vec<_>>()
+            ));
         }
     }
     for qualified_field in &materialized {
@@ -240,7 +351,7 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
             let activator = verifier
                 .track_next_mv_com()
                 .expect("verifier should track side activator commitment");
-            debug_assert_eq!(
+            assert_eq!(
                 data.log_size(),
                 activator.log_size(),
                 "side data/activator must share log_size"
@@ -273,6 +384,7 @@ fn track_hint_df<B: SnarkBackend>(
     hint_df: &crate::irs::nodes::hints::HintDF,
     verifier: &RefCell<ArgVerifier<B>>,
     side_columns: Option<&std::collections::BTreeSet<String>>,
+    fingerprint_columns: Option<&arithmetic::encoding::FingerprintSelection>,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
@@ -299,7 +411,11 @@ fn track_hint_df<B: SnarkBackend>(
         .collect();
 
     for qualified_field in &materialized {
-        for segment_field in segment_fields::<B>(qualified_field) {
+        let fingerprint = fingerprint_columns
+            .map_or(arithmetic::encoding::FingerprintLimbs::None, |selection| {
+                arithmetic::encoding::selected_limbs(selection, qualified_field.name())
+            });
+        for segment_field in segment_fields::<B>(qualified_field, fingerprint) {
             // Use the next expected id so the verifier's tracker stays in
             // sync with the proof. The prover commits one polynomial per
             // segment (e.g. hash + __length for strings), so the verifier
@@ -310,7 +426,11 @@ fn track_hint_df<B: SnarkBackend>(
             if log_size == 0 {
                 log_size = oracle.log_size();
             } else {
-                debug_assert_eq!(log_size, oracle.log_size());
+                assert_eq!(
+                    log_size,
+                    oracle.log_size(),
+                    "segments of one table must share a log_size"
+                );
             }
             tracked_oracles.insert(segment_field, oracle);
         }
@@ -327,7 +447,7 @@ fn track_hint_df<B: SnarkBackend>(
                 let activator = verifier
                     .track_next_mv_com()
                     .expect("verifier should track side activator commitment");
-                debug_assert_eq!(
+                assert_eq!(
                     data.log_size(),
                     activator.log_size(),
                     "side data/activator must share log_size"
@@ -359,10 +479,25 @@ fn track_hint_df<B: SnarkBackend>(
 
 /// Expand a hint-df field into the list of segment fields the prover-side
 /// arithmetization will produce (e.g. a Utf8 column expands to
-/// `[col, col__length]`). The first segment uses the unchanged field; later
-/// segments inherit `metadata` and nullability but rename to `<col>{suffix}`.
-fn segment_fields<B: SnarkBackend>(field: &FieldRef) -> Vec<FieldRef> {
-    let suffixes = arithmetic::encoding::segment_suffixes_for_type::<B::F>(field.data_type());
+/// `[col, col__length]`, followed by the `fingerprint` limbs selected). The
+/// first segment uses the unchanged field; later segments inherit
+/// `metadata` and nullability but rename to `<col>{suffix}`.
+fn segment_fields<B: SnarkBackend>(
+    field: &FieldRef,
+    fingerprint: arithmetic::encoding::FingerprintLimbs,
+) -> Vec<FieldRef> {
+    let mut suffixes = arithmetic::encoding::segment_suffixes_for_type::<B::F>(field.data_type());
+    if matches!(
+        field.data_type(),
+        datafusion::arrow::datatypes::DataType::Utf8
+            | datafusion::arrow::datatypes::DataType::LargeUtf8
+            | datafusion::arrow::datatypes::DataType::Utf8View
+    ) {
+        suffixes.extend(arithmetic::encoding::fingerprint_segment_suffixes(
+            Some(field.name()),
+            fingerprint,
+        ));
+    }
     if suffixes.len() <= 1 {
         return vec![field.clone()];
     }
@@ -550,9 +685,7 @@ fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point:
     for i in 0..num_vars {
         let x = point.get(i).copied().unwrap_or_else(F::zero);
         let mut next = Vec::with_capacity(layer.len() / 2);
-        for chunk in layer.chunks_exact(2) {
-            let low = chunk[0];
-            let high = chunk[1];
+        for &[low, high] in layer.as_chunks::<2>().0 {
             next.push(low * (one - x) + high * x);
         }
         layer = next;

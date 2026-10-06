@@ -1,0 +1,607 @@
+% Requires amsmath, amssymb, graphicx. Compile as part of a larger document;
+% figure paths are relative to crates/tt-fingerprint-optimizer.
+\doclearpage
+\section{Pre-Filtering Optimization}
+\label{sec:fp-opt}
+
+A \textsc{like} filter over a string column is preceded by a fingerprint
+pre-filter. Each row commits a bit vector of the features it contains,
+and a row survives only if its vector contains the bits the prover
+chose to test from the pattern's. The survivors are compacted before the
+expensive \textsc{like} proof runs. The work splits between two parties.
+At commit time the data owner assigns the column's features to bins,
+from the column alone, and commits every row's fingerprint. At proving
+time the prover, which holds the data, chooses per query which of the
+pattern's bins to test, pricing each choice with a cost model of the
+proof. On the benchmark column the pre-filter makes selective queries
+$10.4\times$ faster to prove.
+
+\subsubsection{Fingerprints}
+
+\paragraph{Columns and rules.}
+Every string column of every table is fingerprinted separately; columns
+of other types are never fingerprinted. A column $\gamma$ is a corpus of
+rows $R_\gamma$, each row a byte string, with $m_\gamma$ characters in
+total. Its \emph{rule}, the assignment of features to bins defined
+below, is stored as trusted table metadata in the table's
+\texttt{.oracle}. The verifier reads the rule from the oracle, never from
+the proof, so an untrusted prover cannot influence how a column is
+fingerprinted. A data owner who declares one rule and commits limbs built
+under another could hide rows of its own table, but it could equally
+commit different data, so the rule grants it no new power.
+
+\paragraph{Features.}
+\label{par:fp-features}
+For a byte string $r$ the feature set $\mathrm{feat}(r)$ contains every
+byte (\emph{char}); every length-$2$ and length-$3$ window of $r$ read
+over a $64$-symbol alphabet --- the $62$ alphanumerics, the space, and
+one symbol for every other byte (\emph{bigram}, \emph{trigram}); and
+every ordered pair $(a, b)$ of alphanumeric bytes such that the first
+occurrence of $a$ lies before the last occurrence of $b$
+(\emph{precedence}). Reading $n$-grams across spaces and punctuation lets
+a pattern say where a word starts or ends: \texttt{\%l\%n\ \%} has the
+bigram \texttt{"n\ "}, which only rows with a word ending in \texttt{n}
+contain (\S\ref{par:fp-boundary}). A pattern $p = \%f_1\%\cdots\%f_n\%$
+has the chars and $n$-grams of each literal factor on its own --- a
+wildcard can match anything, so $n$-grams never cross factors --- plus
+the precedence pairs of the concatenation $f_1 \cdots f_n$. Whenever $r$
+matches $p$ the factors occur in $r$ in order and without overlap, so
+\[
+  \mathrm{feat}(p) \subseteq \mathrm{feat}(r).
+\]
+On the benchmark column \texttt{lineitem.l\_comment} ($|R| = 299{,}814$
+rows, $m = 7{,}949{,}138$ characters) $2{,}203$ distinct features occur
+in some but not every row: $35$ chars, $302$ bigrams, $1{,}138$ trigrams
+and $728$ precedence pairs.
+
+\paragraph{Fingerprints and bins.}
+A rule is a width $B_\pi \le 2{,}048$ and a partial function
+$\pi : \mathcal{F} \rightharpoonup \{0, \dots, B_\pi - 1\}$ from features
+to bins; unassigned features set no bin. The row fingerprint
+$\mathrm{fp}_\pi(r) \in \{0,1\}^{B_\pi}$ has bit $b$ set iff $r$ has some
+feature $f$ with $\pi(f) = b$, so a bin is the \textsc{or} of its
+features. The pattern's bins are $\varphi(p) = \pi(\mathrm{feat}(p))$. A
+pre-filter tests a subset $Q \subseteq \varphi(p)$ and keeps the rows
+with $Q \subseteq \mathrm{fp}_\pi(r)$. By the containment above this is
+\emph{sound for every $\pi$ and every $Q$}: sharing bins and leaving bins
+untested only add false positives, never drop a match, so both choices
+are purely performance questions. Writing $M_b = \bigcup_{f : \pi(f) = b}
+\mathrm{rows}(f)$ for the rows setting bin $b$, the survivors are
+\[
+  S_\pi(p, Q) \;=\; \bigcap_{b \in Q} M_b .
+\]
+
+\paragraph{Commitment and the pre-filter check.}
+The data owner commits each fingerprint once, as $\lceil B_\pi / 8
+\rceil$ separate columns of $8$-bit limbs; limb $j$ holds bins $8j$ to
+$8j + 7$. A pre-filter testing $Q$ works only on the \emph{needed} limbs
+$N = \{ \lfloor b/8 \rfloor : b \in Q \}$: one batched
+bitwise-\textsc{and} lookup per needed limb into one shared $2^{16}$-row
+table (table membership doubles as the range check), plus zero checks
+that every kept row passes the subset test and a non-zero check that
+every dropped row fails it. The comparison folds the needed limbs with a
+challenge $\rho$ drawn after the masked limbs are committed,
+$\sum_i \rho^i g_{N_i}$ against the same fold of $Q$. The limbs are
+bytes, so two differing limb vectors agree under the fold with
+probability at most $(|N| - 1)/|\mathbb{F}|$, for any number of limbs,
+and the width is not bounded by the scalar modulus.
+
+A limb no tested bin lies in is never read. We measured this directly:
+\texttt{\%erve\%} touches $8$ limbs whether $32$ or $64$ are committed,
+and proves in $61.4$ and $59.4$\,s respectively (median of three).
+Committing wider costs the data owner --- the oracle grows from $34.2$ to
+$62.4$\,KB, and the extra columns must be encoded and committed --- but
+costs the prover nothing.
+
+\subsubsection{Rules at Commit Time}
+\label{sec:fp-modes}
+
+The prover chooses its bins per query (\S\ref{par:fp-select}), so the
+data owner's rule decides only which features get a bin and which share
+one. A shared bin costs selectivity, since a row passes if it has
+\emph{any} of the bin's features. No rule looks at queries: each is built
+from the column's active rows alone. The data owner picks one of two
+modes for a table (\texttt{commit --fp-mode}, or the
+\texttt{TT\_FP\_MODE} environment variable):
+\begin{itemize}
+  \item \emph{cluster} (the default): every feature, grouped into $512$
+        bins by the rows the features share (\S\ref{sec:fp-cluster});
+  \item \emph{single}: one private bin per feature, the most common
+        first, up to $2{,}048$ (\S\ref{sec:fp-single}).
+\end{itemize}
+Every string column of the table gets its own rule under the chosen
+mode. In both modes a feature present in every row gets no bin, since it
+can never remove a row, and a column of fewer than $2^{14}$ rows gets a
+rule of width zero and no pre-filter, since its padded domains are too
+small for a pre-filter to repay its limbs.
+
+\paragraph{Cluster rules.}
+\label{sec:fp-cluster}
+A query for a feature $f$ in bin $B$ keeps every row of $\bigcup B$
+where only the rows of $f$ could match, so sharing a bin wastes the rows
+that hold the bin's other features but not $f$. Weighting each feature by
+how often a query contains it, a bin wastes
+\[
+  W(B) \;=\; \sum_{f \in B} w_f \Bigl(\bigl|\textstyle\bigcup B\bigr| - |\mathrm{rows}(f)|\Bigr)
+\]
+rows. With no queries to count, $w_f = |\mathrm{rows}(f)| / |R|$: a
+pattern is cut from the column's own text, so it contains a feature about
+as often as the rows do. Merging bins $A$ and $B$ then adds
+\[
+  \Delta(A, B) \;=\; (w_A + w_B)\,|A \cup B| - w_A |A| - w_B |B|
+\]
+wasted rows, with $w_A$ a bin's summed weight and $|A|$ the rows of its
+union. $\Delta$ is small in exactly two cases: features that occur
+together (\texttt{th}, \texttt{the} and \texttt{he}), whose union adds
+almost no row to either, and rare features, whose union is small. It is
+large for a common feature and a rare one, which would hand the rare
+feature's queries all the common feature's rows.
+
+The rule starts from one bin per feature ($2{,}203$ on
+\texttt{l\_comment}; at most the $4{,}096$ most common on a column with
+more) and repeatedly makes the cheapest merge until $512$ bins remain. A
+table of all pairwise $\Delta$ is filled once, in parallel, and after a
+merge only the new bin's row is recomputed; each bin keeps its cheapest
+partner, so a merge costs one pass over the bins. Every feature keeps a
+bin. Columns longer than $2^{20}$ rows are sampled at an even stride.
+Width is the only parameter: along the merge path $J$
+(\S\ref{sec:fp-results}) falls quickly and then flattens, and $512$ bins,
+$64$ limbs per row, is $0.5$\,s of $J$ from the widest rule at a quarter
+of its limbs.
+
+\paragraph{Single-feature rules.}
+\label{sec:fp-single}
+A private bin per feature leaves the prover every choice: no feature's
+rows are blurred by another's. The only choice left is which features
+get a bin when a column has more than the $2{,}048$ bins a fingerprint
+may use, as all three large comment columns do. The rule keeps those in
+the most rows, for the reason behind the cluster rule's weights. Keeping
+the rarest instead is clearly worse, and keeping the most common matches
+a rule that gives a bin to exactly the features the workload uses
+(modeled $J$ under the earlier fit of the cost model, bins chosen per
+query):
+\begin{center}
+\begin{tabular}{lrrr}
+  column & most common first & rarest first & features the workload uses \\
+  \hline
+  \texttt{l\_comment}  & 205.7 & 227.1 & 205.7 \\
+  \texttt{o\_comment}  & 123.2 & 124.6 & 123.2 \\
+  \texttt{ps\_comment} & 165.2 & 166.2 & 165.2
+\end{tabular}
+\end{center}
+The rule is as wide as its features allow, $2{,}048$ bins or $256$
+committed limbs per row on these columns.
+
+\paragraph{Why not maximize entropy.}
+\label{sec:fp-entropy}
+A natural workload-free alternative picks the bins that carry the most
+information about the rows. Built in order, each bin is the
+\textsc{or} of the features that greedily maximize its conditional
+entropy given the bins before it,
+$H(Y_b \mid Y_1, \dots, Y_{b-1}) = \sum_C \frac{|C|}{|R|}\,
+h_2\bigl(|C \cap U_b| / |C|\bigr)$ over the cells $C$ of rows sharing a
+fingerprint so far --- decision-tree induction with \textsc{or}-merged
+splits. We implemented this rule as a third commit mode and removed it;
+the numbers below are modeled under the earlier fit of the cost model,
+where the default rule had $J = 206.7$\,s. It works: it is as sound as
+any rule, and it lowers $J$ from $327.7$ to $249.7$\,s. But it optimizes the wrong quantity. Entropy rewards telling
+rows apart, while the prover pays for the rows a pattern keeps. A bin is
+most informative when it splits the rows near half and half, so the rule
+favors features present in about half the rows, which separate rows well
+but prune a selective pattern's candidates poorly; the rare features a
+selective pattern needs carry little entropy and get no bin. It also
+stops growing once the rows are told apart: on \texttt{l\_comment} after
+$122$ bins, whatever width is asked for, with the same $122$ when
+trigrams are offered too. Below $128$ bins its shared bins let it lead
+the single-feature rule ($295.2$, $275.9$ and $263.3$\,s at $16$, $32$
+and $64$ bins, against $305.3$, $290.9$ and $271.5$), but the cluster
+rule beats it at every width ($275.6$, $246.8$ and $234.2$\,s), and at
+its full width it trails the default by $43$\,s of $J$, nearly all of it
+in the selective regimes ($95.7$ against $44.0$\,s per query below $1\%$,
+$179.4$ against $88.0$ between $1$ and $20\%$). It is also the slowest to
+build: $7$\,s on \texttt{l\_comment}, against $3$\,s for the cluster
+rule.
+
+\paragraph{Packing bins into limbs.}
+Both rules number their bins by rows, most first, and limb $j$ takes
+bins $8j$ to $8j + 7$; which features a pattern holds together plays no
+part. The order does not matter: a random order prices the same to
+within $0.01$\,s of $J$ at every width tested. Nor would a better one pay.
+Packing together the bins that the evaluation workload's own queries
+want tested --- an in-sample layout no commit-time rule could build ---
+cuts the limbs a selective query touches from $3.8$ to $2.9$ on the
+default rule, yet gains only $0.15$\,s of $J$ under the earlier fit of
+the cost model ($206.67 \to 206.52$\,s;
+$0.12$--$0.18$\,s for the cluster rule at $128$--$1{,}024$ bins and the
+single-feature rule at $512$ and $2{,}048$). By the time a selective
+query has tested its first few limbs its survivors are near the matches,
+so a saved limb is worth one $c_{\mathrm{limb}}$ in one regime of six.
+
+\paragraph{Commit cost.}
+Committing the $2^{19}$-row \texttt{lineitem} benchmark table (building
+every string column's rule, encoding and committing, not loading the
+key; medians of three) takes $1.15$\,s with no fingerprints, $4.3$ to
+$4.9$\,s with cluster rules of $16$ to $2{,}048$ bins, and $1.3$ to
+$2.5$\,s with single-feature rules of the same widths
+(Figure~\ref{fig:fp-widths}, right). Building the cluster rule is most of
+it, about $3$\,s at any width, since the merge path runs from every
+feature down to the width asked; building the single-feature rule takes
+$0.2$\,s. The limb commitments themselves are cheap, about $5$\,ms per
+committed limb column. The oracle grows from $6.2$\,KB to $54$\,KB at the
+default width and to $87$--$89$\,KB at $2{,}048$ bins, mostly the rules
+themselves.
+
+\subsubsection{Choosing Bins at Proving Time}
+\label{par:fp-select}
+
+The prover chooses $Q$ per query, in whole limbs, because the limb is
+what the pre-filter pays for: a touched limb costs one lookup whether it
+tests one of the pattern's bins or all of them. At plan time it
+fingerprints the column's active rows and counts the pattern's matches
+$t$. Starting from every row, it repeatedly adds the limb, among those
+holding bins of $\varphi(p)$, whose test (every bin of $\varphi(p)$ in
+that limb) leaves the fewest survivors, ties to the lowest limb, and
+after each step prices the query with the cost model of
+\S\ref{par:fp-cost}. It keeps the cheapest prefix of that chain, ties to
+the shorter, possibly the empty one, in which case the pre-filter is
+removed from the plan. Each step is one bitset intersection per
+remaining limb, and a pattern touches at most a few dozen limbs, so the
+choice takes milliseconds.
+
+The whole chain is priced rather than stopping at the first limb that
+does not pay. The cost falls in steps at powers of two
+(\S\ref{par:fp-cost}), so a limb that saves nothing can come just before
+one that crosses a step: on \texttt{l\_comment} that happens for $99$ of
+the $1{,}239$ workload patterns, and stopping at the first rise would
+cost $3.1$\,s per query on average.
+
+The chosen list travels with the proof as a plan hint. The verifier
+checks that it is a non-empty subset of $\varphi(p)$, which it computes
+from the public pattern and the rule in the oracle, and builds the
+pre-filter from it. Nothing else about the choice needs to be agreed:
+any subset is sound, and the cost model is a heuristic whose errors cost
+proving time, never correctness.
+
+Testing a limb pays only while it removes rows, so the speed-up against
+the number of limbs tested rises and then falls
+(Figure~\ref{fig:fp-chain}): it climbs steeply over the first few limbs,
+then drops as each extra limb adds about $c_{\mathrm{limb}}$ and removes
+almost nothing. On the default rule the prover stops at $3.1$ limbs on
+average for patterns matching under $1\%$ of rows, $1.8$ between $1$ and
+$20\%$, and $0.2$ between $40$ and $60\%$; above $60\%$ it never tests a
+limb.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{results/chain-cluster-l_comment.png}
+  \caption{The prover's limb choice: speed-up over no pre-filter after
+    the first $k$ limbs of each query's greedy chain, per selectivity
+    regime (mean no-filter cost over mean cost), on the default rule
+    ($512$ bins) over the \texttt{l\_comment} workload, modeled. A query
+    with fewer candidate limbs keeps its cost at all of them. Each panel's
+    axis is zoomed on the top of its curve.}
+  \label{fig:fp-chain}
+\end{figure}
+
+\subsubsection{Prover Cost Model}
+\label{par:fp-cost}
+
+\paragraph{The model.}
+A query's proving time is modeled from its \emph{shape}: input rows
+$|R|$ and characters $m$, survivors $s$ and their characters $m_s$,
+matches $t$, touched limbs $\lambda$, total literal length $L$ and
+factor count $n$. The shape fixes what the planner does. Write $D(x)$ for
+the next power of two at or above $x$ and $D^+(x)$ for the strict one
+(doubling an exact power). Tables are padded to a power of two and the
+planner counts the padding, so a filter over a scan is compared against
+$T = D(|R|)$. Then
+\begin{align*}
+  \mathrm{remat}  &= [\lambda > 0] \wedge [D^+(s) < D^+(T)], &
+  (R', m', P)     &= \begin{cases} (s, m_s, s) & \mathrm{remat},\\
+                                    (|R|, m, T) & \text{otherwise,} \end{cases}\\
+  \mathrm{second} &= [D^+(t) < D^+(P)], &
+  m_t             &= t\, m' / R'.
+\end{align*}
+The survivors are compacted (``rematerialized'') iff remat, and the
+\textsc{like} runs on $(R', m')$. Every compaction of a string column
+carries a data-preserving update check (DPUC) binding the compacted
+characters to their source rows, so a compaction costs work over its
+\emph{character} domain; the DPUC reads characters only, never
+fingerprint limbs. The model is linear in fifteen regressors, each priced
+on the padded domain the stage actually runs on:
+\begin{align*}
+  C = {}& a_0
+    && \text{(fixed floor of every proof)} \\
+  &+ a_{\mathrm{pf}}\, [\lambda > 0]
+    && \text{(pre-filter check, paid once if any bin is tested)} \\
+  &+ c_{\mathrm{limb}}\, \lambda
+    && \text{(AND lookup per touched limb)} \\
+  &+ \mathrm{remat} \cdot a_r
+    && \text{(fixed cost of compacting the survivors)} \\
+  &+ \mathrm{remat} \cdot a_{rs}\, D(s)
+    && \text{(compaction, per surviving row)} \\
+  &+ \mathrm{remat} \cdot a_{rc}\, D(m_s)
+    && \text{(compaction DPUC, per surviving character)} \\
+  &+ a_c\, D(m')
+    && \text{(\textsc{like}, per input character)} \\
+  &+ a_{cL}\, (L - 1)\, D(m')
+    && \text{(\textsc{like}, per character per extra literal character)} \\
+  &+ a_{cn}\, (n - 1)\, D(m')
+    && \text{(\textsc{like}, per character per extra factor)} \\
+  &+ a_w\, D(R')
+    && \text{(\textsc{like}, per input row)} \\
+  &+ a_{wL}\, (L - 1)\, D(R')
+    && \text{(\textsc{like}, per row per extra literal character)} \\
+  &+ a_{wn}\, (n - 1)\, D(R')
+    && \text{(\textsc{like}, per row per extra factor)} \\
+  &+ \mathrm{second} \cdot \bigl(a_2 + a_{2r}\, D(R') + a_{2c}\, D(m_t)\bigr)
+    && \text{(see below).}
+\end{align*}
+Because every term reads a padded domain, $C$ is a \emph{staircase}:
+removing survivors buys nothing until the surviving domain crosses a
+power of two, then buys a whole step.
+
+\begin{center}
+\begin{tabular}{llr@{\qquad}llr}
+  term & & fitted & term & & fitted \\
+  \hline
+  floor & $a_0$ & $17.88$ s &
+  \textsc{like} chars & $a_c$ & $4.21 \times 10^{-6}$ \\
+  pre-filter & $a_{\mathrm{pf}}$ & $0$ &
+  \quad per extra literal char & $a_{cL}$ & $3.07 \times 10^{-6}$ \\
+  touched limb & $c_{\mathrm{limb}}$ & $0.659$ s$^\dagger$ &
+  \quad per extra factor & $a_{cn}$ & $8.42 \times 10^{-6}$ \\
+  remat & $a_r$ & $10.26$ s &
+  \textsc{like} rows & $a_w$ & $6.21 \times 10^{-5}$ \\
+  \quad rows & $a_{rs}$ & $1.05 \times 10^{-4}$ &
+  \quad per extra literal char & $a_{wL}$ & $0$ \\
+  \quad chars & $a_{rc}$ & $6.65 \times 10^{-6}$ &
+  \quad per extra factor & $a_{wn}$ & $0$ \\
+  second & $a_2$ & $0$ &
+  second rows & $a_{2r}$ & $0$ \\
+  & & & second chars & $a_{2c}$ & $1.51 \times 10^{-6}$
+\end{tabular}
+\end{center}
+Domain terms are in seconds per padded entry. $^\dagger$Held fixed; see
+below. The three ``second'' terms are named for a compaction of the
+\textsc{like} output that the planner does not perform (it leaves alone
+any node that only projections separate from the result check); the fit
+all but drops them, keeping only a small per-character term. The
+per-stage split of the model is not a breakdown of the proof. The
+coefficients are compiled into the prover
+(\texttt{crates/tt-arithmetic/cost\_model.toml}), which uses them only to
+choose bins.
+
+\paragraph{Calibration.}
+The coefficients other than $c_{\mathrm{limb}}$ are fitted by
+non-negative least squares (\texttt{tt-fp-opt fit}) to $50$ release-mode
+whole-prove timings on the benchmark column (\texttt{tt-fp-measure}),
+taken on an otherwise idle machine and ranging from $28$ to $388$\,s. Two
+workload queries per regime, drawn with a fixed seed among those with at
+most two factors and at least one match, are proved with no
+fingerprints; the six of them matching under $40\%$ of rows are proved
+again against the table committed with the cluster rule at $16$, $64$,
+$256$, $512$, $1{,}024$ and $2{,}048$ bins, each query's shape taken from
+the prover's own choice. The fit has RMS error $3.2$\,s ($3.6$\,s
+leave-one-out), a held-out error of $3.7\%$ on average and $11.2\%$ at
+most. It replaces a fit to $69$ proofs taken on an earlier build of the
+prover, which on these $50$ proofs predicts $1.2$--$1.6\times$ too long
+(RMS $59$\,s) and overstates the speed-up of the $1$--$40\%$ regimes by
+$25$--$35\%$. Comparisons marked ``under the earlier fit'' in this
+section were modeled with it; they compare rules under one model, and
+where we recomputed such comparisons under the refit (the width sweeps
+below) their ranking did not change. The fitting set has at most two factors and ten
+literal characters, so patterns with three or four factors extrapolate
+the per-factor terms.
+
+A free fit cannot recover $c_{\mathrm{limb}}$: a few seconds of limb cost
+is lost against errors on proofs of several hundred seconds, and least
+squares drives it to zero. It is therefore measured directly, by proofs
+that hold the survivor set fixed and vary only the limbs. Moving whole
+bins keeps which features \emph{share} a bin, so every row keeps its set
+bits and the survivors are unchanged to the row, while the same bins are
+spread over more limbs. Three such experiments, on the earlier build,
+agree:
+\begin{itemize}
+  \item a limb series spreading one pattern's $65$ bins over $9$, $16$,
+        $24$ and $32$ limbs ($11$ survivors throughout) gives $0.66$\,s
+        per limb, all points within $0.2$\,s of the line;
+  \item a rule restricted to $632$ features and relabelled
+        $b \mapsto sb$ for $s = 1, \dots, 4$ gives \texttt{\%quickly final
+        deposits wake\%} $16$, $31$, $42$ and $50$ touched limbs with the
+        same $3$ survivors, proving in $44.3$, $53.3$, $59.8$ and
+        $63.5$\,s: $0.570$\,s per limb, $R^2 = 0.998$;
+  \item relabelling $b \mapsto 2b$ in another rule gives $0.60$ and
+        $0.62$\,s per limb on two patterns ($2$ and $217$ survivors)
+        between $29$ and $62$ limbs.
+\end{itemize}
+So $c_{\mathrm{limb}} \in [0.57, 0.66]$\,s and the price is linear in the
+touched limbs up to at least $50$ of them. The model carries $0.659$, the
+high end.
+
+\paragraph{What the measurements show.}
+Selective patterns gain most: \texttt{\%ely f\%nal d\%} ($377$ matches)
+proves in $387.6$\,s with no pre-filter and $30.5$\,s against the default
+rule ($12.7\times$), and \texttt{\%ach\%} ($1{,}494$ matches) in $138.5$
+and $30.4$\,s ($4.6\times$). Less selective ones gain less, because the
+compaction and the \textsc{like} over the survivors still cost most of a
+proof: \texttt{\%refully\%} ($11\%$ of rows) $3.3\times$,
+\texttt{\%ic\%} ($19\%$) $1.7\times$, \texttt{\%t\%y\%} and
+\texttt{\%ly\%a\%} ($33$ and $36\%$) $1.4$ and $1.3\times$. A pre-filter
+that removes too few rows would make the proof \emph{slower}, since it
+pays for the check and the compaction without shrinking the
+\textsc{like}; the prover avoids that by testing nothing, as it does for
+every pattern above $60\%$ on the default rule. Past the point where
+extra limbs remove rows, each one only adds $c_{\mathrm{limb}}$, which is
+the fall on the right of Figure~\ref{fig:fp-chain}; the prover's chain
+stops at the bottom of that curve per query.
+
+\subsubsection{Results}
+\label{sec:fp-results}
+
+\paragraph{Workload and metric.}
+Rules never see queries; the workload exists only to evaluate them. We
+generate a workload $P_\gamma$ from the corpus itself, separately for
+each of six selectivity regimes $\sigma \in [\theta_{i-1}, \theta_i)$
+with $(\theta_i) = (0, 0.01, 0.2, 0.4, 0.6, 0.8, 1]$. Candidates are
+$1$--$3$ ordered literal factors cut from a random row (so they match at
+least that row), a share of short patterns (up to $4$ factors of
+$1$--$2$ bytes, the only ones common enough for high selectivities), and
+a share with scrambled or cross-row factors (so some match nothing).
+Each candidate's selectivity is computed exactly, sampling is stratified
+over equal-width bands within a regime, and a regime stops early when
+the corpus runs out of distinct patterns for it. On
+\texttt{l\_comment} this yields $300$, $300$, $300$, $265$, $62$ and $12$
+patterns, using $1{,}238$ distinct features; the corpus has very few
+distinct patterns matching more than $60\%$ of rows. We summarize a rule
+by
+\[
+  J \;=\; \frac{1}{6} \sum_{i=1}^{6} \frac{1}{|P_i|} \sum_{p \in P_i} C(p),
+\]
+the modeled proving time $C(p)$ (\S\ref{par:fp-cost}) with the prover's
+choice of bins, averaged per regime and then over regimes, so every
+regime weighs the same. Offline pricing computes $|S|$ and its character
+count exactly: each feature carries a row bitset, $M_b$ is a union of
+bitsets, the intersection is a word-wise \textsc{and}, and the
+characters are $\sum_j 2^j \lvert S \wedge P_j \rvert$ over the
+bit-planes $P_j$ of the row lengths. The character count must be exact:
+estimating it as survivors times the mean length understates it (a row
+holding a pattern's features is longer than average, $29.7$ against
+$26.5$ characters here), and the cost model reads it through a
+power-of-two domain, so the estimate falls on the wrong side of a step
+often enough to misprice a rule by $15$\,s of $J$ (under the earlier
+fit). Without a pre-filter $J = 235.2$\,s on \texttt{l\_comment}.
+
+\paragraph{The two modes.}
+Each mode at the width it commits, bins chosen per query:
+\begin{center}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lrrrr}
+  selectivity & none & cluster, 512 & single, 2{,}048 & perfect \\
+  \hline
+  $< 1\%$       & 360.6 & \textbf{34.6}  &  33.1 &  30.5 \\
+  $1$--$20\%$   & 207.8 & \textbf{74.9}  &  73.6 &  64.1 \\
+  $20$--$40\%$  & 221.0 & \textbf{164.2} & 164.1 & 143.4 \\
+  $40$--$60\%$  & 250.0 & \textbf{244.0} & 243.5 & 205.8 \\
+  $60$--$80\%$  & 217.0 & \textbf{217.0} & 217.0 & 217.0 \\
+  $80$--$100\%$ & 154.7 & \textbf{154.7} & 154.7 & 154.7 \\
+  \hline
+  $J$           & 235.2 & \textbf{148.2} & 147.7 & 135.9 \\
+  limbs         &       & 64             & 256   &
+\end{tabular}
+\end{center}
+Seconds per query, modeled; \emph{perfect} is a filter that keeps
+exactly the matching rows at the cost of one limb, or no pre-filter when
+that is cheaper, the ceiling for any fingerprint. The default (bold) is
+$10.4\times$ faster than no pre-filter on patterns matching under $1\%$
+of rows and $2.8\times$ between $1$ and $20\%$, $0.5$\,s of $J$ behind
+the single-feature rule at a quarter of its committed limbs. Above $60\%$
+no filter can help: even a perfect one pays for a compaction that saves
+less than it costs.
+
+\paragraph{Width by commit mode.}
+Figure~\ref{fig:fp-sweep} walks the width axis once per mode, every
+query choosing its own bins. The cluster curve takes the rule at each
+point of its merge path, the single-feature curve keeps the $k$ most
+common features. Modeled $J$ in seconds:
+\begin{center}
+\begin{tabular}{lrrrrrrrr}
+  bins & 16 & 32 & 64 & 128 & 256 & 512 & 1024 & 2048 \\
+  \hline
+  cluster & 194.4 & 172.4 & 163.7 & 158.1 & 152.0 & 148.2 & 147.7 & 147.7 \\
+  single  & 220.0 & 208.6 & 193.9 & 171.6 & 160.7 & 150.6 & 148.1 & 147.7 \\
+\end{tabular}
+\end{center}
+The cluster rule is best at every width from $4$ bins to $1{,}024$; at
+$2{,}048$ it and the single-feature rule coincide. Sharing bins is what
+lets it cover every feature in few bins: at $128$ bins it is $13.5$\,s
+ahead of the single-feature rule, which has only the $128$ most common
+features, and it reaches $152.0$\,s with $256$ bins, a level the
+single-feature rule reaches only between $384$ and $512$. Nearly all the
+difference between modes is in the two selective regimes; above $40\%$
+selectivity no rule gains more than $1.1\times$.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{results/sweep-cluster-l_comment.png}\\[1ex]
+  \includegraphics[width=\linewidth]{results/sweep-single-l_comment.png}
+  \caption{Pre-filter speed-up per selectivity regime as the committed
+    rule gets wider, for the cluster (top) and single-feature (bottom)
+    commit modes. Every query tests the limbs the prover's chain picks.
+    Speed-up over no pre-filter, modeled on the \texttt{l\_comment}
+    workload; both axes are logarithmic and shared by the two panels.}
+  \label{fig:fp-sweep}
+\end{figure}
+
+\paragraph{What width costs.}
+Figure~\ref{fig:fp-widths} sets the prover's gain against what a wider
+rule costs. The proof grows only when a query runs the pre-filter: the
+fingerprint commitments are in the oracle, not the proof, and a query
+that tests no limb proves exactly as without fingerprints (within
+$40$\,bytes on every measured proof). Over the $50$ measured proofs the
+size is, to a mean error of $3.8\%$ (leave-one-out, $14.7\%$ at worst),
+\[
+  14.7 + 4.5\,n + 0.8\,L + 7.8\,[\lambda > 0] \ \text{KB},
+\]
+a fixed $7.8$\,KB for the pre-filter check and the compaction when any
+limb is tested; the number of limbs and the domain sizes add nothing to
+the fit. Applied to the workload, the proof grows by at most $31\%$ in
+any regime, by less in the regimes that rarely filter, and it stops
+growing once the prover's choices settle, by $256$--$384$ bins for the cluster
+rule. The data owner's cost is measured directly (\S\ref{sec:fp-modes}):
+commit time is nearly flat for the cluster rule, whose merge dominates,
+and grows about $2\times$ for the single-feature rule, while the oracle
+grows to $8.5\times$ and $14\times$ at $512$ and $2{,}048$ bins, still
+under $90$\,KB.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{results/widths-cluster-l_comment.png}\\[1ex]
+  \includegraphics[width=\linewidth]{results/widths-single-l_comment.png}
+  \caption{What a wider committed rule buys and costs, for the cluster
+    (top) and single-feature (bottom) rules on \texttt{l\_comment}.
+    Left: prover speed-up per selectivity regime, modeled over the
+    workload with the prover's own limb choice; circles are measured.
+    Middle: proof size over the size with no pre-filter, from the fitted
+    proof-size model. Right: measured commit time and oracle size over a
+    commit with no fingerprints.}
+  \label{fig:fp-widths}
+\end{figure}
+
+\paragraph{Word boundaries.}
+\label{par:fp-boundary}
+The largest single gain came from the features. With $n$-grams over
+alphanumerics only, a space breaks every $n$-gram, so a pattern such as
+\texttt{\%l\%n\ \%} (a word ending in \texttt{n}) or \texttt{\%\ i\%n\%}
+(a word starting with \texttt{i}) falls back to single characters that
+nearly every row has: \texttt{\%l\%n\ \%} then kept $179{,}530$ of
+$299{,}814$ rows and took $283$\,s. Over the $64$-symbol alphabet the
+same pattern has \texttt{"n\ "}, keeps $21{,}351$ rows, and proves in
+$66$\,s. Across the workload the $<1\%$ regime gains $8$\,s per query and
+the $1$--$20\%$ regime $16$\,s (under the earlier fit). Two further feature families were priced
+and rejected: $4$-grams over the same alphabet add $0.7$\,s, and
+character-count features (``at least two \texttt{e}'') add nothing,
+because the characters involved are in nearly every row and the cost is
+a staircase in the survivors.
+
+\paragraph{What remains.}
+The default rule is $4.1$\,s per query from a perfect filter in the
+$<1\%$ regime, $10.8$\,s in the $1$--$20\%$ regime, and at the ceiling
+in the two least selective, where no filter pays. Most of the gap sits in
+the $20$--$60\%$ regimes ($20.8$ and $38.1$\,s), in two kinds of pattern
+no fingerprint of this feature set can filter:
+single-letter multi-factor patterns such as \texttt{\%e\%\ \%e\%s\%},
+whose literals nearly every row contains, and patterns such as
+\texttt{\%ca\%areful\%}, whose factors must not overlap while their
+features cannot say so. Closing that gap needs a filter that understands
+order and overlap, which is what the \textsc{like} proof itself does.
+
+The workload is \texttt{workloads/l\_comment.csv} and the cost model
+\texttt{crates/tt-arithmetic/cost\_model.toml}; \texttt{tt-fp-opt
+sweep} reproduces every modeled number in the results from them, into
+the tables in \texttt{results/}, and \texttt{scripts/plot\_sweep.py},
+\texttt{plot\_chain.py} and \texttt{plot\_widths.py} the figures. The
+measured proofs and commits are in \texttt{results/proofs-l\_comment.csv}
+and \texttt{results/commits-l\_comment.csv} (from
+\texttt{tt-fp-measure}), and the points the cost model is fitted to in
+\texttt{results/cost-points-l\_comment.csv}.

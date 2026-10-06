@@ -4,11 +4,13 @@ use crate::irs::nodes::utils::contig_sort::{
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::arrow::{
     array::{
-        Array, ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int8Array,
-        Int16Array, Int32Array, Int64Array, new_null_array,
+        Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Date32Array, Float32Array, Float64Array,
+        Int8Array, Int16Array, Int32Array, Int64Array, PrimitiveArray, new_null_array,
     },
     compute::{concat, concat_batches},
-    datatypes::{DataType, Field, Schema},
+    datatypes::{
+        ArrowNativeTypeOp, DataType, Field, Schema, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+    },
     record_batch::RecordBatch,
 };
 use datafusion::logical_expr::Expr;
@@ -432,10 +434,13 @@ fn diff_input_on_ordered_explicit(
             (source.as_ref(), rotated.as_ref())
         };
         let diff_col = materialize_diff_array(field.data_type(), lhs, rhs)?;
+        // A wrap-around or padding row can make an unsigned diff go
+        // negative, which is a null (see `diff_unsigned_array`) even when
+        // the input column itself never holds one.
         out_fields.push(Field::new(
             name,
             diff_output_type(field.data_type()),
-            field.is_nullable(),
+            field.is_nullable() || diff_col.null_count() > 0,
         ));
         out_cols.push(diff_col);
     }
@@ -466,6 +471,12 @@ fn has_only_explicit_diff_types(df: &DataFrame) -> DataFusionResult<bool> {
         .all(|field| is_explicit_diff_type(field.data_type())))
 }
 
+/// Types whose diffs are computed on collected arrays rather than through
+/// DataFusion window functions. Every integer type is here: the window
+/// path's `lead` came back null at a batch boundary once the sorted
+/// column exceeded 2^18 rows, and a null diff encodes as `0`, which the
+/// strict-positivity sign check on a no-dup's sorted offsets rejects
+/// (`%final%requests%` on `o_comment`, 2^19 chars).
 fn is_explicit_diff_type(data_type: &DataType) -> bool {
     matches!(
         data_type,
@@ -473,6 +484,10 @@ fn is_explicit_diff_type(data_type: &DataType) -> bool {
             | DataType::Int16
             | DataType::Int32
             | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
             | DataType::Float32
             | DataType::Float64
             | DataType::Date32
@@ -489,6 +504,10 @@ fn materialize_diff_array(
         DataType::Int16 => diff_int16_array(lhs, rhs),
         DataType::Int32 => diff_int32_array(lhs, rhs),
         DataType::Int64 => diff_int64_array(lhs, rhs),
+        DataType::UInt8 => diff_unsigned_array::<UInt8Type>(lhs, rhs),
+        DataType::UInt16 => diff_unsigned_array::<UInt16Type>(lhs, rhs),
+        DataType::UInt32 => diff_unsigned_array::<UInt32Type>(lhs, rhs),
+        DataType::UInt64 => diff_unsigned_array::<UInt64Type>(lhs, rhs),
         DataType::Float32 => diff_float32_array(lhs, rhs),
         DataType::Float64 => diff_float64_array(lhs, rhs),
         DataType::Date32 => diff_date32_array(lhs, rhs),
@@ -641,6 +660,33 @@ fn diff_date32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<Array
         })
         .collect::<Vec<_>>();
     Ok(std::sync::Arc::new(Int32Array::from(values)))
+}
+
+/// `lhs - rhs` for an unsigned type, null where it would go negative —
+/// what the window path's cast back to the unsigned type produced.
+fn diff_unsigned_array<T>(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef>
+where
+    T: ArrowPrimitiveType,
+    T::Native: ArrowNativeTypeOp,
+{
+    let lhs = lhs
+        .as_any()
+        .downcast_ref::<PrimitiveArray<T>>()
+        .ok_or_else(|| DataFusionError::Execution("diff lhs unsigned mismatch".to_string()))?;
+    let rhs = rhs
+        .as_any()
+        .downcast_ref::<PrimitiveArray<T>>()
+        .ok_or_else(|| DataFusionError::Execution("diff rhs unsigned mismatch".to_string()))?;
+    let values: PrimitiveArray<T> = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                None
+            } else {
+                lhs.value(idx).sub_checked(rhs.value(idx)).ok()
+            }
+        })
+        .collect();
+    Ok(std::sync::Arc::new(values))
 }
 
 fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {

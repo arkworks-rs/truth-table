@@ -306,6 +306,9 @@ impl ProveRunner {
     fn ctx_oracles_from_paths(&self) -> Result<CtxOracles<B>> {
         let mut table_oracles = IndexMap::new();
         let mut named_oracles = IndexMap::new();
+        // Fingerprint a column exactly as it was committed: the rules come
+        // from the oracle, so prover and verifier cannot disagree.
+        let mut rules = arithmetic::fingerprint::FingerprintRules::default();
         for (parquet_path, oracle_path) in self.parquet_paths.iter().zip(self.oracle_paths.iter()) {
             let oracle = self.load_oracle(oracle_path)?;
             let schema = oracle
@@ -316,9 +319,13 @@ impl ProveRunner {
                 .ok_or_else(|| anyhow!("parquet {} missing file stem", parquet_path.display()))?
                 .to_string_lossy()
                 .to_string();
+            if let Some(theirs) = oracle.fingerprint_rules() {
+                rules.merge(theirs).map_err(|e| anyhow!("{e}"))?;
+            }
             table_oracles.insert(schema, oracle.clone());
             named_oracles.insert(table_name, oracle);
         }
+        arithmetic::fingerprint::configure_rules(rules).map_err(|e| anyhow!("{e}"))?;
 
         Ok(CtxOracles::with_named_oracles(table_oracles, named_oracles))
     }
@@ -361,8 +368,21 @@ impl ProveRunner {
         let file = File::open(path)
             .with_context(|| format!("failed to open oracle file {}", path.display()))?;
         let mut reader = BufReader::new(file);
-        ArithTableOracle::<B>::deserialize_compressed_unchecked(&mut reader)
-            .context("failed to deserialize oracle")
+        let mut oracle = ArithTableOracle::<B>::deserialize_compressed_unchecked(&mut reader)
+            .context("failed to deserialize oracle")?;
+        // The prover opens fingerprint bins against the oracle's roots, so it
+        // needs the bins the data owner wrote beside it.
+        let bins_path = crate::paths::fingerprint_bins_path(path);
+        if bins_path.exists() {
+            let file = File::open(&bins_path)
+                .with_context(|| format!("failed to open {}", bins_path.display()))?;
+            oracle
+                .attach_fingerprint_bins(BufReader::new(file))
+                .with_context(|| {
+                    format!("{} does not match its oracle's roots", bins_path.display())
+                })?;
+        }
+        Ok(oracle)
     }
 
     #[instrument(level = "debug", skip_all)]

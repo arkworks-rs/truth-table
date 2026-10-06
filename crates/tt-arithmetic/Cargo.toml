@@ -15,6 +15,7 @@ workspace = true
 default = ["std", "parallel"]
 std = []
 parallel = [
+    "dep:rayon",
     "ark-ff/parallel",
     "ark-serialize/parallel",
     "ark-piop/parallel",
@@ -36,9 +37,11 @@ derivative = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 indexmap = { workspace = true }
 once_cell = { workspace = true }
 sha2 = { workspace = true }
+rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
 ark-test-curves = { workspace = true }

@@ -289,7 +289,9 @@ impl<B: SnarkBackend> LpNode<B> {
             }
         }
 
-        if let Some((field, poly)) = current_cols
+        // The output keeps one row per FK-side row (PKFKJoin), so its
+        // activator is the FK side's.
+        if let Some((field, poly)) = fk_cols
             .iter()
             .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
             .map(|(field, poly)| (field.clone(), poly.clone()))
@@ -364,7 +366,9 @@ impl<B: SnarkBackend> LpNode<B> {
             }
         }
 
-        if let Some((field, oracle)) = current_cols
+        // The output keeps one row per FK-side row (PKFKJoin), so its
+        // activator is the FK side's.
+        if let Some((field, oracle)) = fk_cols
             .iter()
             .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
             .map(|(field, oracle)| (field.clone(), oracle.clone()))
@@ -794,6 +798,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
                     // Force __activator__ off in full-mat mode; other real data
                     // columns are materialized.
                     name != ACTIVATOR_COL_NAME
+                } else if name == ACTIVATOR_COL_NAME {
+                    // Partial path (HasOne): the output activator is the FK
+                    // side's, copied in by `add_virtual_witness`, never a
+                    // prover-chosen commitment.
+                    false
                 } else {
                     // Partial path (HasOne): materialize only one side's data and
                     // keep the preserved-side columns virtual.
@@ -877,6 +886,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
                     // ROW_ID already caught above; force __activator__ off in
                     // full-mat mode, let real data columns materialize.
                     name != ACTIVATOR_COL_NAME
+                } else if name == ACTIVATOR_COL_NAME {
+                    false
                 } else {
                     match self.join_mode() {
                         modes::JoinMode::ONE_TO_MANY => left_fields.contains(name),

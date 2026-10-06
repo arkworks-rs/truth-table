@@ -1,8 +1,10 @@
 pub mod activator_consistency_check;
+pub mod bitwise_and;
 pub mod bool;
 pub mod broadcast_check;
 pub mod contig_sort;
 pub mod data_preserving_update_check;
+pub mod domain_preserving_update_check;
 pub mod eq;
 pub mod factor_placement;
 pub mod gen_sort;
@@ -16,6 +18,7 @@ pub mod multi_character_pattern_matching;
 pub mod neq;
 pub mod nodup;
 pub mod perm;
+pub mod pre_filtering_check;
 pub mod prescr_perm;
 pub mod remat;
 pub mod result_check;
