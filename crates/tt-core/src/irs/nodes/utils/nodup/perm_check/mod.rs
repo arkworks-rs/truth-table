@@ -13,7 +13,9 @@ use ark_piop::{
 use derivative::Derivative;
 use std::marker::PhantomData;
 
-use super::keyed_sumcheck::{KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput};
+use crate::irs::nodes::utils::keyed_sumcheck::piop::{
+    KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
+};
 
 // Convinces the verifier that
 pub struct PermPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);

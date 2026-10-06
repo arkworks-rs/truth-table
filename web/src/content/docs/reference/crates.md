@@ -12,7 +12,6 @@ TruthTable is a Cargo workspace. The main crates are:
 | `tt-front-end` | SQL front-end and query lowering. |
 | `tt-proof-planner` | Turns logical plans into proof plans. |
 | `tt-exec` | Execution and setup. |
-| `tt-col-toolbox` | Column utilities. |
 | `tt-tpch-data` | TPC-H data generation and loading. |
 
 :::note

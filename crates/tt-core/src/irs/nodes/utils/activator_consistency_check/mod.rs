@@ -15,7 +15,7 @@
 //!   in insertion order: `ind` (index 0) and `l` (index 1). The table's
 //!   activator column is `ah`.
 //!
-//! The gadget reduces to a single [`col_toolbox::keyed_sumcheck::KeyedSumcheck`]
+//! The gadget reduces to a single [`KeyedSumcheck`]
 //! invocation at a random challenge `γ`, forcing the two multiplicity
 //! vectors (indexed by key) to agree row-wise via Schwartz–Zippel. `ind`
 //! must be distinct across active string rows — a well-formedness
@@ -23,10 +23,10 @@
 //! polynomial).
 use std::marker::PhantomData;
 
-use ark_piop::SnarkBackend;
-use col_toolbox::keyed_sumcheck::{
+use crate::irs::nodes::utils::keyed_sumcheck::piop::{
     KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
 };
+use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::{

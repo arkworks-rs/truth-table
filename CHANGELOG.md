@@ -30,6 +30,7 @@ All notable changes to TruthTable are documented here. The format follows [Keep 
 - Removed 187 MB of stray debug logs and a ~750 KB debug-dump binary from the repo root; `.gitignore` now catches them.
 
 ### Removed
+- The `tt-col-toolbox` crate. Its lookup and keyed-sumcheck PIOPs moved into `tt-core` next to the gadgets that wrap them (`irs::nodes::utils::lookup::piop`, `irs::nodes::utils::keyed_sumcheck::piop`); the duplicate keyed-sumcheck copy under `nodup/` and the unused `fold_check`, compactor, and bag-split helpers are gone.
 - Stale commented-out `mod` declarations in `tt-core/src/lib.rs` and `tt-exec/src/lib.rs` (the on-disk `tt-core/src/test_display.rs` and `tt-exec/src/data_owner/` files are left in place since they contain substantial WIP code — delete when intentionally obsolete).
 - Dead `GadgetAncestry` struct that was exported but never constructed anywhere.
 

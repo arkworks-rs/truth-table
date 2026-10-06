@@ -1,6 +1,6 @@
 use super::KeyedSumcheckProverInput;
 #[cfg(feature = "honest-prover")]
-use crate::keyed_sumcheck::KeyedSumcheck;
+use crate::irs::nodes::utils::keyed_sumcheck::piop::KeyedSumcheck;
 #[cfg(feature = "honest-prover")]
 use ark_piop::errors::SnarkResult;
 use ark_piop::{SnarkBackend, piop::DeepClone, prover::ArgProver};
