@@ -9,8 +9,8 @@
 //! Payload columns are committed at harness-build time on the prover side;
 //! the verifier tables are materialized after `set_proof` because
 //! `track_mv_com_by_id` needs the proof in place first. The harness does
-//! not model IR traversal or gadget-plan initialization — it is intended
-//! for testing a single gadget in isolation.
+//! not model SQL planning or hint materialization. Gadget initialization
+//! and traversal include the root's descendants.
 
 use std::sync::Arc;
 
@@ -19,9 +19,10 @@ use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
     errors::SnarkError,
+    pcs::PCS,
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     test_utils::prelude_with_vars,
-    types::TrackerID,
+    types::{CommitmentBinding, TrackerID},
     verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 use datafusion::arrow::datatypes::{FieldRef, Schema};
@@ -82,6 +83,8 @@ pub struct GadgetHarnessBuilder<B: SnarkBackend> {
     srs_nv: usize,
     gadget: Option<Arc<Node<B>>>,
     payloads: IndexMap<NodeId, IndexMap<String, TableSpec<B::F>>>,
+    shared_activators: Vec<(NodeId, String, NodeId, String)>,
+    explicit_commitments: bool,
 }
 
 impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
@@ -90,6 +93,8 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
             srs_nv,
             gadget: None,
             payloads: IndexMap::new(),
+            shared_activators: Vec::new(),
+            explicit_commitments: false,
         }
     }
 
@@ -103,6 +108,17 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
         self
     }
 
+    /// Emit PCS commitments even for constant payload columns.
+    ///
+    /// This follows tt-core's precommitted-table tracking path instead of the
+    /// backend's constant-message optimization. It lets rejection tests exercise
+    /// materialized all-zero witnesses without requiring the backend to build
+    /// a false constant-only sumcheck proof.
+    pub fn with_explicit_commitments(mut self) -> Self {
+        self.explicit_commitments = true;
+        self
+    }
+
     /// Add a payload table for `node_id` under `label`. Multiple calls
     /// with the same `node_id` accumulate; a repeated `label` replaces.
     pub fn with_table(mut self, node_id: NodeId, label: &str, spec: TableSpec<B::F>) -> Self {
@@ -110,6 +126,28 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
             .entry(node_id)
             .or_default()
             .insert(label.to_string(), spec);
+        self
+    }
+
+    /// Reuse a source table's committed activator in another payload table.
+    ///
+    /// The target spec must omit its activator. Sharing the actual tracker ID,
+    /// rather than committing identical evaluations twice, models columns of
+    /// the same physical table. Sources must already have an activator before
+    /// their alias is applied; aliases are applied in registration order.
+    pub fn with_shared_activator(
+        mut self,
+        target_node: NodeId,
+        target_label: &str,
+        source_node: NodeId,
+        source_label: &str,
+    ) -> Self {
+        self.shared_activators.push((
+            target_node,
+            target_label.to_string(),
+            source_node,
+            source_label.to_string(),
+        ));
         self
     }
 
@@ -139,7 +177,7 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
             let mut committed_map: IndexMap<String, CommittedTable<B>> = IndexMap::new();
 
             for (label, spec) in label_map {
-                let table = commit_prover_table(&mut prover, &spec);
+                let table = commit_prover_table(&mut prover, &spec, self.explicit_commitments);
                 prover_payload.insert(label.clone(), table.prover.clone());
                 committed_map.insert(label, table);
             }
@@ -149,6 +187,35 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
                 Some(PayloadStructure::GadgetPayload(prover_payload)),
             );
             committed.insert(target_id, committed_map);
+        }
+
+        for (target_id, target_label, source_id, source_label) in self.shared_activators {
+            let source = &committed[&source_id][&source_label];
+            let source_log_size = source.log_size;
+            let activator = source
+                .prover
+                .activator_tracked_poly()
+                .expect("shared activator source must have an activator");
+            let target = committed
+                .get_mut(&target_id)
+                .and_then(|tables| tables.get_mut(&target_label))
+                .expect("shared activator target must exist");
+            assert_eq!(target.log_size, source_log_size);
+            assert!(target.prover.activator_tracked_poly().is_none());
+            let mut polys = target.prover.tracked_polys();
+            polys.insert(ACTIVATOR_FIELD.clone(), activator.clone());
+            target.prover = TrackedTable::new(Some(target.schema.clone()), polys, target.log_size);
+            target
+                .field_ids
+                .push((ACTIVATOR_FIELD.clone(), activator.id()));
+            let Some(PayloadStructure::GadgetPayload(mut payload)) =
+                prover_ir.payload_for_node(&target_id).cloned()
+            else {
+                panic!("shared activator target must have a gadget payload");
+            };
+            payload.insert(target_label, target.prover.clone());
+            prover_ir
+                .set_payload_for_node(target_id, Some(PayloadStructure::GadgetPayload(payload)));
         }
 
         GadgetHarness {
@@ -166,25 +233,20 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
 fn commit_prover_table<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     spec: &TableSpec<B::F>,
+    explicit_commitments: bool,
 ) -> CommittedTable<B> {
     let mut polys: IndexMap<FieldRef, TrackedPoly<B>> = IndexMap::new();
     let mut field_ids: Vec<(FieldRef, TrackerID)> = Vec::new();
 
     for (field, evals) in &spec.cols {
-        let poly = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(spec.log_size, evals.clone()))
-            .expect("commit data col");
+        let poly = commit_poly(prover, spec.log_size, evals, explicit_commitments);
         field_ids.push((field.clone(), poly.id()));
         polys.insert(field.clone(), poly);
     }
 
     if let Some(activator_evals) = &spec.activator {
-        let activator_poly = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-                spec.log_size,
-                activator_evals.clone(),
-            ))
-            .expect("commit activator");
+        let activator_poly =
+            commit_poly(prover, spec.log_size, activator_evals, explicit_commitments);
         field_ids.push((ACTIVATOR_FIELD.clone(), activator_poly.id()));
         polys.insert(ACTIVATOR_FIELD.clone(), activator_poly);
     }
@@ -195,6 +257,26 @@ fn commit_prover_table<B: SnarkBackend>(
         field_ids,
         schema: spec.schema.clone(),
         log_size: spec.log_size,
+    }
+}
+
+fn commit_poly<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    log_size: usize,
+    evaluations: &[B::F],
+    explicit_commitment: bool,
+) -> TrackedPoly<B> {
+    let mle = MLE::from_evaluations_vec(log_size, evaluations.to_vec());
+    if explicit_commitment {
+        let commitment = B::MvPCS::commit(prover.mv_pcs_prover_param(), &Arc::new(mle.clone()))
+            .expect("commit materialized test column");
+        prover
+            .track_mat_mv_poly_with_commitment(&mle, commitment, CommitmentBinding::ProofEmitted)
+            .expect("track materialized test column")
+    } else {
+        prover
+            .track_and_commit_mat_mv_poly(&mle)
+            .expect("commit test column")
     }
 }
 
@@ -223,9 +305,19 @@ fn materialize_verifier_table<B: SnarkBackend>(
 /// their children's payloads), then `prove` / `verify` run in post-order
 /// (so children complete before parents), mirroring the tt-core
 /// production pipeline.
-pub fn run_gadget_pipeline<B: SnarkBackend>(
+pub fn run_gadget_pipeline<B: SnarkBackend>(harness: GadgetHarness<B>) -> Result<(), SnarkError> {
+    run_gadget_pipeline_to_verifier(harness)?
+}
+
+/// Run the same pipeline while separating proof generation from verification.
+///
+/// The outer result covers initialization, proving, proof building, and verifier
+/// table setup. Its successful value is the verifier's result. Tests should unwrap
+/// the outer result before asserting that the inner result is an error, so a
+/// prover-side precheck or failure cannot masquerade as verifier rejection.
+pub fn run_gadget_pipeline_to_verifier<B: SnarkBackend>(
     mut harness: GadgetHarness<B>,
-) -> Result<(), SnarkError> {
+) -> Result<Result<(), SnarkError>, SnarkError> {
     // Pre-order walk of gadget nodes rooted at the harness gadget.
     let tree = harness.prover_ir.tree().clone();
     let pre_order: Vec<_> = collect_pre_order(&tree);
@@ -289,14 +381,17 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
         }
     }
 
-    // 6. Verifier: verify in post-order + finalize.
-    for (id, node) in &post_order {
-        if let Node::Gadget(g) = node.as_ref() {
-            g.verify(&mut harness.verifier, &mut harness.verifier_ir, *id)?;
+    let verification = (|| -> Result<(), SnarkError> {
+        // 6. Verifier: verify in post-order + finalize.
+        for (id, node) in &post_order {
+            if let Node::Gadget(g) = node.as_ref() {
+                g.verify(&mut harness.verifier, &mut harness.verifier_ir, *id)?;
+            }
         }
-    }
-    harness.verifier.verify()?;
-    Ok(())
+        harness.verifier.verify()?;
+        Ok(())
+    })();
+    Ok(verification)
 }
 
 /// Pre-order walk (parent → children → grandchildren …) starting from

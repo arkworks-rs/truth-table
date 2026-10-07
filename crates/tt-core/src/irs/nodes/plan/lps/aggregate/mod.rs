@@ -1354,7 +1354,10 @@ fn lookup_super_multiplicities_table<B: SnarkBackend>(
     aggregate_gadget: &Arc<Node<B>>,
     virtualized_ir: &crate::prover::irs::VirtualizedIr<B>,
 ) -> Option<TrackedTable<B>> {
-    let supp_node = aggregate_gadget.children().into_iter().next()?;
+    let supp_node = aggregate_gadget
+        .children()
+        .into_iter()
+        .find(|child| child.name() == "Support")?;
     let lookup_node = supp_node
         .children()
         .into_iter()
@@ -1371,7 +1374,10 @@ fn lookup_super_multiplicities_oracle_ref<'a, B: SnarkBackend>(
     aggregate_gadget: &Arc<Node<B>>,
     virtualized_ir: &'a crate::verifier::irs::VirtualizedIr<B>,
 ) -> Option<&'a TrackedTableOracle<B>> {
-    let supp_node = aggregate_gadget.children().into_iter().next()?;
+    let supp_node = aggregate_gadget
+        .children()
+        .into_iter()
+        .find(|child| child.name() == "Support")?;
     let lookup_node = supp_node
         .children()
         .into_iter()
