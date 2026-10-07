@@ -9,8 +9,8 @@
 //! Payload columns are committed at harness-build time on the prover side;
 //! the verifier tables are materialized after `set_proof` because
 //! `track_mv_com_by_id` needs the proof in place first. The harness does
-//! not model IR traversal or gadget-plan initialization — it is intended
-//! for testing a single gadget in isolation.
+//! not model SQL planning or hint materialization. Gadget initialization
+//! and traversal include the root's descendants.
 
 use std::sync::Arc;
 
@@ -223,9 +223,19 @@ fn materialize_verifier_table<B: SnarkBackend>(
 /// their children's payloads), then `prove` / `verify` run in post-order
 /// (so children complete before parents), mirroring the tt-core
 /// production pipeline.
-pub fn run_gadget_pipeline<B: SnarkBackend>(
+pub fn run_gadget_pipeline<B: SnarkBackend>(harness: GadgetHarness<B>) -> Result<(), SnarkError> {
+    run_gadget_pipeline_to_verifier(harness)?
+}
+
+/// Run the same pipeline while separating proof generation from verification.
+///
+/// The outer result covers initialization, proving, proof building, and verifier
+/// table setup. Its successful value is the verifier's result. Tests should unwrap
+/// the outer result before asserting that the inner result is an error, so a
+/// prover-side precheck or failure cannot masquerade as verifier rejection.
+pub fn run_gadget_pipeline_to_verifier<B: SnarkBackend>(
     mut harness: GadgetHarness<B>,
-) -> Result<(), SnarkError> {
+) -> Result<Result<(), SnarkError>, SnarkError> {
     // Pre-order walk of gadget nodes rooted at the harness gadget.
     let tree = harness.prover_ir.tree().clone();
     let pre_order: Vec<_> = collect_pre_order(&tree);
@@ -289,14 +299,17 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
         }
     }
 
-    // 6. Verifier: verify in post-order + finalize.
-    for (id, node) in &post_order {
-        if let Node::Gadget(g) = node.as_ref() {
-            g.verify(&mut harness.verifier, &mut harness.verifier_ir, *id)?;
+    let verification = (|| -> Result<(), SnarkError> {
+        // 6. Verifier: verify in post-order + finalize.
+        for (id, node) in &post_order {
+            if let Node::Gadget(g) = node.as_ref() {
+                g.verify(&mut harness.verifier, &mut harness.verifier_ir, *id)?;
+            }
         }
-    }
-    harness.verifier.verify()?;
-    Ok(())
+        harness.verifier.verify()?;
+        Ok(())
+    })();
+    Ok(verification)
 }
 
 /// Pre-order walk (parent → children → grandchildren …) starting from

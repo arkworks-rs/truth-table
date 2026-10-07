@@ -39,6 +39,8 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 mod hints;
+#[cfg(test)]
+mod key_order_tests;
 
 /// Labels for different gadget payloads used by this gadget.
 pub const TABLE_LABEL: &str = "__input__";
@@ -524,7 +526,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         add_tie_monotonicity_zerochecks_prover(prover, gadget_ready_ir, id)?;
-        add_tie_rotation_consistency_zerochecks_prover(prover, gadget_ready_ir, id)?;
+        add_tie_rotation_consistency_zerochecks_prover(
+            prover,
+            gadget_ready_ir,
+            id,
+            &self.sort_config,
+        )?;
         Ok(())
     }
 
@@ -639,7 +646,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         add_tie_monotonicity_zerochecks_verifier(verifier, gadget_ready_ir, id)?;
-        add_tie_rotation_consistency_zerochecks_verifier(verifier, gadget_ready_ir, id)?;
+        add_tie_rotation_consistency_zerochecks_verifier(
+            verifier,
+            gadget_ready_ir,
+            id,
+            &self.sort_config,
+        )?;
 
         Ok(())
     }
@@ -767,6 +779,11 @@ fn ordered_data_fields_for_hint(
         .map(|field| field.as_ref().clone())
         .collect();
 
+    ordered_data_fields(data_fields, sort_specs)
+}
+
+// Share the key projection between verifier hint schemas and prover witnesses.
+fn ordered_data_fields(data_fields: Vec<Field>, sort_specs: &[(String, bool, bool)]) -> Vec<Field> {
     if sort_specs.is_empty() {
         return data_fields;
     }
@@ -781,7 +798,7 @@ fn ordered_data_fields_for_hint(
             ordered.push(field.clone());
         }
     }
-    if ordered.len() == data_fields.len() {
+    if ordered.len() == sort_specs.len() {
         ordered
     } else {
         data_fields
@@ -1667,6 +1684,7 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
     prover: &mut ark_piop::prover::ArgProver<B>,
     gadget_ready_ir: &mut GadgetReadyIr<B>,
     id: crate::irs::nodes::NodeId,
+    sort_config: &SortConfig,
 ) -> ark_piop::errors::SnarkResult<()> {
     let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
     else {
@@ -1681,8 +1699,11 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
     };
 
     let tie_indices = tie_table.data_tracked_polys_indices();
-    let input_indices = non_row_id_data_indices_prover(&input_table);
-    let rotated_indices = non_row_id_data_indices_prover(&rotated_table);
+    // Prefix ties refer to the configured key sequence, not physical schema
+    // order. Use exactly the same sequence as the Sign and Neq payloads.
+    let sort_specs = sort_specs_for_table_prover(sort_config, &input_table);
+    let input_indices = ordered_data_indices_prover(&input_table, &sort_specs);
+    let rotated_indices = ordered_data_indices_prover(&rotated_table, &sort_specs);
     debug_assert_eq!(
         input_indices.len(),
         rotated_indices.len(),
@@ -1727,6 +1748,7 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
     verifier: &mut ark_piop::verifier::ArgVerifier<B>,
     gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
     id: crate::irs::nodes::NodeId,
+    sort_config: &SortConfig,
 ) -> ark_piop::errors::SnarkResult<()> {
     let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
     else {
@@ -1741,8 +1763,10 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
     };
 
     let tie_indices = tie_table.data_tracked_oracles_indices();
-    let input_indices = non_row_id_data_indices_verifier(&input_table);
-    let rotated_indices = non_row_id_data_indices_verifier(&rotated_table);
+    // Mirror the configured key sequence used to interpret the tie witnesses.
+    let sort_specs = sort_specs_for_table_verifier(sort_config, &input_table);
+    let input_indices = ordered_data_indices_verifier(&input_table, &sort_specs);
+    let rotated_indices = ordered_data_indices_verifier(&rotated_table, &sort_specs);
     debug_assert_eq!(
         input_indices.len(),
         rotated_indices.len(),

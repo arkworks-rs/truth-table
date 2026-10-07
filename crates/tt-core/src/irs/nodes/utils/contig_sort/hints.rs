@@ -299,7 +299,7 @@ fn diff_input_on_ordered(
     order_by: Vec<SortExpr>,
     sort_specs: &[(String, bool, bool)],
 ) -> DataFusionResult<DataFrame> {
-    if has_only_explicit_diff_types(&ordered)? {
+    if has_only_explicit_diff_types(&ordered, sort_specs)? {
         return diff_input_on_ordered_explicit(ordered, sort_specs);
     }
 
@@ -313,11 +313,18 @@ fn diff_input_on_ordered_via_windows(
 ) -> DataFusionResult<DataFrame> {
     let mut diff_cols = Vec::new();
 
-    for field in ordered.schema().fields() {
+    let fields = super::ordered_data_fields(
+        ordered
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| !is_system_column(field.name()))
+            .map(|field| field.as_ref().clone())
+            .collect(),
+        sort_specs,
+    );
+    for field in &fields {
         let name = field.name();
-        if is_system_column(name) {
-            continue;
-        }
         let lead_expr = lead(col(name), Some(1), None)
             .order_by(order_by.clone())
             .build()?;
@@ -419,12 +426,19 @@ fn diff_input_on_ordered_explicit(
 
     let mut out_fields = Vec::new();
     let mut out_cols = Vec::new();
-    for (idx, field) in combined.schema().fields().iter().enumerate() {
+    let fields = super::ordered_data_fields(
+        combined
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| !is_system_column(field.name()))
+            .map(|field| field.as_ref().clone())
+            .collect(),
+        sort_specs,
+    );
+    for field in &fields {
         let name = field.name();
-        if is_system_column(name) {
-            continue;
-        }
-
+        let idx = combined.schema().index_of(name)?;
         let source = combined.column(idx).clone();
         let rotated = rotate_array(source.clone(), row_count)?;
         let is_asc = sort_is_asc(sort_specs, name);
@@ -462,12 +476,25 @@ fn rotate_array(source: ArrayRef, row_count: usize) -> DataFusionResult<ArrayRef
     concat(&[tail.as_ref(), head.as_ref()]).map_err(Into::into)
 }
 
-fn has_only_explicit_diff_types(df: &DataFrame) -> DataFusionResult<bool> {
-    Ok(df
-        .schema()
-        .fields()
+/// Whether every selected sort key supports explicit difference materialization.
+/// Choose explicit arithmetic from the selected keys, not unrelated payloads.
+pub(super) fn has_only_explicit_diff_types(
+    df: &DataFrame,
+    sort_specs: &[(String, bool, bool)],
+) -> DataFusionResult<bool> {
+    // An unrelated payload column must not change how integer sort keys are
+    // subtracted (in particular, bypassing widened explicit differences).
+    let fields = super::ordered_data_fields(
+        df.schema()
+            .fields()
+            .iter()
+            .filter(|field| !is_system_column(field.name()))
+            .map(|field| field.as_ref().clone())
+            .collect(),
+        sort_specs,
+    );
+    Ok(fields
         .iter()
-        .filter(|field| !is_system_column(field.name()))
         .all(|field| is_explicit_diff_type(field.data_type())))
 }
 
@@ -763,7 +790,7 @@ fn tie_indicator_on_ordered(
                 ordered_cols.push(col_name.clone());
             }
         }
-        if ordered_cols.len() == data_cols.len() {
+        if ordered_cols.len() == sort_specs.len() {
             data_cols = ordered_cols;
         }
     }
@@ -881,7 +908,7 @@ fn sort_order_from_hint(
                 ordered.push(col(field.name()).sort(*asc, false));
             }
         }
-        if ordered.len() == data_fields.len() {
+        if ordered.len() == sort_specs.len() {
             order_by.extend(ordered);
         } else {
             order_by.extend(
