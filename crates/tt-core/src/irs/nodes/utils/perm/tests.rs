@@ -100,7 +100,7 @@ fn equal_counts_with_uncorrelated_names_fold_positionally() {
 
 #[test]
 fn duplicate_names_fold_positionally() {
-    // `fold_table_by_names` resolves a name to its first flat match, so
+    // `indices_by_names` resolves a name to its first flat match, so
     // a duplicated name would fold one column twice.
     assert!(!should_fold_by_names(2, 2, &["a".into(), "a".into()]));
 }

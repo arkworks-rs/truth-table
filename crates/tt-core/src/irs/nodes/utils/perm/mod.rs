@@ -1,21 +1,16 @@
-use std::sync::Arc;
-
 use arithmetic::{
-    ACTIVATOR_FIELD, is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
+    col::TrackedCol, col_oracle::TrackedColOracle, is_system_column, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ff::One;
-use ark_piop::{
-    SnarkBackend, errors::SnarkResult, prover::structs::polynomial::TrackedPoly,
-    verifier::structs::oracle::TrackedOracle,
-};
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use either::Either;
+use ark_piop::{SnarkBackend, piop::PIOP};
 use indexmap::IndexMap;
 
 use crate::{
     irs::{
         nodes::{
-            IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, utils::keyed_sumcheck,
+            IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
+            utils::nodup::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
         },
         payloads::PayloadStructure,
     },
@@ -32,10 +27,10 @@ const ROW_FOLD_CHALLENGE_LABEL: &[u8] = b"truth-table/perm/row-fold/v1";
 /// Proves equality of the active-row multisets over the selected columns.
 ///
 /// Present activators are required to be Boolean; callers establish that
-/// separately. Proof witnesses must be committed before initialization, while
+/// separately. Proof witnesses must be committed before proving, while
 /// public and virtual inputs must be verifier-fixed or derived from bound data.
 pub struct GadgetNode<B: SnarkBackend> {
-    keyed_sumcheck: Arc<Node<B>>,
+    _backend: std::marker::PhantomData<B>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -57,7 +52,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.keyed_sumcheck.clone()]
+        vec![]
     }
 }
 
@@ -72,79 +67,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
-        prover: &mut ark_piop::prover::ArgProver<B>,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for Permutation gadget");
-        };
-
-        let left = payload
-            .get(LEFT_LABEL)
-            .unwrap_or_else(|| panic!("Permutation gadget missing {}", LEFT_LABEL));
-        let right = payload
-            .get(RIGHT_LABEL)
-            .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
-
-        let shared_names = shared_data_field_names(left, right);
-        let fold_by_names = should_fold_by_names(
-            left.num_data_tracked_cols(),
-            right.num_data_tracked_cols(),
-            &shared_names,
-        );
-        if fold_by_names {
-            assert!(
-                !shared_names.is_empty(),
-                "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
-                left.num_data_tracked_cols(),
-                right.num_data_tracked_cols(),
-            );
-        }
-        let fold_width = if fold_by_names {
-            shared_names.len()
-        } else {
-            left.num_data_tracked_cols()
-        };
-        let challenges = folding_challenges_prover(prover, fold_width)?;
-
-        let (fxs, gxs) = if fold_by_names {
-            (
-                fold_table_by_names::<B>(
-                    left,
-                    &shared_names,
-                    &challenges,
-                    keyed_sumcheck::FXS_LABEL,
-                ),
-                fold_table_by_names::<B>(
-                    right,
-                    &shared_names,
-                    &challenges,
-                    keyed_sumcheck::GXS_LABEL,
-                ),
-            )
-        } else {
-            (
-                fold_table_to_single_col::<B>(left, &challenges, keyed_sumcheck::FXS_LABEL),
-                fold_table_to_single_col::<B>(right, &challenges, keyed_sumcheck::GXS_LABEL),
-            )
-        };
-        let mfxs = constant_one_table::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
-        let mgxs = constant_one_table::<B>(&gxs, keyed_sumcheck::MGXS_LABEL);
-
-        let mut keyed_payload = match virtualized_ir.payload_for_node(&self.keyed_sumcheck.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        keyed_payload.insert(keyed_sumcheck::FXS_LABEL.to_string(), fxs);
-        keyed_payload.insert(keyed_sumcheck::GXS_LABEL.to_string(), gxs);
-        keyed_payload.insert(keyed_sumcheck::MFXS_LABEL.to_string(), mfxs);
-        keyed_payload.insert(keyed_sumcheck::MGXS_LABEL.to_string(), mgxs);
-        virtualized_ir.set_payload_for_node(
-            self.keyed_sumcheck.id(),
-            Some(PayloadStructure::GadgetPayload(keyed_payload)),
-        );
         Ok(())
     }
 
@@ -165,81 +91,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
+
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
-        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for Permutation gadget");
-        };
-
-        let left = payload
-            .get(LEFT_LABEL)
-            .unwrap_or_else(|| panic!("Permutation gadget missing {}", LEFT_LABEL));
-        let right = payload
-            .get(RIGHT_LABEL)
-            .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
-
-        let shared_names = shared_oracle_data_field_names(left, right);
-        let fold_by_names = should_fold_by_names(
-            left.num_data_tracked_col_oracles(),
-            right.num_data_tracked_col_oracles(),
-            &shared_names,
-        );
-        if fold_by_names {
-            assert!(
-                !shared_names.is_empty(),
-                "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
-                left.num_data_tracked_col_oracles(),
-                right.num_data_tracked_col_oracles(),
-            );
-        }
-        let fold_width = if fold_by_names {
-            shared_names.len()
-        } else {
-            left.num_data_tracked_col_oracles()
-        };
-        let challenges = folding_challenges_verifier(verifier, fold_width)?;
-
-        let (fxs, gxs) = if fold_by_names {
-            (
-                fold_table_oracle_by_names::<B>(
-                    left,
-                    &shared_names,
-                    &challenges,
-                    keyed_sumcheck::FXS_LABEL,
-                ),
-                fold_table_oracle_by_names::<B>(
-                    right,
-                    &shared_names,
-                    &challenges,
-                    keyed_sumcheck::GXS_LABEL,
-                ),
-            )
-        } else {
-            (
-                fold_table_oracle_to_single_col::<B>(left, &challenges, keyed_sumcheck::FXS_LABEL),
-                fold_table_oracle_to_single_col::<B>(right, &challenges, keyed_sumcheck::GXS_LABEL),
-            )
-        };
-        let mfxs = constant_one_table_oracle::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
-        let mgxs = constant_one_table_oracle::<B>(&gxs, keyed_sumcheck::MGXS_LABEL);
-
-        let mut keyed_payload = match virtualized_ir.payload_for_node(&self.keyed_sumcheck.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        keyed_payload.insert(keyed_sumcheck::FXS_LABEL.to_string(), fxs);
-        keyed_payload.insert(keyed_sumcheck::GXS_LABEL.to_string(), gxs);
-        keyed_payload.insert(keyed_sumcheck::MFXS_LABEL.to_string(), mfxs);
-        keyed_payload.insert(keyed_sumcheck::MGXS_LABEL.to_string(), mgxs);
-        virtualized_ir.set_payload_for_node(
-            self.keyed_sumcheck.id(),
-            Some(PayloadStructure::GadgetPayload(keyed_payload)),
-        );
         Ok(())
     }
 
@@ -255,11 +113,63 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            panic!("Expected gadget payload for Permutation gadget");
+        };
+        let left = payload
+            .get(LEFT_LABEL)
+            .unwrap_or_else(|| panic!("Permutation gadget missing {}", LEFT_LABEL));
+        let right = payload
+            .get(RIGHT_LABEL)
+            .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
+
+        let shared_names = shared_data_field_names(left, right);
+        let (left_inds, right_inds) = if should_fold_by_names(
+            left.num_data_tracked_cols(),
+            right.num_data_tracked_cols(),
+            &shared_names,
+        ) {
+            assert!(
+                !shared_names.is_empty(),
+                "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
+                left.num_data_tracked_cols(),
+                right.num_data_tracked_cols(),
+            );
+            (
+                indices_by_names(left.tracked_polys().keys(), &shared_names),
+                indices_by_names(right.tracked_polys().keys(), &shared_names),
+            )
+        } else {
+            (
+                left.data_tracked_polys_indices(),
+                right.data_tracked_polys_indices(),
+            )
+        };
+        // The fold must be a random linear combination: with coefficients
+        // fixed before the columns are committed, distinct rows can be chosen
+        // to fold to the same value. The leading coefficient is one, so a
+        // one-column permutation is checked exactly.
+        let mut challenges = Vec::with_capacity(left_inds.len());
+        challenges.push(B::F::one());
+        for _ in 1..left_inds.len() {
+            challenges.push(prover.get_and_append_challenge(ROW_FOLD_CHALLENGE_LABEL)?);
+        }
+        let left_col: TrackedCol<B> = left.fold(&left_inds, &challenges);
+        let right_col: TrackedCol<B> = right.fold(&right_inds, &challenges);
+        // The honest-prover pass checks this claim through
+        // `honest_prover_check`, so skip the PIOP's own copy of that check.
+        PermPIOP::<B>::prove_inner(
+            prover,
+            PermPIOPProverInput {
+                left_col,
+                right_col,
+            },
+        )
     }
 
     fn honest_prover_check(
@@ -304,11 +214,58 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn verify(
         &self,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            panic!("Expected gadget payload for Permutation gadget");
+        };
+        let left = payload
+            .get(LEFT_LABEL)
+            .unwrap_or_else(|| panic!("Permutation gadget missing {}", LEFT_LABEL));
+        let right = payload
+            .get(RIGHT_LABEL)
+            .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
+
+        let shared_names = shared_oracle_data_field_names(left, right);
+        let (left_inds, right_inds) = if should_fold_by_names(
+            left.num_data_tracked_col_oracles(),
+            right.num_data_tracked_col_oracles(),
+            &shared_names,
+        ) {
+            assert!(
+                !shared_names.is_empty(),
+                "Permutation perm: divergent column counts (LEFT={}, RIGHT={}) with no shared column names — nothing to fold",
+                left.num_data_tracked_col_oracles(),
+                right.num_data_tracked_col_oracles(),
+            );
+            (
+                indices_by_names(left.tracked_oracles().keys(), &shared_names),
+                indices_by_names(right.tracked_oracles().keys(), &shared_names),
+            )
+        } else {
+            (
+                left.data_tracked_oracles_indices(),
+                right.data_tracked_oracles_indices(),
+            )
+        };
+        // Mirror the prover's challenge draws.
+        let mut challenges = Vec::with_capacity(left_inds.len());
+        challenges.push(B::F::one());
+        for _ in 1..left_inds.len() {
+            challenges.push(verifier.get_and_append_challenge(ROW_FOLD_CHALLENGE_LABEL)?);
+        }
+        let left_tracked_col_oracle: TrackedColOracle<B> = left.fold(&left_inds, &challenges);
+        let right_tracked_col_oracle: TrackedColOracle<B> = right.fold(&right_inds, &challenges);
+        PermPIOP::<B>::verify(
+            verifier,
+            PermPIOPVerifierInput {
+                left_tracked_col_oracle,
+                right_tracked_col_oracle,
+            },
+        )
     }
 
     fn prover_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -331,15 +288,14 @@ impl<B: SnarkBackend> GadgetNode<B> {
     where
         Self: Sized,
     {
-        let keyed_sumcheck = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::keyed_sumcheck::GadgetNode::new(),
-        )));
-        Self { keyed_sumcheck }
+        Self {
+            _backend: std::marker::PhantomData,
+        }
     }
 }
 
-/// Whether the two perm sides must be folded over
-/// `shared_names` instead of positionally.
+/// Whether the two perm sides must be folded over `shared_names`
+/// instead of positionally.
 ///
 /// Positional folding pairs challenge `k` with each side's `k`-th data
 /// column, so it is only valid when the sides agree column-for-column
@@ -358,7 +314,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
 /// correspond — the LIKE path, where the sides use different labels for
 /// positionally-equivalent columns and a name intersection would be
 /// empty or partial. Duplicate names also fall back, since
-/// `fold_table_by_names` resolves a name to its first match and would
+/// `indices_by_names` resolves a name to its first match and would
 /// otherwise fold one column twice.
 fn should_fold_by_names(left_count: usize, right_count: usize, shared_names: &[String]) -> bool {
     if left_count != right_count {
@@ -366,99 +322,6 @@ fn should_fold_by_names(left_count: usize, right_count: usize, shared_names: &[S
     }
     let mut seen = std::collections::HashSet::with_capacity(shared_names.len());
     shared_names.len() == left_count && shared_names.iter().all(|n| seen.insert(n))
-}
-
-/// Build a transcript-random fingerprint for an ordered row tuple.
-///
-/// The leading coefficient is fixed to one, so a one-column permutation is
-/// checked exactly and every additional column contributes an independent
-/// Fiat-Shamir challenge. Security requires every selected value and activator
-/// to be fixed before this function is called. The normal front-end commits
-/// proof witnesses before gadget initialization; public or virtual inputs must
-/// be verifier-fixed or derived from bound inputs, and external commitments are
-/// assumed to be fixed authenticated context before proving.
-fn folding_challenges_prover<B: SnarkBackend>(
-    prover: &mut ark_piop::prover::ArgProver<B>,
-    count: usize,
-) -> SnarkResult<Vec<B::F>> {
-    let mut challenges = Vec::with_capacity(count);
-    if count > 0 {
-        challenges.push(B::F::one());
-    }
-    for _ in 1..count {
-        challenges.push(prover.get_and_append_challenge(ROW_FOLD_CHALLENGE_LABEL)?);
-    }
-    Ok(challenges)
-}
-
-/// Verifier mirror of [`folding_challenges_prover`].
-fn folding_challenges_verifier<B: SnarkBackend>(
-    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-    count: usize,
-) -> SnarkResult<Vec<B::F>> {
-    let mut challenges = Vec::with_capacity(count);
-    if count > 0 {
-        challenges.push(B::F::one());
-    }
-    for _ in 1..count {
-        challenges.push(verifier.get_and_append_challenge(ROW_FOLD_CHALLENGE_LABEL)?);
-    }
-    Ok(challenges)
-}
-
-fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
-    if let Some(schema) = schema
-        && let Some(field) = schema.fields().iter().find(|f| !is_system_column(f.name()))
-    {
-        return Arc::new(Field::new(
-            label,
-            field.data_type().clone(),
-            field.is_nullable(),
-        ));
-    }
-    Arc::new(Field::new(label, DataType::UInt64, false))
-}
-
-/// Fold every data column with shared transcript challenges in flat order.
-fn fold_table_to_single_col<B: SnarkBackend>(
-    table: &TrackedTable<B>,
-    challenges: &[B::F],
-    label: &str,
-) -> TrackedTable<B> {
-    let folded_col = table.fold_all_data_columns(challenges);
-
-    let data_field = folded_field_from_schema(table.schema_ref(), label);
-    let mut fields = vec![data_field.as_ref().clone()];
-    let mut tracked_polys = IndexMap::new();
-    tracked_polys.insert(data_field, folded_col.data_tracked_poly());
-
-    if let Some(activator) = table.activator_tracked_poly() {
-        fields.push(ACTIVATOR_FIELD.as_ref().clone());
-        tracked_polys.insert(ACTIVATOR_FIELD.clone(), activator);
-    }
-
-    TrackedTable::new(Some(Schema::new(fields)), tracked_polys, table.log_size())
-}
-
-/// Verifier mirror of `fold_table_to_single_col`.
-fn fold_table_oracle_to_single_col<B: SnarkBackend>(
-    table: &TrackedTableOracle<B>,
-    challenges: &[B::F],
-    label: &str,
-) -> TrackedTableOracle<B> {
-    let folded_col = table.fold_all_data_oracles(challenges);
-
-    let data_field = folded_field_from_schema(table.schema_ref(), label);
-    let mut fields = vec![data_field.as_ref().clone()];
-    let mut tracked_oracles = IndexMap::new();
-    tracked_oracles.insert(data_field, folded_col.data_tracked_oracle());
-
-    if let Some(activator) = table.activator_tracked_poly() {
-        fields.push(ACTIVATOR_FIELD.as_ref().clone());
-        tracked_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
-    }
-
-    TrackedTableOracle::new(Some(Schema::new(fields)), tracked_oracles, table.log_size())
 }
 
 /// Compute the intersection of data-column names between LEFT and
@@ -510,120 +373,22 @@ fn shared_oracle_data_field_names<B: SnarkBackend>(
         .collect()
 }
 
-/// Fold the named data columns, in `names` order, with shared transcript challenges.
-fn fold_table_by_names<B: SnarkBackend>(
-    table: &TrackedTable<B>,
+/// Flat-view indices of `names` (in `names` order) among `fields`. Both
+/// sides resolve the same `names`, so challenge `k` meets the same column
+/// on each.
+fn indices_by_names<'a>(
+    fields: impl Iterator<Item = &'a datafusion::arrow::datatypes::FieldRef> + Clone,
     names: &[String],
-    challenges: &[B::F],
-    label: &str,
-) -> TrackedTable<B> {
-    // Resolve `names` → flat-view indices in this side's tracked_polys.
-    let flat = table.tracked_polys();
-    let indices: Vec<usize> = names
+) -> Vec<usize> {
+    names
         .iter()
-        .filter_map(|n| {
-            flat.keys()
-                .enumerate()
-                .find(|(_, f)| f.name() == n)
-                .map(|(i, _)| i)
+        .map(|n| {
+            fields
+                .clone()
+                .position(|f| f.name() == n)
+                .expect("perm side missing shared column — LEFT/RIGHT diverged unexpectedly")
         })
-        .collect();
-    assert_eq!(
-        indices.len(),
-        names.len(),
-        "fold_table_by_names: perm side missing shared column(s) — LEFT/RIGHT diverged unexpectedly"
-    );
-    let folded_col = table.fold(&indices, challenges);
-
-    let data_field = folded_field_from_schema(table.schema_ref(), label);
-    let mut fields = vec![data_field.as_ref().clone()];
-    let mut tracked_polys = IndexMap::new();
-    tracked_polys.insert(data_field, folded_col.data_tracked_poly());
-
-    if let Some(activator) = table.activator_tracked_poly() {
-        fields.push(ACTIVATOR_FIELD.as_ref().clone());
-        tracked_polys.insert(ACTIVATOR_FIELD.clone(), activator);
-    }
-
-    TrackedTable::new(Some(Schema::new(fields)), tracked_polys, table.log_size())
-}
-
-/// Verifier mirror of `fold_table_by_names`, with the same name alignment.
-fn fold_table_oracle_by_names<B: SnarkBackend>(
-    table: &TrackedTableOracle<B>,
-    names: &[String],
-    challenges: &[B::F],
-    label: &str,
-) -> TrackedTableOracle<B> {
-    let flat = table.tracked_oracles();
-    let indices: Vec<usize> = names
-        .iter()
-        .filter_map(|n| {
-            flat.keys()
-                .enumerate()
-                .find(|(_, f)| f.name() == n)
-                .map(|(i, _)| i)
-        })
-        .collect();
-    assert_eq!(
-        indices.len(),
-        names.len(),
-        "fold_table_oracle_by_names: perm side missing shared column(s) — LEFT/RIGHT diverged unexpectedly"
-    );
-    let folded_col = table.fold(&indices, challenges);
-
-    let data_field = folded_field_from_schema(table.schema_ref(), label);
-    let mut fields = vec![data_field.as_ref().clone()];
-    let mut tracked_oracles = IndexMap::new();
-    tracked_oracles.insert(data_field, folded_col.data_tracked_oracle());
-
-    if let Some(activator) = table.activator_tracked_poly() {
-        fields.push(ACTIVATOR_FIELD.as_ref().clone());
-        tracked_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
-    }
-
-    TrackedTableOracle::new(Some(Schema::new(fields)), tracked_oracles, table.log_size())
-}
-
-fn constant_one_table<B: SnarkBackend>(base: &TrackedTable<B>, label: &str) -> TrackedTable<B> {
-    let tracker = base
-        .tracked_polys_iter()
-        .next()
-        .map(|(_, poly)| poly.tracker())
-        .expect("Permutation gadget expects a non-empty table");
-    let log_size = base.log_size();
-    let one_poly = TrackedPoly::new(Either::Right(B::F::one()), log_size, tracker);
-
-    let data_field = folded_field_from_schema(base.schema_ref(), label);
-    let mut tracked_polys = IndexMap::new();
-    tracked_polys.insert(data_field.clone(), one_poly);
-    TrackedTable::new(
-        Some(Schema::new(vec![data_field.as_ref().clone()])),
-        tracked_polys,
-        log_size,
-    )
-}
-
-fn constant_one_table_oracle<B: SnarkBackend>(
-    base: &TrackedTableOracle<B>,
-    label: &str,
-) -> TrackedTableOracle<B> {
-    let tracker = base
-        .tracked_oracles_iter()
-        .next()
-        .map(|(_, oracle)| oracle.tracker())
-        .expect("Permutation gadget expects a non-empty oracle table");
-    let log_size = base.log_size();
-    let one_oracle = TrackedOracle::new(Either::Right(B::F::one()), tracker, log_size);
-
-    let data_field = folded_field_from_schema(base.schema_ref(), label);
-    let mut tracked_oracles = IndexMap::new();
-    tracked_oracles.insert(data_field.clone(), one_oracle);
-    TrackedTableOracle::new(
-        Some(Schema::new(vec![data_field.as_ref().clone()])),
-        tracked_oracles,
-        log_size,
-    )
+        .collect()
 }
 
 /// Multiset of this table's active rows, each row rendered as a string
