@@ -39,6 +39,8 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 mod hints;
+#[cfg(test)]
+mod tests;
 
 /// Labels for different gadget payloads used by this gadget.
 pub const TABLE_LABEL: &str = "__input__";
@@ -347,10 +349,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             )?;
         }
-        let mut updated_tie_table = None;
-        if let Some(tie_table) = tie_table {
-            let tie_table = prepend_first_tie_indicator_prover(tie_table);
-            updated_tie_table = Some(tie_table.clone());
+        let updated_tie_table = input_table
+            .map(|input| prepend_first_tie_indicator_prover(prover, tie_table, input.log_size()));
+        if let Some(tie_table) = updated_tie_table.as_ref() {
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
             let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -358,35 +359,22 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             };
             bool_payload.insert(
                 crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-                tie_table,
-            );
-            virtualized_ir.set_payload_for_node(
-                self.bool_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(bool_payload)),
-            );
-        } else if let Some(input_table) = input_table {
-            // For single-key sorts the tie table can be dropped during materialization; keep
-            // a no-op Bool payload so the Bool gadget doesn't panic.
-            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-            bool_payload.insert(
-                crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-                TrackedTable::new(None, IndexMap::new(), input_table.log_size()),
+                tie_table.clone(),
             );
             virtualized_ir.set_payload_for_node(
                 self.bool_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
         }
-        if let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
-            updated_tie_table.as_ref().or(tie_table),
-            input_table,
-            rotated_table,
-        ) {
+        if let (Some(tie_table), Some(input_table), Some(rotated_table)) =
+            (updated_tie_table.as_ref(), input_table, rotated_table)
+        {
             // Prefer precomputed diffs so sign gadgets operate on bounded values.
             let sort_specs = sort_specs_for_table_prover(&self.sort_config, input_table);
+            check_tie_column_count(
+                ordered_data_indices_prover(input_table, &sort_specs).len(),
+                tie_table.data_tracked_polys_indices().len(),
+            )?;
             populate_sign_payloads_prover(
                 &self.sign_gadget,
                 &self.sort_config,
@@ -457,18 +445,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             )?;
         }
-        let mut updated_tie_table_owned: Option<TrackedTableOracle<B>> = None;
-        let bool_table = if let Some(tie_table) = tie_table {
-            let tie_table = prepend_first_tie_indicator_verifier(tie_table);
-            updated_tie_table_owned = Some(tie_table.clone());
-            Some(tie_table)
-        } else {
-            input_table.map(|input_table| {
-                TrackedTableOracle::new(None, IndexMap::new(), input_table.log_size())
-            })
-        };
-
-        if let Some(bool_table) = bool_table.as_ref() {
+        let updated_tie_table_owned = input_table.map(|input| {
+            prepend_first_tie_indicator_verifier(verifier, tie_table, input.log_size())
+        });
+        if let Some(bool_table) = updated_tie_table_owned.as_ref() {
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
             let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -484,11 +464,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             );
         }
 
-        let updated_tie_table = updated_tie_table_owned.as_ref().or(tie_table);
+        let updated_tie_table = updated_tie_table_owned.as_ref();
         if let (Some(tie_table), Some(input_table), Some(rotated_table)) =
             (updated_tie_table, input_table, rotated_table)
         {
             let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input_table);
+            check_tie_column_count(
+                ordered_data_indices_verifier(input_table, &sort_specs).len(),
+                tie_table.data_tracked_oracles_indices().len(),
+            )?;
             populate_sign_payloads_verifier(
                 &self.sign_gadget,
                 &self.sort_config,
@@ -1783,27 +1767,30 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
     Ok(())
 }
 
-fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
-    if table
-        .tracked_polys_iter()
-        .any(|(field, _)| field.name() == FIRST_TIE_LABEL)
-    {
-        return table.clone();
+// A missing first tie is harmless: it is public. Missing higher-prefix ties
+// must not silently omit comparisons in the sign and inequality checks.
+fn check_tie_column_count(expected: usize, actual: usize) -> ark_piop::errors::SnarkResult<()> {
+    if expected != actual {
+        return Err(
+            ark_piop::verifier::errors::VerifierError::VerifierInputShapeError(
+                ark_piop::errors::InputShapeError::InputLengthMismatch { expected, actual },
+            )
+            .into(),
+        );
     }
+    Ok(())
+}
 
-    let data_idx = match table.data_tracked_polys_indices().first().copied() {
-        Some(idx) => idx,
-        None => {
-            return table.clone();
-        }
-    };
-    let data_col = table.tracked_col_by_ind(data_idx);
-    let num_vars = data_col.data_tracked_poly().log_size();
-    let tracker = data_col.data_tracked_poly().tracker();
-    let mut prover = ArgProver::new_from_tracker_rc(tracker.clone());
-
-    // Build the special first tie column: 1 - eq_x_r(1^n).
+fn prepend_first_tie_indicator_prover<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    table: Option<&TrackedTable<B>>,
+    num_vars: usize,
+) -> TrackedTable<B> {
+    // The first comparison mask is public: 1 - eq_x_r(1^n). Never
+    // trust a supplied tie_0 column: all-zero values would disable sorting.
+    // Derive its domain from the input, even if the tie hint was dropped.
     let one_tracked_poly = prover.track_mat_mv_cnst_poly(num_vars, B::F::one());
+    let tracker = one_tracked_poly.tracker();
     let tracked_last_eq_poly = if num_vars == 0 {
         // For nv=0, eq_x_r is the constant 1; track it as a constant poly.
         prover.track_mat_mv_cnst_poly(num_vars, B::F::one())
@@ -1820,11 +1807,15 @@ fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) 
     let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
     let mut tracked_polys = IndexMap::new();
     tracked_polys.insert(first_tie_field.clone(), first_tie_poly);
-    for (field, poly) in table.tracked_polys_iter() {
-        tracked_polys.insert(field.clone(), poly.clone());
+    if let Some(table) = table {
+        for (field, poly) in table.tracked_polys_iter() {
+            if field.name() != FIRST_TIE_LABEL {
+                tracked_polys.insert(field.clone(), poly.clone());
+            }
+        }
     }
 
-    let schema = table.schema_ref().map(|schema| {
+    let schema = table.and_then(|table| table.schema_ref()).map(|schema| {
         let fields = tracked_polys
             .keys()
             .map(|field| field.as_ref().clone())
@@ -1839,32 +1830,17 @@ fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) 
                 .collect::<Vec<_>>(),
         ))
     });
-    TrackedTable::new(schema, tracked_polys, table.log_size())
+    TrackedTable::new(schema, tracked_polys, num_vars)
 }
 
 fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
-    table: &TrackedTableOracle<B>,
+    verifier: &mut ArgVerifier<B>,
+    table: Option<&TrackedTableOracle<B>>,
+    num_vars: usize,
 ) -> TrackedTableOracle<B> {
-    if table
-        .tracked_oracles_iter()
-        .any(|(field, _)| field.name() == FIRST_TIE_LABEL)
-    {
-        return table.clone();
-    }
-
-    let data_idx = match table.data_tracked_oracles_indices().first().copied() {
-        Some(idx) => idx,
-        None => {
-            return table.clone();
-        }
-    };
-    let data_col = table.tracked_col_oracle_by_ind(data_idx);
-    let num_vars = data_col.data_tracked_oracle().log_size();
-    let tracker = data_col.data_tracked_oracle().tracker();
-    let mut verifier = ArgVerifier::new_from_tracker_rc(tracker.clone());
-
-    // Build the special first tie column: 1 - eq_x_r(1^n).
+    // Derive the same public mask as the prover, replacing any supplied tie_0.
     let one_tracked_oracle = verifier.track_mat_mv_cnst_oracle(num_vars, B::F::one());
+    let tracker = one_tracked_oracle.tracker();
     let tracked_last_eq_oracle = if num_vars == 0 {
         // For nv=0, eq_x_r is the constant 1; track it as a constant oracle.
         verifier.track_mat_mv_cnst_oracle(num_vars, B::F::one())
@@ -1882,11 +1858,15 @@ fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
     let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
     let mut tracked_oracles = IndexMap::new();
     tracked_oracles.insert(first_tie_field.clone(), first_tie_oracle);
-    for (field, oracle) in table.tracked_oracles_iter() {
-        tracked_oracles.insert(field.clone(), oracle.clone());
+    if let Some(table) = table {
+        for (field, oracle) in table.tracked_oracles_iter() {
+            if field.name() != FIRST_TIE_LABEL {
+                tracked_oracles.insert(field.clone(), oracle.clone());
+            }
+        }
     }
 
-    let schema = table.schema_ref().map(|schema| {
+    let schema = table.and_then(|table| table.schema_ref()).map(|schema| {
         let fields = tracked_oracles
             .keys()
             .map(|field| field.as_ref().clone())
@@ -1901,7 +1881,7 @@ fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
                 .collect::<Vec<_>>(),
         ))
     });
-    TrackedTableOracle::new(schema, tracked_oracles, table.log_size())
+    TrackedTableOracle::new(schema, tracked_oracles, num_vars)
 }
 
 // Pad contig-sort hints to a power-of-two row count for circuit alignment.
