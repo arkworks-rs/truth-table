@@ -1,30 +1,35 @@
-//! A PIOP to check if the mulltisets of two columns are equal considering their
-//! multiplicities.
+//! A PIOP to check if the multisets of two sets of columns are equal
+//! considering their multiplicities.
 //!
-//! More precisely, this PIOP checks if the union of the multisets of the activated elements in a set of columns with certain multiplicity polynomials is equal to the union of the multisets of the activated elements in another set of columns with other multiplicity polynomials. It's a genralization of the [Logup](https://eprint.iacr.org/2022/1530.pdf) protocol and is heavily used throughout the other PIOPs.
+//! More precisely, this PIOP checks that the union of the multisets of the
+//! activated elements in a set of columns, each under a multiplicity
+//! polynomial, equals the union for another set of columns under other
+//! multiplicity polynomials:
+//!
+//! `sum_i sum_x mf_i(x) * Af_i(x) / (f_i(x) - gamma)
+//!     = sum_j sum_x mg_j(x) * Ag_j(x) / (g_j(x) - gamma)`.
+//!
+//! It is a generalization of the [LogUp](https://eprint.iacr.org/2022/1530.pdf)
+//! protocol and is heavily used throughout the other PIOPs.
+//!
+//! The protocol itself lives in ark-piop
+//! ([`ark_piop::piop::keyed_sumcheck`]). This module only says what a
+//! column with an activator means there: the column's data is the key, and
+//! its activator multiplies the multiplicity. The claim is recorded with
+//! [`ArgProver::add_mv_keyed_sum_claim`] and discharged when the proof is
+//! built, in one batch with every other keyed sum and lookup of the proof,
+//! so both sides have to claim in the same order.
 
-mod honest_prover;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::One;
-use ark_ff::Zero;
 use ark_piop::{
     SnarkBackend,
-    arithmetic::mat_poly::mle::MLE,
-    errors::{
-        InputShapeError::{EmptyInput, InputLengthMismatch},
-        SnarkError, SnarkResult,
-    },
-    piop::PIOP,
+    errors::SnarkResult,
+    piop::{DeepClone, PIOP, keyed_sumcheck as ark_keyed_sumcheck},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{
-        ArgVerifier,
-        errors::VerifierError::{self, VerifierInputShapeError},
-        structs::oracle::TrackedOracle,
-    },
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
-use std::ops::Neg;
 pub struct KeyedSumcheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
@@ -43,6 +48,67 @@ pub struct KeyedSumcheckVerifierInput<B: SnarkBackend> {
     pub mgxs: Vec<Option<TrackedOracle<B>>>,
 }
 
+impl<B: SnarkBackend> DeepClone<B> for KeyedSumcheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
+        let cols = |cols: &[TrackedCol<B>]| {
+            cols.iter()
+                .map(|col| col.deep_clone(prover.clone()))
+                .collect()
+        };
+        let mults = |mults: &[Option<TrackedPoly<B>>]| {
+            mults
+                .iter()
+                .map(|m| m.as_ref().map(|m| m.deep_clone(prover.clone())))
+                .collect()
+        };
+        Self {
+            fxs: cols(&self.fxs),
+            gxs: cols(&self.gxs),
+            mfxs: mults(&self.mfxs),
+            mgxs: mults(&self.mgxs),
+        }
+    }
+}
+
+/// What multiplies `1 / (column - gamma)`: the multiplicity times the
+/// activator, whichever of the two there is. The product is taken in this
+/// order on both sides, which track a polynomial for it.
+fn numerator<P>(
+    multiplicity: Option<P>,
+    activator: Option<P>,
+    product: impl Fn(&P, &P) -> P,
+) -> Option<P> {
+    match (multiplicity, activator) {
+        (Some(multiplicity), Some(activator)) => Some(product(&multiplicity, &activator)),
+        (Some(numerator), None) | (None, Some(numerator)) => Some(numerator),
+        (None, None) => None,
+    }
+}
+
+/// The claim as ark-piop states it: the keys are the columns' data and the
+/// numerators their multiplicities times their activators.
+fn ark_prover_input<B: SnarkBackend>(
+    input: KeyedSumcheckProverInput<B>,
+) -> ark_keyed_sumcheck::KeyedSumcheckProverInput<B> {
+    let side = |cols: &[TrackedCol<B>], mults: Vec<Option<TrackedPoly<B>>>| {
+        let numerators = cols
+            .iter()
+            .zip(mults)
+            .map(|(col, m)| numerator(m, col.activator_tracked_poly(), |m, a| m * a))
+            .collect::<Vec<_>>();
+        let keys = cols.iter().map(TrackedCol::data_tracked_poly).collect();
+        (keys, numerators)
+    };
+    let (fxs, mfxs) = side(&input.fxs, input.mfxs);
+    let (gxs, mgxs) = side(&input.gxs, input.mgxs);
+    ark_keyed_sumcheck::KeyedSumcheckProverInput {
+        fxs,
+        gxs,
+        mfxs,
+        mgxs,
+    }
+}
+
 impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
     type ProverInput = KeyedSumcheckProverInput<B>;
 
@@ -54,270 +120,42 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
-        Self::honest_prover_check_helper(&input)
+        ark_keyed_sumcheck::KeyedSumcheck::<B>::honest_prover_check(ark_prover_input(input))
     }
 
+    /// Records the claim without ark-piop's own honest-prover check: that
+    /// check is [`Self::honest_prover_check`], which `prove` has run and a
+    /// caller of `prove_inner` chose to skip.
     fn prove_inner(
         prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        // Get the challenge gamma for the check -- Gamma appears in the denominator of
-        // the sum
-        let gamma = prover.get_and_append_challenge(b"gamma")?;
-        // iterate over vector elements and generate subclaims:
-        for i in 0..input.fxs.len() {
-            Self::prove_generate_subclaims(
-                prover,
-                input.fxs[i].clone(),
-                input.mfxs[i].clone(),
-                gamma,
-            )?;
-        }
-
-        for i in 0..input.gxs.len() {
-            Self::prove_generate_subclaims(
-                prover,
-                input.gxs[i].clone(),
-                input.mgxs[i].clone(),
-                gamma,
-            )?;
-        }
-        Ok(())
+        prover.add_mv_keyed_sum_claim_unchecked(ark_prover_input(input))
     }
 
     fn verify_inner(
         verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        // check input shapes are correct
-        if input.fxs.is_empty() {
-            return Err(SnarkError::VerifierError(VerifierInputShapeError(
-                EmptyInput,
-            )));
-        }
-        if input.fxs.len() != input.mfxs.len() {
-            return Err(SnarkError::VerifierError(VerifierInputShapeError(
-                InputLengthMismatch {
-                    expected: input.fxs.len(),
-                    actual: input.mfxs.len(),
-                },
-            )));
-        }
-        if input.gxs.is_empty() {
-            return Err(SnarkError::VerifierError(VerifierInputShapeError(
-                EmptyInput,
-            )));
-        }
-
-        if input.gxs.len() != input.mgxs.len() {
-            return Err(SnarkError::VerifierError(VerifierInputShapeError(
-                InputLengthMismatch {
-                    expected: input.gxs.len(),
-                    actual: input.mgxs.len(),
-                },
-            )));
-        }
-
-        // create challenges and commitments in same fashion as prover
-        // assumption is that proof inputs are already added to the tracker
-        let gamma = verifier.get_and_append_challenge(b"gamma")?;
-        // The proof records each subclaim's sum rescaled by the *claim poly's*
-        // registered nv (max over its factors: phat at the col's nv, plus the
-        // activator and multiplicity polys — see `track_virt_poly`). The col's
-        // own nv can be smaller (e.g. an nv-0 col whose multiplicity table is
-        // materialized at nv 1), so the un-scaling here must mirror that same
-        // max-of-factors nv or the comparison drifts by a power of two.
-        let claim_nv = |col: &TrackedColOracle<B>, m: &Option<TrackedOracle<B>>| -> usize {
-            let mut nv = col.log_size();
-            if let Some(activator) = col.activator_tracked_oracle() {
-                nv = nv.max(activator.log_size());
-            }
-            if let Some(m) = m {
-                nv = nv.max(m.log_size());
-            }
-            nv
+        let side = |cols: &[TrackedColOracle<B>], mults: Vec<Option<TrackedOracle<B>>>| {
+            let numerators = cols
+                .iter()
+                .zip(mults)
+                .map(|(col, m)| numerator(m, col.activator_tracked_oracle(), |m, a| m * a))
+                .collect::<Vec<_>>();
+            let keys = cols
+                .iter()
+                .map(TrackedColOracle::data_tracked_oracle)
+                .collect();
+            (keys, numerators)
         };
-        let max_nv_f = input
-            .fxs
-            .iter()
-            .zip(&input.mfxs)
-            .map(|(x, m)| claim_nv(x, m))
-            .max()
-            .unwrap();
-        let max_nv_g = input
-            .gxs
-            .iter()
-            .zip(&input.mgxs)
-            .map(|(x, m)| claim_nv(x, m))
-            .max()
-            .unwrap();
-        let max_nv = max_nv_f.max(max_nv_g);
-        let mut lhs_v: B::F = B::F::zero();
-        let mut rhs_v: B::F = B::F::zero();
-        for i in 0..input.fxs.len() {
-            let sum_claim_v = Self::verify_generate_subclaims(
-                verifier,
-                input.fxs[i].clone(),
-                input.mfxs[i].clone(),
-                gamma,
-            )?;
-            let ratio = 2_usize.pow((max_nv - claim_nv(&input.fxs[i], &input.mfxs[i])) as u32);
-            let sum_claim_v_adj = sum_claim_v / B::F::from(ratio as u64);
-            lhs_v += sum_claim_v_adj;
-        }
-
-        for i in 0..input.gxs.len() {
-            let sum_claim_v = Self::verify_generate_subclaims(
-                verifier,
-                input.gxs[i].clone(),
-                input.mgxs[i].clone(),
-                gamma,
-            )?;
-            let ratio = 2_usize.pow((max_nv - claim_nv(&input.gxs[i], &input.mgxs[i])) as u32);
-            let sum_claim_v_adj = sum_claim_v / B::F::from(ratio as u64);
-            rhs_v += sum_claim_v_adj;
-        }
-
-        // check that the values of claimed sums are equal
-        if lhs_v != rhs_v {
-            tracing::debug!(
-                target: "tt_core::keyed_sumcheck",
-                f_ids = %format_tracked_col_oracle_ids(&input.fxs),
-                g_ids = %format_tracked_col_oracle_ids(&input.gxs),
-                mf_ids = %format_tracked_oracle_opt_ids(&input.mfxs),
-                mg_ids = %format_tracked_oracle_opt_ids(&input.mgxs),
-                lhs = %lhs_v,
-                rhs = %rhs_v,
-                "keyed sumcheck mismatch"
-            );
-            let mut err_msg = "LHS and RHS have different sums".to_string();
-            err_msg.push_str(&format!(" LHS: {}, RHS: {}", lhs_v, rhs_v));
-            return Err(SnarkError::VerifierError(
-                VerifierError::VerifierCheckFailed(err_msg),
-            ));
-        }
-
-        Ok(())
-    }
-}
-
-fn format_tracked_col_oracle_ids<B: SnarkBackend>(cols: &[TrackedColOracle<B>]) -> String {
-    let mut out = String::from("[");
-    for (i, col) in cols.iter().enumerate() {
-        if i > 0 {
-            out.push_str(", ");
-        }
-        let oracle = col.data_tracked_oracle();
-        if oracle.is_constant() {
-            out.push_str("const");
-        } else {
-            out.push_str(&format!("{:?}", oracle.id()));
-        }
-    }
-    out.push(']');
-    out
-}
-
-fn format_tracked_oracle_opt_ids<B: SnarkBackend>(oracles: &[Option<TrackedOracle<B>>]) -> String {
-    let mut out = String::from("[");
-    for (i, oracle) in oracles.iter().enumerate() {
-        if i > 0 {
-            out.push_str(", ");
-        }
-        match oracle {
-            Some(o) if o.is_constant() => out.push_str("const"),
-            Some(o) => out.push_str(&format!("{:?}", o.id())),
-            None => out.push_str("none"),
-        }
-    }
-    out.push(']');
-    out
-}
-
-impl<B: SnarkBackend> KeyedSumcheck<B> {
-    fn prove_generate_subclaims(
-        tracker: &mut ArgProver<B>,
-        col: TrackedCol<B>,
-        m: Option<TrackedPoly<B>>,
-        gamma: B::F,
-    ) -> SnarkResult<()> {
-        let nv = col.log_size();
-        // construct phat = 1/(col.p(x) - gamma), i.e. the denominator of the sum
-        let p = col.data_tracked_poly();
-        let mut p_evals = p.evaluations().to_vec();
-        let mut p_minus_gamma: Vec<B::F> = p_evals.iter_mut().map(|x| *x - gamma).collect();
-        let phat_evals = p_minus_gamma.as_mut_slice();
-        ark_ff::fields::batch_inversion(phat_evals);
-        let phat_mle = MLE::from_evaluations_slice(nv, phat_evals);
-
-        // calculate what the final sum should be
-        let mut v = B::F::zero();
-        let phat = tracker.track_and_commit_mat_mv_poly(&phat_mle)?;
-        let (sumcheck_challenge_poly, v) = match (col.activator_tracked_poly().as_ref(), m) {
-            (Some(activator), Some(m)) => {
-                let selector_evals = &activator.evaluations();
-                let m_evals = m.evaluations();
-                for i in 0..2_usize.pow(nv as u32) {
-                    v += phat_mle[i] * m_evals[i] * selector_evals[i];
-                }
-                (&(&phat * &m) * activator, v)
-            }
-            (None, Some(m)) => {
-                let m_evals = m.evaluations();
-                for i in 0..2_usize.pow(nv as u32) {
-                    v += phat_mle[i] * m_evals[i];
-                }
-                (&phat * &m, v)
-            }
-            (Some(activator), None) => {
-                let selector_evals = &activator.evaluations();
-                for i in 0..2_usize.pow(nv as u32) {
-                    v += phat_mle[i] * selector_evals[i];
-                }
-                (&phat * activator, v)
-            }
-            (None, None) => {
-                for i in 0..2_usize.pow(nv as u32) {
-                    v += phat_mle[i];
-                }
-                (phat.clone(), v)
-            }
-        };
-
-        // Create Zerocheck claim for proving phat(x) is created correctly,
-        // i.e. ZeroCheck [(p(x)-gamma) * phat(x) - 1] = [(p * phat) - gamma * phat - 1]
-        let phat_gamma = phat.clone() * gamma;
-        let phat_check_poly = (&(&p * &phat) - &phat_gamma) + B::F::one().neg();
-        // add the delayed prover claims to the tracker
-        tracker.add_mv_sumcheck_claim(sumcheck_challenge_poly.id(), v)?;
-        tracker.add_mv_zerocheck_claim(phat_check_poly.id())?;
-        Ok(())
-    }
-
-    fn verify_generate_subclaims(
-        tracker: &mut ArgVerifier<B>,
-        col: TrackedColOracle<B>,
-        m: Option<TrackedOracle<B>>,
-        gamma: B::F,
-    ) -> SnarkResult<B::F> {
-        let p: TrackedOracle<B> = col.data_tracked_oracle();
-        // get phat mat comm from proof and add it to the tracker
-        let phat = tracker.track_next_mv_com()?;
-        // make the virtual comms as prover does
-        let sumcheck_challenge_comm = match (col.activator_tracked_oracle().as_ref(), m) {
-            (Some(activator), Some(m)) => &(&phat * &m) * activator,
-            (None, Some(m)) => &phat * &m,
-            (Some(activator), None) => &phat * activator,
-            (None, None) => phat.clone(),
-        };
-
-        let phat_gamma = phat.clone() * gamma;
-        let phat_check_poly = (&(&p * &phat) - &phat_gamma) + B::F::one().neg();
-        // add the delayed prover claims to the tracker
-        let sum_claim_v = tracker.prover_claimed_sum(sumcheck_challenge_comm.id())?;
-        tracker.add_mv_sumcheck_claim(sumcheck_challenge_comm.id(), sum_claim_v);
-        tracker.add_mv_zerocheck_claim(phat_check_poly.id());
-
-        Ok(sum_claim_v)
+        let (fxs, mfxs) = side(&input.fxs, input.mfxs);
+        let (gxs, mgxs) = side(&input.gxs, input.mgxs);
+        verifier.add_mv_keyed_sum_claim(ark_keyed_sumcheck::KeyedSumcheckVerifierInput {
+            fxs,
+            gxs,
+            mfxs,
+            mgxs,
+        })
     }
 }
