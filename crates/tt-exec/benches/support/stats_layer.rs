@@ -682,7 +682,10 @@ impl PendingBenchRecord {
                 | "crypto_breakdown_uv_pcs_subproof_commitments"
                 | "crypto_breakdown_uv_pcs_subproof_commitments_count"
                 | "crypto_breakdown_uv_pcs_subproof_query_map"
-                | "crypto_breakdown_miscellaneous_field_elements" => {
+                | "crypto_breakdown_miscellaneous_field_elements"
+                | "crypto_breakdown_miscellaneous_field_vectors"
+                | "crypto_breakdown_logup_gkr_subproofs"
+                | "crypto_breakdown_lookup_messages" => {
                     let normalized = key
                         .strip_prefix("crypto_breakdown_")
                         .unwrap_or(&key)
@@ -987,7 +990,10 @@ fn build_crypto_breakdown(fields: Map<String, Value>) -> Value {
                 "query_map": fields.get("uv_pcs_subproof_query_map").cloned().unwrap_or(Value::Null)
             }
         },
-        "miscellaneous_field_elements": miscellaneous_field_elements
+        "miscellaneous_field_elements": miscellaneous_field_elements,
+        "miscellaneous_field_vectors": fields.get("miscellaneous_field_vectors").cloned().unwrap_or(Value::Null),
+        "logup_gkr_subproofs": fields.get("logup_gkr_subproofs").cloned().unwrap_or(Value::Null),
+        "lookup_messages": fields.get("lookup_messages").cloned().unwrap_or(Value::Null)
     })
 }
 
@@ -1091,6 +1097,9 @@ pub fn emit_proof_size_bytes(
     crypto_breakdown_uv_pcs_subproof_commitments_count: usize,
     crypto_breakdown_uv_pcs_subproof_query_map: usize,
     crypto_breakdown_miscellaneous_field_elements: usize,
+    crypto_breakdown_miscellaneous_field_vectors: usize,
+    crypto_breakdown_logup_gkr_subproofs: usize,
+    crypto_breakdown_lookup_messages: usize,
     num_threads: usize,
     crypto_compressed_proof_size_bytes: usize,
 ) {
@@ -1115,6 +1124,9 @@ pub fn emit_proof_size_bytes(
         crypto_breakdown_uv_pcs_subproof_commitments_count,
         crypto_breakdown_uv_pcs_subproof_query_map,
         crypto_breakdown_miscellaneous_field_elements,
+        crypto_breakdown_miscellaneous_field_vectors,
+        crypto_breakdown_logup_gkr_subproofs,
+        crypto_breakdown_lookup_messages,
         "proof_sizes"
     );
 }

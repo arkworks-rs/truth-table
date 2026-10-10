@@ -18,10 +18,10 @@
 //! layer attributes them to the enclosing `bench_query` and writes them
 //! under the keys the dashboard reads.
 
-use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
+use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE, types::artifact::Artifact};
 use serde_json::Value;
 use tracing_subscriber::layer::SubscriberExt;
-use tt_exec::stats_jsonl::{BenchStatsJsonlLayer, query_stats_span};
+use tt_exec::stats_jsonl::{BenchStatsJsonlLayer, emit_snark_proof_size, query_stats_span};
 
 type Backend = ark_piop::DefaultSnarkBackend;
 type F = <Backend as SnarkBackend>::F;
@@ -235,4 +235,62 @@ fn prover_pass_spans_become_timings_and_markers() {
         (wall_ms - duration_ms).abs() <= 2.0,
         "wall window {wall_ms}ms disagrees with measured {duration_ms}ms"
     );
+}
+
+/// The proof-size record is filled key by key from ark-piop's size breakdown,
+/// so a part of the proof the layer does not know is dropped without an error:
+/// the LogUp-GKR subproofs were, while they were a third of a proof. Every
+/// top-level part must reach the record, and together they are the proof.
+#[test]
+fn proof_size_record_carries_every_part_of_the_proof() {
+    let mut proof_parts = None;
+    let record = record_from(|| {
+        let (mut prover, _verifier) =
+            ark_piop::test_utils::prelude_with_vars::<Backend>(4).unwrap();
+        let commit = |prover: &mut ark_piop::prover::ArgProver<Backend>, evals: Vec<F>| {
+            let poly = MLE::from_evaluations_vec(4, evals);
+            prover.track_and_commit_mat_mv_poly(&poly).unwrap()
+        };
+        let table = commit(&mut prover, (0..16).map(|i| F::from(i as u64)).collect());
+        let sub = commit(
+            &mut prover,
+            (0..16).map(|i| F::from(i as u64 % 5)).collect(),
+        );
+        prover.add_mv_lookup_claim(table.id(), sub.id()).unwrap();
+        let proof = prover.build_proof().unwrap();
+        emit_snark_proof_size(QUERY, &proof, 0, 0).unwrap();
+        proof_parts = proof.size_breakdown();
+    });
+    let proof_parts = proof_parts.expect("the proof has a size breakdown");
+
+    // The layer files event fields as strings.
+    let bytes = |value: &Value, what: &str| -> usize {
+        value
+            .as_str()
+            .unwrap_or_else(|| panic!("`{what}` should be a string, got {value}"))
+            .parse()
+            .unwrap_or_else(|err| panic!("`{what}` is not a size: {err}"))
+    };
+
+    let crypto = &record["proof_size"]["crypto"];
+    let recorded = crypto["breakdown"]
+        .as_object()
+        .expect("`proof_size.crypto.breakdown` must be an object");
+    let mut total = 0;
+    for (name, part) in &proof_parts.parts {
+        let entry = recorded.get(name).unwrap_or_else(|| {
+            panic!(
+                "`{name}` ({} bytes of the proof) is not in the record: {:?}",
+                part.size,
+                recorded.keys().collect::<Vec<_>>()
+            )
+        });
+        // A part with parts of its own is an object holding its size.
+        let size = bytes(entry.get("size").unwrap_or(entry), name);
+        assert_eq!(size, part.size, "`{name}`");
+        total += size;
+    }
+    assert_eq!(recorded.len(), proof_parts.parts.len());
+    // The one byte left over is the proof's version tag.
+    assert_eq!(total + 1, bytes(&crypto["size"], "crypto size"));
 }
