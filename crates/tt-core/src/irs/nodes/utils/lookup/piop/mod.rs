@@ -1,22 +1,17 @@
 //! A PIOP for checing if a column is included in another column
 /// More precisely, it checks if the activated elements of a column is included
 /// in another column. Internally, this PIOP invokes the `KeyedSumcheck`
-/// with the multiplicity polynomial of all 1 for the 'included_col' and a
+/// with every active row of the 'included_col' counted once and a
 /// computed advice multiplicity for 'super_col'#[cfg(test)]
 mod multiplicity_count;
 pub(crate) mod utils;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::One;
 use ark_piop::{
     SnarkBackend,
-    arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{
-        ArgVerifier,
-        structs::oracle::{Oracle, TrackedOracle},
-    },
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
@@ -131,21 +126,12 @@ impl<B: SnarkBackend> PIOP<B> for HintedLookupPIOP<B> {
             input.super_col_multiplicities.len(),
             "super column multiplicity hints must align with included columns"
         );
-        let included_col_ms = input
-            .included_cols
-            .iter()
-            .map(|included_col| {
-                let nv = included_col.log_size();
-                let one_const_mle =
-                    MLE::from_evaluations_vec(nv, vec![B::F::one(); 2_usize.pow(nv as u32)]);
-                Some(prover.track_mat_mv_poly(one_const_mle))
-            })
-            .collect::<Vec<_>>();
-
+        // Every active row of an included column counts once: no
+        // multiplicity, the activator alone is the numerator.
         let keyed_sumcheck_prover_input = KeyedSumcheckProverInput {
             fxs: input.included_cols.clone(),
             gxs: vec![input.super_col.clone()],
-            mfxs: included_col_ms,
+            mfxs: vec![None; input.included_cols.len()],
             mgxs: input
                 .super_col_multiplicities
                 .iter()
@@ -168,20 +154,10 @@ impl<B: SnarkBackend> PIOP<B> for HintedLookupPIOP<B> {
             input.super_col_multiplicities.len(),
             "super column multiplicity hints must align with included column oracles"
         );
-        let included_col_ms = input
-            .included_tracked_col_oracles
-            .iter()
-            .map(|included_col| {
-                let nv = included_col.log_size();
-                let one_closure = |_: Vec<B::F>| -> SnarkResult<B::F> { Ok(B::F::one()) };
-                Some(verifier.track_base_oracle(Oracle::new_multivariate(nv, one_closure)))
-            })
-            .collect::<Vec<_>>();
-
         let keyed_sumcheck_verifier_input = KeyedSumcheckVerifierInput {
             fxs: input.included_tracked_col_oracles.clone(),
             gxs: vec![input.super_tracked_col_oracle.clone()],
-            mfxs: included_col_ms,
+            mfxs: vec![None; input.included_tracked_col_oracles.len()],
             mgxs: input
                 .super_col_multiplicities
                 .iter()
