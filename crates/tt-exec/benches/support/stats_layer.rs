@@ -676,11 +676,13 @@ impl PendingBenchRecord {
                 | "crypto_breakdown_mv_pcs_subproof_opening_proof"
                 | "crypto_breakdown_mv_pcs_subproof_commitments"
                 | "crypto_breakdown_mv_pcs_subproof_commitments_count"
+                | "crypto_breakdown_mv_pcs_subproof_constants"
                 | "crypto_breakdown_mv_pcs_subproof_query_map"
                 | "crypto_breakdown_uv_pcs_subproof"
                 | "crypto_breakdown_uv_pcs_subproof_opening_proof"
                 | "crypto_breakdown_uv_pcs_subproof_commitments"
                 | "crypto_breakdown_uv_pcs_subproof_commitments_count"
+                | "crypto_breakdown_uv_pcs_subproof_constants"
                 | "crypto_breakdown_uv_pcs_subproof_query_map"
                 | "crypto_breakdown_miscellaneous_field_elements"
                 | "crypto_breakdown_miscellaneous_field_vectors"
@@ -976,6 +978,7 @@ fn build_crypto_breakdown(fields: Map<String, Value>) -> Value {
                     "size": fields.get("mv_pcs_subproof_commitments").cloned().unwrap_or(Value::Null),
                     "count": fields.get("mv_pcs_subproof_commitments_count").cloned().unwrap_or(Value::Null)
                 },
+                "constants": fields.get("mv_pcs_subproof_constants").cloned().unwrap_or(Value::Null),
                 "query_map": fields.get("mv_pcs_subproof_query_map").cloned().unwrap_or(Value::Null)
             }
         },
@@ -987,6 +990,7 @@ fn build_crypto_breakdown(fields: Map<String, Value>) -> Value {
                     "size": fields.get("uv_pcs_subproof_commitments").cloned().unwrap_or(Value::Null),
                     "count": fields.get("uv_pcs_subproof_commitments_count").cloned().unwrap_or(Value::Null)
                 },
+                "constants": fields.get("uv_pcs_subproof_constants").cloned().unwrap_or(Value::Null),
                 "query_map": fields.get("uv_pcs_subproof_query_map").cloned().unwrap_or(Value::Null)
             }
         },
@@ -1090,11 +1094,13 @@ pub fn emit_proof_size_bytes(
     crypto_breakdown_mv_pcs_subproof_opening_proof: usize,
     crypto_breakdown_mv_pcs_subproof_commitments: usize,
     crypto_breakdown_mv_pcs_subproof_commitments_count: usize,
+    crypto_breakdown_mv_pcs_subproof_constants: usize,
     crypto_breakdown_mv_pcs_subproof_query_map: usize,
     crypto_breakdown_uv_pcs_subproof: usize,
     crypto_breakdown_uv_pcs_subproof_opening_proof: usize,
     crypto_breakdown_uv_pcs_subproof_commitments: usize,
     crypto_breakdown_uv_pcs_subproof_commitments_count: usize,
+    crypto_breakdown_uv_pcs_subproof_constants: usize,
     crypto_breakdown_uv_pcs_subproof_query_map: usize,
     crypto_breakdown_miscellaneous_field_elements: usize,
     crypto_breakdown_miscellaneous_field_vectors: usize,
@@ -1117,11 +1123,13 @@ pub fn emit_proof_size_bytes(
         crypto_breakdown_mv_pcs_subproof_opening_proof,
         crypto_breakdown_mv_pcs_subproof_commitments,
         crypto_breakdown_mv_pcs_subproof_commitments_count,
+        crypto_breakdown_mv_pcs_subproof_constants,
         crypto_breakdown_mv_pcs_subproof_query_map,
         crypto_breakdown_uv_pcs_subproof,
         crypto_breakdown_uv_pcs_subproof_opening_proof,
         crypto_breakdown_uv_pcs_subproof_commitments,
         crypto_breakdown_uv_pcs_subproof_commitments_count,
+        crypto_breakdown_uv_pcs_subproof_constants,
         crypto_breakdown_uv_pcs_subproof_query_map,
         crypto_breakdown_miscellaneous_field_elements,
         crypto_breakdown_miscellaneous_field_vectors,
