@@ -170,6 +170,8 @@ impl<B: SnarkBackend> ExprNode<B> {
                 bin_cmp::BinCmpNode::new(BinCmpOp::Lt),
             )))),
             datafusion_expr::Operator::Multiply => None,
+            // TODO(soundness): the quotient is a committed column, and no claim
+            // ties it to the operands.
             datafusion_expr::Operator::Divide => None,
             datafusion_expr::Operator::Plus => None,
             datafusion_expr::Operator::Minus => None,

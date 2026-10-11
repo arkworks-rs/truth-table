@@ -92,7 +92,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // TODO: implement gadget proof
+        // TODO(soundness): no claim ties the avg column to the sum and count
+        // columns that `AddAvgSupport` adds beside it.
         Ok(())
     }
 
