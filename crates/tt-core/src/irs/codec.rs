@@ -1,3 +1,4 @@
+use crate::session::session_context;
 use std::{any::Any, sync::Arc};
 
 use ark_piop::SnarkBackend;
@@ -1376,7 +1377,7 @@ pub fn deserialize_tree<B: SnarkBackend>(bytes: &[u8]) -> TTResult<Tree<B>> {
         Err(_) => serde_json::from_slice(bytes)
             .map_err(|_| TTError::Serialization(SerializationError::InvalidData))?,
     };
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let plan = repr.plan.to_plan(&ctx)?;
     let tree = Tree::from_logical_plan(&plan);
     if !repr.join_modes.is_empty() {

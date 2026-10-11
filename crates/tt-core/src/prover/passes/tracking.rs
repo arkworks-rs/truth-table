@@ -1,12 +1,10 @@
+use crate::session::session_context;
 use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend, arithmetic::mat_poly::mle::MLE, prover::ArgProver, types::CommitmentBinding,
 };
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
-use datafusion::{
-    datasource::{MemTable, TableProvider},
-    prelude::SessionContext,
-};
+use datafusion::datasource::{MemTable, TableProvider};
 use datafusion_common::DataFusionError;
 
 use crate::irs::nodes::IsNode;
@@ -143,7 +141,7 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
         mem_table: Arc<MemTable>,
         target_num_rows: Option<usize>,
     ) -> crate::errors::TTResult<MaterializedTable> {
-        let ctx = SessionContext::new();
+        let ctx = session_context();
         let df = ctx.read_table(mem_table.clone())?;
         let mut batches = df.collect().await?;
         let schema = mem_table.schema();
@@ -163,7 +161,7 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
     async fn normalize_output_memtable(
         mem_table: Arc<MemTable>,
     ) -> crate::errors::TTResult<Arc<MemTable>> {
-        let ctx = SessionContext::new();
+        let ctx = session_context();
         let df = ctx.read_table(mem_table.clone())?;
         let batches = df.collect().await?;
         let base_schema = batches

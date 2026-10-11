@@ -3,10 +3,11 @@ use std::{
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
+use tt_core::session::session_context;
 
 use arithmetic::ROW_ID_COL_NAME;
 use ark_serialize::CanonicalSerialize;
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use datafusion::prelude::ParquetReadOptions;
 use divan::Bencher;
 use front_end::{
     data_owner::{TTDataOwner, TTDataOwnerConfig},
@@ -90,7 +91,7 @@ fn commit_content_len(case: CommitCase) -> usize {
     configure_constraint_metadata_from_parquet_paths(std::slice::from_ref(&parquet_path));
     let table_name = case.table;
     let query = format!("SELECT * EXCEPT ({ROW_ID_COL_NAME}) FROM {table_name}");
-    let ctx = SessionContext::new();
+    let ctx = session_context();
 
     block_on(
         ctx.register_parquet(

@@ -23,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tt_core::ctx_oracles::CtxOracles;
+use tt_core::session::session_context;
 
 type B = BenchBackend;
 
@@ -167,7 +168,7 @@ async fn load_result_memtable(path: &Path) -> Result<Arc<MemTable>> {
         ));
     }
 
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let df = ctx
         .read_parquet(
             path.to_str()
@@ -219,7 +220,7 @@ fn ctx_oracles_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<CtxOracle
 }
 
 fn session_ctx_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<SessionContext> {
-    let ctx = SessionContext::new();
+    let ctx = session_context();
 
     for oracle in oracles {
         let schema = oracle

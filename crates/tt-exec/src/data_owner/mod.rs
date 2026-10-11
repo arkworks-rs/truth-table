@@ -1,3 +1,4 @@
+use tt_core::session::session_context;
 use std::{
     fs::File,
     io::{BufReader, BufWriter, Write},
@@ -42,7 +43,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<B>, PathB
     let rt = Runtime::new().context("failed to create tokio runtime")?;
     rt.block_on(async move {
         let parquet_path = parquet_path_for_async;
-        let ctx = SessionContext::new();
+        let ctx = session_context();
         ctx.register_parquet(
             &table_name,
             parquet_path

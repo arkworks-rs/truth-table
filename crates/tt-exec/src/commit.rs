@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+use tt_core::session::session_context;
 
 use crate::backend::BenchBackend;
 use anyhow::{Context, Result, anyhow, bail};
@@ -235,7 +236,7 @@ async fn commit_parquet_with_pk(
         .to_string_lossy()
         .to_string();
 
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     ctx.register_parquet(
         &table_name,
         parquet_path

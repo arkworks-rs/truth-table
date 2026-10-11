@@ -1,6 +1,7 @@
 use crate::irs::nodes::utils::contig_sort::{
     DIFF_INPUT_LABEL, ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL, diff_output_type,
 };
+use crate::session::session_context;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::arrow::{
     array::{
@@ -17,7 +18,6 @@ use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::col;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::DataFrame;
-use datafusion::prelude::SessionContext;
 use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::ExprFunctionExt;
 use datafusion_expr::SortExpr;
@@ -163,7 +163,7 @@ pub(crate) fn rotate(
         padded.schema().metadata().clone(),
     ));
     let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
-    SessionContext::new().read_batch(out_batch)
+    session_context().read_batch(out_batch)
 }
 
 fn collect_blocking(
@@ -450,7 +450,7 @@ fn diff_input_on_ordered_explicit(
         combined.schema().metadata().clone(),
     ));
     let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
-    SessionContext::new().read_batch(out_batch)
+    session_context().read_batch(out_batch)
 }
 
 fn rotate_array(source: ArrayRef, row_count: usize) -> DataFusionResult<ArrayRef> {
@@ -812,7 +812,7 @@ fn tie_indicator_on_ordered(
             out_schema,
             vec![std::sync::Arc::new(BooleanArray::from(values))],
         )?;
-        return SessionContext::new().read_batch(out_batch);
+        return session_context().read_batch(out_batch);
     }
 
     let mut out_fields = Vec::with_capacity(data_cols.len() - 1);
@@ -844,7 +844,7 @@ fn tie_indicator_on_ordered(
 
     let out_schema = std::sync::Arc::new(Schema::new(out_fields));
     let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
-    SessionContext::new().read_batch(out_batch)
+    session_context().read_batch(out_batch)
 }
 
 fn sort_order_from_hint(

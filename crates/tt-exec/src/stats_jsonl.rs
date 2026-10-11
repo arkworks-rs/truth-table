@@ -11,12 +11,10 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tt_core::session::session_context;
 
 use chrono::Utc;
-use datafusion::{
-    datasource::{MemTable, TableProvider},
-    prelude::SessionContext,
-};
+use datafusion::datasource::{MemTable, TableProvider};
 use front_end::structs::SizeBreakdown;
 use serde_json::{Map, Value, json};
 use tracing::{
@@ -1282,7 +1280,7 @@ pub async fn result_memtable_stats_async(
 ) -> anyhow::Result<(usize, String, usize)> {
     use datafusion::arrow::ipc::writer::StreamWriter;
 
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let table: Arc<dyn TableProvider> = mem_table.clone();
     let df = ctx.read_table(table)?;
     let batches = df.collect().await?;
@@ -1311,7 +1309,7 @@ pub async fn result_memtable_stats_async(
 pub fn result_memtable_stats(mem_table: &Arc<MemTable>) -> anyhow::Result<(usize, String, usize)> {
     use datafusion::arrow::ipc::writer::StreamWriter;
 
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let batches = crate::runtime::block_on(async {
         let table: Arc<dyn TableProvider> = mem_table.clone();
         let df = ctx.read_table(table)?;

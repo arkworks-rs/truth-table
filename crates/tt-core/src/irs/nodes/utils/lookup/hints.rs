@@ -53,6 +53,7 @@
 //! sides. Actual data values on the verifier are unused (verifier
 //! doesn't run materialization).
 
+use crate::session::session_context;
 use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
@@ -62,7 +63,7 @@ use datafusion::arrow::{
     record_batch::RecordBatch,
 };
 use datafusion::datasource::MemTable;
-use datafusion::prelude::{DataFrame, SessionContext};
+use datafusion::prelude::DataFrame;
 use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -263,7 +264,7 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
 
     let batch = RecordBatch::try_new(schema.clone(), vec![m_arr, a_arr, r_arr])?;
     let mem_table = MemTable::try_new(schema, vec![vec![batch]])?;
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let df = ctx.read_table(Arc::new(mem_table))?;
 
     // multiplicity: materialize. Activator + row_id: system columns, don't

@@ -1,3 +1,4 @@
+use crate::session::session_context;
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use ark_ff::{Field, Zero};
 use ark_piop::{
@@ -8,7 +9,6 @@ use ark_piop::{
 use datafusion::{
     arrow::datatypes::{FieldRef, Schema},
     datasource::{MemTable, TableProvider},
-    prelude::SessionContext,
 };
 use datafusion_common::{DFSchema, DataFusionError};
 use indexmap::IndexMap;
@@ -603,7 +603,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
         mem_table: Arc<MemTable>,
         target_num_rows: Option<usize>,
     ) -> TTResult<MaterializedTable> {
-        let ctx = SessionContext::new();
+        let ctx = session_context();
         let df = ctx.read_table(mem_table.clone())?;
         let mut batches = df.collect().await?;
         let schema = mem_table.schema();

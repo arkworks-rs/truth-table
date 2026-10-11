@@ -24,6 +24,7 @@
 //! the gap actually bites). Tables with zero or multiple string columns
 //! fall back to the base compaction gadget — see [`single_string_base`].
 
+use crate::session::session_context;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -49,7 +50,7 @@ use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::datasource::MemTable;
-use datafusion::prelude::{DataFrame, SessionContext};
+use datafusion::prelude::DataFrame;
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use either::Either;
 use indexmap::IndexMap;
@@ -113,7 +114,7 @@ pub fn build_offset_plan_hint(output_df: DataFrame, base: &str) -> DataFusionRes
         ],
     )?;
     let mem_table = MemTable::try_new(schema, vec![vec![batch]])?;
-    let df = SessionContext::new().read_table(Arc::new(mem_table))?;
+    let df = session_context().read_table(Arc::new(mem_table))?;
 
     // Both fields stay VIRTUAL: the offset is already committed at prove
     // time by `commit_offset_new` and reaches the no-dup through

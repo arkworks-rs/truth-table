@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use tt_core::session::session_context;
 
 use crate::backend::{BACKEND_NAME, BenchBackend};
 use anyhow::{Context, Result, anyhow};
@@ -260,10 +261,7 @@ async fn hash_sample_encoding(
 ) -> Result<()> {
     use ark_piop::SnarkBackend;
     use ark_serialize::CanonicalSerialize;
-    use datafusion::{
-        datasource::MemTable,
-        prelude::{ParquetReadOptions, SessionContext},
-    };
+    use datafusion::{datasource::MemTable, prelude::ParquetReadOptions};
     use std::hash::Hash;
     use tt_core::prover::{
         passes::{
@@ -273,7 +271,7 @@ async fn hash_sample_encoding(
         payloads::MaterializedTable,
     };
 
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     ctx.register_parquet(
         "sample",
         parquet_path

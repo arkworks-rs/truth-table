@@ -1,3 +1,4 @@
+use crate::session::session_context;
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_FIELD, is_system_column};
 use datafusion::{
     arrow::{
@@ -6,7 +7,7 @@ use datafusion::{
         datatypes::{Field, Schema},
         record_batch::RecordBatch,
     },
-    prelude::{DataFrame, SessionContext},
+    prelude::DataFrame,
 };
 use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::{Expr, col, lit};
@@ -168,7 +169,7 @@ fn materialize_union_hint(df: DataFrame, key_names: &[String]) -> DataFusionResu
 
     let out_schema = Arc::new(Schema::new(output_fields));
     let out_batch = RecordBatch::try_new(out_schema, output_arrays)?;
-    SessionContext::new().read_batch(out_batch)
+    session_context().read_batch(out_batch)
 }
 
 fn deduplicate_key_rows(
@@ -211,11 +212,24 @@ fn deduplicate_key_rows(
     Ok(RecordBatch::try_new(batch.schema(), arrays)?)
 }
 
+/// The dataframe's rows, one partition after the other. A union has a
+/// partition for each input, and `collect` merges partitions in the order
+/// their batches arrive. The hint keeps the first occurrence of a key, so
+/// its rows would depend on which side was faster.
+async fn collect_in_partition_order(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
+    Ok(df
+        .collect_partitioned()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
 fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => match handle.runtime_flavor() {
             RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
+                tokio::task::block_in_place(|| handle.block_on(collect_in_partition_order(df)))
             }
             RuntimeFlavor::CurrentThread => {
                 let df_clone = df.clone();
@@ -224,21 +238,21 @@ fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
                         .enable_all()
                         .build()
                         .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
+                    rt.block_on(collect_in_partition_order(df_clone))
                 })
                 .join()
                 .map_err(|_| {
                     DataFusionError::Execution("dataframe collection thread panicked".to_string())
                 })?
             }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
+            _ => tokio::task::block_in_place(|| handle.block_on(collect_in_partition_order(df))),
         },
         Err(_) => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
+            rt.block_on(collect_in_partition_order(df))
         }
     }
 }

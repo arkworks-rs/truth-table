@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
 };
+use tt_core::session::session_context;
 
 mod stats_layer;
 
@@ -360,7 +361,7 @@ fn breakdown_grandchild_size(breakdown: &SizeBreakdown, key: &str, child_key: &s
 const RESULTS_PREVIEW_ROW_CAP: usize = 100;
 
 fn result_memtable_stats(mem_table: &Arc<MemTable>) -> Result<(usize, String, usize, String)> {
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let batches = block_on(async {
         let table: Arc<dyn TableProvider> = mem_table.clone();
         let df = ctx.read_table(table)?;
@@ -649,7 +650,7 @@ pub fn run_preprocess_once(state: &VerifierFullBenchState) {
         .expect("verifier logical-plan preprocessing for bench");
     let gadget_planned_ir = block_on_verifier(state.verifier.ir_passes(lp))
         .expect("verifier ir preprocessing for bench");
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let output_memtable = block_on_verifier(async {
         let table: Arc<dyn TableProvider> = state.output_memtable.clone();
         let df = ctx.read_table(table)?;
@@ -849,7 +850,7 @@ async fn write_result_parquet(path: &std::path::Path, mem_table: Arc<MemTable>) 
             .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
 
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let table: Arc<dyn TableProvider> = mem_table;
     let df = ctx
         .read_table(table)
@@ -880,7 +881,7 @@ async fn write_result_parquet(path: &std::path::Path, mem_table: Arc<MemTable>) 
 }
 
 async fn load_result_memtable(path: &std::path::Path) -> Result<Arc<MemTable>> {
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let df = ctx
         .read_parquet(
             path.to_str()
