@@ -733,7 +733,10 @@ impl PendingBenchRecord {
                 | "crypto_breakdown_uv_pcs_subproof_commitments"
                 | "crypto_breakdown_uv_pcs_subproof_commitments_count"
                 | "crypto_breakdown_uv_pcs_subproof_query_map"
-                | "crypto_breakdown_miscellaneous_field_elements" => {
+                | "crypto_breakdown_miscellaneous_field_elements"
+                | "crypto_breakdown_miscellaneous_field_vectors"
+                | "crypto_breakdown_logup_gkr_subproofs"
+                | "crypto_breakdown_lookup_messages" => {
                     self.proof_size_crypto_breakdown.insert(key, value);
                 }
                 _ => {
@@ -1009,6 +1012,9 @@ fn crypto_breakdown_json(fields: &Map<String, Value>) -> Value {
             }
         },
         "miscellaneous_field_elements": fields.get("crypto_breakdown_miscellaneous_field_elements").cloned().unwrap_or(Value::Null),
+        "miscellaneous_field_vectors": fields.get("crypto_breakdown_miscellaneous_field_vectors").cloned().unwrap_or(Value::Null),
+        "logup_gkr_subproofs": fields.get("crypto_breakdown_logup_gkr_subproofs").cloned().unwrap_or(Value::Null),
+        "lookup_messages": fields.get("crypto_breakdown_lookup_messages").cloned().unwrap_or(Value::Null),
     })
 }
 
@@ -1088,6 +1094,9 @@ pub fn emit_proof_size_bytes(
     crypto_breakdown_uv_pcs_subproof_commitments_count: usize,
     crypto_breakdown_uv_pcs_subproof_query_map: usize,
     crypto_breakdown_miscellaneous_field_elements: usize,
+    crypto_breakdown_miscellaneous_field_vectors: usize,
+    crypto_breakdown_logup_gkr_subproofs: usize,
+    crypto_breakdown_lookup_messages: usize,
 ) {
     tracing::info!(
         target: JSONL_STATS_TARGET,
@@ -1108,6 +1117,9 @@ pub fn emit_proof_size_bytes(
         crypto_breakdown_uv_pcs_subproof_commitments_count,
         crypto_breakdown_uv_pcs_subproof_query_map,
         crypto_breakdown_miscellaneous_field_elements,
+        crypto_breakdown_miscellaneous_field_vectors,
+        crypto_breakdown_logup_gkr_subproofs,
+        crypto_breakdown_lookup_messages,
         "proof_sizes"
     );
 }
@@ -1163,13 +1175,43 @@ where
 {
     use front_end::structs::Artifact;
 
-    let snark_proof = proof.as_snark_proof();
-    let cryptographic_proof_size_bytes = snark_proof.to_bytes().map(|b| b.len()).unwrap_or(0);
     let non_cryptographic_proof_size_bytes = bincode::serialize(proof.optimization_hints())
         .map(|b| b.len())
         .unwrap_or(0);
-    let full_proof_size_bytes = cryptographic_proof_size_bytes + non_cryptographic_proof_size_bytes;
     let full_compressed_proof_size_bytes = proof.to_bytes().map(|b| b.len()).unwrap_or(0);
+    emit_snark_proof_size(
+        query,
+        proof.as_snark_proof(),
+        non_cryptographic_proof_size_bytes,
+        full_compressed_proof_size_bytes,
+    )?;
+
+    let (rows_count, schema, size_bytes) = result_memtable_stats_async(output_memtable).await?;
+    emit_results_stats_extended(
+        query,
+        rows_count,
+        &schema,
+        size_bytes,
+        &result_parquet_path.to_string_lossy(),
+    );
+    Ok(())
+}
+
+/// Emit the proof-size record of `snark_proof`: its size and every part of
+/// its size breakdown that [`emit_proof_size_bytes`] carries.
+pub fn emit_snark_proof_size<B>(
+    query: &str,
+    snark_proof: &ark_piop::prover::structs::proof::SNARKProof<B>,
+    non_cryptographic_proof_size_bytes: usize,
+    full_compressed_proof_size_bytes: usize,
+) -> anyhow::Result<()>
+where
+    B: ark_piop::SnarkBackend,
+{
+    use front_end::structs::Artifact;
+
+    let cryptographic_proof_size_bytes = snark_proof.to_bytes().map(|b| b.len()).unwrap_or(0);
+    let full_proof_size_bytes = cryptographic_proof_size_bytes + non_cryptographic_proof_size_bytes;
     let mv_commitment_count = snark_proof.mv_pcs_subproof.unique_comitments.len();
     let uv_commitment_count = snark_proof.uv_pcs_subproof.unique_comitments.len();
     let crypto_breakdown = snark_proof
@@ -1194,15 +1236,9 @@ where
         uv_commitment_count,
         breakdown_grandchild_size(&crypto_breakdown, "uv_pcs_subproof", "query_map"),
         breakdown_child_size(&crypto_breakdown, "miscellaneous_field_elements"),
-    );
-
-    let (rows_count, schema, size_bytes) = result_memtable_stats_async(output_memtable).await?;
-    emit_results_stats_extended(
-        query,
-        rows_count,
-        &schema,
-        size_bytes,
-        &result_parquet_path.to_string_lossy(),
+        breakdown_child_size(&crypto_breakdown, "miscellaneous_field_vectors"),
+        breakdown_child_size(&crypto_breakdown, "logup_gkr_subproofs"),
+        breakdown_child_size(&crypto_breakdown, "lookup_messages"),
     );
     Ok(())
 }

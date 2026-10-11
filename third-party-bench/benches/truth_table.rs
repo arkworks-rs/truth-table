@@ -101,6 +101,9 @@ mod proof_stats {
             uv_count,
             grand(&breakdown, "uv_pcs_subproof", "query_map"),
             child(&breakdown, "miscellaneous_field_elements"),
+            child(&breakdown, "miscellaneous_field_vectors"),
+            child(&breakdown, "logup_gkr_subproofs"),
+            child(&breakdown, "lookup_messages"),
             effective_num_threads(),
             crypto_compressed,
         );
