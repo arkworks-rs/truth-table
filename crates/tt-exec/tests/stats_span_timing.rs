@@ -240,7 +240,7 @@ fn prover_pass_spans_become_timings_and_markers() {
 /// The proof-size record is filled key by key from ark-piop's size breakdown,
 /// so a part of the proof the layer does not know is dropped without an error:
 /// the LogUp-GKR subproofs were, while they were a third of a proof. Every
-/// top-level part must reach the record, and together they are the proof.
+/// part must reach the record, and the top-level ones together are the proof.
 #[test]
 fn proof_size_record_carries_every_part_of_the_proof() {
     let mut proof_parts = None;
@@ -289,6 +289,13 @@ fn proof_size_record_carries_every_part_of_the_proof() {
         let size = bytes(entry.get("size").unwrap_or(entry), name);
         assert_eq!(size, part.size, "`{name}`");
         total += size;
+        // Its own parts, the same way: a count may sit next to a size.
+        for (inner_name, inner) in &part.parts {
+            let inner_entry = &entry["breakdown"][inner_name];
+            let what = format!("{name}.{inner_name}");
+            let inner_size = bytes(inner_entry.get("size").unwrap_or(inner_entry), &what);
+            assert_eq!(inner_size, inner.size, "`{what}`");
+        }
     }
     assert_eq!(recorded.len(), proof_parts.parts.len());
     // The one byte left over is the proof's version tag.
