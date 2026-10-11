@@ -1,3 +1,4 @@
+use crate::session::session_context;
 use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{
@@ -155,7 +156,7 @@ pub fn sort_by_row_id_if_present(df: DataFrame) -> DataFusionResult<DataFrame> {
 pub fn schema_only_df(fields: Vec<Field>) -> DataFrame {
     static SCHEMA_ONLY_CTX: OnceLock<SessionContext> = OnceLock::new();
     let ctx = scoped_schema_only_ctx()
-        .unwrap_or_else(|| SCHEMA_ONLY_CTX.get_or_init(SessionContext::new).clone());
+        .unwrap_or_else(|| SCHEMA_ONLY_CTX.get_or_init(session_context).clone());
     ctx.read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
         .expect("schema-only dataframe construction should succeed")
 }
@@ -166,7 +167,7 @@ thread_local! {
 
 pub(crate) fn begin_schema_only_ctx_scope() {
     SCHEMA_ONLY_CTX_SCOPE.with(|cell| {
-        *cell.borrow_mut() = Some(SessionContext::new());
+        *cell.borrow_mut() = Some(session_context());
     });
 }
 

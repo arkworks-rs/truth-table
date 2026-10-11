@@ -112,6 +112,7 @@
 //! - Sumcheck: `Σ mark = n_m` and `Σ match = n_m`.
 //! - Zerocheck: `occurs · mask · match' = 0` — Step 4e leftmost constraint.
 
+use crate::session::session_context;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -130,7 +131,6 @@ use datafusion::arrow::{
     record_batch::RecordBatch,
 };
 use datafusion::datasource::MemTable;
-use datafusion::prelude::SessionContext;
 use datafusion_common::Result as DataFusionResult;
 use indexmap::IndexMap;
 
@@ -1490,7 +1490,7 @@ fn build_nodup_mark_input_hint(orig_ind: &HintDF, mark: &HintDF) -> DataFusionRe
     ));
     let batch = RecordBatch::try_new(schema.clone(), vec![orig_out, act_out, row_out])?;
     let mem_table = MemTable::try_new(schema, vec![vec![batch]])?;
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let df = ctx.read_table(Arc::new(mem_table))?;
 
     let orig_fref: FieldRef = Arc::new(orig_field);

@@ -38,6 +38,11 @@
   "rematerialize", "remat" or "defrag". The one exception is the `tpch_optall`
   bench IDs (`..._remat_on` / `..._remat_off`): they are the keys of the
   recorded results in `tt-results/`. "Materialize" is a different operation.
+- Build every DataFusion session with `tt_core::session::session_context()`,
+  never `SessionContext::new()`. The default runs a plan in one partition per
+  core and merges them in arrival order, which makes row order, and so the
+  proof, differ from run to run. A `UNION` has a partition per input even so:
+  collect it with `collect_partitioned`, not `collect`.
 - There is no column-toolbox crate. A raw PIOP lives in a `piop` module next
   to the gadget node that wraps it (`irs/nodes/utils/<name>/piop/`); reuse the
   existing one instead of copying it.

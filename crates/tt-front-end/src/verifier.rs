@@ -1,12 +1,10 @@
 use ark_piop::{SnarkBackend, verifier::ArgVerifier};
-use datafusion::{
-    datasource::{MemTable, TableProvider},
-    prelude::SessionContext,
-};
+use datafusion::datasource::{MemTable, TableProvider};
 use datafusion_common::DataFusionError;
 use proof_planner::data_dependent_lp_optimizer::apply_optimization_hints;
 use std::sync::Arc;
 use tracing::debug;
+use tt_core::session::session_context;
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::{TTError, TTResult},
@@ -197,7 +195,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
     ) -> TTResult<()> {
         let lp = self.lp_passes(query, proof).await?;
         let gadget_planned_ir = self.ir_passes(lp).await?;
-        let ctx = SessionContext::new();
+        let ctx = session_context();
         let df = ctx.read_table(result.clone())?;
         let batches = df.collect().await?;
         let base_schema = batches

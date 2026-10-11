@@ -1,3 +1,4 @@
+use crate::session::session_context;
 use std::sync::Arc;
 
 use arithmetic::{
@@ -21,7 +22,6 @@ use datafusion::arrow::{
     record_batch::RecordBatch,
 };
 use datafusion::datasource::MemTable;
-use datafusion::prelude::SessionContext;
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use either::Either;
 use indexmap::IndexMap;
@@ -1930,7 +1930,7 @@ fn pad_df_to_power_of_two(
     }
     let mem_table = MemTable::try_new(Arc::new(arrow_schema), vec![batches])
         .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let padded_df = ctx
         .read_table(Arc::new(mem_table))
         .map_err(|e| DataFusionError::Execution(e.to_string()))?;

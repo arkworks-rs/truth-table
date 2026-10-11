@@ -3,13 +3,11 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use tt_core::session::session_context;
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
-use datafusion::{
-    arrow::util::pretty::pretty_format_batches,
-    prelude::{ParquetReadOptions, SessionContext},
-};
+use datafusion::{arrow::util::pretty::pretty_format_batches, prelude::ParquetReadOptions};
 
 use super::{
     Runnable,
@@ -59,7 +57,7 @@ async fn execute_query(
     sql: &str,
     logical_plan_graphviz: bool,
 ) -> Result<()> {
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let mut table_names = HashSet::new();
 
     for path in parquet_files {

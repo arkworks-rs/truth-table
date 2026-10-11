@@ -29,6 +29,7 @@
 //! Limitations: `NOT LIKE`, ESCAPE clauses, `_` single-char wildcards,
 //! and case-insensitive matching are not supported yet.
 
+use crate::session::session_context;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -57,7 +58,6 @@ use datafusion::arrow::{
     record_batch::RecordBatch,
 };
 use datafusion::datasource::MemTable;
-use datafusion::prelude::SessionContext;
 use datafusion_common::{Result as DataFusionResult, ScalarValue, Statistics};
 use datafusion_expr::{Expr, Like};
 use either::Either;
@@ -1321,7 +1321,7 @@ fn build_virtual_char_domain_hint<F: PrimeField>(
     let row_arr: ArrayRef = Arc::new(Int64Array::from_iter_values((0..target).map(|i| i as i64)));
     let batch = RecordBatch::try_new(schema.clone(), vec![data_arr, row_arr])?;
     let mem_table = MemTable::try_new(schema, vec![vec![batch]])?;
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let df = ctx.read_table(Arc::new(mem_table))?;
 
     let data_fref: FieldRef = Arc::new(data_field);
@@ -1345,7 +1345,7 @@ fn build_virtual_char_domain_hint_schema_only(name: &str) -> DataFusionResult<Hi
     let row_arr: ArrayRef = Arc::new(Int64Array::from(Vec::<i64>::new()));
     let batch = RecordBatch::try_new(schema.clone(), vec![data_arr, row_arr])?;
     let mem_table = MemTable::try_new(schema, vec![vec![batch]])?;
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     let df = ctx.read_table(Arc::new(mem_table))?;
 
     let data_fref: FieldRef = Arc::new(data_field);

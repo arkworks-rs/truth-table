@@ -1,8 +1,9 @@
+use crate::session::session_context;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::{compute::concat_batches, record_batch::RecordBatch};
 use datafusion::functions_window::expr_fn::row_number;
-use datafusion::prelude::{DataFrame, SessionContext};
+use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::{Expr, ExprFunctionExt, ExprSchemable, Join, col, lit};
 use std::collections::HashMap;
@@ -313,7 +314,7 @@ fn source_ids_from_payload_lookup(
             Arc::new(datafusion::arrow::array::Int64Array::from(output_row_ids)),
         ],
     )?;
-    SessionContext::new().read_batch(batch)
+    session_context().read_batch(batch)
 }
 
 fn source_ids_from_indexed_rows(
@@ -344,7 +345,7 @@ fn build_nodup_input_from_sources(
     let left_batches = collect_blocking(src_left.clone())?;
     let right_batches = collect_blocking(src_right.clone())?;
     let Some(left_first) = left_batches.first() else {
-        return SessionContext::new().read_batch(RecordBatch::new_empty(Arc::new(
+        return session_context().read_batch(RecordBatch::new_empty(Arc::new(
             datafusion::arrow::datatypes::Schema::new(vec![
                 datafusion::arrow::datatypes::Field::new(
                     SRC_LEFT_COL_NAME,
@@ -460,7 +461,7 @@ fn build_nodup_input_from_sources(
             Arc::new(datafusion::arrow::array::Int64Array::from(row_ids)),
         ],
     )?;
-    SessionContext::new().read_batch(batch)
+    session_context().read_batch(batch)
 }
 
 fn scalar_i64(value: ScalarValue, col_name: &str) -> DataFusionResult<i64> {
@@ -488,7 +489,7 @@ fn append_source_to_output_payload(
     let output_batches = collect_blocking(output_payload.clone())?;
     let src_batches = collect_blocking(src_df.clone())?;
     let Some(output_first) = output_batches.first() else {
-        return SessionContext::new().read_batch(RecordBatch::new_empty(Arc::new(
+        return session_context().read_batch(RecordBatch::new_empty(Arc::new(
             datafusion::arrow::datatypes::Schema::empty(),
         )));
     };
@@ -522,7 +523,7 @@ fn append_source_to_output_payload(
     fields.push(src.schema().field(src_idx).clone());
     let mut arrays = output.columns().to_vec();
     arrays.push(src.column(src_idx).clone());
-    SessionContext::new().read_batch(RecordBatch::try_new(
+    session_context().read_batch(RecordBatch::try_new(
         Arc::new(datafusion::arrow::datatypes::Schema::new(fields)),
         arrays,
     )?)
@@ -675,7 +676,7 @@ fn materialize_dataframe(df: DataFrame) -> DataFusionResult<DataFrame> {
     // source-table derivation still expects the payload columns to exist.
     let schema = Arc::new(df.schema().as_arrow().clone());
     let batches = collect_blocking(df)?;
-    let ctx = SessionContext::new();
+    let ctx = session_context();
     if batches.is_empty() {
         return ctx.read_batch(RecordBatch::new_empty(schema));
     }

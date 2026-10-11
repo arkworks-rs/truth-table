@@ -32,6 +32,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::instrument;
+use tt_core::session::session_context;
 use tt_core::{
     ctx_oracles::CtxOracles,
     prover::passes::materialization::configure_constraint_metadata_from_parquet_paths,
@@ -257,7 +258,7 @@ impl ProveRunner {
     }
     #[instrument(level = "debug", skip_all)]
     pub async fn build_tt_prover(&self) -> Result<TTProver<B>> {
-        let ctx = SessionContext::new();
+        let ctx = session_context();
         configure_constraint_metadata_from_parquet_paths(&self.parquet_paths);
         for parquet_path in &self.parquet_paths {
             if !parquet_path.exists() {
@@ -422,7 +423,7 @@ impl ProveRunner {
                 .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
 
-        let ctx = SessionContext::new();
+        let ctx = session_context();
         let df = ctx
             .read_table(mem_table.clone())
             .context("failed to read prover output memtable")?;

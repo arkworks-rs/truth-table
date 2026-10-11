@@ -21,6 +21,7 @@ pub mod ctx_oracles;
 pub mod errors;
 pub mod irs;
 pub mod prover;
+pub mod session;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 pub mod verifier;

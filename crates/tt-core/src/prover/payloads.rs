@@ -1,11 +1,8 @@
+use crate::session::session_context;
 use arithmetic::table::{ArithTable, TrackedTable};
 use arithmetic::table_oracle::ArithTableOracle;
 use datafusion::datasource::TableProvider;
-use datafusion::{
-    arrow::array::RecordBatch,
-    datasource::MemTable,
-    prelude::{DataFrame, SessionContext},
-};
+use datafusion::{arrow::array::RecordBatch, datasource::MemTable, prelude::DataFrame};
 use datafusion_common::DataFusionError;
 use std::sync::Arc;
 
@@ -56,7 +53,7 @@ impl MaterializedTable {
         if let Some(batches) = &self.batches {
             return Ok(batches.clone());
         }
-        let ctx = SessionContext::new();
+        let ctx = session_context();
         let df = ctx.read_table(self.table.clone())?;
         collect_blocking_df(df)
     }
