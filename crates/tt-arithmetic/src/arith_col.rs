@@ -7,16 +7,14 @@ use indexmap::IndexMap;
 
 use crate::table::ArithSideCol;
 
-/// Untracked mirror of `TrackedCol`: the source-column-keyed view of an
-/// `ArithTable`. Groups one Arrow source column's polynomials — its
-/// primary row-domain MLE plus zero or more auxiliary row-domain MLEs
-/// (e.g. `__length` for strings) plus zero or more side-domain segments
-/// (e.g. `__chars`, `__orig_ind`, `__int_ind`, `__bnd`).
+/// Untracked mirror of `TrackedCol`: the polynomials of one Arrow source
+/// column of an `ArithTable`, namely its primary row-domain MLE, its
+/// auxiliary row-domain MLEs (`__length`) and its side-domain segments
+/// (`__chars`, `__orig_ind`, `__int_ind`, `__bnd`).
 ///
-/// Simpler than `TrackedCol`: activators are table-level (one
-/// `__activator__` MLE shared across all row-domain polys), so this enum
-/// does not carry per-segment activator information. Side-domain segments
-/// bring their own activator inside `ArithSideCol` (via `active_len`).
+/// It carries no activators: row-domain MLEs share the table's
+/// `__activator__`, and a side segment's activator follows from the
+/// `active_len` of its `ArithSideCol`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArithCol<F: PrimeField> {
     SingleSegment {
@@ -24,14 +22,11 @@ pub enum ArithCol<F: PrimeField> {
         field_ref: Option<FieldRef>,
     },
     MultiSegment {
-        /// The primary (canonical) row-domain MLE — inherits the source
-        /// column's name.
+        /// Has the source column's name.
         primary_data: Arc<MLE<F>>,
-        /// Auxiliary row-domain MLEs, keyed by segment suffix (e.g.
-        /// `__length`). Iteration order matches encoder emission order.
+        /// Keyed by segment suffix, in encoder order.
         aux_data: IndexMap<String, Arc<MLE<F>>>,
-        /// Side-domain segments, keyed by segment suffix (e.g. `__chars`).
-        /// Each carries its own multilinear domain and activator.
+        /// Keyed by segment suffix.
         side_data: IndexMap<String, ArithSideCol>,
         field_ref: Option<FieldRef>,
     },
@@ -56,7 +51,7 @@ impl<F: PrimeField> ArithCol<F> {
         }
     }
 
-    /// Returns the primary (canonical) row-domain MLE.
+    /// The primary row-domain MLE.
     pub fn data(&self) -> &Arc<MLE<F>> {
         match self {
             Self::SingleSegment { data, .. } => data,
@@ -64,7 +59,6 @@ impl<F: PrimeField> ArithCol<F> {
         }
     }
 
-    /// Returns the field reference of the source column, if any.
     pub fn field_ref(&self) -> Option<&FieldRef> {
         match self {
             Self::SingleSegment { field_ref, .. } | Self::MultiSegment { field_ref, .. } => {
@@ -73,7 +67,7 @@ impl<F: PrimeField> ArithCol<F> {
         }
     }
 
-    /// Look up an auxiliary row-domain segment by suffix.
+    /// The auxiliary row-domain segment `suffix`.
     pub fn aux_segment(&self, suffix: &str) -> Option<&Arc<MLE<F>>> {
         match self {
             Self::SingleSegment { .. } => None,
@@ -81,7 +75,6 @@ impl<F: PrimeField> ArithCol<F> {
         }
     }
 
-    /// Look up a side-domain segment by suffix.
     pub fn side_segment(&self, suffix: &str) -> Option<&ArithSideCol> {
         match self {
             Self::SingleSegment { .. } => None,
@@ -89,8 +82,8 @@ impl<F: PrimeField> ArithCol<F> {
         }
     }
 
-    /// Iterate row-domain segments: primary yields `suffix = None`, aux
-    /// yields `suffix = Some(sid)` in insertion order.
+    /// The row-domain segments: the primary with `suffix = None`, then each
+    /// aux with `suffix = Some(..)`, in insertion order.
     #[allow(clippy::type_complexity)]
     pub fn row_segments_iter(&self) -> Box<dyn Iterator<Item = (Option<&str>, &Arc<MLE<F>>)> + '_> {
         match self {
@@ -107,7 +100,7 @@ impl<F: PrimeField> ArithCol<F> {
         }
     }
 
-    /// Iterate side-domain segments in insertion order.
+    /// The side-domain segments, in insertion order.
     pub fn side_segments_iter(&self) -> Box<dyn Iterator<Item = (&str, &ArithSideCol)> + '_> {
         match self {
             Self::SingleSegment { .. } => Box::new(std::iter::empty()),

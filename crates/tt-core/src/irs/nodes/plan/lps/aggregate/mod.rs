@@ -26,15 +26,10 @@ pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
-    // The aggregate information from DataFusion.
     aggregate: Aggregate,
-    // The prover plan child node for the aggregate input.
     input: Arc<Node<B>>,
-    // Group-by expression child nodes (one per group expression).
     group_exprs: Vec<Arc<Node<B>>>,
-    // Aggregate expression child nodes (one per aggregate expression).
     aggr_exprs: Vec<Arc<Node<B>>>,
-    // The aggregate gadget node.
     gadget: Arc<Node<B>>,
 }
 
@@ -53,7 +48,7 @@ fn constant_one_poly_from_table<B: SnarkBackend>(
     table: &TrackedTable<B>,
 ) -> Option<ark_piop::prover::structs::polynomial::TrackedPoly<B>> {
     table.tracked_polys_iter().next().map(|(_, poly)| {
-        // Use a constant tracked polynomial so no new commitments are introduced.
+        // A constant polynomial, so no new commitment is introduced.
         ark_piop::prover::structs::polynomial::TrackedPoly::new(
             Either::Right(B::F::one()),
             poly.log_size(),
@@ -66,7 +61,6 @@ fn constant_one_oracle_from_table<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
 ) -> Option<ark_piop::verifier::structs::oracle::TrackedOracle<B>> {
     table.tracked_oracles_iter().next().map(|(_, oracle)| {
-        // Use a constant tracked oracle so no new commitments are introduced.
         ark_piop::verifier::structs::oracle::TrackedOracle::new(
             Either::Right(B::F::one()),
             oracle.tracker(),
@@ -75,10 +69,11 @@ fn constant_one_oracle_from_table<B: SnarkBackend>(
     })
 }
 
+/// The group table of an aggregate without group-by expressions: a constant
+/// group key of 1 and the activator.
 fn single_group_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Option<TrackedTable<B>> {
     let group_key = constant_one_poly_from_table(table)?;
     let mut polys = IndexMap::new();
-    // Use a deterministic constant group key when there are no group-by expressions.
     polys.insert(agg_group_key_field(), group_key);
     if let Some(activator) = table.activator_tracked_poly() {
         polys.insert(ACTIVATOR_FIELD.clone(), activator);
@@ -100,7 +95,6 @@ fn single_group_oracle<B: SnarkBackend>(
 ) -> Option<TrackedTableOracle<B>> {
     let group_key = constant_one_oracle_from_table(table)?;
     let mut oracles = IndexMap::new();
-    // Use a deterministic constant group key when there are no group-by expressions.
     oracles.insert(agg_group_key_field(), group_key);
     if let Some(activator) = table.activator_tracked_poly() {
         oracles.insert(ACTIVATOR_FIELD.clone(), activator);
@@ -319,9 +313,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            // Keep aggregate outputs materialized by this node. Only group-by
-            // columns are sourced virtually from input; other input columns
-            // must not leak into the aggregate output when there are no groups.
+            // Aggregate outputs are materialized by this node. Only group-by
+            // columns are sourced virtually from the input; other input columns
+            // must not leak into the output when there are no groups.
             if aggregate_output_names
                 .iter()
                 .any(|base| is_segment_of(field.name(), base))
@@ -344,9 +338,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             merged_polys.insert(field.clone(), poly.clone());
         }
 
-        // COUNT outputs may be sourced from lookup multiplicities when present.
-        // Only inject multiplicities if the COUNT column is missing from the
-        // materialized aggregate output.
+        // A COUNT output missing from the materialized aggregate output is
+        // sourced from the lookup multiplicities, when those exist.
         let count_output_names = count_output_names(&self.aggregate.aggr_expr);
         if !count_output_names.is_empty()
             && lookup_super_multiplicities_table(&self.gadget, virtualized_ir).is_some()
@@ -392,9 +385,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .collect::<Vec<_>>();
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-        // Prefer the aggregate output size from the planned payload even if it is 0
-        // (e.g., a single-row aggregate). Only fall back to the input size when the
-        // aggregate payload is missing.
+        // The planned aggregate output size wins even when it is 0 (a single-row
+        // aggregate); the input size is used only when the payload is missing.
         let log_size = if current_table.schema_ref().is_some() {
             current_table.log_size()
         } else {
@@ -416,13 +408,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
-
-        // populate_aggregate_function_exprs(
-        //     &self.aggregate,
-        //     &self.aggr_exprs,
-        //     &current_table,
-        //     virtualized_ir,
-        // )?;
 
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
@@ -653,9 +638,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            // Keep aggregate outputs materialized by this node. Only group-by
-            // columns are sourced virtually from input; other input columns
-            // must not leak into the aggregate output when there are no groups.
+            // Same column selection as the prover.
             if aggregate_output_names
                 .iter()
                 .any(|base| is_segment_of(field.name(), base))
@@ -678,9 +661,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             merged_oracles.insert(field.clone(), oracle.clone());
         }
 
-        // COUNT outputs may be sourced from lookup multiplicities when present.
-        // Only inject multiplicities if the COUNT column is missing from the
-        // materialized aggregate output.
+        // Missing COUNT outputs come from the lookup multiplicities, as on the
+        // prover side.
         let count_output_names = count_output_names(&self.aggregate.aggr_expr);
         let lookup_multiplicities =
             lookup_super_multiplicities_oracle_ref(&self.gadget, virtualized_ir);
@@ -726,7 +708,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             .collect::<Vec<_>>();
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-        // Mirror prover: trust the planned aggregate output size even if it is 0.
+        // As on the prover side, the planned output size wins even when it is 0.
         let log_size = if current_table_opt.is_some() {
             current_table_opt
                 .map(TrackedTableOracle::log_size)
@@ -821,9 +803,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 let Expr::Column(col) = expr else {
                     panic!("Aggregate group expressions must be column references");
                 };
-                // Mirror prover: include all arithmetized segments of a group-by
-                // column so the verifier-side subtable shape matches the
-                // lex-sorted side.
+                // Every segment of the group-by column, as on the prover side.
                 let input_idxs =
                     find_tracked_oracle_indices_by_column_with_segments(input_table, col);
                 let output_idxs =
@@ -1033,10 +1013,9 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
         let Expr::Column(col) = expr else {
             panic!("Aggregate group expressions must be column references");
         };
-        // Include all arithmetized segments of this group-by column (e.g. hash
-        // and __length for strings); otherwise the virtual subtable here ends
-        // up with fewer tracked polys than the lex-sorted side, which is
-        // built via real materialization+arithmetization.
+        // Every arithmetized segment of the group-by column (hash and __length
+        // for strings): the lex-sorted side is materialized and arithmetized,
+        // so this virtual subtable must have the same tracked polys.
         let input_idxs = find_tracked_indices_by_column_with_segments(input_table, col);
         let output_idxs = find_tracked_indices_by_column_with_segments(output_table, col);
         input_group_indices.extend(input_idxs);
@@ -1180,10 +1159,9 @@ fn find_tracked_index_by_column<B: SnarkBackend>(table: &TrackedTable<B>, col: &
     )
 }
 
-/// Returns the indices of every arithmetized segment (primary + auxiliary
-/// segments like `__length` for strings) tied to a single logical column.
-/// Used when building virtual subtables that must mirror the segment shape
-/// of materialized counterparts (e.g. NoDup/perm payloads).
+/// Indices of every arithmetized segment of one logical column (the primary
+/// one and auxiliary ones such as `__length` for strings), for virtual
+/// subtables that must have the segment shape of a materialized counterpart.
 fn find_tracked_indices_by_column_with_segments<B: SnarkBackend>(
     table: &TrackedTable<B>,
     col: &Column,
@@ -1250,11 +1228,10 @@ fn find_tracked_oracle_index_by_name_optional<B: SnarkBackend>(
         .position(|(field, _)| field.name() == name)
 }
 
-/// Returns every tracked-poly index whose field is a segment of `base_name`
-/// (including the primary segment itself). Disambiguates by qualifier when one
-/// is provided: if a qualifier was passed, only segments whose primary field
-/// shares that qualifier are returned. If no qualified primary exists, all
-/// segments with matching base name are returned (legacy unqualified shape).
+/// Indices of every tracked column whose field is a segment of `base_name`,
+/// the primary segment included. With a qualifier, and a primary segment
+/// carrying it, only segments with that qualifier or none are returned;
+/// otherwise every segment with the base name.
 fn find_tracked_indices_with_segments<'a, T: 'a, I>(
     iter: I,
     base_name: &str,

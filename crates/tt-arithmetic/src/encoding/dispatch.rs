@@ -22,14 +22,8 @@ use crate::errors::EncodeError;
 use super::encodable::{Encodable, EncodeOptions};
 use super::segment::EncodedSegment;
 
-/// Encode an Arrow `ScalarValue` to its (one or more) row-domain field-element
-/// segments. Each returned segment carries exactly one value (the scalar) plus
-/// the suffix that downstream consumers should use to address it.
-///
-/// Side-domain segments (e.g. the per-column `__chars` poly produced for
-/// strings) are intentionally dropped here: literals are constants that
-/// broadcast across rows, so there is no meaningful concatenated-characters
-/// polynomial to commit for them.
+/// The row-domain segments of a scalar, one value each. A literal is a
+/// constant broadcast across rows, so it has no side-domain segments.
 pub fn scalar_to_fields<F: PrimeField>(scalar: &ScalarValue) -> Option<Vec<EncodedSegment<F>>> {
     let array = scalar.to_array().ok()?;
     let segments =
@@ -47,9 +41,8 @@ pub fn scalar_to_fields<F: PrimeField>(scalar: &ScalarValue) -> Option<Vec<Encod
     Some(row_segments)
 }
 
-/// Convenience for callers that only need the primary segment's single field
-/// element. Returns `None` for scalars whose encoding expands into multiple
-/// segments (e.g. strings, which produce `[hash, length]`).
+/// The field element of a scalar that encodes to a single segment; `None`
+/// when it encodes to several (a string gives `[hash, length]`).
 pub fn scalar_to_field<F: PrimeField>(scalar: &ScalarValue) -> Option<F> {
     let segments = scalar_to_fields::<F>(scalar)?;
     if segments.len() != 1 {
@@ -67,20 +60,17 @@ pub fn scalar_to_field<F: PrimeField>(scalar: &ScalarValue) -> Option<F> {
         dtype = %array.data_type()
     )
 )]
-/// The main function for dispatching encoders based on the Arrow data type.
-/// Every optional segment is emitted; use
-/// [`encode_arrow_array_to_field_with_options`] to suppress them at the source.
+/// Encode `array` with every optional segment.
 pub fn encode_arrow_array_to_field<F: PrimeField>(
     array: &ArrayRef,
 ) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
     encode_arrow_array_to_field_with_options(array, EncodeOptions::ALL)
 }
 
-/// Like [`encode_arrow_array_to_field`], but `options` can stop string
-/// encoders from even *building* their char-level side buffers or fingerprint
-/// limbs — callers that do not consume them (literals, intermediate
-/// operators, columns without a pre-filter) skip that work instead of
-/// dropping the segments later.
+/// Encode `array` with the encoder of its Arrow data type. `options` keeps
+/// string encoders from building the char-level side segments or
+/// fingerprint limbs a caller does not consume (literals, intermediate
+/// operators, columns without a pre-filter).
 pub fn encode_arrow_array_to_field_with_options<F: PrimeField>(
     array: &ArrayRef,
     options: EncodeOptions<'_>,

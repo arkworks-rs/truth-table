@@ -1,6 +1,6 @@
 //! Fitting the prover cost model to measured points.
 //!
-//! The model itself — [`Shape`], [`terms`] and [`CostModel`] — lives in the
+//! The model itself ([`Shape`], [`terms`] and [`CostModel`]) lives in the
 //! encoder crate, because the prover uses it at plan time to choose the
 //! bins a pre-filter tests ([`arithmetic::fingerprint::cost::select_bins`]).
 //! This module owns the offline side: measuring a query's shape over a

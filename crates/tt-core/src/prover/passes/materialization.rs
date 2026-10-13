@@ -1,4 +1,7 @@
 use crate::irs::nodes::IsNode;
+use crate::irs::nodes::hints::{
+    FkRefColumns, QUALIFIER_METADATA_KEY, apply_constraint_metadata, table_name_from_qualifier,
+};
 use crate::{
     irs::{
         ir::LocalPass,
@@ -17,65 +20,15 @@ use datafusion::{
         record_batch::{RecordBatch, RecordBatchOptions},
     },
     datasource::MemTable,
-    prelude::DataFrame,
 };
 use datafusion_common::{Column, DFSchema, DataFusionError, ScalarValue};
 use datafusion_expr::Expr;
 use indexmap::IndexMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use serde::Deserialize;
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    path::{Path, PathBuf},
-    sync::{Arc, OnceLock, RwLock},
-};
-use tokio::runtime::RuntimeFlavor;
+use std::sync::Arc;
 
-const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
-const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
-const PK_METADATA_KEY: &str = "tt.pk";
-const FK_REF_TABLE_METADATA_KEY: &str = "tt.fk.ref_table";
-const FK_REF_COLUMNS_METADATA_KEY: &str = "tt.fk.ref_columns";
-
-static CONSTRAINTS_BY_TABLE: OnceLock<RwLock<BTreeMap<String, TableConstraint>>> = OnceLock::new();
-
-#[derive(Debug, Deserialize)]
-struct ConstraintManifest {
-    tables: Vec<TableConstraintSpec>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TableConstraintSpec {
-    table: String,
-    #[serde(default)]
-    primary_key: Vec<String>,
-    #[serde(default)]
-    foreign_keys: Vec<ForeignKeySpec>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ForeignKeySpec {
-    columns: Vec<String>,
-    ref_table: String,
-    ref_columns: Vec<String>,
-}
-
-#[derive(Clone, Debug, Default)]
-struct TableConstraint {
-    primary_key_cols: BTreeSet<String>,
-    foreign_key_by_col: BTreeMap<String, ForeignKeyColConstraint>,
-}
-
-#[derive(Clone, Debug)]
-struct ForeignKeyColConstraint {
-    ref_table: String,
-    ref_columns: Vec<String>,
-}
-
-/// A materialization pass that materializes the prover's hint DataFrames
-///
-/// This pass converts an IR with Hint DataFrame payloads into an IR with materialized in-memory tables.
+/// Executes each hint dataframe into an in-memory table.
 pub struct MaterializationPass<B>(std::marker::PhantomData<B>);
 impl<B> MaterializationPass<B> {
     pub fn new() -> Self {
@@ -86,26 +39,6 @@ impl<B> MaterializationPass<B> {
 impl<B> Default for MaterializationPass<B> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Loads constraint manifests from directories that contain input parquet files.
-///
-/// Each `<parquet_dir>/constraints.json` is parsed when present; missing files
-/// are ignored. The merged map is used by materialization to stamp `tt.pk` and
-/// `tt.fk.*` metadata onto output schema fields.
-pub fn configure_constraint_metadata_from_parquet_paths(parquet_paths: &[PathBuf]) {
-    crate::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths(parquet_paths);
-    let mut merged = BTreeMap::new();
-    for parquet_path in parquet_paths {
-        let Some(dir) = parquet_path.parent() else {
-            continue;
-        };
-        merge_constraints_from_dir(dir, &mut merged);
-    }
-    let lock = CONSTRAINTS_BY_TABLE.get_or_init(|| RwLock::new(BTreeMap::new()));
-    if let Ok(mut guard) = lock.write() {
-        *guard = merged;
     }
 }
 
@@ -165,34 +98,32 @@ where
 fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<MaterializedTable> {
     let df = hint_df.data_frame().clone();
     let df_schema = df.schema();
-    // Build projection of columns marked for materialization, preserving qualifiers
-    // to avoid `FieldNotFound` errors when the schema uses table-qualified columns.
+    // Qualifiers are kept: a bare name is `FieldNotFound` in a schema of
+    // table-qualified columns.
     let projection: Vec<Expr> = hint_df
         .field_materialization_iter()
         .filter(|&(_field, should_mat)| *should_mat)
         .map(|(field, _should_mat)| projection_expr_for_field(df_schema, field))
         .collect();
 
-    // Virtual-only payloads are reconstructed later by the virtualization pass.
-    // Materializing them here only adds expensive DataFusion execution.
+    // The virtualization pass rebuilds a virtual-only payload; executing it
+    // here would be wasted work.
     if projection.is_empty() {
         return None;
     }
 
-    // Sort BEFORE projection so __row_id__ is still in the schema for the sort.
-    // Otherwise the projection drops __row_id__ first and the sort becomes a no-op,
-    // leaving the materialized batches in whatever order DataFusion's executor
-    // happens to produce. Downstream nodes (e.g., partial-join merge) assume that
-    // row i of the materialized table corresponds to row i of the FK input's
-    // TrackedTable; that assumption depends on the materialized rows being in
-    // __row_id__ order.
+    // Sort before projecting, while `__row_id__` is still in the schema.
+    // Later nodes (e.g. the partial-join merge) take row i of the
+    // materialized table to be row i of the FK input's `TrackedTable`, which
+    // holds only in `__row_id__` order.
     let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
         .expect("materialization row-id sort should succeed");
     let df = df
         .select(projection)
         .expect("materialization projection should succeed");
 
-    let batches = collect_blocking(df.clone()).expect("dataframe collection should succeed");
+    let batches = crate::session::block_on(df.clone().collect())
+        .expect("dataframe collection should succeed");
 
     let df_schema_ref = df.schema();
     let arrow_schema = arrow_schema_with_qualifiers(df_schema_ref);
@@ -328,7 +259,7 @@ fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
                 return updated;
             }
             if let Some(qualifier) = qualifier {
-                // Preserve qualifiers so downstream lookups can disambiguate same-name columns.
+                // The qualifier lets later lookups tell same-name columns apart.
                 let mut metadata = updated.metadata().clone();
                 let qualifier_str = qualifier.to_string();
                 metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier_str.clone());
@@ -336,6 +267,7 @@ fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
                     &mut metadata,
                     &table_name_from_qualifier(&qualifier_str),
                     updated.name(),
+                    FkRefColumns::Paired,
                 );
                 updated = updated.with_metadata(metadata);
             }
@@ -345,131 +277,11 @@ fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
     Schema::new_with_metadata(fields, arrow_schema.metadata().clone())
 }
 
-fn merge_constraints_from_dir(dir: &Path, out: &mut BTreeMap<String, TableConstraint>) {
-    let path = dir.join(CONSTRAINTS_FILE_NAME);
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return;
-    };
-    let Ok(manifest) = serde_json::from_str::<ConstraintManifest>(&raw) else {
-        return;
-    };
-
-    for table in manifest.tables {
-        let key = table.table.to_lowercase();
-        let mut constraint = TableConstraint {
-            primary_key_cols: table
-                .primary_key
-                .into_iter()
-                .map(|c| c.to_lowercase())
-                .collect(),
-            foreign_key_by_col: BTreeMap::new(),
-        };
-
-        for fk in table.foreign_keys {
-            if fk.columns.is_empty() {
-                continue;
-            }
-            // Store FK metadata per source column, pairing source and target columns
-            // positionally for composite keys.
-            for (idx, src_col) in fk.columns.iter().enumerate() {
-                let ref_col = fk
-                    .ref_columns
-                    .get(idx)
-                    .cloned()
-                    .or_else(|| fk.ref_columns.first().cloned())
-                    .into_iter()
-                    .collect::<Vec<_>>();
-                constraint.foreign_key_by_col.insert(
-                    src_col.to_lowercase(),
-                    ForeignKeyColConstraint {
-                        ref_table: fk.ref_table.clone(),
-                        ref_columns: ref_col,
-                    },
-                );
-            }
-        }
-
-        out.insert(key, constraint);
-    }
-}
-
-fn table_name_from_qualifier(qualifier: &str) -> String {
-    qualifier
-        .rsplit('.')
-        .next()
-        .unwrap_or(qualifier)
-        .trim_matches('"')
-        .trim_matches('`')
-        .to_lowercase()
-}
-
-fn apply_constraint_metadata(
-    metadata: &mut HashMap<String, String>,
-    table_name: &str,
-    column_name: &str,
-) {
-    let Some(lock) = CONSTRAINTS_BY_TABLE.get() else {
-        return;
-    };
-    let Ok(guard) = lock.read() else {
-        return;
-    };
-    let Some(table) = guard.get(table_name) else {
-        return;
-    };
-    let column_key = column_name.to_lowercase();
-
-    if table.primary_key_cols.contains(&column_key) {
-        metadata.insert(PK_METADATA_KEY.to_string(), "true".to_string());
-    }
-    if let Some(fk) = table.foreign_key_by_col.get(&column_key) {
-        metadata.insert(FK_REF_TABLE_METADATA_KEY.to_string(), fk.ref_table.clone());
-        if let Ok(serialized) = serde_json::to_string(&fk.ref_columns) {
-            metadata.insert(FK_REF_COLUMNS_METADATA_KEY.to_string(), serialized);
-        }
-    }
-}
-
-fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            RuntimeFlavor::CurrentThread => {
-                // Spawn a dedicated thread with its own runtime to avoid blocking a single-thread runtime.
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
-}
-
-/// Pad collected batches up to the next power-of-two row count with the
-/// materialization pass's canonical inactive padding: `false` activator,
-/// `false` boolean payloads, NULL string payloads, repeat-last for other
-/// columns. Public
-/// because plan-time witness scans (e.g. the LIKE gadget re-scanning a
-/// compacted input) must pad EXACTLY like the committed tables were
-/// padded, or the scanned witness diverges from the commitments.
+/// Pads collected batches to the next power-of-two row count with the
+/// inactive padding of materialization: `false` activator, `false` booleans,
+/// null strings, repeat-last for other columns. Plan-time witness scans
+/// (e.g. the LIKE gadget re-scanning a compacted input) must pad exactly
+/// like this, or their witness diverges from the commitments.
 pub fn pad_batches_to_power_of_two(
     schema: &Schema,
     batches: Vec<RecordBatch>,
@@ -525,7 +337,6 @@ pub fn pad_batches_to_power_of_two(
     let mut output_arrays = Vec::with_capacity(schema_ref.fields().len());
     for (idx, field) in schema_ref.fields().iter().enumerate() {
         let padded = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
-            // Padded rows are always inactive.
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
@@ -533,15 +344,13 @@ pub fn pad_batches_to_power_of_two(
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if is_string_type(field.data_type()) {
-            // Padded rows of a STRING column must be null, never a repeat of
-            // the last real row. A string column encodes char-domain side
-            // segments, and the encoder marks every character of every
-            // non-null row active; a repeated string would therefore put
-            // active characters under an INACTIVE row slot, breaking the
-            // compaction DPUC's activator/length relation
-            // (`Σ_{orig-ind = i} char-act = a[i]·l[i]`, which is `0` for a
-            // padding slot). Null pads encode to length 0 with no
-            // characters, exactly as a source table's own padding rows do.
+            // A string column's padding must be null, not a repeat of the
+            // last row. The encoder marks every character of a non-null row
+            // active, so a repeated string would put active characters under
+            // an inactive row and break the compaction DPUC's
+            // activator/length relation (`Σ_{orig-ind = i} char-act =
+            // a[i]·l[i]`, which is 0 for a padding row). A null encodes to
+            // length 0 with no characters.
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
@@ -550,8 +359,8 @@ pub fn pad_batches_to_power_of_two(
             let pad_arr = null.to_array_of_size(pad)?;
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if field.data_type() == &datafusion::arrow::datatypes::DataType::Boolean {
-            // Keep boolean payload columns false on padded rows to avoid introducing
-            // accidental truth constraints.
+            // False on padded rows, so that padding adds no accidental truth
+            // constraint.
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())

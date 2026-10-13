@@ -1,8 +1,6 @@
-//! A PIOP for checing if a column is included in another column
-/// More precisely, it checks if the activated elements of a column is included
-/// in another column. Internally, this PIOP invokes the `KeyedSumcheck`
-/// with every active row of the 'included_col' counted once and a
-/// computed advice multiplicity for 'super_col'#[cfg(test)]
+//! A PIOP for checking that the activated elements of a column are included
+//! in another column. It invokes the `KeyedSumcheck` with every active row of
+//! `included_col` counted once and an advice multiplicity for `super_col`.
 mod multiplicity_count;
 pub(crate) mod utils;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};

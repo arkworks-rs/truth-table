@@ -94,9 +94,8 @@ pub(crate) fn rotate(
     skip_collection: bool,
 ) -> DataFusionResult<DataFrame> {
     if skip_collection {
-        // Verifier planning should not collect or materialize data.
-        // Keep only the non-row-id columns with the same schema shape expected by
-        // the downstream gadgets.
+        // Verifier planning must not collect data: project the non-row-id
+        // columns to get the schema the downstream gadgets expect.
         let projected: Vec<Expr> = df
             .schema()
             .fields()
@@ -106,9 +105,9 @@ pub(crate) fn rotate(
         return df.select(projected);
     }
 
-    // Important: we rotate *after* power-of-two padding.
-    // If rotation happens first, the wrap row gets buried by appended rows and the
-    // prescribed permutation no longer matches the intended cyclic shift.
+    // Rotate after power-of-two padding: rotating first would bury the wrap row
+    // under the padding rows, and the prescribed permutation would no longer be
+    // the cyclic shift.
     let ordered = if order_by.is_empty() {
         let has_row_id = df
             .schema()
@@ -125,9 +124,13 @@ pub(crate) fn rotate(
     } else {
         df.sort(order_by)?
     };
-    // Collect to Arrow so we can deterministically pad and then perform an explicit
-    // cyclic array rotation (DataFusion window + post-padding was the source of mismatch).
-    let batches = collect_blocking(ordered, skip_collection)?;
+    // Collect to Arrow to pad deterministically and then rotate the arrays explicitly.
+    if skip_collection {
+        return Err(DataFusionError::Execution(
+            "verifier planning must not collect DataFrames".to_string(),
+        ));
+    }
+    let batches = crate::session::block_on(ordered.collect())?;
     if batches.is_empty() {
         return Err(DataFusionError::Execution(
             "rotate input produced no batches".to_string(),
@@ -164,48 +167,6 @@ pub(crate) fn rotate(
     ));
     let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
     session_context().read_batch(out_batch)
-}
-
-fn collect_blocking(
-    df: DataFrame,
-    skip_collection: bool,
-) -> datafusion_common::Result<Vec<RecordBatch>> {
-    if skip_collection {
-        return Err(DataFusionError::Execution(
-            "verifier planning must not collect DataFrames".to_string(),
-        ));
-    }
-    // This helper is used from both async and sync call paths; avoid creating nested
-    // runtimes in multithread contexts and keep behavior consistent in tests.
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            tokio::runtime::RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
 }
 
 fn pad_batch_to_power_of_two_with_zeros(batch: &RecordBatch) -> DataFusionResult<RecordBatch> {
@@ -368,20 +329,9 @@ fn diff_input_on_ordered_via_windows(
             })
             .alias(name.to_string())
         } else {
-            // For non-numeric types, emit a sign-only diff as `{0, 1, 2}`
-            // shifted from the natural `{-1, 0, 1}` by +1. The shifted
-            // encoding fits in `u8` and is non-negative, which lets the
-            // arithmetization encoder route it to the compact `MLE::U8`
-            // storage variant (16 MiB at nv=24) instead of falling back
-            // to `Vec<F>` (512 MiB at nv=24) via the negative-value
-            // Field-fallback path in `encode_arrow_array_to_field`.
-            //
-            // The consumer in `populate_sign_payloads_prover`
-            // subtracts `1` from the tracked diff to recover the sign
-            // semantics — see `is_sign_only_diff` in the parent module.
-            //   gt → 2   (original +1 shifted)
-            //   eq → 1   (original 0 shifted)
-            //   lt → 0   (original -1 shifted)
+            // Non-numeric types get a sign-only diff, shifted by +1 to a
+            // non-negative `u8` (see `diff_output_type`): gt → 2, eq → 1,
+            // lt → 0. The consumer subtracts 1 (see `is_sign_only_diff`).
             let (left, right) = if is_asc {
                 (rotated_expr.clone(), col(name))
             } else {
@@ -405,7 +355,7 @@ fn diff_input_on_ordered_explicit(
     ordered: DataFrame,
     sort_specs: &[(String, bool, bool)],
 ) -> DataFusionResult<DataFrame> {
-    let batches = collect_blocking(ordered, false)?;
+    let batches = crate::session::block_on(ordered.collect())?;
     if batches.is_empty() {
         return Err(DataFusionError::Execution(
             "diff_input_on_ordered produced no batches".to_string(),
@@ -436,7 +386,7 @@ fn diff_input_on_ordered_explicit(
         let diff_col = materialize_diff_array(field.data_type(), lhs, rhs)?;
         // A wrap-around or padding row can make an unsigned diff go
         // negative, which is a null (see `diff_unsigned_array`) even when
-        // the input column itself never holds one.
+        // the input column holds none.
         out_fields.push(Field::new(
             name,
             diff_output_type(field.data_type()),
@@ -473,10 +423,8 @@ fn has_only_explicit_diff_types(df: &DataFrame) -> DataFusionResult<bool> {
 
 /// Types whose diffs are computed on collected arrays rather than through
 /// DataFusion window functions. Every integer type is here: the window
-/// path's `lead` came back null at a batch boundary once the sorted
-/// column exceeded 2^18 rows, and a null diff encodes as `0`, which the
-/// strict-positivity sign check on a no-dup's sorted offsets rejects
-/// (`%final%requests%` on `o_comment`, 2^19 chars).
+/// path's `lead` can be null at a batch boundary, and a null diff encodes
+/// as `0`, which a strict-positivity sign check rejects.
 fn is_explicit_diff_type(data_type: &DataType) -> bool {
     matches!(
         data_type,
@@ -662,8 +610,7 @@ fn diff_date32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<Array
     Ok(std::sync::Arc::new(Int32Array::from(values)))
 }
 
-/// `lhs - rhs` for an unsigned type, null where it would go negative —
-/// what the window path's cast back to the unsigned type produced.
+/// `lhs - rhs` for an unsigned type, null where it would go negative.
 fn diff_unsigned_array<T>(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef>
 where
     T: ArrowPrimitiveType,
@@ -690,12 +637,8 @@ where
 }
 
 fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    // Emits the sign of `lhs - rhs` shifted from `{-1, 0, 1}` to `{0, 1, 2}`
-    // as `UInt8`. See the parallel branch in `diff_input_on_ordered_via_windows`
-    // for the rationale — the shift lets the encoder route to `MLE::U8`
-    // storage (16 MiB at nv=24) instead of the Field fallback (512 MiB).
-    // The consumer subtracts `1` to recover the sign semantics; see
-    // `is_sign_only_diff` in the parent module.
+    // The sign of `lhs - rhs`, shifted from `{-1, 0, 1}` to `{0, 1, 2}` as
+    // `UInt8` (see `diff_output_type`).
     let values = (0..lhs.len())
         .map(|idx| {
             if lhs.is_null(idx) || rhs.is_null(idx) {
@@ -777,7 +720,7 @@ fn tie_indicator_on_ordered(
     } else {
         ordered.sort(order_by)?
     };
-    let batches = collect_blocking(ordered, false)?;
+    let batches = crate::session::block_on(ordered.collect())?;
     if batches.is_empty() {
         return Err(DataFusionError::Execution(
             "tie input produced no batches".to_string(),
@@ -875,8 +818,8 @@ fn sort_order_from_hint(
                 .iter()
                 .find(|field| normalize_sort_name(field.name()) == normalized)
             {
-                // We intentionally force NULLS LAST here to match the deterministic
-                // ordering used during padding/rotation and keep prover/verifier aligned.
+                // Force NULLS LAST to match the ordering used during padding and
+                // rotation and keep prover and verifier aligned.
                 let _ = nulls_first;
                 ordered.push(col(field.name()).sort(*asc, false));
             }

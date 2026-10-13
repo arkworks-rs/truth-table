@@ -23,5 +23,4 @@ FROM
 GROUP BY
     l_returnflag,
     l_linestatus";
-    // let proof_plan = create_prover_proof_tree::<DefaultSnarkBackend>(&ctx, query).await;
 }

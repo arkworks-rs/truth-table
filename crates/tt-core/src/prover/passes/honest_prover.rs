@@ -1,7 +1,7 @@
 use crate::{
     irs::{
         ir::LocalPass,
-        nodes::{IsNode, Node, NodeId},
+        nodes::{Node, NodeId},
         payloads::EmptyPayload,
     },
     prover::{irs::GadgetReadyIr, payloads::GadgetReadyPayload},
@@ -14,18 +14,6 @@ use ark_piop::{
 };
 use indexmap::IndexMap;
 use std::cell::RefCell;
-
-fn parent_name_for<B: SnarkBackend>(
-    tree: &crate::irs::tree::Tree<B>,
-    id: NodeId,
-) -> Option<String> {
-    for (_parent_id, node) in tree.arena().iter() {
-        if node.children().iter().any(|child| child.id() == id) {
-            return Some(node.name());
-        }
-    }
-    None
-}
 
 fn deep_clone_payload<B: SnarkBackend>(
     payload: &GadgetReadyPayload<B>,
@@ -63,10 +51,7 @@ fn deep_clone_gadget_ready_ir<B: SnarkBackend>(
     GadgetReadyIr::new(ir.tree().clone(), payloads)
 }
 
-/// A proving pass that runs honest prover checks for each gadget.
-///
-/// This pass mirrors `ProvingPass`, but dispatches to `honest_prover_check`
-/// instead of `prove`.
+/// Mirrors `ProvingPass`, calling `honest_prover_check` instead of `prove`.
 pub struct HonestProverPass<B: SnarkBackend> {
     arg_prover: RefCell<ArgProver<B>>,
     gadget_ready_ir: RefCell<GadgetReadyIr<B>>,
@@ -111,7 +96,9 @@ where
             Node::Gadget(gadget_node) => {
                 let parent_name = {
                     let gadget_ready_ir = self.gadget_ready_ir.borrow();
-                    parent_name_for(gadget_ready_ir.tree(), id)
+                    gadget_ready_ir
+                        .tree()
+                        .parent_name(id)
                         .unwrap_or_else(|| "<none>".to_string())
                 };
                 tracing::debug!(

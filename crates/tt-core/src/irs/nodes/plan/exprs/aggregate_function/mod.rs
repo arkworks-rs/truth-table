@@ -34,12 +34,6 @@ pub struct ExprNode<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> ExprNode<B> {
-    fn output_column_name(&self) -> String {
-        Expr::AggregateFunction(self.aggregate_function.clone())
-            .schema_name()
-            .to_string()
-    }
-
     // Resolve the aggregate output name as it appears in the parent Aggregate plan
     // (handles aliases like `sum(...) AS volume`).
     fn output_column_name_in_parent(&self) -> String {
@@ -62,7 +56,9 @@ impl<B: SnarkBackend> ExprNode<B> {
                 }
             }
         }
-        self.output_column_name()
+        Expr::AggregateFunction(self.aggregate_function.clone())
+            .schema_name()
+            .to_string()
     }
     fn dispatch_gadget(aggregate_function: &AggregateFunction) -> Option<Arc<Node<B>>> {
         match aggregate_function.func.name() {
@@ -218,9 +214,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.aggregate_function.func.name() == "count" {
-            // Special case for COUNT: reuse lookup super-multiplicities instead of
-            // materializing the aggregate output column. This saves a materialization
-            // by treating multiplicity as the count result.
+            // COUNT is the lookup's super-multiplicity column, so the aggregate
+            // output column is not materialized.
             let parent_node = self
                 .parent
                 .as_ref()
@@ -236,14 +231,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                     multiplicities_table,
                     &self.output_column_name_in_parent(),
                 );
-                // Emit a virtual table named after the COUNT output column, backed by
-                // the multiplicity polynomial (plus system columns).
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
                 return Ok(());
             }
-            // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
-            // a constant-one column aligned with the parent input activator.
+            // Without a lookup (e.g. COUNT(*) over a base table): a constant-one
+            // column under the parent's activator.
             let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
                 |payload| match payload {
                     PayloadStructure::PlanPayload(table) => Some(table.clone()),
@@ -268,15 +261,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         let parent_payload = virtualized_ir.payload_for_node(&parent_id);
         let column_name = self.output_column_name_in_parent();
 
-        let try_build_subtable =
-            |table: &arithmetic::table::TrackedTable<B>, column_name: &str| -> Option<_> {
-                let col_idx = tracked_table_index_of_name(table, column_name)?;
-                Some(table.tracked_subtable_by_indices(&[col_idx]))
-            };
-
         if let Some(PayloadStructure::PlanPayload(table)) = parent_payload
-            && let Some(subtable) = try_build_subtable(table, &column_name)
+            && let Some(col_idx) = tracked_table_index_of_name(table, &column_name)
         {
+            let subtable = table.tracked_subtable_by_indices(&[col_idx]);
             virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
             return Ok(());
         }
@@ -512,9 +500,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.aggregate_function.func.name() == "count" {
-            // Special case for COUNT: reuse lookup super-multiplicities instead of
-            // materializing the aggregate output column. This saves a materialization
-            // by treating multiplicity as the count result.
+            // COUNT is the lookup's super-multiplicity column, so the aggregate
+            // output column is not materialized.
             let parent_node = self
                 .parent
                 .as_ref()
@@ -530,14 +517,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                     multiplicities_table,
                     &self.output_column_name_in_parent(),
                 );
-                // Emit a virtual table named after the COUNT output column, backed by
-                // the multiplicity oracle (plus system columns).
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
                 return Ok(());
             }
-            // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
-            // a constant-one oracle aligned with the parent input activator.
+            // Without a lookup (e.g. COUNT(*) over a base table): a constant-one
+            // oracle under the parent's activator.
             let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
                 |payload| match payload {
                     PayloadStructure::PlanPayload(table) => Some(table),
@@ -564,15 +549,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         let parent_payload = virtualized_ir.payload_for_node(&parent_id);
         let column_name = self.output_column_name_in_parent();
 
-        let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
-                                  column_name: &str| {
-            let col_idx = tracked_table_oracle_index_of_name(table, column_name)?;
-            Some(table.tracked_subtable_by_indices(&[col_idx]))
-        };
-
         if let Some(PayloadStructure::PlanPayload(table)) = parent_payload
-            && let Some(subtable) = try_build_subtable(table, &column_name)
+            && let Some(col_idx) = tracked_table_oracle_index_of_name(table, &column_name)
         {
+            let subtable = table.tracked_subtable_by_indices(&[col_idx]);
             virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
             return Ok(());
         }
@@ -926,7 +906,6 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
                     .clone()
             })
             .collect();
-        // Dispatch to the appropriate gadget node.
         let gadget = Self::dispatch_gadget(&aggregate_function);
         Self {
             aggregate_function,

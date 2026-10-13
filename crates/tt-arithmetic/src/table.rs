@@ -25,21 +25,17 @@ use indexmap::IndexMap;
 use serde_json::{Value, from_slice as schema_from_slice, to_vec as schema_to_vec};
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
-/// An abstraction of a tracked arithmetized table in dbSNARK
-/// A tracked arithmetized table is represented by a set of tracked polynomials
-/// representing the columns
+/// A tracked arithmetized table: the tracked polynomials of its columns.
+///
+/// Storage is keyed by source column. The flat view
+/// ([`Self::tracked_polys`]) lists every row-domain segment as its own
+/// field, in source-column order; column indices in this API refer to it.
 pub struct TrackedTable<B: SnarkBackend> {
-    /// The schema of the table, if any. Lists the flat Arrow fields
-    /// (primary + all expanded segments) so downstream that reads the
-    /// schema still sees the pre-expanded shape it expects.
+    /// Lists the flat Arrow fields (primaries and expanded segments).
     schema: Option<Schema>,
-    /// The tracked columns of the table, keyed by SOURCE column name (not
-    /// per-segment). Each `TrackedCol` owns its primary row-domain poly,
-    /// its auxiliary row-domain polys (e.g. `__length`), and its
-    /// side-domain polys (e.g. `__chars`, `__orig_ind`, `__int_ind`,
-    /// `__bnd`). Iteration order is schema (source-column) order.
+    /// Keyed by source column, in schema order. Each `TrackedCol` owns its
+    /// primary, row-domain aux and side-domain polynomials.
     tracked_cols: IndexMap<FieldRef, TrackedCol<B>>,
-    /// The log size of the table
     log_size: usize,
 }
 
@@ -103,7 +99,6 @@ impl<B: SnarkBackend> fmt::Display for TrackedTable<B> {
 }
 
 impl<B: SnarkBackend> TrackedTable<B> {
-    /// Constructs a single-column table and optionally appends an activator column.
     pub fn single_column_with_activator(
         field: FieldRef,
         data_poly: TrackedPoly<B>,
@@ -118,11 +113,8 @@ impl<B: SnarkBackend> TrackedTable<B> {
         TrackedTable::new(None, polys, log_size)
     }
 
-    /// Constructs a new `TrackedTable` from the flat schema-order polys
-    /// map. The flat input is regrouped internally into source-column-keyed
-    /// `tracked_cols` using `segment_base_name` — a column with aux
-    /// segments becomes `TrackedCol::MultiSegment`, others become
-    /// `SingleSegment`.
+    /// A table from the flat schema-order map of row-domain polynomials,
+    /// regrouped by source column with `segment_base_name`.
     pub fn new(
         schema: Option<Schema>,
         tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
@@ -131,9 +123,8 @@ impl<B: SnarkBackend> TrackedTable<B> {
         Self::new_with_side_cols(schema, tracked_polys, log_size, IndexMap::new())
     }
 
-    /// Constructs a new `TrackedTable` from flat row-domain polys + side
-    /// cols. Same regrouping logic as `new`; side cols are attached to
-    /// their owning source columns.
+    /// [`Self::new`] with side-domain segments, each attached to its source
+    /// column.
     pub fn new_with_side_cols(
         schema: Option<Schema>,
         tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
@@ -152,9 +143,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
         }
     }
 
-    /// Constructs a `TrackedTable` directly from a source-column-keyed
-    /// `tracked_cols` map (no regrouping). Preferred constructor when the
-    /// caller already has TrackedCols grouped by source column.
+    /// A table from columns already grouped by source column.
     pub fn new_from_cols(
         schema: Option<Schema>,
         tracked_cols: IndexMap<FieldRef, TrackedCol<B>>,
@@ -167,11 +156,9 @@ impl<B: SnarkBackend> TrackedTable<B> {
         }
     }
 
-    /// Read-only access to this table's side-domain segments, derived
-    /// from the source-column-keyed storage on demand. Keyed by side
-    /// segment FieldRef (e.g. `<col>__chars`) so callers that walk by
-    /// expanded name keep working. Synthesized side FieldRefs inherit
-    /// the source column's metadata (e.g. `tt.qualifier`).
+    /// The side-domain segments, keyed by a field named `<col><suffix>`
+    /// (`<col>__chars`) that carries the source column's metadata (e.g.
+    /// `tt.qualifier`).
     pub fn side_cols(&self) -> IndexMap<FieldRef, crate::col::PolyBundle<B>> {
         let mut out: IndexMap<FieldRef, crate::col::PolyBundle<B>> = IndexMap::new();
         for (field, col) in self.tracked_cols.iter() {
@@ -190,10 +177,9 @@ impl<B: SnarkBackend> TrackedTable<B> {
         out
     }
 
-    /// Attach a side-domain segment (a `PolyBundle` whose data poly
-    /// lives on a smaller side domain than the owning column) to the
-    /// source column identified by `segment_base_name`. Promotes the
-    /// target column to `MultiSegment` if it was `SingleSegment`.
+    /// Attach a side-domain segment to the source column its name points
+    /// to (`segment_base_name`), promoting a `SingleSegment` column to
+    /// `MultiSegment`.
     pub fn insert_side_col(&mut self, field: FieldRef, side: crate::col::PolyBundle<B>) {
         let base_name = crate::encoding::segment_base_name(field.name())
             .expect("insert_side_col: field name must carry a known segment suffix")
@@ -225,10 +211,6 @@ impl<B: SnarkBackend> TrackedTable<B> {
                 mut side_aux_suffixes,
                 field_ref,
             } => {
-                // `insert_side_col` is by definition adding a side segment,
-                // so mark it as such in the marker set (see the enum
-                // docstring in col.rs for why the log_size heuristic was
-                // insufficient).
                 aux_poly_bundles.insert(suffix.clone(), side);
                 side_aux_suffixes.insert(suffix);
                 TrackedCol::MultiSegment {
@@ -282,9 +264,8 @@ impl<B: SnarkBackend> TrackedTable<B> {
         Ok(())
     }
 
-    /// Returns the tracked polynomials representing the columns of the
-    /// table in the flat schema-order shape (primary + all aux row-domain
-    /// segments). Derived on demand from the source-column-keyed storage.
+    /// The flat view: every row-domain segment (primaries and row-domain
+    /// aux) under its own field, in source-column order.
     pub fn tracked_polys(&self) -> IndexMap<FieldRef, TrackedPoly<B>> {
         let mut out: IndexMap<FieldRef, TrackedPoly<B>> = IndexMap::new();
         for (field, col) in self.tracked_cols.iter() {
@@ -306,10 +287,8 @@ impl<B: SnarkBackend> TrackedTable<B> {
         out
     }
 
-    /// Iterator over the flat schema-order tracked polys. Yields owned
-    /// tuples (materialized on demand) rather than borrowed refs — the
-    /// source-column storage groups multiple polys per source col so
-    /// borrowed refs would require an intermediate cache.
+    /// The flat view as an iterator. The items are owned: the segment
+    /// fields are built on demand.
     pub fn tracked_polys_iter(&self) -> Box<dyn Iterator<Item = (FieldRef, TrackedPoly<B>)> + '_> {
         Box::new(self.tracked_cols.iter().flat_map(|(field, col)| {
             col.segments_iter()
@@ -332,18 +311,17 @@ impl<B: SnarkBackend> TrackedTable<B> {
         }))
     }
 
-    /// Direct accessor for the source-column-keyed storage.
+    /// The columns, keyed by source column.
     pub fn tracked_cols(&self) -> IndexMap<FieldRef, TrackedCol<B>> {
         self.tracked_cols.clone()
     }
 
-    /// Iterator over source-column-keyed entries (borrowed refs).
     pub fn tracked_cols_iter(&self) -> impl Iterator<Item = (&FieldRef, &TrackedCol<B>)> {
         self.tracked_cols.iter()
     }
 
-    /// Look up a specific side-domain segment by source column name and
-    /// suffix (e.g. `side_segment("n_name", "__chars")`).
+    /// The side-domain segment `suffix` of source column `col_name`
+    /// (`side_segment("n_name", "__chars")`).
     pub fn side_segment(&self, col_name: &str, suffix: &str) -> Option<&PolyBundle<B>> {
         self.tracked_cols
             .iter()
@@ -351,7 +329,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .and_then(|(_, col)| col.side_segment(suffix))
     }
 
-    /// Indices into the flat schema-order view of all non-system columns.
+    /// Flat-view indices of the non-system columns.
     pub fn data_tracked_polys_indices(&self) -> Vec<usize> {
         self.tracked_polys()
             .keys()
@@ -360,7 +338,6 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .collect()
     }
 
-    /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
@@ -369,27 +346,24 @@ impl<B: SnarkBackend> TrackedTable<B> {
         self.schema.as_ref()
     }
 
-    /// Overwrite this table's schema. Used by builders that need to compute
-    /// the field order AFTER constructing the table — e.g. the tt-core
-    /// tracking pass builds the flat-schema fields from the post-regroup
-    /// `tracked_polys()` order so it agrees with the verifier's
-    /// `all_tracked_cols` walk in `TrackedTableOracle::from_tracked_table`.
+    /// Overwrite the schema. For builders that take the field order from
+    /// `tracked_polys()` after construction: the tt-core tracking pass does,
+    /// so that its schema agrees with the verifier's `all_tracked_cols`
+    /// walk in `TrackedTableOracle::from_tracked_table`.
     pub fn set_schema(&mut self, schema: Option<Schema>) {
         self.schema = schema;
     }
 
-    /// Returns the log size of the table
     pub fn log_size(&self) -> usize {
         self.log_size
     }
 
-    /// Returns the size of the table
     pub fn size(&self) -> usize {
         1 << self.log_size()
     }
 
-    /// Folds the specified columns of the tracked table using the provided
-    /// challenges. Indices refer to the flat schema-order view.
+    /// The linear combination of the flat-view columns `col_inds` with the
+    /// challenges `challs`; a single column is returned as is.
     pub fn fold(&self, col_inds: &[usize], challs: &[B::F]) -> TrackedCol<B> {
         let flat = self.tracked_polys();
         let first_idx = *col_inds
@@ -416,16 +390,14 @@ impl<B: SnarkBackend> TrackedTable<B> {
         TrackedCol::new(folded, self.activator_tracked_poly(), None)
     }
 
-    /// Folds all the data (i.e. excluding the activator column) tracked
-    /// column polynomials
+    /// [`Self::fold`] over every non-system column.
     pub fn fold_all_data_columns(&self, challs: &[B::F]) -> TrackedCol<B> {
         let data_col_indices = self.data_tracked_polys_indices();
         self.fold(&data_col_indices, challs)
     }
 
-    /// Returns the tracked column at the specified flat schema-order
-    /// index, as a `SingleSegment` wrapping just that entry (preserves the
-    /// "N different flat indices → N different polys" contract).
+    /// The flat-view entry `ind` as a `SingleSegment` column with the
+    /// table's activator.
     pub fn tracked_col_by_ind(&self, ind: usize) -> TrackedCol<B> {
         let flat = self.tracked_polys();
         let (field_ref, data_tracked_poly) =
@@ -437,17 +409,13 @@ impl<B: SnarkBackend> TrackedTable<B> {
         )
     }
 
-    /// Returns the tracked column with the specified source column name,
-    /// fully grouped (MultiSegment if it has aux/side, SingleSegment
-    /// otherwise). Returns `None` if `name` is not a source column here.
+    /// The source column `name` with all its segments.
     pub fn tracked_col_by_name(&self, name: &str) -> Option<TrackedCol<B>> {
         self.tracked_cols
             .iter()
             .find_map(|(f, c)| (f.name() == name).then(|| c.clone()))
     }
 
-    /// Returns the tracked columns at the specified flat schema-order
-    /// indices.
     pub fn tracked_col_by_indices(&self, indices: &[usize]) -> Vec<TrackedCol<B>> {
         indices
             .iter()
@@ -462,11 +430,10 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .collect()
     }
 
-    /// Renames the flat-view entry at the given index. If the entry is a
-    /// primary segment (its FieldRef name matches its owning source col),
-    /// the source col key is renamed. If it is an aux segment, the aux
-    /// suffix is preserved (only the primary base name is affected via
-    /// its owner rename).
+    /// Rename the flat-view entry `idx`. For a primary segment the source
+    /// column key is renamed, and its aux segments follow, since their
+    /// names derive from it. For an aux segment only the schema entry
+    /// changes: no caller renames one.
     pub fn rename_col(&mut self, idx: usize, new_name: &str) {
         let flat = self.tracked_polys();
         assert!(idx < flat.len(), "column index out of bounds");
@@ -481,9 +448,6 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .with_metadata(old_field.metadata().clone()),
         );
 
-        // Determine which source column owns this flat entry, and whether
-        // this entry is that source col's primary (name == source col
-        // name) or one of its aux segments.
         let owning_source_col_name: String = self
             .tracked_cols
             .keys()
@@ -492,8 +456,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .unwrap_or_else(|| old_name.clone());
 
         if old_name == owning_source_col_name {
-            // Renaming a primary segment ⇒ rewrite the source-column key
-            // in tracked_cols, preserving IndexMap order.
+            // A primary: rewrite the source-column key, keeping the order.
             let mut new_cols =
                 IndexMap::<FieldRef, TrackedCol<B>>::with_capacity(self.tracked_cols.len());
             let old_source_field = self
@@ -511,19 +474,11 @@ impl<B: SnarkBackend> TrackedTable<B> {
             }
             self.tracked_cols = new_cols;
         }
-        // Aux/side renames are not currently exercised by any caller
-        // (rename_col is only used for primary-column renames). If a
-        // future caller renames an aux entry, extend this to rewrite
-        // aux_segment_map keys accordingly.
 
-        // Locate the schema entry by *name*, not by `idx`. `idx` indexes the
-        // flat view from `tracked_polys()`, which expands every tracked col
-        // into its segments (`__length`, ...), while `schema` is supplied
-        // separately via `set_schema` and holds only user-visible fields.
-        // The two index spaces are unrelated: an internal column such as
-        // `__activator__` occupies a flat slot but no schema field at all,
-        // and indexing the schema by a flat position panicked whenever the
-        // two widths differed.
+        // Find the schema entry by name, not by `idx`: `idx` indexes the
+        // flat view, while the schema is set separately (`set_schema`) and
+        // may hold only user-visible fields. `__activator__` has a flat
+        // entry but no schema field, so the two index spaces differ.
         if let Some(schema) = &self.schema
             && let Some(pos) = schema.fields().iter().position(|f| f.name() == &old_name)
         {
@@ -538,19 +493,15 @@ impl<B: SnarkBackend> TrackedTable<B> {
         }
     }
 
-    /// Returns a subtable containing the tracked columns at the specified
-    /// flat schema-order indices, plus the table's activator (if any).
-    /// Aux and side segments of retained source columns are carried over
-    /// intact.
+    /// The subtable of the source columns that own the flat-view entries
+    /// `indices`, with all their segments, plus the system columns.
     pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTable<B> {
         let flat = self.tracked_polys();
-        // Resolve each flat index back to the *source column* that produced
-        // it. `tracked_polys()` emits every source column's segments
-        // consecutively in `tracked_cols` order, so a parallel walk recovers the
-        // owner. Retaining by name instead would be ambiguous: an un-aliased
-        // self-join puts two same-named columns in one table (TPC-H Q7's two
-        // `nation`s), and asking for the second `n_name` would pull in the
-        // first as well.
+        // The source column that owns each flat index. `tracked_polys()`
+        // emits each source column's segments consecutively, so a parallel
+        // walk recovers it. Retaining by name would be ambiguous: an
+        // un-aliased self-join puts two same-named columns in one table
+        // (TPC-H Q7's two `nation`s).
         let owners: Vec<FieldRef> = self
             .tracked_cols
             .iter()
@@ -563,9 +514,8 @@ impl<B: SnarkBackend> TrackedTable<B> {
             }
         } else {
             // Two segments produced an identical field, so `tracked_polys()`
-            // collapsed them and the parallel walk no longer lines up. Such a
-            // table cannot distinguish its duplicates anyway — fall back to
-            // matching on name.
+            // collapsed them and the walk does not line up. Such a table
+            // cannot tell its duplicates apart: match on name.
             for &idx in indices {
                 let (field, _) = flat.get_index(idx).expect("column index out of bounds");
                 let base = crate::encoding::segment_base_name(field.name())
@@ -577,7 +527,6 @@ impl<B: SnarkBackend> TrackedTable<B> {
                 }
             }
         }
-        // System columns propagate implicitly.
         for (field, _) in self.tracked_cols.iter() {
             if crate::is_system_column(field.name()) {
                 retained.insert(field.clone());
@@ -601,10 +550,10 @@ impl<B: SnarkBackend> TrackedTable<B> {
                     })
                 })
                 .collect();
-            // Prefer an exact field match so a retained `n_name` does not
-            // also drag in a same-named sibling's schema entry. Fall back to
-            // the name only where the schema has no duplicate of it, since
-            // some builders emit schema fields without the primary's metadata.
+            // Keep a schema field on an exact match, so a retained `n_name`
+            // does not bring a same-named sibling's entry. Match on name only
+            // where the schema has no duplicate of it: some builders emit
+            // schema fields without the primary's metadata.
             let name_is_unique =
                 |n: &str| schema.fields().iter().filter(|g| g.name() == n).count() == 1;
             let sub_flat_fields: Vec<Field> = sub_cols
@@ -636,15 +585,13 @@ impl<B: SnarkBackend> TrackedTable<B> {
         TrackedTable::new_from_cols(sub_schema, sub_cols, self.log_size)
     }
 
-    /// Returns all the tracked columns in the table (schema-order over
-    /// flat entries, each as a SingleSegment wrapping one flat poly).
+    /// Every flat-view entry as a `SingleSegment` column.
     pub fn all_tracked_cols(&self) -> Vec<TrackedCol<B>> {
         self.tracked_col_by_indices(&(0..self.num_total_tracked_cols()).collect::<Vec<usize>>())
     }
 
-    /// Number of flat schema-order ROW-DOMAIN columns including
-    /// activator. Matches the length of `tracked_polys()` (side segments
-    /// live in `side_cols()` and are counted separately).
+    /// Number of flat-view entries, the activator included and side
+    /// segments excluded.
     pub fn num_total_tracked_cols(&self) -> usize {
         self.tracked_cols
             .values()
@@ -652,7 +599,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .sum()
     }
 
-    /// Number of flat schema-order data columns (excluding system).
+    /// Number of flat-view entries that are not system columns.
     pub fn num_data_tracked_cols(&self) -> usize {
         self.tracked_polys()
             .keys()
@@ -660,15 +607,14 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .count()
     }
 
-    /// Returns the tracked polynomial of the activator column, if any.
     pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
         self.tracked_cols.iter().find_map(|(field, col)| {
             (field.name() == ACTIVATOR_COL_NAME).then(|| col.data_tracked_poly())
         })
     }
 
-    /// Pretty-print the tracked table in a row/column layout similar to
-    /// DataFusion's RecordBatch formatter.
+    /// The flat view as a text table, like DataFusion's `RecordBatch`
+    /// formatter.
     pub fn pretty_string(&self) -> String {
         let flat = self.tracked_polys();
         if flat.is_empty() {
@@ -735,15 +681,13 @@ impl<B: SnarkBackend> TrackedTable<B> {
 
 /// Whether `aux` is a segment of the source column `primary`.
 ///
-/// The base case is a name match: `n_name__length` belongs to `n_name`.
-/// That is ambiguous only when several primaries share a name, which
-/// `ambiguous` lists. There we additionally require the two fields to
-/// agree on data type, nullability and metadata — `TrackedTable::tracked_polys`
-/// derives each segment field from its primary with exactly those three
-/// carried over, so the agreement is an equality test against how the
-/// segment was built, not a heuristic. Pairing duplicates positionally
-/// instead would risk attaching one nation's `__length` to the other
-/// nation's `n_name` and turning a crash into a silently wrong proof.
+/// A name match decides it (`n_name__length` belongs to `n_name`) unless
+/// several primaries share the name, which `ambiguous` lists. Then the two
+/// fields must also agree on data type, nullability and metadata:
+/// `TrackedTable::tracked_polys` builds each segment field from its primary
+/// with exactly those three, so this is exact. Pairing duplicates by
+/// position could attach one column's `__length` to the other's primary
+/// and give a wrong proof without an error.
 pub(crate) fn aux_belongs_to(
     aux: &FieldRef,
     primary: &FieldRef,
@@ -763,14 +707,11 @@ pub(crate) fn aux_belongs_to(
         && aux.metadata() == primary.metadata()
 }
 
-/// Regroup a flat `IndexMap<FieldRef, TrackedPoly<B>>` (schema-order row
-/// polys) + a flat `IndexMap<FieldRef, PolyBundle<B>>` (schema-order
-/// side polys) into the source-column-keyed shape stored by
-/// `TrackedTable`. Iteration order in the output matches the order the
-/// PRIMARY segments appear in `tracked_polys`. Every aux/side segment is
-/// attached to the source column identified by
-/// `crate::encoding::segment_base_name`; aux row polys share the table's
-/// single activator; side polys carry their own.
+/// Group flat schema-order row-domain polynomials and side segments by
+/// source column, in the order the primaries appear in `tracked_polys`.
+/// Each aux or side segment goes to the source column
+/// `segment_base_name` names. Row-domain aux share the table's activator;
+/// side segments carry their own.
 fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
     tracked_polys: &IndexMap<FieldRef, TrackedPoly<B>>,
     side_cols: &IndexMap<FieldRef, PolyBundle<B>>,
@@ -778,24 +719,18 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
     let shared_activator = tracked_polys
         .iter()
         .find_map(|(field, poly)| (field.name() == ACTIVATOR_COL_NAME).then(|| poly.clone()));
-    // Set of primary names present in the flat input. Aux fields whose
-    // primary IS in this set are attached to that primary; aux fields
-    // whose primary is NOT in this set are orphans — they get promoted
-    // to their own `SingleSegment` entries (preserves the pre-flip
-    // flat-storage semantic that scratch tables can hold `col__length`
-    // without a corresponding `col`).
+    // An aux field whose primary is absent becomes its own `SingleSegment`
+    // entry: a scratch table can hold `col__length` without `col`.
     let primary_present: std::collections::HashSet<String> = tracked_polys
         .keys()
         .filter(|f| crate::encoding::segment_base_name(f.name()).is_none())
         .map(|f| f.name().to_string())
         .collect();
-    // Primary names that occur more than once — an un-aliased self-join
+    // Primary names that occur more than once: an un-aliased self-join
     // (TPC-H Q7 joins `nation` twice) puts two `n_name` primaries and two
-    // `n_name__length` aux fields in the same flat view. Matching aux to
-    // primary by name alone would then hand *both* lengths to the first
-    // `n_name`, which trips the duplicate-suffix assert in
-    // `new_multi_split`. For those names we disambiguate by full field
-    // identity instead; see `aux_belongs_to` below.
+    // `n_name__length` aux fields in one flat view. Matching by name alone
+    // would give both lengths to the first `n_name`, so `aux_belongs_to`
+    // compares the whole field for these names.
     let ambiguous_primaries: std::collections::HashSet<String> = {
         let mut seen = std::collections::HashSet::new();
         tracked_polys
@@ -809,10 +744,9 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
     for (field, poly) in tracked_polys.iter() {
         if let Some(base) = crate::encoding::segment_base_name(field.name()) {
             if primary_present.contains(base) {
-                // Handled by the primary's iteration below.
+                // Attached when its primary is visited.
                 continue;
             }
-            // Orphan aux — becomes its own SingleSegment entry.
             out.insert(
                 field.clone(),
                 TrackedCol::new(poly.clone(), shared_activator.clone(), Some(field.clone())),
@@ -822,8 +756,6 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
         let primary_name = field.name();
         let mut row_aux_bundles: Vec<(String, PolyBundle<B>)> = Vec::new();
         let mut side_aux_bundles: Vec<(String, PolyBundle<B>)> = Vec::new();
-        // Row-domain aux (from `tracked_polys`): activator inherited
-        // from the shared table activator (must exist when there is aux).
         for (aux_field, aux_poly) in tracked_polys.iter() {
             if aux_field.name() == primary_name {
                 continue;
@@ -836,7 +768,6 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
                 ));
             }
         }
-        // Side-domain aux (from `side_cols`): already have their own activator.
         for (side_field, side) in side_cols.iter() {
             if aux_belongs_to(side_field, field, &ambiguous_primaries) {
                 let suffix = &side_field.name()[primary_name.len()..];
@@ -846,13 +777,6 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
         let col = if row_aux_bundles.is_empty() && side_aux_bundles.is_empty() {
             TrackedCol::new(poly.clone(), shared_activator.clone(), Some(field.clone()))
         } else {
-            // Preserve the row-vs-side classification the caller already
-            // knows (tracked_polys → row, side_cols → side) rather than
-            // rediscovering it downstream via a log_size heuristic that
-            // silently misclassifies side segments whose pow2-padded
-            // domain happens to match the row size. See TrackedCol's
-            // enum docstring for the concrete misclassification that
-            // motivated the explicit split.
             TrackedCol::new_multi_split(
                 PolyBundle::new(poly.clone(), shared_activator.clone()),
                 row_aux_bundles,
@@ -865,43 +789,28 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
     out
 }
 
-/// A side-domain polynomial that lives **outside** the row-uniform table.
-/// Carries its own `log_size` (generally different from the owning table's)
-/// and a contiguous-one activator that is fully described by `active_len`.
-/// Used for the per-string-column char-level polynomials from paper §3.2
-/// (`__chars`, `__orig_ind`, `__int_ind`, `__bnd`).
-///
-/// The data poly is stored in its narrowest native form (bytes for chars/bnd,
-/// u32 for orig_ind/int_ind) so it stays much smaller than the field-element
-/// form. Commit and tracking passes materialize transient `MLE<F>` views from
-/// this raw data (and from `active_len` for the activator) only at the moment
-/// of MSM / proof-binding, then drop them.
+/// A side-domain polynomial: one of the char-level polynomials of a string
+/// column (paper §3.2: `__chars`, `__orig_ind`, `__int_ind`, `__bnd`). It
+/// has its own `log_size`, and its activator is the contiguous-one
+/// polynomial of weight `active_len`. The data stays in native form; the
+/// commit and tracking passes build `MLE<F>` views from it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArithSideCol {
-    /// Element-type-tagged raw values, pow2-padded with zeros.
-    /// `data.len()` == `1 << log_size`.
+    /// Zero-padded to `1 << log_size` entries.
     pub data: crate::encoding::SideColData,
-    /// Number of variables in the side-domain MLE (data and activator
-    /// share this).
     pub log_size: usize,
-    /// Number of active (non-padding) leading entries. Fully describes the
-    /// contiguous-one activator polynomial.
+    /// Number of leading active entries.
     pub active_len: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-/// An abstraction of an arithmetized table in dbSNARK
-/// An arithmetic table might not be tracked and can be serialized and
-/// deserialized
+/// An arithmetized table that is not tracked. It can be serialized.
 pub struct ArithTable<F: PrimeField> {
     schema: Option<Schema>,
     polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
     log_size: usize,
-    /// Side-domain polynomials owned by this table, keyed by the side
-    /// segment's own field reference (e.g. the `FieldRef` for
-    /// `<col>__chars`). Each side column carries its own `log_size` and
-    /// activator and is committed separately from the row-domain
-    /// `polynomials`.
+    /// Keyed by the side segment's own field (`<col>__chars`). Committed
+    /// separately from the row-domain `polynomials`.
     side_cols: IndexMap<FieldRef, ArithSideCol>,
 }
 impl<F: PrimeField> std::fmt::Display for ArithTable<F> {
@@ -1014,7 +923,7 @@ fn abbreviate_field_value(value: &str) -> String {
 }
 
 impl<F: PrimeField> ArithTable<F> {
-    /// Constructs a new `ArithTable` with no side-domain columns.
+    /// A table with no side-domain columns.
     pub fn new(
         schema: Option<Schema>,
         polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
@@ -1023,8 +932,6 @@ impl<F: PrimeField> ArithTable<F> {
         Self::new_with_side_cols(schema, polynomials, log_size, IndexMap::new())
     }
 
-    /// Constructs a new `ArithTable`, optionally seeded with side-domain
-    /// columns (e.g. per-string-column concatenated `__chars` polys).
     pub fn new_with_side_cols(
         schema: Option<Schema>,
         polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
@@ -1044,8 +951,6 @@ impl<F: PrimeField> ArithTable<F> {
         }
     }
 
-    /// Read-only access to this table's side-domain columns, keyed by side
-    /// segment field reference (e.g. `<col>__chars`).
     pub fn side_cols(&self) -> &IndexMap<FieldRef, ArithSideCol> {
         &self.side_cols
     }
@@ -1056,7 +961,6 @@ impl<F: PrimeField> ArithTable<F> {
         polys: &IndexMap<FieldRef, Arc<MLE<F>>>,
         log_size: usize,
     ) -> SnarkResult<()> {
-        // All columns must have the same log size as the table
         polys.values().for_each(|poly| {
             assert_eq!(
                 poly.num_vars(),
@@ -1065,7 +969,6 @@ impl<F: PrimeField> ArithTable<F> {
             );
         });
 
-        // If schema is provided, it must match the fields of the tracked polynomials
         if let Some(schema) = &schema {
             schema
                 .fields()
@@ -1082,21 +985,13 @@ impl<F: PrimeField> ArithTable<F> {
         Ok(())
     }
 
-    /// Returns the polynomials representing the columns of the table
+    /// The row-domain polynomials, one per flat field.
     pub fn polynomials(&self) -> &IndexMap<FieldRef, Arc<MLE<F>>> {
         &self.polynomials
     }
 
-    /// Bridge accessor: reconstructs a source-column-keyed view of this
-    /// arithmetized table by grouping the flat `polynomials` + `side_cols`
-    /// entries by source column name (via `segment_base_name` /
-    /// `is_segment_of`). A column with no aux and no side segments
-    /// materializes as `ArithCol::SingleSegment`; otherwise
-    /// `ArithCol::MultiSegment` carrying all its row-domain aux and side
-    /// segments.
-    ///
-    /// Mirrors `TrackedTable::tracked_cols`. Compatibility layer until the
-    /// primary storage flips to source-column-keyed natively.
+    /// The flat `polynomials` and `side_cols` grouped by source column
+    /// name (`segment_base_name`), like `TrackedTable::tracked_cols`.
     pub fn arith_cols(&self) -> IndexMap<FieldRef, crate::arith_col::ArithCol<F>> {
         let mut out = IndexMap::with_capacity(self.polynomials.len());
         for (field, mle) in self.polynomials.iter() {
@@ -1140,12 +1035,10 @@ impl<F: PrimeField> ArithTable<F> {
         out
     }
 
-    /// Returns the log size of the table
     pub fn log_size(&self) -> usize {
         self.log_size
     }
 
-    /// Returns the size of the table
     pub fn size(&self) -> usize {
         1 << self.log_size()
     }
@@ -1160,19 +1053,17 @@ impl<F: PrimeField> ArithTable<F> {
             .unwrap_or_else(|| self.size())
     }
 
-    /// Number of columns in the table including activator (if any)
+    /// Number of row-domain columns, the activator included.
     pub fn num_total_cols(&self) -> usize {
         self.polynomials.len()
     }
 
-    /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
 
-    /// Constructs an `ArithTable` from a `TrackedTable` by extracting
-    /// the underlying MLE evaluations of both row-domain and side-domain
-    /// columns.
+    /// The evaluations of a `TrackedTable`'s row-domain columns. Side
+    /// columns are dropped.
     pub fn from_tracked_table<B>(table: &TrackedTable<B>) -> ArithTable<B::F>
     where
         B: SnarkBackend,
@@ -1188,19 +1079,14 @@ impl<F: PrimeField> ArithTable<F> {
                 (field, mle)
             })
             .collect::<IndexMap<_, _>>();
-        // Side cols on the TrackedTable side hold `TrackedPoly<B>` handles;
-        // demoting them back to raw byte / u32 values would require
-        // knowing each column's original element type by suffix. Since
-        // this conversion has no live callers today, we drop side cols
-        // for now. If a caller needs the round-trip, extend this to
-        // recover the element type from the segment suffix
+        // TODO: recover the side columns. Their tracked polynomials must go
+        // back to native values, whose element type follows from the suffix
         // (`__chars`, `__bnd` → Bytes; `__orig_ind`, `__int_ind` → U32).
         let side_cols: IndexMap<FieldRef, ArithSideCol> = IndexMap::new();
         let _ = table.side_cols(); // touch to keep it live if reactivated
         ArithTable::new_with_side_cols(schema, tracked_polys, size, side_cols)
     }
 
-    /// Returns the polynomial of the activator polynomial, if any
     pub fn activator_polynomial(&self) -> Option<&Arc<MLE<F>>> {
         self.polynomials
             .iter()
@@ -1247,10 +1133,9 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
 
         (self.size() as u64).serialize_with_mode(&mut writer, compress)?;
 
-        // Side-domain columns: serialized after the row-uniform polynomials
-        // as (log_size, active_len, data_bytes). The activator is fully
-        // described by active_len (contiguous-ones), so nothing else needs
-        // to be persisted for it.
+        // Side-domain columns follow: the count, then per column its field,
+        // log_size, active_len, element-type tag and data. `active_len`
+        // determines the activator, which is not stored.
         (self.side_cols.len() as u64).serialize_with_mode(&mut writer, compress)?;
         for (field_ref, side) in &self.side_cols {
             let field_bytes = serde_json::to_vec(field_ref.as_ref())
@@ -1258,7 +1143,7 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             field_bytes.serialize_with_mode(&mut writer, compress)?;
             (side.log_size as u64).serialize_with_mode(&mut writer, compress)?;
             (side.active_len as u64).serialize_with_mode(&mut writer, compress)?;
-            // Element-type tag: 0 = Bytes, 1 = U32. New tags append.
+            // Element-type tag: 0 = Bytes, 1 = U32.
             match &side.data {
                 crate::encoding::SideColData::Bytes(bytes) => {
                     0u8.serialize_with_mode(&mut writer, compress)?;
@@ -1362,8 +1247,6 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
         let size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
         let size = usize::try_from(size_raw).map_err(|_| SerializationError::InvalidData)?;
 
-        // Side-domain columns: appended after the row-uniform table data.
-        // The count, each field, then (data, activator) MLE pair per side col.
         let side_count_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
         let side_count =
             usize::try_from(side_count_raw).map_err(|_| SerializationError::InvalidData)?;
@@ -1381,7 +1264,6 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
             let active_len =
                 usize::try_from(active_len_raw).map_err(|_| SerializationError::InvalidData)?;
 
-            // Element-type tag: 0 = Bytes, 1 = U32.
             let tag = u8::deserialize_with_mode(&mut reader, compress, validate)?;
             let data = match tag {
                 0 => {

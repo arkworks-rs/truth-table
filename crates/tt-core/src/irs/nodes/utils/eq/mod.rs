@@ -1,10 +1,8 @@
-//! Equality gadget for table-shaped inputs.
+//! Equality gadget: proves that two tables are equal on all activated rows.
 //!
-//! This module enforces equality between two input tables on activated rows by:
-//! 1. Folding all data columns on each side with random challenges.
-//! 2. Subtracting the folded left and right results.
-//! 3. Masking with the shared activator (if present).
-//! 4. Emitting a zero-check claim in both prover and verifier flows.
+//! Both sides fold their data columns with the same challenges. The
+//! difference of the two folds, masked by the shared activator if there is
+//! one, is zerochecked.
 
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
@@ -19,12 +17,9 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
-/// Label for the left input to the eq gadget
 pub const LEFT_LABEL: &str = "left";
-/// Label for the right input to the eq gadget
 pub const RIGHT_LABEL: &str = "right";
 
-/// A gadget node that enforces that two tables are equal on all activated rows.
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -110,12 +105,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // First fetch the payloads prepared for this gadget to consume
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
             panic!("Expected gadget payload for Eq gadget node");
         };
-        // Then inside that payload, fetch the left and right inputs
         let (Some(left_input), Some(right_input)) =
             (payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
         else {
@@ -144,7 +137,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         }
         let left_col = left_input.fold_all_data_columns(&challenges);
         let right_col = right_input.fold_all_data_columns(&challenges);
-        // Form the polynomial that should be zero if the two folded table views are equal
         let zero_poly = match activator {
             Some(activator_tracked_poly) => {
                 &(&left_col.data_tracked_poly() - &right_col.data_tracked_poly())
@@ -152,7 +144,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             }
             None => &left_col.data_tracked_poly() - &right_col.data_tracked_poly(),
         };
-        // Emit the zero-check claim for this polynomial
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
         Ok(())
     }
@@ -172,12 +163,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // First fetch the payloads prepared for this gadget to consume
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
             panic!("Expected gadget payload for Eq gadget node");
         };
-        // Then inside that payload, fetch the left and right inputs
         let (Some(left_input), Some(right_input)) =
             (payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
         else {
@@ -206,7 +195,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         }
         let left_col = left_input.fold_all_data_oracles(&challenges);
         let right_col = right_input.fold_all_data_oracles(&challenges);
-        // Form the oracle that should be zero if the two folded table views are equal.
         let zero_oracle = match activator {
             Some(activator_tracked_poly) => {
                 &(&left_col.data_tracked_oracle() - &right_col.data_tracked_oracle())
@@ -214,7 +202,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             }
             None => &left_col.data_tracked_oracle() - &right_col.data_tracked_oracle(),
         };
-        // Emit the zero-check claim for this oracle.
         verifier.add_mv_zerocheck_claim(zero_oracle.id());
         Ok(())
     }

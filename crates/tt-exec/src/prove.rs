@@ -34,8 +34,7 @@ use std::{
 use tracing::instrument;
 use tt_core::session::session_context;
 use tt_core::{
-    ctx_oracles::CtxOracles,
-    prover::passes::materialization::configure_constraint_metadata_from_parquet_paths,
+    ctx_oracles::CtxOracles, irs::nodes::hints::configure_constraint_metadata_from_parquet_paths,
 };
 
 type B = BenchBackend;
@@ -45,25 +44,16 @@ pub struct ProveOutputs {
     pub result_path: PathBuf,
 }
 
-/// Builder ProveRunner instances.
 pub struct ProveBuilder {
-    /// SQL query string to prove.
     query: Option<String>,
-    /// Paths to Parquet files for input tables in the query.
+    /// One parquet per input table, in the order of `oracle_paths`.
     parquet_paths: Option<Vec<PathBuf>>,
-    /// Paths to table oracle files corresponding to the Parquet files.
     oracle_paths: Option<Vec<PathBuf>>,
-    /// Path to the serialized proving key (TTProvingKey).
     pk_path: Option<PathBuf>,
-    /// Output path for the generated proof.
     output_path: Option<PathBuf>,
-    /// Optional override for the data-dependent rule list. When `None`, the
-    /// default `data_dependent_rules()` set is used. Ablation benchmarks pass
-    /// a filtered list here to disable specific rules.
+    /// `None` means the default `data_dependent_rules()`.
     data_dependent_rules: Option<Vec<Arc<dyn DataDependentOptimizationRule>>>,
-    /// Optional override for the proof-plan optimizer rule list. When `None`,
-    /// the default `pp_rules()` set is used. Ablation benchmarks pass a
-    /// filtered list here to disable specific rules (e.g., PK-FK).
+    /// `None` means the default `pp_rules()`.
     pp_rules: Option<Vec<Arc<dyn ProofPlanOptimizerRule<B>>>>,
 }
 
@@ -119,9 +109,8 @@ impl ProveBuilder {
         self
     }
 
-    /// Override the data-dependent optimizer rule list. Primarily used by
-    /// ablation benchmarks that want to disable compaction (or future
-    /// data-dependent rules) without rebuilding the production rule set.
+    /// Replaces the default data-dependent rules. Ablation benchmarks pass a
+    /// filtered list, e.g. one without compaction.
     pub fn with_data_dependent_rules(
         mut self,
         rules: Vec<Arc<dyn DataDependentOptimizationRule>>,
@@ -130,8 +119,8 @@ impl ProveBuilder {
         self
     }
 
-    /// Override the proof-plan optimizer rule list. Used by ablation
-    /// benchmarks (e.g., to disable PK-FK specialization).
+    /// Replaces the default proof-plan rules. Ablation benchmarks pass a
+    /// filtered list, e.g. one without PK-FK specialization.
     pub fn with_pp_rules(mut self, rules: Vec<Arc<dyn ProofPlanOptimizerRule<B>>>) -> Self {
         self.pp_rules = Some(rules);
         self
@@ -181,23 +170,15 @@ impl ProveBuilder {
     }
 }
 
-/// Runner for generating proofs from SQL queries and input data.
 pub struct ProveRunner {
-    /// SQL query string to prove.
     query: String,
-    /// Paths to Parquet files for input tables in the query.
     parquet_paths: Vec<PathBuf>,
-    /// Paths to table oracle files corresponding to the Parquet files.
     oracle_paths: Vec<PathBuf>,
-    /// Path to the serialized proving key (TTProvingKey).
     pk_path: PathBuf,
-    /// Output path for the generated proof.
     output_path: PathBuf,
-    /// Output path for the prover-produced result parquet.
+    /// The claimed result, written next to the proof.
     result_output_path: PathBuf,
-    /// Optional override for the data-dependent rule list.
     data_dependent_rules: Option<Vec<Arc<dyn DataDependentOptimizationRule>>>,
-    /// Optional override for the proof-plan optimizer rule list.
     pp_rules: Option<Vec<Arc<dyn ProofPlanOptimizerRule<B>>>>,
 }
 
@@ -206,12 +187,8 @@ impl ProveRunner {
     pub async fn run(&self) -> Result<ProveOutputs> {
         let prover: TTProver<B> = self.build_tt_prover().await?;
         let (output_memtable, proof) = prover.prove(&self.query).await?;
-        // Fire the proof-size + results emitters BEFORE the writes
-        // consume `proof` / `output_memtable`. Populates the dashboard's
-        // Proof Size and Results tabs — same accounting as the divan
-        // bench harness so the two producers land in a compatible
-        // JSONL layout. Failures are non-fatal (log and continue) —
-        // stats are diagnostic, not a proving-correctness concern.
+        // Emitted before the writes consume `output_memtable`. A failure is
+        // logged, not returned: the stats are diagnostic.
         if let Err(err) = crate::stats_jsonl::emit_prove_stats(
             &self.query,
             &proof,

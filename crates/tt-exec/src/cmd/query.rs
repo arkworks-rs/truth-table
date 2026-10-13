@@ -89,7 +89,6 @@ async fn execute_query(
         .context("failed to create logical plan")?;
 
     if logical_plan_graphviz {
-        // Show the logical plan before execution for debugging.
         println!("{}", plan.display_graphviz());
     }
 

@@ -1,16 +1,9 @@
-//! A minimal harness for unit-testing individual gadget nodes without
-//! standing up the full IR pipeline.
+//! A harness for unit-testing one gadget node without the full IR pipeline.
 //!
-//! Typical usage: build a single-gadget `GadgetHarness`, populate its
-//! payload slots by supplying `TableSpec`s, then hand it to
-//! [`run_gadget_pipeline`] which runs prove → build_proof → set_proof →
-//! verify end-to-end and returns the verification result.
-//!
-//! Payload columns are committed at harness-build time on the prover side;
-//! the verifier tables are materialized after `set_proof` because
-//! `track_mv_com_by_id` needs the proof in place first. The harness does
-//! not model IR traversal or gadget-plan initialization — it is intended
-//! for testing a single gadget in isolation.
+//! Build a `GadgetHarness`, give its payload slots as `TableSpec`s, then
+//! call [`run_gadget_pipeline`]. The prover commits the payload columns when
+//! the harness is built; the verifier's tables are built after `set_proof`,
+//! because `track_mv_com_by_id` needs the proof. Gadget planning is not run.
 
 use std::sync::Arc;
 
@@ -36,23 +29,20 @@ use crate::irs::{
 use crate::prover::irs::GadgetReadyIr as ProverGadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
-/// Description of one payload table to be built and committed.
+/// One payload table to build and commit.
 pub struct TableSpec<F> {
     pub schema: Schema,
     pub log_size: usize,
     /// Data columns in insertion order (field, evaluations).
     pub cols: Vec<(FieldRef, Vec<F>)>,
-    /// Optional activator column (evaluations). If `None`, the table has
-    /// no activator.
     pub activator: Option<Vec<F>>,
 }
 
-/// A committed table plus the TrackerIDs the verifier needs to
-/// reconstruct its mirror after `set_proof`.
+/// A committed table plus the tracker ids the verifier needs to rebuild its
+/// mirror after `set_proof`.
 struct CommittedTable<B: SnarkBackend> {
     prover: TrackedTable<B>,
-    /// (field, tracker id) in insertion order (data cols first, then
-    /// activator if present).
+    /// Data columns in insertion order, then the activator if present.
     field_ids: Vec<(FieldRef, TrackerID)>,
     schema: Schema,
     log_size: usize,
@@ -66,8 +56,8 @@ pub struct GadgetHarness<B: SnarkBackend> {
     pub node_id: NodeId,
     pub prover_ir: ProverGadgetReadyIr<B>,
     pub verifier_ir: VerifierGadgetReadyIr<B>,
-    /// Per (target NodeId, label) -> committed table (kept so the pipeline
-    /// can build the verifier tables after `set_proof`).
+    /// Kept per (target node, label) so the pipeline can build the verifier
+    /// tables after `set_proof`.
     committed: IndexMap<NodeId, IndexMap<String, CommittedTable<B>>>,
 }
 
@@ -77,7 +67,6 @@ impl<B: SnarkBackend> GadgetHarness<B> {
     }
 }
 
-/// Fluent builder for a `GadgetHarness`.
 pub struct GadgetHarnessBuilder<B: SnarkBackend> {
     srs_nv: usize,
     gadget: Option<Arc<Node<B>>>,
@@ -93,7 +82,7 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
         }
     }
 
-    /// Register the gadget node under test. Must be called exactly once.
+    /// The gadget node under test; `build` requires it.
     pub fn with_gadget(mut self, gadget: Arc<Node<B>>) -> Self {
         assert!(
             matches!(gadget.as_ref(), Node::Gadget(_)),
@@ -103,8 +92,7 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
         self
     }
 
-    /// Add a payload table for `node_id` under `label`. Multiple calls
-    /// with the same `node_id` accumulate; a repeated `label` replaces.
+    /// Calls with the same `node_id` accumulate; a repeated `label` replaces.
     pub fn with_table(mut self, node_id: NodeId, label: &str, spec: TableSpec<B::F>) -> Self {
         self.payloads
             .entry(node_id)
@@ -113,10 +101,8 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
         self
     }
 
-    /// Commit all payload columns on the prover side, populate the prover
-    /// IR's payload map, and remember the TrackerIDs so the pipeline can
-    /// materialize the verifier tables after `set_proof`. The verifier IR
-    /// starts with empty payloads.
+    /// Commits every payload column on the prover side and fills the prover
+    /// IR. The verifier IR starts with empty payloads.
     pub fn build(self) -> GadgetHarness<B> {
         let (mut prover, verifier) =
             prelude_with_vars::<B>(self.srs_nv).expect("SRS setup should succeed");
@@ -214,26 +200,17 @@ fn materialize_verifier_table<B: SnarkBackend>(
     ))
 }
 
-/// Runs prove → build_proof → set_proof → verify on a fully-populated
-/// harness and returns the verifier's `verify()` result. Errors at any
-/// stage bubble up.
+/// Runs prove, build_proof, set_proof and verify on the harness.
 ///
-/// Supports composite gadgets: `initialize_gadgets` is invoked in
-/// pre-order on the root and all descendants (so parents can populate
-/// their children's payloads), then `prove` / `verify` run in post-order
-/// (so children complete before parents), mirroring the tt-core
-/// production pipeline.
+/// As in the production pipeline, `initialize_gadgets` runs in pre-order (a
+/// parent fills its children's payloads) and `prove` / `verify` in
+/// post-order, so composite gadgets work.
 pub fn run_gadget_pipeline<B: SnarkBackend>(
     mut harness: GadgetHarness<B>,
 ) -> Result<(), SnarkError> {
-    // Pre-order walk of gadget nodes rooted at the harness gadget.
     let tree = harness.prover_ir.tree().clone();
     let pre_order: Vec<_> = collect_pre_order(&tree);
 
-    // 1. Prover: initialize_gadgets in pre-order (parents populate their
-    //    children's payloads before the children's own initialization
-    //    ever needs them). Disambiguate the two trait impls of the same
-    //    method name on Node<B>.
     for (id, node) in &pre_order {
         if let Node::Gadget(g) = node.as_ref() {
             crate::irs::nodes::ProverNodeOps::initialize_gadgets(
@@ -245,7 +222,6 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
         }
     }
 
-    // 2. Prover: prove in post-order (children before parents).
     let post_order: Vec<_> = tree
         .arena()
         .iter()
@@ -257,12 +233,11 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
         }
     }
 
-    // 3. Compile the proof and hand it to the verifier.
     let proof = harness.prover.build_proof()?;
     harness.verifier.set_proof(proof);
 
-    // 4. Materialize the harness-declared verifier tables (needs the
-    //    proof so track_mv_com_by_id resolves).
+    // `track_mv_com_by_id` resolves ids in the proof, so the verifier's
+    // tables are built only here.
     for (target_id, committed_map) in &harness.committed {
         let mut verifier_payload: IndexMap<String, TrackedTableOracle<B>> = IndexMap::new();
         for (label, committed_table) in committed_map {
@@ -275,9 +250,8 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
         );
     }
 
-    // 5. Verifier: initialize_gadgets in pre-order (mirrors the prover;
-    //    consumers call track_next_mv_com in the same order as prover
-    //    commits, so tracker IDs stay in sync).
+    // Same order as the prover: the gadgets call `track_next_mv_com` in the
+    // order of the prover's commits, which keeps the tracker ids in sync.
     for (id, node) in &pre_order {
         if let Node::Gadget(g) = node.as_ref() {
             crate::irs::nodes::VerifierNodeOps::initialize_gadgets(
@@ -289,7 +263,6 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
         }
     }
 
-    // 6. Verifier: verify in post-order + finalize.
     for (id, node) in &post_order {
         if let Node::Gadget(g) = node.as_ref() {
             g.verify(&mut harness.verifier, &mut harness.verifier_ir, *id)?;
@@ -299,10 +272,8 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
     Ok(())
 }
 
-/// Pre-order walk (parent → children → grandchildren …) starting from
-/// the tree root. Follows `Node::children()`, visiting each `NodeId` once —
-/// `Tree` supports DAG shapes, and a shared sub-node must not be
-/// initialized/proved twice.
+/// Pre-order walk from the root that visits each `NodeId` once: a `Tree` can
+/// be a DAG, and a shared node must not be initialized twice.
 fn collect_pre_order<B: SnarkBackend>(tree: &Tree<B>) -> Vec<(NodeId, Arc<Node<B>>)> {
     use crate::irs::nodes::IsNode;
     fn walk<B: SnarkBackend>(

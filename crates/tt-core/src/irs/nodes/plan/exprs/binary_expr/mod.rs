@@ -29,18 +29,13 @@ pub mod gadget;
 mod virtual_ops;
 
 pub struct ExprNode<B: SnarkBackend> {
-    /// The binary expression being represented.
     pub binary_expression: BinaryExpr,
-    /// The left child node.
     pub left: Arc<Node<B>>,
-    /// The right child node.
     pub right: Arc<Node<B>>,
-    /// The scope node.
     pub scope: Vec<std::sync::Weak<Node<B>>>,
-    /// The gadget node.
     pub gadget: Option<Arc<Node<B>>>,
-    /// Cached output data field for this expression node to avoid repeated
-    /// recursive `output()` calls during virtualization.
+    /// Output data field, cached to avoid repeated recursive `output()` calls
+    /// during virtualization.
     output_data_field_cache: Mutex<Option<FieldRef>>,
 }
 
@@ -133,8 +128,8 @@ impl<B: SnarkBackend> ExprNode<B> {
         field
     }
 
-    /// Determines whether the result of the binary expression should be materialized or not.
-    /// Some operators require materialization (e.g., comparisions), while others may not (e.g., arithmetic operations).
+    /// Comparisons and division are materialized; the other operators stay
+    /// virtual (`virtual_ops`).
     fn should_materialize(&self) -> bool {
         matches!(
             self.binary_expression.op,
@@ -147,8 +142,6 @@ impl<B: SnarkBackend> ExprNode<B> {
                 | datafusion_expr::Operator::Divide
         )
     }
-    /// Dispatches to the appropriate gadget node based on the binary operator.
-    /// Since binary expressions can represent a variety of operations, we need to select the correct gadget node.
     fn dispatch_gadget(op: datafusion_expr::Operator) -> Option<Arc<Node<B>>> {
         match op {
             datafusion_expr::Operator::Eq => Some(Arc::new(Node::<B>::Gadget(Arc::new(
@@ -248,21 +241,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         id: NodeId,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Pull activator from the left child.
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => panic!("Expected PlanPayload for left child in BinaryExprNode"),
         };
         let left_activator = left_table.activator_tracked_poly();
 
-        // Pull activator from the right child.
         let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => panic!("Expected PlanPayload for right child in BinaryExprNode"),
         };
         let right_activator = right_table.activator_tracked_poly();
 
-        // Assert that the left and right activators are the same.
         debug_assert!(
             match (left_activator.as_ref(), right_activator.as_ref()) {
                 (Some(l), Some(r)) => l == r,
@@ -298,7 +288,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             ))
         };
 
-        // Start from existing payload (if any).
         let current_table = virtualized_ir
             .payload_for_node(&id)
             .and_then(|payload| match payload {
@@ -412,14 +401,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         id: NodeId,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Pull activator from the left child.
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => panic!("Expected PlanPayload for left child in BinaryExprNode"),
         };
         let left_activator = left_table.activator_tracked_poly();
 
-        // Pull activator from the right child.
         let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => panic!("Expected PlanPayload for right child in BinaryExprNode"),
@@ -461,7 +448,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             ))
         };
 
-        // Start from existing payload (if any).
         let current_table = virtualized_ir
             .payload_for_node(&id)
             .and_then(|payload| match payload {
@@ -577,7 +563,6 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Project the binary expression result alongside the activator from the scope.
         let scope = self.scope[0]
             .upgrade()
             .expect("BinaryExpr scope should be available during output");
@@ -734,13 +719,11 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
     where
         Self: Sized,
     {
-        // Extract the binary expression.
         let binary_expression = match expr {
             datafusion_expr::Expr::BinaryExpr(bin_expr) => bin_expr,
             _ => panic!("Expected Expr::BinaryExpr"),
         };
 
-        // Recurse into the left expression to build its nodes.
         let left = Tree::<B>::from_expr(
             &binary_expression.left,
             Some(self_ref.clone()),
@@ -748,7 +731,6 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         )
         .root()
         .clone();
-        // Recurse into the right expression to build its nodes.
         let right = Tree::<B>::from_expr(
             &binary_expression.right,
             Some(self_ref.clone()),
@@ -756,7 +738,6 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         )
         .root()
         .clone();
-        // Dispatch to the appropriate gadget node.
         let gadget = Self::dispatch_gadget(binary_expression.op);
         Self {
             binary_expression,

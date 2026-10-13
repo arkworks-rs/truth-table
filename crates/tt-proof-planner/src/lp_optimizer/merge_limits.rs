@@ -7,6 +7,9 @@ use datafusion_expr::{
     logical_plan::{Limit, LogicalPlan},
 };
 
+/// `PushDownLimit` keeps an explicit `Limit` above a `Projection` and also sets
+/// `fetch` on the `TableScan` below, which `NormalizeTableScanPushdown` turns
+/// into a second `Limit` with the same bounds. This rule collapses the pair.
 #[derive(Debug, Default)]
 pub(crate) struct MergeConsecutiveLimits;
 
@@ -34,14 +37,8 @@ impl OptimizerRule for MergeConsecutiveLimits {
     }
 }
 
-// `PushDownLimit` keeps an explicit `Limit` above a `Projection` and also
-// annotates the underlying `TableScan` with `fetch=Some(...)`. The downstream
-// `NormalizeTableScanPushdown` rule re-materialises that fetch into a new
-// `Limit` directly above the scan, leaving two back-to-back `Limit`s with
-// identical bounds. This rule collapses them.
-
-// `None` skip is treated as zero; `None` fetch is "no upper bound" (i64::MAX).
-// Returns `None` for non-literal expressions, in which case merging bails out.
+// `None` skip is zero and `None` fetch is "no upper bound" (i64::MAX). A
+// non-literal expression gives `None`, and the limits are not merged.
 fn skip_value(skip: &Option<Box<Expr>>) -> Option<i64> {
     match skip {
         None => Some(0),
@@ -80,12 +77,8 @@ fn merge_limits(plan: LogicalPlan) -> datafusion_common::Result<Transformed<Logi
         return Ok(Transformed::no(LogicalPlan::Limit(outer)));
     };
 
-    // Only collapse when the two limits are semantically equal. The case in
-    // practice is `Limit(skip=0, fetch=N) -> Limit(skip=0, fetch=N)` produced
-    // when `PushDownLimit` keeps an explicit Limit *and* annotates the
-    // underlying `TableScan.fetch`, which `NormalizeTableScanPushdown` then
-    // re-materialises. Generalising to unequal bounds would require correct
-    // skip/fetch arithmetic and isn't needed to fix the regression.
+    // Only equal limits are collapsed; unequal bounds would need skip/fetch
+    // arithmetic.
     if outer_skip != inner_skip || outer_fetch != inner_fetch {
         return Ok(Transformed::no(LogicalPlan::Limit(outer)));
     }

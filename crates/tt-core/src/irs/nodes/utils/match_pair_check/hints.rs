@@ -12,7 +12,6 @@ use datafusion::{
 use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::{Expr, col, lit};
 use std::{collections::HashSet, sync::Arc};
-use tokio::runtime::RuntimeFlavor;
 
 use crate::irs::nodes::hints::sort_by_row_id_if_present;
 
@@ -104,7 +103,7 @@ fn data_column_names(df: &DataFrame) -> DataFusionResult<Vec<String>> {
 }
 
 fn materialize_union_hint(df: DataFrame, key_names: &[String]) -> DataFusionResult<DataFrame> {
-    let batches = collect_blocking(df.clone())?;
+    let batches = crate::session::block_on(collect_in_partition_order(df.clone()))?;
     let schema_ref = if batches.is_empty() {
         Arc::new(df.schema().as_arrow().clone())
     } else {
@@ -223,36 +222,4 @@ async fn collect_in_partition_order(df: DataFrame) -> DataFusionResult<Vec<Recor
         .into_iter()
         .flatten()
         .collect())
-}
-
-fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(collect_in_partition_order(df)))
-            }
-            RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(collect_in_partition_order(df_clone))
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(collect_in_partition_order(df))),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(collect_in_partition_order(df))
-        }
-    }
 }

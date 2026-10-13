@@ -1,10 +1,6 @@
-//! This crate provides a set of tools for arithmetizing (encoding) and
-//! de-arithmetizing (decoding) data-structures related to databases; i.e.
-//! tables, columns, data tpypes, etc.
-//! Arithmetization is the process of converting a data structure into algebraic
-//! objects used in proof-systems , like polynomials.
+//! Arithmetization of database objects (tables, columns, Arrow data types):
+//! their encoding as the polynomials the proof system works on.
 
-///////// Modules /////////
 pub mod arith_col;
 pub mod col;
 pub mod col_oracle;

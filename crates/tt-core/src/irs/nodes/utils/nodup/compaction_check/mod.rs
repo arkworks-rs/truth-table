@@ -1,11 +1,7 @@
-//! Compact a single tracked column.
-//!
-//! A filter or limit can leave a column with many inactive rows while it still
-//! lives on the original hypercube dimension.  The paper’s compaction
-//! node repacks the column onto the minimal hypercube and proves correctness by
-//! (1) checking the new activator is Boolean and (2) proving a multiset
-//! equality between the old and new data.  This module implements that two-step
-//! PIOP for one column.
+//! The paper's compaction check for a single column: the output repacks the
+//! active rows of the input onto the minimal hypercube. The PIOP (1) checks
+//! that the new activator is Boolean and (2) proves a multiset equality
+//! between the old and the new data.
 
 use crate::irs::nodes::utils::nodup::binary_check::BinaryCheckPIOP;
 use crate::irs::nodes::utils::nodup::binary_check::BinaryCheckProverInput;

@@ -8,11 +8,11 @@
 //! ```
 //!
 //! Prints `pattern,bins,rows,chars,survivors,survivor_chars,matches,
-//! touched_limbs,literal_len,seconds` — a [`Shape`] and its whole-prove
-//! time, the row `tt-fp-opt fit` consumes. The scheme is the rule
-//! `commit` gives the column. `bins` counts the bins
-//! the planner tests: its greedy choice under the compiled-in cost model,
-//! reproduced here with the same function.
+//! touched_limbs,literal_len,seconds`: a [`Shape`] and its whole-prove
+//! time, the row `tt-fp-opt fit` consumes. The scheme is the rule `commit`
+//! gives the column. `bins` counts the bins the planner tests: its greedy
+//! choice under the compiled-in cost model, reproduced here with the same
+//! function.
 
 use anyhow::Result;
 use anyhow::anyhow;

@@ -9,23 +9,17 @@
 //!     TableScan
 //! ```
 //!
-//! The inserted filter's predicate is the `tt_prefilter` scalar UDF (the
-//! fingerprint subset test `fp(col) & φ == φ`), proven by the
-//! PreFilteringCheck PIOP against the scan's committed fingerprint limbs;
-//! the outer LIKE is untouched — matching rows always pass the fingerprint
-//! test, so query semantics are unchanged. The inserted call lists every
-//! bin the pattern sets; the data-dependent `PrefilterBinsRule` then
-//! narrows it to the bins worth testing (or removes it), and when the
-//! pre-filter shrinks the
-//! row count below half the hypercube the data-dependent
-//! `CompactionRule` wraps it in a `Compaction`, compacting the tables
-//! the LIKE machinery sees.
+//! `tt_prefilter` is the fingerprint subset test `fp(col) & φ == φ`, proven
+//! by the PreFilteringCheck PIOP against the scan's committed fingerprint
+//! limbs. Matching rows always pass it, so query semantics are unchanged.
+//! The inserted call lists every bin the pattern sets; the data-dependent
+//! `PrefilterBinsRule` narrows the list or removes the filter, and
+//! `CompactionRule` wraps it in a `Compaction` when it shrinks the hypercube.
 //!
-//! This runs as a deterministic post-pass AFTER the structural optimizer
-//! (not as an `OptimizerRule` inside it): rules like
-//! `MergeConsecutiveFilters` and `PushDownFilter` would otherwise fold
-//! the inserted filter back into the LIKE filter on a later pass. Both
-//! prover and verifier run the same post-pass, so the shapes agree.
+//! This is a post-pass after the structural optimizer, not an
+//! `OptimizerRule` inside it: `MergeConsecutiveFilters` and `PushDownFilter`
+//! would fold the inserted filter back into the LIKE filter on a later pass.
+//! Prover and verifier both run it, so the shapes agree.
 
 use datafusion_common::Result as DataFusionResult;
 use datafusion_common::tree_node::{Transformed, TreeNode};
@@ -36,8 +30,7 @@ use tt_core::irs::nodes::plan::exprs::fp_prefilter::{
 };
 
 /// The column, pattern and pattern bins when the LIKE lowering supports
-/// this predicate AND the pattern has literal factors worth pre-filtering
-/// on.
+/// this predicate and the pattern sets some bin.
 fn supported_like(expr: &Expr) -> Option<(Expr, String, Vec<arithmetic::fingerprint::Bin>)> {
     let Expr::Like(like) = expr else {
         return None;
@@ -73,10 +66,9 @@ fn is_prefilter_filter(plan: &LogicalPlan) -> bool {
     )
 }
 
-/// Insert fingerprint pre-filters in front of every supported LIKE
-/// filter over a table scan (the only operator whose payload carries the
-/// owner-committed fingerprint limbs). Idempotent: a LIKE filter whose
-/// input is already the corresponding pre-filter is left alone.
+/// Only a table scan's payload carries the owner-committed fingerprint
+/// limbs, so only a LIKE filter directly over one gets a pre-filter.
+/// Idempotent: a LIKE filter whose input is a pre-filter is left alone.
 pub fn insert_like_prefilters(plan: LogicalPlan) -> DataFusionResult<LogicalPlan> {
     let transformed = plan.transform_up(|node| {
         let LogicalPlan::Filter(filter) = &node else {

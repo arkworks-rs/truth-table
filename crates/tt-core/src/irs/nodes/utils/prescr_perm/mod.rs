@@ -205,7 +205,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", PERM_LABEL));
 
-        // Basic permutation sanity check for honest prover mode.
         if !prescribed_perm_honest_check::<B>(&left, &right, &perm) {
             return Err(ark_piop::errors::SnarkError::ProverError(
                 ark_piop::prover::errors::ProverError::HonestProverError(
@@ -423,8 +422,8 @@ fn data_columns_evals<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<Vec<B::F>
         .data_tracked_polys_indices()
         .into_iter()
         .map(|idx| {
-            // Compare activated values so inactive padded rows do not create
-            // false mismatches during the honest permutation check.
+            // Activated values, so inactive padded rows do not show up as
+            // mismatches.
             table
                 .tracked_col_by_ind(idx)
                 .activated_data_tracked_poly()
@@ -447,12 +446,10 @@ fn rows_match<F: PartialEq>(
     })
 }
 
-// Converts a field element into a usize if it fits in the provided bound.
-// Returns None if the value is out of range or does not fit in a single limb.
+/// `elem` as a `usize`, or `None` if it is not below `bound`.
 fn field_to_usize<F: PrimeField>(elem: F, bound: usize) -> Option<usize> {
     let bigint = elem.into_bigint();
     let limbs = bigint.as_ref();
-    // Reject values that do not fit in a single limb.
     if limbs.iter().skip(1).any(|&x| x != 0) {
         return None;
     }
@@ -460,13 +457,8 @@ fn field_to_usize<F: PrimeField>(elem: F, bound: usize) -> Option<usize> {
     (val < bound).then_some(val)
 }
 
-/// Builds a permutation polynomial representing a cyclic rotation of the
-/// identity mapping.
-///
-/// # Arguments
-/// * `log_size` - number of variables (domain size `2^log_size`)
-/// * `shift` - rotation distance (normalized modulo domain size)
-/// * `right` - when `true` rotates right, otherwise rotates left
+/// The shift permutation over `n = 2^log_size` indices as an MLE:
+/// `π[i] = (i - shift) mod n` if `right`, `(i + shift) mod n` otherwise.
 pub fn shift_permutation_mle<F: PrimeField>(log_size: usize, shift: usize, right: bool) -> MLE<F> {
     let domain_size = 1usize << log_size;
     let normalized_shift = if domain_size == 0 {
@@ -488,16 +480,15 @@ pub fn shift_permutation_mle<F: PrimeField>(log_size: usize, shift: usize, right
     MLE::from_evaluations_vec(log_size, evals)
 }
 
-/// Builds an oracle representing the cyclic permutation shift without
-/// materialising the dense MLE. Everything that only depends on `log_size`,
-/// `shift`, and `right` is pre-computed up front so that the closure only
-/// performs point-dependent work.
+/// Oracle for [`shift_permutation_mle`] that does not build the dense MLE.
+/// It evaluates `Σ x_i·2^i + δ − 2^log_size·[x ≥ t]`: the index plus the
+/// offset `δ`, minus the domain size from the index `t` where the sum wraps
+/// around. Everything that does not depend on the point is computed once.
 pub fn shift_permutation_oracle<F: PrimeField>(
     log_size: usize,
     shift: usize,
     right: bool,
 ) -> Oracle<F> {
-    // Domain size of the Boolean hypercube (2^log_size) and normalized shift.
     let domain_size = 1usize << log_size;
     let shift_mod = if domain_size == 0 {
         0
@@ -505,7 +496,7 @@ pub fn shift_permutation_oracle<F: PrimeField>(
         shift % domain_size
     };
 
-    // Pre-compute the weights of the sparse range polynomial Σ x_i · 2^i.
+    // Weights of Σ x_i · 2^i.
     let mut weights = Vec::with_capacity(log_size);
     let mut coeff = F::one();
     for _ in 0..log_size {
@@ -513,7 +504,7 @@ pub fn shift_permutation_oracle<F: PrimeField>(
         coeff += coeff;
     }
 
-    // Determine the additive offset and the threshold that marks wrap-around.
+    // The offset δ and the wrap-around threshold t.
     let (delta_int, overflow_threshold) = if shift_mod == 0 {
         (0usize, None)
     } else if right {
@@ -522,7 +513,6 @@ pub fn shift_permutation_oracle<F: PrimeField>(
         (shift_mod, Some(domain_size - shift_mod))
     };
 
-    // Convert the additive offset into the field once.
     let mut delta_f = F::zero();
     for (i, weight) in weights.iter().enumerate() {
         if ((delta_int >> i) & 1) == 1 {
@@ -530,7 +520,7 @@ pub fn shift_permutation_oracle<F: PrimeField>(
         }
     }
 
-    // Field representation of 2^{log_size}, only needed when an overflow occurs.
+    // 2^log_size in the field.
     let domain_f = overflow_threshold.map(|_| {
         let mut value = F::one();
         for _ in 0..log_size {
@@ -539,7 +529,7 @@ pub fn shift_permutation_oracle<F: PrimeField>(
         value
     });
 
-    // Cache the overflow threshold bits (least-significant bit first).
+    // Bits of t, LSB first.
     let threshold_bits = overflow_threshold.map(|thr| {
         (0..log_size)
             .map(|i| ((thr >> i) & 1) == 1)
@@ -547,23 +537,19 @@ pub fn shift_permutation_oracle<F: PrimeField>(
     });
 
     Oracle::new_multivariate(log_size, move |mut point: Vec<F>| {
-        // 1. Normalise the input length to exactly `log_size`.
         if point.len() > log_size {
             point.truncate(log_size);
         } else if point.len() < log_size {
             point.resize(log_size, F::zero());
         }
 
-        // 2. Evaluate the sparse range polynomial Σ x_i · 2^i using the cached weights.
         let range_value = point
             .iter()
             .zip(weights.iter())
             .fold(F::zero(), |acc, (bit, weight)| acc + (*bit * *weight));
 
-        // 3. Apply the additive shift offset.
         let mut result = range_value + delta_f;
 
-        // 4. Subtract 2^{log_size} if the rotation would overflow past the domain.
         if let (Some(bits), Some(domain)) = (threshold_bits.as_ref(), domain_f) {
             let overflow = evaluate_ge_bits(&point, bits);
             result -= domain * overflow;
@@ -573,9 +559,9 @@ pub fn shift_permutation_oracle<F: PrimeField>(
     })
 }
 
-/// Evaluates a polynomial that outputs 1 when `vars` encodes an integer that is
-/// greater than or equal to the threshold defined by `threshold_bits` (LSB
-/// first).
+/// Evaluates the polynomial that is 1 when `vars` encodes an integer greater
+/// than or equal to the one in `threshold_bits`, and 0 on every other
+/// Boolean point. Both are LSB first.
 fn evaluate_ge_bits<F: PrimeField>(vars: &[F], threshold_bits: &[bool]) -> F {
     let one = F::one();
     let mut prefix_equal = F::one();

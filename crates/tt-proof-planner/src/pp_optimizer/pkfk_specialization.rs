@@ -13,13 +13,10 @@ use tt_core::irs::tree::Tree;
 
 use super::ProofPlanOptimizerRule;
 
-/// Upgrade Join modes from the conservative `MANY_TO_MANY` default chosen at
-/// LP→IR ingestion to the specialized variants (`ONE_TO_MANY`, `MANY_TO_ONE`,
-/// `ONE_TO_ONE`) supported by the join's PK/FK schema metadata.
-///
-/// Removing this rule from `pp_optimizer::rules()` (e.g., in an ablation
-/// benchmark) keeps every join at `MANY_TO_MANY`, exercising the general
-/// join protocol on both prover and verifier.
+/// Upgrades each join from the `MANY_TO_MANY` default chosen at LP→IR
+/// ingestion to the variant (`ONE_TO_MANY`, `MANY_TO_ONE`, `ONE_TO_ONE`) its
+/// PK/FK schema metadata supports. Without this rule every join runs the
+/// general protocol on both prover and verifier.
 pub struct PkFkSpecializationRule;
 
 impl<B: SnarkBackend> ProofPlanOptimizerRule<B> for PkFkSpecializationRule {
@@ -28,11 +25,9 @@ impl<B: SnarkBackend> ProofPlanOptimizerRule<B> for PkFkSpecializationRule {
     }
 
     fn optimize(&self, ir: InitialIr<B>) -> InitialIr<B> {
-        // `JoinLpNode::set_join_mode` mutates the join's `Gadgets` enum in
-        // place via `RwLock`, swapping `ManyToMany` → `HasOne` and dropping
-        // the sub-gadget `Arc`s held inside the variant. The tree's arena
-        // still indexes those sub-gadgets as orphans, so rebuild it from
-        // the (post-mutation) root once any specialization fired.
+        // `set_join_mode` swaps the join's `Gadgets` variant in place and
+        // drops the old variant's sub-gadgets, which the tree's arena still
+        // indexes. Rebuild the tree from the root once any join changed.
         let root = ir.tree().root().clone();
         let mut mutated = false;
         specialize_in_place(&root, &mut mutated);

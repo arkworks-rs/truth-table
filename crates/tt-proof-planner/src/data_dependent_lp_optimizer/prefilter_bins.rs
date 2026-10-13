@@ -15,17 +15,16 @@ use tt_core::irs::nodes::plan::exprs::fp_prefilter::{
 use tt_core::irs::nodes::utils::sweep_factors::parse_like_pattern_bytes;
 
 use super::compaction::expressions_for_with_new_exprs;
-use super::{DataDependentOptimizationRule, OptimizationHint, collect_blocking, row_count};
+use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
 
-/// Data-dependent rule that picks which fingerprint bins each LIKE
-/// pre-filter tests. For `Filter(LIKE) ∘ Filter(tt_prefilter) ∘ input`, the
-/// prover fingerprints the column's active rows, counts the LIKE's matches,
-/// and runs the greedy of [`select_bins`] under the compiled-in cost model:
-/// the subset of the pattern's bins that makes the query cheapest, possibly
-/// none. The verifier replays the list from the hint and checks it is a
-/// subset of the pattern's bins; every such subset is sound, since testing
-/// fewer bins only lets more rows through. An empty list removes the
-/// pre-filter.
+/// Picks which fingerprint bins each LIKE pre-filter tests. For
+/// `Filter(LIKE) ∘ Filter(tt_prefilter) ∘ input`, the prover fingerprints the
+/// column's active rows, counts the LIKE's matches, and runs the greedy of
+/// [`select_bins`] under the compiled-in cost model: the subset of the
+/// pattern's bins that makes the query cheapest. An empty subset removes the
+/// pre-filter. The verifier checks the hinted list is a subset of the
+/// pattern's bins; every such subset is sound, since testing fewer bins only
+/// lets more rows through.
 ///
 /// Must run before `CompactionRule`, whose decisions depend on how much
 /// the pre-filter drops.
@@ -125,8 +124,8 @@ fn choose_bins(
     Ok(chosen.bins)
 }
 
-/// The column's values on the input's active rows (NULL as an empty
-/// string, which no bin test passes — the pre-filter's `false` on NULL).
+/// The column's values on the input's active rows. NULL becomes an empty
+/// string, which no bin test passes, like the pre-filter's `false` on NULL.
 fn active_strings(
     session_state: &SessionState,
     input: &LogicalPlan,
@@ -143,7 +142,7 @@ fn active_strings(
     }
     let df = DataFrame::new(session_state.clone(), input.clone()).select(projection)?;
     let mut out = Vec::new();
-    for batch in collect_blocking(df)? {
+    for batch in tt_core::session::block_on(df.collect())? {
         let values = cast(batch.column(0), &DataType::Utf8)?;
         let values = values.as_string::<i32>();
         let active: Option<&BooleanArray> = has_activator.then(|| batch.column(1).as_boolean());
@@ -161,12 +160,10 @@ fn active_strings(
     Ok(out)
 }
 
-/// Apply `PrefilterBins` hints: at each target path, which must hold a
-/// `tt_prefilter` filter, set the bins it tests — or replace the filter by
-/// its input when the list is empty. A non-empty list that is not a subset
-/// of the pattern's bins is an error: the prover's plan kept a pre-filter
-/// the verifier cannot accept. Only nodes on a path to a target are
-/// rebuilt. Called by [`super::apply_optimization_hints`].
+/// Each target path must hold a `tt_prefilter` filter; an empty list replaces
+/// it by its input. A non-empty list that is not a subset of the pattern's
+/// bins is an error: the verifier cannot accept that pre-filter. Only nodes
+/// on a path to a target are rebuilt.
 pub(super) fn apply_prefilter_bins_hints(
     plan: LogicalPlan,
     path: &mut Vec<usize>,

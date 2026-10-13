@@ -1,3 +1,4 @@
+use crate::irs::nodes::hints::table_name_from_qualifier;
 use std::collections::BTreeSet;
 
 use datafusion_common::{Column, DFSchemaRef, TableReference};
@@ -265,16 +266,6 @@ pub(crate) fn expr_to_column(expr: &Expr) -> Option<Column> {
 
 fn table_name_from_relation(relation: &TableReference) -> String {
     table_name_from_qualifier(&relation.to_string())
-}
-
-fn table_name_from_qualifier(qualifier: &str) -> String {
-    qualifier
-        .rsplit('.')
-        .next()
-        .unwrap_or(qualifier)
-        .trim_matches('"')
-        .trim_matches('`')
-        .to_lowercase()
 }
 
 fn resolve_constraint_metadata(

@@ -4,16 +4,13 @@
 //! the same result, byte for byte.
 //!
 //! The prover commits to the rows its plan nodes produce, in the order they
-//! come out. DataFusion's default session runs a plan in one partition per
-//! core and merges partitions in the order their batches arrive, so under it
-//! that order, and with it the proof, changes from run to run: an aggregate
-//! or a join over a table of a few thousand rows gave a different proof on
-//! nearly every run. The queries below are of those two kinds, and neither
-//! sorts its output, so the result's row order is at stake too.
+//! come out. Under DataFusion's default session (one partition per core,
+//! merged in arrival order) that order, and with it the proof, changes from
+//! run to run for an aggregate or a join. Neither query below sorts its
+//! output, so the result's row order is at stake too.
 //!
-//! The runtime is multi-threaded on purpose. On a current-thread runtime the
-//! partitions of a plan are polled in a fixed order and the default session
-//! mostly gets away with it.
+//! The runtime is multi-threaded on purpose: a current-thread runtime polls
+//! the partitions in a fixed order and hides the problem.
 
 use std::path::{Path, PathBuf};
 

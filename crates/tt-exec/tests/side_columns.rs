@@ -1,17 +1,10 @@
 #![cfg(feature = "test-utils")]
 
-//! Plan-level tests for auxiliary (char-level side poly) column pruning.
-//!
 //! `Tree::required_side_columns` decides which string columns get side polys
-//! (`__chars`, `__orig_ind`, `__int_ind`, `__bnd`) encoded, committed, and
+//! (`__chars`, `__orig_ind`, `__int_ind`, `__bnd`) encoded, committed and
 //! tracked. It must name exactly the columns consumed by white-box string
-//! gadgets (LIKE) — and nothing else, so queries without white-box string
-//! operations never load auxiliary columns at all (paper: "Dropping
-//! Auxiliary Columns").
-//!
-//! These tests replay the shared logical-plan pipeline (plan → analyze →
-//! optimize → IR → proof-plan optimize) exactly as prover and verifier do,
-//! then assert on the resulting set.
+//! gadgets (LIKE), so a query without one loads no auxiliary column (paper:
+//! "Dropping Auxiliary Columns").
 
 use std::collections::BTreeSet;
 
@@ -23,8 +16,8 @@ use tt_exec::test_utils::resolve_parquet_path;
 
 type B = BenchBackend;
 
-/// Build the query's IR the way both prover and verifier do, and return the
-/// side-column set the pipeline will use.
+/// The side-column set of the query's IR, built through the shared pipeline
+/// the prover and the verifier both run.
 async fn required_side_columns_for(sql: &str, tables: &[&str]) -> BTreeSet<String> {
     let ctx = SessionContext::new();
     for table in tables {
@@ -46,8 +39,8 @@ async fn required_side_columns_for(sql: &str, tables: &[&str]) -> BTreeSet<Strin
     ir.tree().required_side_columns()
 }
 
-/// Every TPC-H query in the benchmark suite (both `_tt` and `_pgn`
-/// variants) is LIKE-free, so none of them may load auxiliary columns.
+/// Every TPC-H query in the benchmark suite (`_tt` and `_pgn` variants) is
+/// LIKE-free, so none may load auxiliary columns.
 #[tokio::test]
 async fn tpch_bench_queries_require_no_side_columns() {
     // Mirrors the (query_nr, poneglyph) pairs in benches/tpch/mod.rs.
@@ -66,8 +59,8 @@ async fn tpch_bench_queries_require_no_side_columns() {
     }
 }
 
-/// A LIKE filter demands side polys for exactly its bound column — not for
-/// any other string column in the same table.
+/// A LIKE needs side polys for its bound column and for no other string
+/// column of the table.
 #[tokio::test]
 async fn like_query_requires_exactly_its_column() {
     let cols = required_side_columns_for(
@@ -78,7 +71,7 @@ async fn like_query_requires_exactly_its_column() {
     assert_eq!(cols, BTreeSet::from(["n_comment".to_string()]));
 }
 
-/// String equality goes through the hash column only — no side polys.
+/// String equality uses the hash column only.
 #[tokio::test]
 async fn equality_filter_requires_no_side_columns() {
     let cols = required_side_columns_for(
@@ -92,11 +85,9 @@ async fn equality_filter_requires_no_side_columns() {
     );
 }
 
-/// Build a bare `Like` IR node for `n_comment LIKE '<pattern>'`.
-///
-/// Goes through `Tree::from_expr` directly because the SQL pipeline never
-/// hands a wildcard-only LIKE to the IR: the optimizer simplifies it away
-/// before lowering.
+/// A bare `Like` IR node for `n_comment LIKE '<pattern>'`. Built with
+/// `Tree::from_expr` because the optimizer simplifies a wildcard-only LIKE
+/// away before the SQL pipeline lowers it.
 fn like_tree(pattern: &str) -> tt_core::irs::tree::Tree<B> {
     use datafusion::logical_expr::{Expr, Like};
     use datafusion::prelude::{col, lit};
@@ -110,7 +101,6 @@ fn like_tree(pattern: &str) -> tt_core::irs::tree::Tree<B> {
     tt_core::irs::tree::Tree::<B>::from_expr(&like, None, Vec::new())
 }
 
-/// A Like node with a real pattern declares its bound column.
 #[test]
 fn like_node_requires_its_column() {
     assert_eq!(
@@ -119,8 +109,8 @@ fn like_node_requires_its_column() {
     );
 }
 
-/// Wildcard-only patterns short-circuit to a constant and never touch side
-/// segments, so they must not force side-column emission either.
+/// A wildcard-only pattern folds to a constant and reads no side segment, so
+/// it must not require side columns.
 #[test]
 fn wildcard_only_like_requires_no_side_columns() {
     for pattern in ["", "%", "%%"] {

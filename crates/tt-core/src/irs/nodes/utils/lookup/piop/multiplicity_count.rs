@@ -1,8 +1,8 @@
 use ark_ff::PrimeField;
 use indexmap::IndexMap;
 
-// Returns a map from the unique evaluations of col to their multiplicities
-// does not include values where the selector is zero
+/// A map from the distinct values of `poly` to their multiplicities, skipping
+/// the rows where the selector is zero.
 pub fn vec_multiplicity_count<F>(poly: &[F], sel: Option<&[F]>) -> IndexMap<F, u64>
 where
     F: PrimeField,

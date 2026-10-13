@@ -111,28 +111,6 @@ impl HintDF {
 
     pub fn project_materialized(&self) -> Option<LogicalPlan> {
         todo!()
-        // let schema = self.plan.schema();
-        // let projection_exprs: Vec<Expr> = schema
-        //     .iter()
-        //     .filter(|&(_qualifier, field)| {
-        //         self.should_materialize.get(field).copied().unwrap_or(false)
-        //     })
-        //     .map(|(qualifier, field)| Expr::from((qualifier, field)))
-        //     .collect();
-
-        // if projection_exprs.len() == schema.fields().len() {
-        //     return Some(self.plan.clone());
-        // }
-
-        // if projection_exprs.is_empty() {
-        //     return None;
-        // }
-
-        // LogicalPlanBuilder::from(self.plan.clone())
-        //     .project(projection_exprs)
-        //     .expect("failed to build projection for materialized columns")
-        //     .build()
-        //     .ok()
     }
 }
 
@@ -311,7 +289,7 @@ pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
         return hint.clone();
     }
 
-    // Row-id is only for deterministic ordering, so drop it before storing payloads.
+    // The row id only fixes the row order; drop it before storing payloads.
     let projected: Vec<Expr> = df
         .schema()
         .fields()
@@ -336,7 +314,7 @@ pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
     HintDF::new(projected_df, should_materialize)
 }
 
-const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
+pub(crate) const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
 const PK_METADATA_KEY: &str = "tt.pk";
 const FK_REF_TABLE_METADATA_KEY: &str = "tt.fk.ref_table";
@@ -374,7 +352,22 @@ struct TableConstraint {
 #[derive(Clone, Debug)]
 struct ForeignKeyColConstraint {
     ref_table: String,
+    /// Every column of the key's target, lowercase.
     ref_columns: Vec<String>,
+    /// The target column at this column's position in the key, or the first
+    /// one when the target has fewer columns, as the manifest spells it.
+    paired_ref_column: Option<String>,
+}
+
+/// Which target columns the `tt.fk.ref_columns` metadata of a foreign-key
+/// column lists.
+#[derive(Clone, Copy)]
+pub(crate) enum FkRefColumns {
+    /// All of them: what hint schemas carry and join planning reads.
+    All,
+    /// Only the one paired with the column by position: what materialized
+    /// schemas carry.
+    Paired,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -447,6 +440,7 @@ fn field_with_qualifier_metadata(field: &FieldRef, qualifier: Option<&TableRefer
             &mut metadata,
             &table_name_from_qualifier(&qualifier_str),
             updated.name(),
+            FkRefColumns::All,
         );
         updated = updated.with_metadata(metadata);
     }
@@ -482,12 +476,17 @@ fn merge_constraints_from_dir(dir: &Path, out: &mut BTreeMap<String, TableConstr
                 .iter()
                 .map(|col| col.to_lowercase())
                 .collect::<Vec<_>>();
-            for src_col in &fk.columns {
+            for (idx, src_col) in fk.columns.iter().enumerate() {
                 constraint.foreign_key_by_col.insert(
                     src_col.to_lowercase(),
                     ForeignKeyColConstraint {
                         ref_table: fk.ref_table.clone(),
                         ref_columns: ref_cols.clone(),
+                        paired_ref_column: fk
+                            .ref_columns
+                            .get(idx)
+                            .or_else(|| fk.ref_columns.first())
+                            .cloned(),
                     },
                 );
             }
@@ -497,7 +496,8 @@ fn merge_constraints_from_dir(dir: &Path, out: &mut BTreeMap<String, TableConstr
     }
 }
 
-fn table_name_from_qualifier(qualifier: &str) -> String {
+/// The lowercase table name of a qualifier such as `schema."Table"`.
+pub(crate) fn table_name_from_qualifier(qualifier: &str) -> String {
     qualifier
         .rsplit('.')
         .next()
@@ -507,10 +507,13 @@ fn table_name_from_qualifier(qualifier: &str) -> String {
         .to_lowercase()
 }
 
-fn apply_constraint_metadata(
+/// Stamps the `tt.pk` and `tt.fk.*` entries of `table_name.column_name`, as
+/// the loaded manifest declares them, onto a field's metadata.
+pub(crate) fn apply_constraint_metadata(
     metadata: &mut HashMap<String, String>,
     table_name: &str,
     column_name: &str,
+    fk_ref_columns: FkRefColumns,
 ) {
     let Some(lock) = CONSTRAINTS_BY_TABLE.get() else {
         return;
@@ -528,7 +531,11 @@ fn apply_constraint_metadata(
     }
     if let Some(fk) = table.foreign_key_by_col.get(&column_key) {
         metadata.insert(FK_REF_TABLE_METADATA_KEY.to_string(), fk.ref_table.clone());
-        if let Ok(serialized) = serde_json::to_string(&fk.ref_columns) {
+        let ref_columns = match fk_ref_columns {
+            FkRefColumns::All => fk.ref_columns.clone(),
+            FkRefColumns::Paired => fk.paired_ref_column.iter().cloned().collect(),
+        };
+        if let Ok(serialized) = serde_json::to_string(&ref_columns) {
             metadata.insert(FK_REF_COLUMNS_METADATA_KEY.to_string(), serialized);
         }
     }
@@ -554,8 +561,8 @@ fn normalize_hint_df(
         .collect();
 
     let already_normalized = match data_fram.logical_plan() {
-        // A normalized HintDF is exactly the projection we build above.
-        // If it already matches, avoid re-projecting/casting.
+        // A normalized HintDF is exactly the projection built above; one that
+        // already matches is not projected again.
         LogicalPlan::Projection(proj) => proj.expr == projection,
         _ => false,
     };

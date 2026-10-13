@@ -1,5 +1,3 @@
-//! Tests for the `BitwiseAnd` gadget node (paper §6.3, PIOP 9).
-
 use std::sync::Arc;
 
 use ark_piop::{DefaultSnarkBackend, SnarkBackend};
@@ -88,7 +86,7 @@ fn inactive_rows_are_exempt() {
 
 #[test]
 fn active_wrong_row_fails_with_activator() {
-    // Same activator as above but the *active* row 1 is wrong (2&3=3).
+    // Same activator as above but the active row 1 is wrong (2&3=3).
     let result = run(
         f(&[3, 2, 1, 0]),
         f(&[1, 3, 2, 2]),

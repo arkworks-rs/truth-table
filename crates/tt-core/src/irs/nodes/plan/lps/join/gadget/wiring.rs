@@ -1,3 +1,4 @@
+use crate::irs::nodes::hints::table_name_from_qualifier;
 use std::sync::Arc;
 
 use crate::irs::nodes::plan::lps::join::gadget::GadgetNode;
@@ -198,17 +199,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 
     fn table_name_from_relation(relation: &TableReference) -> String {
-        Self::table_name_from_qualifier(&relation.to_string())
-    }
-
-    fn table_name_from_qualifier(qualifier: &str) -> String {
-        qualifier
-            .rsplit('.')
-            .next()
-            .unwrap_or(qualifier)
-            .trim_matches('"')
-            .trim_matches('`')
-            .to_lowercase()
+        table_name_from_qualifier(&relation.to_string())
     }
 
     fn field_matches_column(field: &Arc<Field>, col: &Column) -> bool {
@@ -222,7 +213,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
         field
             .metadata()
             .get(Self::QUALIFIER_METADATA_KEY)
-            .map(|qualifier| Self::table_name_from_qualifier(qualifier) == expected)
+            .map(|qualifier| table_name_from_qualifier(qualifier) == expected)
             .unwrap_or(false)
     }
 

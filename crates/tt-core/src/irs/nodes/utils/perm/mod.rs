@@ -150,9 +150,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 right.data_tracked_polys_indices(),
             )
         };
-        // The fold must be a random linear combination: with coefficients
-        // fixed before the columns are committed, distinct rows can be chosen
-        // to fold to the same value. The leading coefficient is one, so a
+        // The fold coefficients are challenges: with coefficients fixed
+        // before the columns are committed, distinct rows can be chosen to
+        // fold to the same value. The first coefficient is one, so a
         // one-column permutation is checked exactly.
         let mut challenges = Vec::with_capacity(left_inds.len());
         challenges.push(B::F::one());
@@ -294,28 +294,21 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
-/// Whether the two perm sides must be folded over `shared_names`
-/// instead of positionally.
+/// Whether the two sides are folded over `shared_names` instead of by
+/// position.
 ///
 /// Positional folding pairs challenge `k` with each side's `k`-th data
-/// column, so it is only valid when the sides agree column-for-column
-/// by position. Two situations break that:
+/// column, so it needs the sides to agree column for column. They do not
+/// when the column counts differ (one side carries arithmetization segments
+/// the other dropped), or when the counts are equal but the flat orders
+/// differ (a group-by output lists its key columns first, its input lists
+/// them after the aggregates; `tracked_subtable_by_indices` keeps each
+/// table's own order). Both cases fold each side over the same names.
 ///
-/// - divergent column counts — one side carries arithmetization
-///   segments the other dropped;
-/// - equal counts but different flat orders — e.g. a group-by output
-///   lists its key columns first while its input lists them after the
-///   aggregates. `align_table_to_reference_order` is meant to reconcile
-///   this, but `tracked_subtable_by_indices` rebuilds the table in its
-///   own `tracked_cols` order, so the reordering does not survive.
-///
-/// Both are handled by folding each side over the same *names*.
-/// Positional folding is kept for equal counts whose names do not
-/// correspond — the LIKE path, where the sides use different labels for
-/// positionally-equivalent columns and a name intersection would be
-/// empty or partial. Duplicate names also fall back, since
-/// `indices_by_names` resolves a name to its first match and would
-/// otherwise fold one column twice.
+/// Equal counts whose names do not all correspond stay positional: on the
+/// LIKE path the sides label positionally equivalent columns differently.
+/// So do duplicate names, since `indices_by_names` resolves a name to its
+/// first match and would fold one column twice.
 fn should_fold_by_names(left_count: usize, right_count: usize, shared_names: &[String]) -> bool {
     if left_count != right_count {
         return true;
@@ -324,17 +317,9 @@ fn should_fold_by_names(left_count: usize, right_count: usize, shared_names: &[S
     shared_names.len() == left_count && shared_names.iter().all(|n| seen.insert(n))
 }
 
-/// Compute the intersection of data-column names between LEFT and
-/// RIGHT, ordered by RIGHT's tracked_polys flat-view order. RIGHT is
-/// treated as the reference because for the compaction permutation
-/// it is always a (non-strict) subset of LEFT — the compacted output's
-/// tracked columns are a subset of the filter's input's tracked columns.
-///
-/// Returns an empty vector when RIGHT has no data columns (would be a
-/// degenerate perm anyway). If RIGHT names a column that LEFT does not
-/// carry (defensive, shouldn't happen for compaction), that name is
-/// silently dropped — the resulting fold still gives comparable
-/// multisets over the columns both sides do share.
+/// Data-column names that both sides carry, in RIGHT's flat order. RIGHT is
+/// the reference because in the compaction permutation the compacted
+/// output's columns are a subset of the input's.
 fn shared_data_field_names<B: SnarkBackend>(
     left: &TrackedTable<B>,
     right: &TrackedTable<B>,

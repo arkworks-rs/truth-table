@@ -64,8 +64,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // DataFusion may insert identity projections (exprs is empty). In that case,
-        // the projection is a pure pass-through, so we forward the input payload.
+        // DataFusion may insert identity projections (no expressions): forward
+        // the input payload.
         if self.exprs.is_empty() {
             let input_id = self.input.id();
             let input_table = match virtualized_ir.payload_for_node(&input_id) {
@@ -77,7 +77,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             return Ok(());
         }
 
-        // Collect the tracked tables produced by each projection expression.
         let mut output_cols: IndexMap<_, _> = IndexMap::new();
         let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
         let mut row_id: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
@@ -126,7 +125,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                 log_size = Some(expr_log_size);
             }
 
-            // Each expression contributes its data columns (excluding activator) to the projection output.
             let tracked_polys = expr_table.tracked_polys();
             for idx in expr_table.data_tracked_polys_indices() {
                 let (field, poly) = tracked_polys
@@ -146,7 +144,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             panic!("Projection expected at least one activator column from its expressions");
         }
 
-        // Build the output schema in projection order + activator.
         let schema = Schema::new(
             output_cols
                 .keys()
@@ -193,8 +190,6 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Evaluate the projection against the virtual/physical data produced by the
-        // child node, then keep the result virtual (no eager materialization).
         let input_hint_df = match self.input.as_ref() {
             Node::Plan(plan_node) => {
                 <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
@@ -240,7 +235,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Mirror the prover behavior: identity projections pass through the input payload.
+        // Identity projection: forward the input payload, as the prover does.
         if self.exprs.is_empty() {
             let input_id = self.input.id();
             let input_table = match virtualized_ir.payload_for_node(&input_id) {
@@ -252,8 +247,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             return Ok(());
         }
 
-        // Mirror the prover behavior: stitch together the projection outputs from the
-        // tracked oracles produced by each expression node.
         let mut output_cols: IndexMap<_, _> = IndexMap::new();
         let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
         let mut row_id: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
@@ -386,13 +379,9 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
                 .expect("filtered projection should be valid")
         };
 
-        // Recurse into the input subtree and fetch the logical plan that feeds this
-        // projection.
         let input = Tree::<B>::from_logical_plan(&projection.input)
             .root()
             .clone();
-        // Build expression proof plans for the projection expressions (excluding the
-        // retained activator).
         let exprs = projection
             .expr
             .iter()

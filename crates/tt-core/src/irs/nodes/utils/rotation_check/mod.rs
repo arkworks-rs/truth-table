@@ -1,30 +1,16 @@
-//! A composite gadget node for the Rotation Check (paper Appendix B.10).
+//! Rotation check (paper Appendix B.10).
 //!
-//! Given a single-column table `left` and a single-column table `right`
-//! (both over the same domain of `2^log_size` rows), the gadget proves
-//! that `right` is the cyclic rotation of `left` by `shift` positions
-//! in the specified direction:
+//! Given single-column tables `left` and `right` over the same domain of
+//! `n = 2^log_size` rows, proves that `right` is the cyclic rotation of
+//! `left` by `shift = s` positions in the given [`Direction`].
 //!
-//! - [`Direction::Right`] with shift `s`:  `right[i] = left[(i - s) mod n]`
-//!   — the values of `left` are pushed `s` positions to the right.
-//! - [`Direction::Left`] with shift `s`:   `right[i] = left[(i + s) mod n]`
-//!   — the values of `left` are pushed `s` positions to the left.
-//!
-//! Payload structure:
-//! - [`LEFT_LABEL`] — single-column input table.
-//! - [`RIGHT_LABEL`] — single-column rotated table.
-//!
-//! Decomposition. The check reduces to a [`PrescribedPermutation`] on
-//! the shift permutation `π` defined by
+//! The check is a [`prescr_perm`] on a shift permutation `π`. Its relation
+//! is `left[i] = right[π[i]]`, so `π` is
 //!
 //! ```text
-//! π[i] = (i - s) mod n     (Direction::Right)
-//! π[i] = (i + s) mod n     (Direction::Left)
+//! π[i] = (i + s) mod n     (Direction::Right)
+//! π[i] = (i - s) mod n     (Direction::Left)
 //! ```
-//!
-//! since `PrescribedPermutation`'s core relation is `left[i] = right[π[i]]`,
-//! and the two rotation-direction formulations above make that identity
-//! hold.
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
@@ -49,32 +35,24 @@ use crate::{
 pub const LEFT_LABEL: &str = "__left__";
 pub const RIGHT_LABEL: &str = "__right__";
 
-/// Rotation direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
-    /// `right[i] = left[(i - shift) mod n]` — values move right by `shift`.
+    /// `right[i] = left[(i - shift) mod n]`: values move right by `shift`.
     Right,
-    /// `right[i] = left[(i + shift) mod n]` — values move left by `shift`.
+    /// `right[i] = left[(i + shift) mod n]`: values move left by `shift`.
     Left,
 }
 
 impl Direction {
-    /// Argument to [`get_or_insert_shift_poly`]/[`get_or_insert_shift_oracle`]
-    /// that matches this direction.
-    ///
-    /// The helpers build a shift permutation `π` that combines with
-    /// `PrescribedPermutation`'s core relation `left[i] = right[π[i]]`
-    /// as follows:
-    /// - `shift=s, right=true`  ⇒  `π[i] = (i - s) mod n`  ⇒  `right[j] = left[(j + s) mod n]`  (values shift LEFT)
-    /// - `shift=s, right=false` ⇒  `π[i] = (i + s) mod n`  ⇒  `right[j] = left[(j - s) mod n]`  (values shift RIGHT)
-    ///
-    /// So `Direction::Right` (values push right) picks the `right=false` helper.
+    /// The `is_right` argument of [`get_or_insert_shift_poly`] and
+    /// [`get_or_insert_shift_oracle`]. `is_right = true` builds
+    /// `π[i] = (i - s) mod n`, the permutation of `Direction::Left` (module
+    /// doc), so the flag is the opposite of the direction.
     fn shift_is_right(self) -> bool {
         matches!(self, Direction::Left)
     }
 }
 
-/// Composite gadget node for the Rotation relation.
 pub struct GadgetNode<B: SnarkBackend> {
     shift: usize,
     direction: Direction,
@@ -220,8 +198,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
         _id: NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Delegated: PrescribedPermutation already runs an honest
-        // permutation check against the shift permutation we handed it.
+        // The prescribed-permutation child runs the honest check against the
+        // shift permutation.
         Ok(())
     }
 

@@ -1,16 +1,10 @@
 //! TPC-H data generation and padding for truth-table benchmarks and tests.
 //!
-//! The arithmetized prover operates on fixed power-of-two row counts and on
-//! tables augmented with `__row_id__` / `__activator__` system columns. This
-//! crate converts upstream TPC-H data (via the `tpchgen` crate) into that
-//! padded / augmented Parquet shape, and emits a sidecar `constraints.json`
-//! describing primary-key / foreign-key relationships that the proof planner
-//! consumes.
-//!
-//! See [`test_data_path`] / [`bench_data_path`] for the conventional locations
-//! of generated Parquet, [`generate_parquet_scale`] to materialize a scale
-//! factor, and [`preprocess_parquet`] to normalize an arbitrary Parquet file
-//! into the same shape used by the rest of the pipeline.
+//! The prover works on tables with a power-of-two row count and the
+//! `__row_id__` and `__activator__` system columns. This crate writes TPC-H
+//! data (from the `tpchgen` crate) as Parquet in that shape, with a
+//! `constraints.json` next to it that gives the proof planner the primary
+//! and foreign keys.
 
 use std::{
     fs::{File, create_dir_all},
@@ -452,10 +446,6 @@ fn decimalized_schema(schema: &Schema) -> Arc<Schema> {
     ))
 }
 
-fn max_decimal_value(precision: u8) -> i128 {
-    10_i128.pow(u32::from(precision)) - 1
-}
-
 fn scaled_decimal128(value: f64, precision: u8, scale: i8) -> Option<i128> {
     if !value.is_finite() {
         return None;
@@ -467,7 +457,7 @@ fn scaled_decimal128(value: f64, precision: u8, scale: i8) -> Option<i128> {
     }
 
     let scaled = scaled as i128;
-    let max_value = max_decimal_value(precision);
+    let max_value = 10_i128.pow(u32::from(precision)) - 1;
     if scaled.unsigned_abs() > max_value as u128 {
         None
     } else {
@@ -617,25 +607,11 @@ fn convert_batch_to_poneglyph(batch: &RecordBatch, out_schema: &Arc<Schema>) -> 
     RecordBatch::try_new(Arc::clone(out_schema), cols).expect("poneglyph batch build")
 }
 
-/// Check if n is a power of two
-fn is_power_of_two(n: usize) -> bool {
-    n != 0 && (n & (n - 1)) == 0
-}
-
-/// Return the next power of two >= n
-fn next_power_of_two(n: usize) -> usize {
-    if n <= 1 {
-        n.max(1)
-    } else {
-        n.next_power_of_two()
-    }
-}
-
-/// Write Parquet after augmenting with a stable `row_id` column and an
-/// `__activator__` Boolean column, then pad with nulls until the total row count
-/// is a power of two (appended rows have __activator__=false).
-/// In the non-poneglyph path, Float32 and Float64 columns are additionally
-/// materialized as Decimal128(18, 3) values.
+/// Write the batches as Parquet in the shape the prover reads: each date
+/// or timestamp column followed by its year, month, day (and time) parts,
+/// `Float32`/`Float64` columns as `Decimal128(18, 3)`, a `__row_id__`
+/// column numbering the rows, and an `__activator__` column. Null rows
+/// with `__activator__ = false` pad the row count to a power of two.
 fn write_parquet<P: AsRef<Path>>(
     path: P,
     orig_schema: &arrow::datatypes::SchemaRef,
@@ -650,7 +626,6 @@ fn write_parquet<P: AsRef<Path>>(
     let expanded_schema = Arc::new(Schema::new(expanded_fields));
     let decimalized_base_schema = decimalized_schema(expanded_schema.as_ref());
 
-    // Build output schema = expanded fields + row_id: Int64 + __activator__: Boolean
     let mut fields: Vec<Field> = decimalized_base_schema
         .fields()
         .iter()
@@ -667,7 +642,6 @@ fn write_parquet<P: AsRef<Path>>(
     let mut next_row_id: i64 = 0;
     let mut last_nonempty_batch: Option<RecordBatch> = None;
 
-    // Stream original batches, tagging __activator__=true and writing out directly
     for batch in batches {
         let n = batch.num_rows();
         if n == 0 {
@@ -678,7 +652,7 @@ fn write_parquet<P: AsRef<Path>>(
         total_rows += n;
         last_nonempty_batch = Some(batch.clone());
 
-        // row_id increments across batches to preserve a stable order
+        // Row ids continue across batches.
         let mut row_id_builder = Int64Builder::new();
         for offset in 0..n {
             row_id_builder.append_value(next_row_id + offset as i64);
@@ -686,14 +660,12 @@ fn write_parquet<P: AsRef<Path>>(
         next_row_id += n as i64;
         let row_id = Arc::new(row_id_builder.finish());
 
-        // __activator__=true for existing rows
         let mut act_builder = BooleanBuilder::new();
         for _ in 0..n {
             act_builder.append_value(true);
         }
         let activator = Arc::new(act_builder.finish());
 
-        // Rebuild the batch with the new schema + extra __activator__ column
         let mut cols = batch.columns().to_vec();
         cols.push(row_id);
         cols.push(activator);
@@ -702,19 +674,17 @@ fn write_parquet<P: AsRef<Path>>(
         writer.write(&out_batch).expect("write batch");
     }
 
-    // If there were no rows, just close the writer.
     if total_rows == 0 {
         writer.close().expect("close writer");
         return;
     }
 
-    // Determine padding needed to reach power of two
-    if !is_power_of_two(total_rows) {
-        let target = next_power_of_two(total_rows);
+    if !total_rows.is_power_of_two() {
+        let target = total_rows.next_power_of_two();
         let pad = target - total_rows;
         let last_batch = last_nonempty_batch.expect("must have last batch");
 
-        // Build per-column arrays of nulls for padding rows.
+        // Padding rows are null in every data column and inactive.
         let mut pad_cols = Vec::with_capacity(last_batch.num_columns() + 2);
         for col in last_batch.columns() {
             pad_cols.push(new_null_array(col.data_type(), pad));
@@ -727,7 +697,6 @@ fn write_parquet<P: AsRef<Path>>(
         let pad_row_id = Arc::new(row_id_builder.finish());
         pad_cols.push(pad_row_id);
 
-        // __activator__=false for appended rows
         let mut act_builder = BooleanBuilder::new();
         for _ in 0..pad {
             act_builder.append_value(false);
@@ -743,8 +712,8 @@ fn write_parquet<P: AsRef<Path>>(
     writer.close().expect("close writer");
 }
 
-/// Write Parquet in the same preprocessed shape as [`write_parquet`] but with
-/// floating-point and decimal columns materialized as UInt64 values.
+/// [`write_parquet`] with floating-point and decimal columns as `UInt64`
+/// instead of `Decimal128`.
 fn write_parquet_poneglyph<P: AsRef<Path>>(
     path: P,
     orig_schema: &arrow::datatypes::SchemaRef,
@@ -811,8 +780,8 @@ fn write_parquet_poneglyph<P: AsRef<Path>>(
         return;
     }
 
-    if !is_power_of_two(total_rows) {
-        let target = next_power_of_two(total_rows);
+    if !total_rows.is_power_of_two() {
+        let target = total_rows.next_power_of_two();
         let pad = target - total_rows;
         let last_batch = last_nonempty_batch.expect("must have last batch");
 
@@ -843,7 +812,8 @@ fn write_parquet_poneglyph<P: AsRef<Path>>(
     writer.close().expect("close writer");
 }
 
-/// Write Parquet with the original schema and rows (no row_id/activator, no padding).
+/// Write the batches as Parquet with the date and timestamp parts added,
+/// but no system columns and no padding.
 fn write_parquet_raw<P: AsRef<Path>>(
     path: P,
     orig_schema: &arrow::datatypes::SchemaRef,
@@ -870,18 +840,16 @@ fn write_parquet_raw<P: AsRef<Path>>(
     writer.close().expect("close writer");
 }
 
-/// Generate TPC-H Parquet files at the given scale factor in the specified
-/// output directory (if it doesn't exist, it will be created).
-// Note that the tables are further preprocessed as follows:
-// - All tables have an additional __row_id__ Int64 column with stable row
-//   indices, plus the boolean __activator__ column set true for existing rows
-// - The tables are padded with nulls until the total row count is a power of two;
-//   the appended rows have __activator__=false
+/// Generate the TPC-H tables at scale factor `scale` as Parquet files in
+/// `out_dir` (created if missing), each with system columns and padding
+/// ([`write_parquet`]). Also writes the raw tables to a sibling
+/// `orig-<dir>` directory, the `<table>_poneglyph` variants and
+/// `constraints.json`.
 pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
     let out = out_dir.as_ref();
 
-    // Each generator uses (scale, part, step) with part=1, step=1 for
-    // single-threaded Adjust batch sizes as needed
+    // Each generator takes (scale, part, step); part = 1 and step = 1
+    // generate the whole table on one thread.
 
     // nation
     {
@@ -1060,13 +1028,11 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         );
     }
 
-    // Emit table-level key constraints alongside generated parquet files.
     write_constraints_manifest(out);
 }
 
-/// Preprocess an existing Parquet file using the same logic as `generate_parquet_scale`.
-/// This expands date/time columns, adds `__row_id__` and `__activator__`, and pads to
-/// a power-of-two row count with nulls.
+/// Rewrite an existing Parquet file in the shape [`write_parquet`]
+/// produces.
 pub fn preprocess_parquet<P: AsRef<Path>>(
     input: P,
     output: P,
@@ -1083,21 +1049,16 @@ pub fn preprocess_parquet<P: AsRef<Path>>(
     Ok(())
 }
 
-/// Absolute path helper to a Parquet file under the workspace's
-/// `artifacts/test-data` dir.
-/// Example: `test_data_path("lineitem.parquet")`
+/// Absolute path of `file` under the workspace's `artifacts/test-data`.
 pub fn test_data_path(file: impl AsRef<Path>) -> PathBuf {
     workspace_artifacts_dir().join("test-data").join(file)
 }
 
-/// Absolute path helper to a Parquet file under the workspace's
-/// `artifacts/bench-data` dir.
-/// Example: `bench_data_path("orders.parquet")`
+/// Absolute path of `file` under the workspace's `artifacts/bench-data`.
 pub fn bench_data_path(file: impl AsRef<Path>) -> PathBuf {
     workspace_artifacts_dir().join("bench-data").join(file)
 }
 
-/// Description of a TPC-H query including the SQL text and required tables.
 #[derive(Clone, Copy, Debug)]
 pub struct TpchQuerySpec {
     pub sql: &'static str,
@@ -1128,7 +1089,7 @@ fn fetch_tpch_query_sql(number: u8) -> String {
 
 fn normalize_tpch_sql(number: u8, sql: String) -> String {
     if number == 8 || number == 9 {
-        // DataFusion does not plan EXTRACT(YEAR FROM ...) yet; rewrite to date_part.
+        // DataFusion does not plan EXTRACT(YEAR FROM ...): use date_part.
         let needle = "extract(year from";
         let lower = sql.to_ascii_lowercase();
         let mut out = String::with_capacity(sql.len());
@@ -1403,9 +1364,9 @@ WHERE
             l_partkey = p_partkey);
 "#;
 
-// Flatten Q20 to inner joins so the benchmark exercises the same join gadget
-// path as the other rewritten subquery queries instead of planner-generated
-// semi-joins with null right-side provenance.
+// Q20 flattened to inner joins, so that it goes through the join gadget
+// like the other rewritten subquery queries and not through
+// planner-generated semi-joins with null right-side provenance.
 const TPCH_Q20_SQL_REWRITTEN: &str = r#"
 SELECT
     s_name,
@@ -1711,8 +1672,8 @@ fn cached_tpch_sql(lock: &'static OnceLock<&'static str>, number: u8) -> &'stati
     })
 }
 
-/// Return the [`TpchQuerySpec`] for the provided query number.
-/// If `poneglyph` is true, query variants for Q1/Q3/Q5/Q8/Q9/Q18 are selected.
+/// The spec of TPC-H query `number`. With `poneglyph`, Q1, Q3, Q5, Q8, Q9
+/// and Q18 are the variants over the `_poneglyph` tables.
 pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
     match number {
         1 => TpchQuerySpec {

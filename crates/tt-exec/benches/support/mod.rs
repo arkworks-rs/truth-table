@@ -48,8 +48,7 @@ pub struct BenchCase {
     pub name: &'static str,
     pub query: &'static str,
     pub tables: &'static [&'static str],
-    /// Optional human-readable label identifying the benchmark suite or
-    /// query family (e.g. `"TPC-H Q1"`, `"TPC-DS Q5"`, `"bench80"`).
+    /// Label of the benchmark suite or query family, e.g. `"TPC-H Q1"`.
     pub benchmark_suite: Option<&'static str>,
 }
 
@@ -102,8 +101,7 @@ static PROOF_SIZE_LOGGED: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new
 static ASSETS_CACHE: OnceLock<Mutex<HashMap<&'static str, BenchAssets>>> = OnceLock::new();
 
 pub fn init_bench_tracing() {
-    // Use ark-piop's canonical subscriber setup, adding the bench stats JSONL
-    // layer on top for benchmark-specific statistics.
+    // ark-piop's subscriber setup plus the bench stats JSONL layer.
     ark_piop::test_utils::init_subscriber_with(|| {
         use tracing_subscriber::filter::filter_fn;
         use tracing_subscriber::fmt::format::FmtSpan;
@@ -162,7 +160,6 @@ pub fn init_bench_tracing() {
 }
 
 pub fn prepare_assets(case: BenchCase) -> BenchAssets {
-    // Resolve parquet/oracle paths and keys once per benchmark case.
     assert!(
         !case.tables.is_empty(),
         "bench queries must reference at least one table"
@@ -208,7 +205,6 @@ pub fn prepare_assets_cached(case: BenchCase) -> BenchAssets {
 }
 
 pub fn run_prover_once(assets: &BenchAssets) -> (Arc<MemTable>, TTProof<B>) {
-    // Build the prover and run proof generation once (used for warmup/caching).
     let iteration = prepare_prover_iteration(assets);
     run_prover_iteration(iteration)
 }
@@ -232,9 +228,8 @@ pub fn prepare_prover_iteration(assets: &BenchAssets) -> ProverBenchIteration {
     }
 }
 
-/// Same as `prepare_prover_iteration`, but with explicit data-dependent and
-/// pp_optimizer rule lists — used by ablation benchmarks that disable
-/// specific rules.
+/// [`prepare_prover_iteration`] with explicit data-dependent and proof-plan
+/// rule lists, for the ablation benchmarks.
 pub fn prepare_prover_iteration_with_rules(
     assets: &BenchAssets,
     data_dependent_rules: Vec<Arc<dyn DataDependentOptimizationRule>>,
@@ -355,9 +350,8 @@ fn breakdown_grandchild_size(breakdown: &SizeBreakdown, key: &str, child_key: &s
         .unwrap_or(0)
 }
 
-/// Row cap for the JSONL preview embedded in results stats. Full
-/// results always live at the sidecar parquet (see
-/// `bench_proof_cache_paths`).
+/// Row cap of the JSONL preview in the results stats. The full result is in
+/// the sidecar parquet (`bench_proof_cache_paths`).
 const RESULTS_PREVIEW_ROW_CAP: usize = 100;
 
 fn result_memtable_stats(mem_table: &Arc<MemTable>) -> Result<(usize, String, usize, String)> {
@@ -391,8 +385,8 @@ fn result_memtable_stats(mem_table: &Arc<MemTable>) -> Result<(usize, String, us
     Ok((rows_count, schema, serialized.len(), preview_json))
 }
 
-/// Serialize up to `row_cap` rows from `batches` as a JSON array of
-/// objects (via `arrow::json::ArrayWriter`). Empty result → `"[]"`.
+/// Up to `row_cap` rows of `batches` as a JSON array of objects; `"[]"` for
+/// an empty result.
 fn build_preview_json(
     batches: &[datafusion::arrow::record_batch::RecordBatch],
     row_cap: usize,
@@ -531,10 +525,8 @@ pub fn save_proof(
     bench_proof
 }
 
-/// Returns the effective number of rayon threads — matching rayon's own
-/// resolution logic without requiring rayon as a direct dependency.
-/// Checks `RAYON_NUM_THREADS` env var first, falls back to the OS-reported
-/// available parallelism.
+/// The number of rayon threads, resolved as rayon does without depending on
+/// it: `RAYON_NUM_THREADS`, else the available parallelism.
 pub fn effective_num_threads() -> usize {
     std::env::var("RAYON_NUM_THREADS")
         .ok()
@@ -547,7 +539,6 @@ pub fn effective_num_threads() -> usize {
 }
 
 pub fn log_proof_size_once(case_name: &'static str, _query: &'static str, proof: &BenchProof) {
-    // Print proof size once per case to avoid noisy benchmark output.
     let logged = PROOF_SIZE_LOGGED.get_or_init(|| Mutex::new(HashSet::new()));
     let mut guard = logged.lock().expect("bench proof size log poisoned");
     if guard.insert(case_name) {
@@ -580,36 +571,21 @@ pub fn build_verifier_full_state_from_proof(
     )
 }
 
-/// Same as `build_verifier_full_state_from_proof`, but uses a caller-supplied
-/// pp_optimizer rule list. Used by ablation benchmarks that disable specific
-/// rules — the verifier must filter the same rules as the prover, otherwise
-/// the two sides will derive different join modes and verification fails.
+/// [`build_verifier_full_state_from_proof`] with a caller-supplied proof-plan
+/// rule list. The verifier must use the prover's rules, or the two sides
+/// derive different join modes and verification fails.
 pub fn build_verifier_full_state_from_proof_with_pp_rules(
     assets: &BenchAssets,
     bench_proof: &BenchProof,
     pp_rules: Vec<Arc<dyn ProofPlanOptimizerRule<B>>>,
 ) -> VerifierFullBenchState {
-    // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
-    let verifier = build_verifier(assets, pp_rules);
-    build_verifier_full_state_from_proof_impl(
-        verifier,
-        assets.case.query,
-        bench_proof.proof.clone(),
-        Arc::clone(&bench_proof.output_memtable),
-    )
-}
-
-fn build_verifier_full_state_from_proof_impl(
-    verifier: TTVerifier<B>,
-    query: &str,
-    proof: TTProof<B>,
-    output_memtable: Arc<MemTable>,
-) -> VerifierFullBenchState {
+    // Built once, so a timed iteration holds only IR passes and crypto
+    // verification.
     VerifierFullBenchState {
-        verifier,
-        query: query.to_string(),
-        proof,
-        output_memtable,
+        verifier: build_verifier(assets, pp_rules),
+        query: assets.case.query.to_string(),
+        proof: bench_proof.proof.clone(),
+        output_memtable: Arc::clone(&bench_proof.output_memtable),
         preprocessed_gadget_ir: Mutex::new(None),
         preprocessed_output_memtable: Mutex::new(None),
     }
@@ -718,7 +694,6 @@ fn build_verifier(
 }
 
 fn load_oracle(path: &PathBuf) -> Result<arithmetic::table_oracle::ArithTableOracle<B>> {
-    // Load oracle files saved by the commit step.
     let file = File::open(path)
         .with_context(|| format!("failed to open oracle file {}", path.display()))?;
     let mut reader = std::io::BufReader::new(file);
@@ -730,7 +705,6 @@ fn ctx_oracles_from_oracles(
     parquet_paths: &[PathBuf],
     oracles: &[arithmetic::table_oracle::ArithTableOracle<B>],
 ) -> Result<CtxOracles<B>> {
-    // Build the oracle map keyed by schema.
     let mut table_oracles = IndexMap::new();
     let mut named_oracles = IndexMap::new();
     for (path, oracle) in parquet_paths.iter().zip(oracles.iter()) {
@@ -773,15 +747,15 @@ fn build_shared_config(
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    // Use a fresh runtime per helper invocation to avoid cross-case task-local
-    // or executor state leaking across benchmark cases in the same process.
+    // A fresh runtime per call, so no task-local or executor state leaks
+    // from one benchmark case to the next.
     let rt = Runtime::new().expect("build tokio runtime");
     rt.block_on(future)
 }
 
 fn block_on_verifier<F: std::future::Future>(future: F) -> F::Output {
-    // Verifier benchmarks intentionally use a single-thread runtime so IR passes
-    // and DataFusion async work do not spill across multiple executor threads.
+    // Single-threaded on purpose: IR passes and DataFusion async work stay on
+    // one executor thread.
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -789,12 +763,10 @@ fn block_on_verifier<F: std::future::Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
-fn bench_proof_cache_dir() -> PathBuf {
-    workspace_artifacts_dir().join("bench-proof-cache")
-}
-
 fn bench_proof_cache_paths(case_name: &str) -> (PathBuf, PathBuf) {
-    let base = bench_proof_cache_dir().join(case_name);
+    let base = workspace_artifacts_dir()
+        .join("bench-proof-cache")
+        .join(case_name);
     (
         base.with_extension("proof"),
         base.with_extension("result.parquet"),
@@ -905,7 +877,6 @@ async fn load_result_memtable(path: &std::path::Path) -> Result<Arc<MemTable>> {
 }
 
 fn format_bytes(byte_len: usize) -> String {
-    // Human-readable byte sizes for proof output.
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
     let mut size = byte_len as f64;
     let mut unit = 0;

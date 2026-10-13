@@ -26,7 +26,6 @@ impl fmt::Display for BenchQuery {
 }
 
 fn prover_bench_queries() -> &'static [BenchQuery] {
-    // Static list of queries to benchmark for the prover-only bench.
     static QUERIES: OnceLock<&'static [BenchQuery]> = OnceLock::new();
     QUERIES.get_or_init(|| {
         let tpch = query_spec(1, false);
@@ -53,7 +52,6 @@ struct ProverBenchIteration {
 }
 
 fn prepare_prover_inputs(spec: BenchQuery) -> ProverBenchInputs {
-    // Resolve parquet/oracle paths and keys for a single prover benchmark case.
     assert!(
         !spec.tables.is_empty(),
         "bench queries must reference at least one table"
@@ -84,7 +82,6 @@ fn prepare_prover_inputs(spec: BenchQuery) -> ProverBenchInputs {
 }
 
 fn prepare_iteration_state(inputs: ProverBenchInputs) -> ProverBenchIteration {
-    // Build a TTProver instance for one benchmark iteration.
     let runner = ProveBuilder::new()
         .with_query(inputs.spec.query.to_string())
         .with_parquet_paths(inputs.parquet_paths)
@@ -103,7 +100,6 @@ fn prepare_iteration_state(inputs: ProverBenchInputs) -> ProverBenchIteration {
 
 #[divan::bench(args = prover_bench_queries(), max_time = 1)]
 fn prove_command(bencher: divan::Bencher, spec: BenchQuery) {
-    // Benchmark a single prover execution per iteration.
     bencher
         .with_inputs(move || prepare_iteration_state(prepare_prover_inputs(spec)))
         .bench_local_values(run_prove_iteration);
@@ -111,7 +107,6 @@ fn prove_command(bencher: divan::Bencher, spec: BenchQuery) {
 }
 
 fn run_prove_iteration(iteration: ProverBenchIteration) {
-    // Run proof generation once and black-box the output to keep work alive.
     let _query_span =
         tracing::info_span!(target: "bench_stats", "bench_query", query = iteration.query)
             .entered();
@@ -121,14 +116,12 @@ fn run_prove_iteration(iteration: ProverBenchIteration) {
 }
 
 fn block_on<F: Future>(future: F) -> F::Output {
-    // Reuse a single Tokio runtime for benchmark helpers.
     static RT: OnceLock<Runtime> = OnceLock::new();
     let rt = RT.get_or_init(|| Runtime::new().expect("build tokio runtime"));
     rt.block_on(future)
 }
 
 fn parquet_path_for_table(table: &str) -> PathBuf {
-    // Resolve the parquet path for the benchmark dataset.
     let path = bench_data_path(format!("{table}.parquet"));
     assert!(
         path.exists(),
@@ -137,5 +130,3 @@ fn parquet_path_for_table(table: &str) -> PathBuf {
     );
     path
 }
-
-// Bench registration is handled by `benches.rs`.

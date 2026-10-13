@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Plot what a wider committed rule buys and costs: the prover's speed-up
-and the proof-size factor per selectivity
-regime, and the data owner's commit time and oracle size, all against the
-number of bins committed.
+and the proof-size factor per selectivity regime, and the data owner's
+commit time and oracle size, all against the number of bins committed.
 
 Usage:
     python3 scripts/plot_widths.py \
@@ -19,8 +18,8 @@ Usage:
   shapes, mean size over mean no-filter size per regime.
 - Commit: `tt-fp-measure commit` rows (`bins,commit_s,oracle_bytes,
   bins_bytes`, repeated per run), the median run over the no-fingerprint
-  commit (`bins` 0). Older files with a `mode` column keep only `--mode`
-  rows.
+  commit (`bins` 0). Of a file with a `mode` column only the `--mode` rows
+  are kept.
 """
 
 import argparse
@@ -43,10 +42,10 @@ LABELS = ["<1%", "1–20%", "20–40%", "40–60%", "60–80%", "80–100%"]
 TICKS = [16, 32, 64, 128, 256, 512, 1024, 2048]
 
 # Proof size in bytes, fitted by least squares to 30 measured l_comment
-# proofs at 2048 bins (leave-one-out error 4.2% mean, 13.5% max): a base per
-# factor and literal character, and a fixed cost when the pre-filter runs.
-# The bins opened (their commitments and Merkle siblings) add less than the
-# scatter, so the fit has no per-bin term.
+# proofs at 2048 bins: a base, a cost per factor and per literal character,
+# and a fixed cost when the pre-filter runs. The bins opened (their
+# commitments and Merkle siblings) add less than the scatter, so the fit has
+# no per-bin term.
 SIZE_BASE, SIZE_FACTOR, SIZE_CHAR, SIZE_PREFILTER = 18081, 2772, 689, 5149
 
 

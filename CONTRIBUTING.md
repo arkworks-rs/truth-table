@@ -66,10 +66,11 @@ All four must pass before opening a PR — the CI gate enforces them.
 - Follow `rustfmt` defaults (enforced by CI).
 - Prefer descriptive, non-abbreviated names (we have `comitments` → `commitments`
   debt already; don't add more).
-- Doc comments (`///`) on anything `pub`. Crate-level `//!` docs on each `lib.rs`
-  / `mod.rs` where it makes sense.
-- For larger changes, a short architecture comment at the top of a module is
-  often more useful than per-function docs.
+- Comments say why, not what, and stay within three lines unless they
+  describe an algorithm or a protocol. No history, no commented-out code.
+- Extract a helper function only for a meaningful logical block: one used in
+  several places, or one whose name makes its single caller easier to read.
+- The full rules for both are in [`CLAUDE.md`](CLAUDE.md).
 
 ## Publishing
 

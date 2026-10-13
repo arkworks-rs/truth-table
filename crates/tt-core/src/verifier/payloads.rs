@@ -3,8 +3,7 @@ use crate::session::session_context;
 use arithmetic::table::ArithTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use datafusion::datasource::TableProvider;
-use datafusion::{arrow::array::RecordBatch, datasource::MemTable, prelude::DataFrame};
-use datafusion_common::DataFusionError;
+use datafusion::{arrow::array::RecordBatch, datasource::MemTable};
 use std::sync::Arc;
 
 pub type MaterializedPayload = PayloadStructure<MaterializedTable>;
@@ -37,7 +36,7 @@ impl MaterializedTable {
     pub fn batches(&self) -> datafusion_common::Result<Vec<RecordBatch>> {
         let ctx = session_context();
         let df = ctx.read_table(self.table.clone())?;
-        collect_blocking_df(df)
+        crate::session::block_on(df.collect())
     }
 }
 impl std::fmt::Display for MaterializedTable {
@@ -55,37 +54,5 @@ impl std::fmt::Display for MaterializedTable {
             cols.join(","),
             self.row_count
         )
-    }
-}
-
-fn collect_blocking_df(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            tokio::runtime::RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
     }
 }

@@ -1,3 +1,4 @@
+use crate::irs::nodes::utils::field_to_usize;
 use std::{
     any::Any,
     collections::BTreeSet,
@@ -15,7 +16,6 @@ use crate::irs::{
 type JoinOnNodes<B> = Vec<(Arc<Node<B>>, Arc<Node<B>>)>;
 
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
-use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::array::Array;
 use datafusion::arrow::datatypes::Schema;
@@ -37,14 +37,12 @@ where
     filter: Option<Arc<Node<B>>>,
     gadget: Arc<Node<B>>,
     join: Join,
-    // Single source of truth for join optimization/materialization mode.
-    //
-    // Interior-mutable so the PK-FK specialization pp_optimizer rule can
-    // upgrade it after ingestion. The rule also propagates the new mode to
-    // the inner gadget via `set_join_mode` so both stay in sync.
+    // Decides both the materialization policy and the gadget's protocol.
+    // Interior-mutable so the `PkFkSpecialization` pp_optimizer rule can
+    // upgrade it after ingestion, through `set_join_mode`.
     join_mode: RwLock<modes::JoinMode>,
-    // Cached from `output()` so full-materialized add_virtual_witness can rebuild
-    // a contiguous activator deterministically on prover and verifier.
+    // Cached by `output()`: a fully materialized join rebuilds its contiguous
+    // activator from this count in `add_virtual_witness`.
     full_materialized_active_rows: Mutex<Option<usize>>,
 }
 
@@ -60,10 +58,8 @@ impl<B: SnarkBackend> LpNode<B> {
             .unwrap_or(modes::JoinMode::MANY_TO_MANY)
     }
 
-    /// Update this join's mode. Propagates to the inner gadget so plan-side
-    /// materialization policy and gadget-side protocol selection stay in
-    /// sync. Used by the `PkFkSpecialization` pp_optimizer rule after
-    /// ingestion.
+    /// Sets the mode here and on the inner gadget, so the plan-side
+    /// materialization policy and the gadget-side protocol stay in sync.
     pub fn set_join_mode(&self, mode: modes::JoinMode) {
         if let Ok(mut guard) = self.join_mode.write() {
             *guard = mode;
@@ -77,21 +73,18 @@ impl<B: SnarkBackend> LpNode<B> {
     }
 
     fn should_fully_materialize(&self) -> bool {
-        // Keep the plan-side materialization policy exactly in sync with the join
-        // gadget mode:
-        // - MANY_TO_MANY gadget => full materialization
-        // - HasOne gadget (all other modes) => partial materialization
+        // Must match the gadget's protocol: MANY_TO_MANY materializes the
+        // whole output, every other mode (HasOne) only the PK side.
         self.join_mode() == modes::JoinMode::MANY_TO_MANY
     }
 
     fn fk_side_input(&self) -> Option<&Arc<Node<B>>> {
         match self.join_mode() {
-            // ONE_TO_MANY: left is unique side, right is FK side.
+            // Left is the unique side, right the FK side.
             modes::JoinMode::ONE_TO_MANY => Some(&self.right),
-            // MANY_TO_ONE: right is unique side, left is FK side.
+            // Right is the unique side, left the FK side.
             modes::JoinMode::MANY_TO_ONE => Some(&self.left),
-            // ONE_TO_ONE: keep side choice deterministic and aligned with
-            // `output()`/hint-side partial policy below.
+            // The same side `output()` keeps virtual.
             modes::JoinMode::ONE_TO_ONE => Some(&self.right),
             modes::JoinMode::MANY_TO_MANY => None,
         }
@@ -263,9 +256,8 @@ impl<B: SnarkBackend> LpNode<B> {
         let fk_cols = fk_table.tracked_polys();
         let mut merged_polys = IndexMap::new();
 
-        // Keep the partial-output payload order aligned with the DataFrame hint:
-        // FK-side payload columns first, then PK-side payload columns, then
-        // activator and row_id at the end.
+        // Column order of the DataFrame hint: FK-side columns, then PK-side
+        // columns, then activator and row_id.
         for field in Self::ordered_fields_prover(fk_table) {
             if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
                 continue;
@@ -622,8 +614,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             &left_names,
             &right_names,
         );
-        // Partial-join output must not mix row domains: every output column must
-        // share the table log-size (FK-side domain).
+        // Every output column lives on the FK-side row domain.
         debug_assert!(
             updated_table
                 .tracked_polys_iter()
@@ -748,8 +739,9 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
                 &self.join,
             )
         } else {
-            // Partial mode (HasOne): keep FK-side row domain and only materialize PK-side
-            // columns. This keeps virtual/materialized columns on the same log-size.
+            // Partial mode (HasOne): the output keeps the FK-side row domain and
+            // only the PK-side columns are materialized, so virtual and
+            // materialized columns share one log size.
             hints::build_partial_output_dataframe(
                 left_hint_df.data_frame().clone(),
                 right_hint_df.data_frame().clone(),
@@ -783,20 +775,15 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
             .iter()
             .map(|field| {
                 let name = field.name();
-                // __row_id__ is freshly built at the Join output (see
-                // build_*_output_dataframe) and must not be routed through
-                // partial-mode's `left_fields.contains` check. The verifier's
-                // left_fields comes from the oracle schema (built via
-                // `SELECT * EXCEPT (__row_id__)` in commit.rs, so no __row_id__),
-                // while the prover's comes from the real parquet schema (which
-                // still has __row_id__) — relying on it would desync tracker IDs
-                // between sides. Pin __row_id__ to non-materialized, matching the
-                // MANY_TO_MANY path's handling.
+                // `__row_id__` is never materialized, and must not reach the
+                // side-membership check below: the verifier's side schema (the
+                // oracle schema) has no `__row_id__` while the prover's (the
+                // parquet schema) does, so their tracker ids would diverge.
                 let mat = if name == ROW_ID_COL_NAME {
                     false
                 } else if full_materialization {
-                    // Force __activator__ off in full-mat mode; other real data
-                    // columns are materialized.
+                    // Every data column; the activator is the contiguous one
+                    // built in `add_virtual_witness`.
                     name != ACTIVATOR_COL_NAME
                 } else if name == ACTIVATOR_COL_NAME {
                     // Partial path (HasOne): the output activator is the FK
@@ -804,13 +791,12 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
                     // prover-chosen commitment.
                     false
                 } else {
-                    // Partial path (HasOne): materialize only one side's data and
-                    // keep the preserved-side columns virtual.
+                    // Partial path (HasOne): only the PK side's data is
+                    // materialized; the FK-side columns stay virtual.
                     match self.join_mode() {
                         modes::JoinMode::ONE_TO_MANY => left_fields.contains(name),
                         modes::JoinMode::MANY_TO_ONE => right_fields.contains(name),
-                        // ONE_TO_ONE: keep right as FK-preserved side (virtual), and
-                        // materialize only the opposite side.
+                        // Right is the virtual, FK-preserved side.
                         modes::JoinMode::ONE_TO_ONE => left_fields.contains(name),
                         modes::JoinMode::MANY_TO_MANY => true,
                     }
@@ -877,14 +863,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .iter()
             .map(|field| {
                 let name = field.name();
-                // See prover-side comment: __row_id__ is freshly built at the
-                // Join output and must not be routed through side-membership,
-                // because prover/verifier see different side schemas for it.
+                // Same policy as the prover's `output()`; see there for why
+                // `__row_id__` skips the side-membership check.
                 let mat = if name == ROW_ID_COL_NAME {
                     false
                 } else if full_materialization {
-                    // ROW_ID already caught above; force __activator__ off in
-                    // full-mat mode, let real data columns materialize.
                     name != ACTIVATOR_COL_NAME
                 } else if name == ACTIVATOR_COL_NAME {
                     false
@@ -1079,7 +1062,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             };
             let key = full_materialized_active_rows_misc_key(id, virtualized_ir.tree());
             let active_rows_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
-            let active_rows = field_to_usize::<B::F>(active_rows_field)?;
+            let active_rows = field_to_usize(active_rows_field, "join contig n")?;
             let contig_activator = tracker_rc
                 .borrow_mut()
                 .get_or_build_contig_one_poly(current_table.log_size(), active_rows)?;
@@ -1119,8 +1102,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             &left_names,
             &right_names,
         );
-        // Verifier-side mirror of prover invariant: all output oracles must be on
-        // the same row domain.
         debug_assert!(
             updated_table
                 .tracked_oracles_iter()
@@ -1183,11 +1164,9 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         } else {
             panic!("Expected Join LogicalPlan");
         };
-        // Default to the conservative MANY_TO_MANY mode at ingestion. The
-        // `PkFkSpecialization` pp_optimizer rule walks the IR after this and
-        // upgrades joins whose PK/FK metadata supports a specialized
-        // protocol. Removing the rule (e.g., in an ablation benchmark) keeps
-        // every join at MANY_TO_MANY.
+        // Every join starts as MANY_TO_MANY. The `PkFkSpecialization`
+        // pp_optimizer rule upgrades the ones whose PK/FK metadata supports a
+        // specialized protocol; without the rule they all stay MANY_TO_MANY.
         let join_mode = modes::JoinMode::MANY_TO_MANY;
         let left = Tree::<B>::from_logical_plan(&join.left).root().clone();
         let right = Tree::<B>::from_logical_plan(&join.right).root().clone();
@@ -1337,7 +1316,8 @@ fn append_activator_verifier<B: SnarkBackend>(
 }
 
 fn active_row_count_from_dataframe(df: &datafusion::prelude::DataFrame) -> usize {
-    let batches = collect_blocking(df.clone()).expect("Join output-hint collection should succeed");
+    let batches = crate::session::block_on(df.clone().collect())
+        .expect("Join output-hint collection should succeed");
     let has_activator = df
         .schema()
         .fields()
@@ -1365,63 +1345,4 @@ fn active_row_count_from_dataframe(df: &datafusion::prelude::DataFrame) -> usize
                 .count()
         })
         .sum()
-}
-
-fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
-    let big = value.into_bigint();
-    let bytes = big.to_bytes_le();
-    let mut out: usize = 0;
-    let max = std::mem::size_of::<usize>();
-    for (i, byte) in bytes.iter().enumerate() {
-        if i >= max {
-            if *byte != 0u8 {
-                return Err(ark_piop::errors::SnarkError::VerifierError(
-                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
-                        "join contig n does not fit into usize".to_string(),
-                    ),
-                ));
-            }
-            continue;
-        }
-        out |= (*byte as usize) << (8 * i);
-    }
-    Ok(out)
-}
-
-fn collect_blocking(
-    df: datafusion::prelude::DataFrame,
-) -> datafusion_common::Result<Vec<datafusion::arrow::record_batch::RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            tokio::runtime::RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| {
-                            datafusion_common::DataFusionError::Execution(e.to_string())
-                        })?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    datafusion_common::DataFusionError::Execution(
-                        "dataframe collection thread panicked".to_string(),
-                    )
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| datafusion_common::DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
 }

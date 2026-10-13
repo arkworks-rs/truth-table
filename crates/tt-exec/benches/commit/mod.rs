@@ -15,7 +15,7 @@ use front_end::{
     structs::{Artifact, TTPk},
 };
 use tokio::runtime::Runtime;
-use tt_core::prover::passes::materialization::configure_constraint_metadata_from_parquet_paths;
+use tt_core::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths;
 use tt_exec::{setup::DEFAULT_BENCH_LOG_SIZE, test_utils::resolve_key_paths};
 
 use crate::support::{B, emit_benchmark_stats_row};
@@ -60,10 +60,6 @@ const TPCH_TABLES: &[CommitCase] = &[
         table: "lineitem",
     },
 ];
-
-fn commit_cases() -> &'static [CommitCase] {
-    TPCH_TABLES
-}
 
 fn commit_pk_path() -> &'static PathBuf {
     static PK_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -117,7 +113,7 @@ fn commit_content_len(case: CommitCase) -> usize {
     oracle_bytes.len()
 }
 
-#[divan::bench(args = commit_cases(), max_time = 2)]
+#[divan::bench(args = TPCH_TABLES, max_time = 2)]
 fn bench_tpch_commit_content(bencher: Bencher, case: CommitCase) {
     bencher.bench_local(|| {
         divan::black_box(commit_content_len(case));

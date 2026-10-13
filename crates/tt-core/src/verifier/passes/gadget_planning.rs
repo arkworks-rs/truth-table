@@ -11,9 +11,7 @@ use crate::irs::{
 };
 use ark_piop::SnarkBackend;
 
-/// Verifier-side gadget planning pass.
-///
-/// This pass executes pre-order and lets each node update verifier planning hints.
+/// Lets each node, in pre-order, update the verifier's planning hints.
 pub struct GadgetPlanningPass<B: SnarkBackend> {
     planned_ir: RefCell<OutputPlannedIr<B>>,
     visited_nodes: RefCell<HashSet<NodeId>>,
@@ -46,7 +44,7 @@ impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlann
         id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<HintDFPayload> {
-        // Single hash-table operation: `insert` returns false when already visited.
+        // A node already visited is not planned again.
         if !self.visited_nodes.borrow_mut().insert(id) {
             return self
                 .planned_ir
