@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
-use ark_piop::{SnarkBackend, errors::SnarkError};
+use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkError};
+use either::Either;
 pub mod gadget;
 mod hints;
 use crate::{
@@ -22,9 +23,7 @@ use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::Limit;
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-/// The implementation of a filter node in the prover proof tree.
+/// LIMIT preserves physical rows and selects a prefix of the input activator.
 pub struct LpNode<B>
 where
     B: SnarkBackend,
@@ -33,9 +32,6 @@ where
     gadget: Arc<Node<B>>,
     limit: Limit,
 }
-
-const LIMIT_CONTIG_S_PREFIX: &str = "limit_contig_s";
-const LIMIT_CONTIG_SUM_PREFIX: &str = "limit_contig_sum";
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
@@ -81,62 +77,39 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         id: NodeId,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        assert_no_skip(&self.limit);
+        ensure_no_skip(&self.limit)?;
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
 
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        let mut merged_polys = current_table.tracked_polys();
-        debug_assert!(
-            !merged_polys.is_empty(),
-            "Limit payload should already contain the activator column"
-        );
-
-        for (field, poly) in input_table.tracked_polys_iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                continue;
-            }
-            merged_polys
-                .entry(field.clone())
-                .or_insert_with(|| poly.clone());
-        }
-
-        let metadata = current_table
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
-            .unwrap_or_default();
-
-        let fields = merged_polys
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
-
-        let log_size = match (current_table.log_size(), input_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Limit log sizes should match input");
-                current
-            }
-        };
+        // LIMIT preserves every raw data column. Reuse the input polynomial
+        // handles structurally and replace only the activator; never retain a
+        // prover-selected output column with the same field name.
+        let mut merged_polys = input_table.tracked_polys();
+        let schema = input_table.schema();
+        let log_size = input_table.log_size();
 
         // Compute the contiguous mask size `s` and set output activator to
         // input_activator * contig_one(log_size, s).
         if let Some(input_act) = input_table.activator_tracked_poly() {
+            let capacity = checked_capacity::<B::F>(log_size)?;
             let fetch = fetch_limit_literal(&self.limit);
-            let s = contig_s_from_fetch(&input_act.evaluations(), fetch, input_table.size());
+            let s = contig_s_from_fetch(&input_act.evaluations(), fetch, capacity);
             let tracker_rc = input_act.tracker();
+            let s_u64 = u64::try_from(s)
+                .map_err(|_| limit_check_error("LIMIT prefix does not fit into u64"))?;
+            let s_field = B::F::from(s_u64);
+            let s_mle = MLE::from_evaluations_vec(0, vec![s_field]);
+            match tracker_rc
+                .borrow_mut()
+                .track_and_commit_mat_mv_p(&s_mle, false)?
+            {
+                Either::Right((_id, committed)) if committed == s_field => {}
+                _ => {
+                    return Err(limit_check_error("LIMIT prefix must be a committed scalar"));
+                }
+            }
             let contig = tracker_rc
                 .borrow_mut()
                 .get_or_build_contig_one_poly(log_size, s)?;
@@ -147,17 +120,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                 .cloned()
                 .unwrap_or_else(|| arithmetic::ACTIVATOR_FIELD.clone());
             merged_polys.insert(activator_field, output_act.clone());
-
-            let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
-            tracker_rc
-                .borrow_mut()
-                .insert_miscellaneous_field(key, B::F::from(s as u64));
-            // Store the actual sum of the output activator for the sumcheck claim.
-            let sum_key = format!("{LIMIT_CONTIG_SUM_PREFIX}_{}", limit_key(&self.limit));
-            let output_sum = output_act.evaluations().iter().copied().sum::<B::F>();
-            tracker_rc
-                .borrow_mut()
-                .insert_miscellaneous_field(sum_key, output_sum);
         }
 
         let updated_table = TrackedTable::new(schema, merged_polys, log_size);
@@ -165,8 +127,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         Ok(())
     }
 
-    /// The gadget for the filter node only takes in 1. the input activator column, 2. the output activator column and 3. the binary output of the predicate column.
-    /// Then the gadget proves to you that the output activator column is correctly computed from the input activator column and the predicate column.
+    /// Supply both activators so the gadget can authenticate the output count
+    /// and check that an undersized result retained every input row.
     fn initialize_gadgets(
         &self,
         _id: NodeId,
@@ -237,62 +199,36 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: NodeId,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        assert_no_skip(&self.limit);
+        ensure_no_skip(&self.limit)?;
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
 
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        let mut merged_polys = current_table.tracked_oracles();
-        debug_assert!(
-            !merged_polys.is_empty(),
-            "Limit payload should already contain the activator column"
-        );
-
-        for (field, poly) in input_table.tracked_oracles_iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                continue;
-            }
-            merged_polys
-                .entry(field.clone())
-                .or_insert_with(|| poly.clone());
-        }
-
-        let metadata = current_table
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
-            .unwrap_or_default();
-
-        let fields = merged_polys
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
-
-        let log_size = match (current_table.log_size(), input_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Limit log sizes should match input");
-                current
-            }
-        };
+        // Mirror the prover's structural reuse of input data columns.
+        let mut merged_polys = input_table.tracked_oracles();
+        let schema = input_table.schema();
+        let log_size = input_table.log_size();
 
         // Mirror the prover: read `s` and apply contiguous mask to activator.
         if let Some(input_act) = input_table.activator_tracked_poly() {
             let tracker_rc = input_act.tracker();
-            let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
-            let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
+            let s_id = tracker_rc.borrow_mut().peek_next_id();
+            let s_field = tracker_rc
+                .borrow()
+                .proof_mv_constant(s_id)
+                .ok_or_else(|| limit_check_error("LIMIT prefix is not a committed scalar"))?;
+            let (s_num_vars, _tracked_id) = tracker_rc.borrow_mut().track_mv_com_by_id(s_id)?;
+            if s_num_vars != 0 {
+                return Err(limit_check_error(
+                    "LIMIT prefix committed scalar has variables",
+                ));
+            }
             let s = field_to_usize::<B::F>(s_field)?;
+            let capacity = checked_capacity::<B::F>(log_size)?;
+            if s > capacity {
+                return Err(limit_check_error("LIMIT prefix exceeds the input capacity"));
+            }
             let contig = tracker_rc
                 .borrow_mut()
                 .get_or_build_contig_one_poly(log_size, s)?;
@@ -428,6 +364,28 @@ fn fetch_limit_literal(limit: &Limit) -> Option<usize> {
     }
 }
 
+fn limit_check_error(message: &str) -> SnarkError {
+    SnarkError::VerifierError(
+        ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(message.to_string()),
+    )
+}
+
+/// A Boolean activator's sum is an integer count only below the field modulus.
+fn checked_capacity<F: PrimeField>(log_size: usize) -> ark_piop::errors::SnarkResult<usize> {
+    let capacity = u32::try_from(log_size)
+        .ok()
+        .and_then(|bits| 1usize.checked_shl(bits))
+        .ok_or_else(|| limit_check_error("LIMIT input capacity does not fit into usize"))?;
+    let capacity_u64 = u64::try_from(capacity)
+        .map_err(|_| limit_check_error("LIMIT input capacity does not fit into u64"))?;
+    if F::BigInt::from(capacity_u64) >= F::MODULUS {
+        return Err(limit_check_error(
+            "LIMIT input capacity must be below the field modulus",
+        ));
+    }
+    Ok(capacity)
+}
+
 fn contig_s_from_fetch<F: PrimeField>(
     activator: &[F],
     fetch: Option<usize>,
@@ -461,7 +419,7 @@ fn field_to_usize<F: PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usiz
             if *byte != 0 {
                 return Err(SnarkError::VerifierError(
                     ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
-                        "limit contig s does not fit into usize".to_string(),
+                        "LIMIT count or prefix does not fit into usize".to_string(),
                     ),
                 ));
             }
@@ -472,32 +430,19 @@ fn field_to_usize<F: PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usiz
     Ok(out)
 }
 
-fn limit_key(limit: &Limit) -> u64 {
-    let skip = match limit.get_skip_type() {
-        Ok(datafusion_expr::SkipType::Literal(val)) => Some(val),
-        _ => None,
-    };
-    let fetch = match limit.get_fetch_type() {
-        Ok(datafusion_expr::FetchType::Literal(val)) => val,
-        _ => None,
-    };
-    let mut hasher = DefaultHasher::new();
-    (skip, fetch).hash(&mut hasher);
-    hasher.finish()
-}
-
-fn assert_no_skip(limit: &Limit) {
+/// Accept only the zero-offset LIMIT fragment implemented by this protocol.
+fn ensure_no_skip(limit: &Limit) -> ark_piop::errors::SnarkResult<()> {
     match limit.get_skip_type() {
-        Ok(datafusion_expr::SkipType::Literal(0)) => {}
-        Ok(datafusion_expr::SkipType::Literal(val)) => {
-            panic!("Limit skip is not supported (skip={val})");
-        }
-        Ok(datafusion_expr::SkipType::UnsupportedExpr) => {
-            panic!("Limit skip expression is not supported");
-        }
-        Err(err) => {
-            panic!("Limit skip parsing error: {err}");
-        }
+        Ok(datafusion_expr::SkipType::Literal(0)) => Ok(()),
+        Ok(datafusion_expr::SkipType::Literal(val)) => Err(limit_check_error(&format!(
+            "LIMIT offset is unsupported (skip={val})"
+        ))),
+        Ok(datafusion_expr::SkipType::UnsupportedExpr) => Err(limit_check_error(
+            "LIMIT offset must be a nonnegative literal",
+        )),
+        Err(err) => Err(limit_check_error(&format!(
+            "LIMIT offset could not be parsed: {err}"
+        ))),
     }
 }
 
