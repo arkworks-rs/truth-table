@@ -45,6 +45,22 @@ fn pattern(bytes: &[u8]) -> Vec<F> {
 // t = 1: single-factor prefix
 // -----------------------------------------------------------------------------
 
+#[test]
+fn honest_t1_prefix_verifies() {
+    run_gadget_pipeline(t1_prefix_harness(b"abab")).expect("SweepFactors t=1 prefix should verify");
+}
+
+/// The input strings are `"xy"`, but the committed `char^(0)` and everything
+/// derived from it are those of `"ab"`.
+#[test]
+#[ignore = "soundness gap: char^(0) is not bound to the char column of the input"]
+fn rotated_chars_of_other_strings_rejected() {
+    assert!(
+        run_gadget_pipeline(t1_prefix_harness(b"xyxy")).is_err(),
+        "`ab%` must not match strings that do not start with `ab`"
+    );
+}
+
 /// The harness of `ab%` with the witness of two strings `"ab"`, over an input
 /// whose char column is `input_chars`.
 fn t1_prefix_harness(input_chars: &[u8; 4]) -> GadgetHarness<B> {
@@ -221,22 +237,6 @@ fn t1_prefix_harness(input_chars: &[u8; 4]) -> GadgetHarness<B> {
             },
         )
         .build()
-}
-
-#[test]
-fn honest_t1_prefix_verifies() {
-    run_gadget_pipeline(t1_prefix_harness(b"abab")).expect("SweepFactors t=1 prefix should verify");
-}
-
-/// The input strings are `"xy"`, but the committed `char^(0)` and everything
-/// derived from it are those of `"ab"`.
-#[test]
-#[ignore = "soundness gap: char^(0) is not bound to the char column of the input"]
-fn rotated_chars_of_other_strings_rejected() {
-    assert!(
-        run_gadget_pipeline(t1_prefix_harness(b"xyxy")).is_err(),
-        "`ab%` must not match strings that do not start with `ab`"
-    );
 }
 
 // -----------------------------------------------------------------------------
