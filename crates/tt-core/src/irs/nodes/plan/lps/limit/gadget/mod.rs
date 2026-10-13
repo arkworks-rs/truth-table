@@ -101,8 +101,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         assert_no_skip(&self.limit);
-        // Limit gadget prover: read the precomputed contiguous size `s` and
-        // prove sum(output.activator) = i via sumcheck.
+        // Sumcheck claim: sum(output activator) equals the sum the plan node
+        // stored under `limit_contig_sum_*`.
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
             return Ok(());
@@ -140,8 +140,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         assert_no_skip(&self.limit);
-        // Limit gadget verifier: read the precomputed contiguous size `s` and
-        // verify sum(output.activator) = i via sumcheck.
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
             return Ok(());

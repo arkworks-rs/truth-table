@@ -6,26 +6,23 @@
 //! every choice: no feature's rows are blurred by another's.
 //!
 //! The only choice left is which features get a bin when a column has more
-//! than [`NUM_BINS`]. A feature in every row can never remove a row, so it
+//! than the width. A feature in every row can never remove a row, so it
 //! gets none; of the rest, the ones in the most rows are kept, because a
 //! pattern is cut from the column's own text and so contains a feature
 //! about as often as the rows do. Bins are numbered in that order, most
 //! common first.
 //!
-//! Each bin is its own committed column, so a wide rule costs the data
-//! owner commitment time, but not oracle size (the oracle keeps one Merkle
-//! root per column) and not the prover: a query opens and reads only the
-//! bins it tests.
+//! A wide rule costs the data owner commitment time only: the oracle keeps
+//! one Merkle root per column ([`super::merkle`]) and a query opens only
+//! the bins it tests.
 
 use rayon::prelude::*;
 
 use super::{Feature, FeatureKind, FingerprintConfig, NUM_BINS};
 use super::{MIN_ROWS, row_features, slot, slots};
 
-/// The single-feature rule of a column: one bin per feature some row has
-/// and not every row has, the most common first, at most [`NUM_BINS`]; no
-/// pre-filter below [`MIN_ROWS`] rows. `strings` are the column's active
-/// rows.
+/// The rule of a column whose active rows are `strings`, at the widest
+/// width, [`NUM_BINS`].
 pub fn single_feature_rule<S: AsRef<[u8]> + Sync>(
     name: impl Into<String>,
     strings: &[S],
@@ -33,8 +30,8 @@ pub fn single_feature_rule<S: AsRef<[u8]> + Sync>(
     single_feature_rule_at(name, strings, NUM_BINS)
 }
 
-/// [`single_feature_rule`] keeping only the `width` most common features;
-/// width zero means no pre-filter.
+/// The rule keeping the `width` most common features. Width zero or fewer
+/// than [`MIN_ROWS`] rows gives the empty rule: no pre-filter.
 pub fn single_feature_rule_at<S: AsRef<[u8]> + Sync>(
     name: impl Into<String>,
     strings: &[S],

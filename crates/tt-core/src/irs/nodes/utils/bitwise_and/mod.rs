@@ -1,32 +1,29 @@
-//! Bitwise AND check gadget (paper §6.3, PIOP 9).
+//! Bitwise AND check (paper §6.3, PIOP 9).
 //!
 //! Takes one payload table with three data columns `(c1, c2, c3)` of
-//! `n`-bit values and proves that on every active row `c3[i] = c1[i] ∧
-//! c2[i]` (bitwise AND). The protocol:
+//! `n`-bit values and proves `c3[i] = c1[i] ∧ c2[i]` on every active row:
 //!
-//! 1. (*Range*) each column is looked up in the transparent `n`-bit range
-//!    table, so all entries are `n`-bit. (The AND lookup below already
-//!    forces this — every truth-table row is `n`-bit — so these checks
-//!    are defense-in-depth per the paper, not load-bearing for
-//!    soundness.)
-//! 2. (*Fold*) the verifier samples `r1, r2, r3` (after the columns are
-//!    committed) and both parties form `c' = r1·c1 + r2·c2 + r3·c3`.
-//! 3. (*Lookup*) `c'` (activated) is looked up in the transparent
-//!    2n-variable column `c'' = r1·I'ₙ + r2·I''ₙ + r3·ãnd`, whose
-//!    2^{2n} rows enumerate every valid triple `(a, b, a ∧ b)`.
+//! 1. Range: each column is looked up in the transparent `n`-bit range
+//!    table. The AND lookup below already forces this (every row of its
+//!    table is `n`-bit), so these checks follow the paper but soundness
+//!    does not rest on them.
+//! 2. Fold: the verifier samples `r1, r2, r3` after the columns are
+//!    committed, and both parties form `c' = r1·c1 + r2·c2 + r3·c3`.
+//! 3. Lookup: the activated `c'` is looked up in the transparent
+//!    2n-variable column `c'' = r1·I'ₙ + r2·I''ₙ + r3·ãnd`, whose `2^{2n}`
+//!    rows enumerate every triple `(a, b, a ∧ b)`.
 //!
-//! Soundness: the columns are committed before `r1, r2, r3` are sampled,
-//! so for a row whose triple is *not* an AND-table row, colliding with
-//! any table entry is a nontrivial linear identity in the challenges —
-//! probability ≤ `rows · 2^{2n} / |F|` in total. Inactive rows fold to
-//! `0` via the activator and land on the `(0, 0, 0)` table row.
+//! Soundness: the columns are committed before the challenges, so a row
+//! whose triple is not in the AND table collides with a table entry only
+//! through a nontrivial linear identity in `r1, r2, r3`: probability at
+//! most `rows · 2^{2n} / |F|` in total. Inactive rows fold to `0` through
+//! the activator and land on the `(0, 0, 0)` table row.
 //!
-//! The table columns need no oracle: the verifier evaluates
+//! The table needs no oracle: the verifier evaluates the multilinear
 //! `I'ₙ(x) = Σ 2^i x_i`, `I''ₙ(x) = Σ 2^i x_{n+i}` and
-//! `ãnd(x) = Σ 2^i x_i x_{n+i}` (all multilinear) by itself, mirroring
-//! the transparent range tables of the Sign gadget. Variable `i` carries
-//! bit weight `2^i` (LSB-first), matching the tracker's index ↔ variable
-//! convention.
+//! `ãnd(x) = Σ 2^i x_i x_{n+i}` itself, as the Sign gadget does for its
+//! range tables. Variable `i` carries bit weight `2^i` (LSB first), the
+//! tracker's index-to-variable convention.
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{One, Zero};
@@ -49,32 +46,23 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
-/// Label for the single payload table carrying the `(c1, c2, c3)` data
-/// columns (and their shared activator, if any).
 pub const INPUT_LABEL: &str = "__input__";
 
-/// A gadget node proving `c3 = c1 ∧ c2` bitwise over `bit_width`-bit
-/// values, on all activated rows.
-///
 /// With [`GadgetNode::new_with_constant`], `c2` is a public constant `φ`
-/// instead of a payload column (the paper's `φ·1`): the payload then
-/// carries only `(c1, c3)`, and the constant contributes the scalar
-/// `r2·φ` to the folded column — no oracle, no commitment, matching the
-/// paper's "the constant column needs no oracle" remark. The lookup
-/// table is unchanged, so active rows are forced onto AND-table triples
-/// whose middle slot is exactly `φ`.
+/// (the paper's `φ·1`) instead of a payload column: the payload carries
+/// only `(c1, c3)` and the constant adds the scalar `r2·φ` to the folded
+/// column, with no oracle. The lookup table is unchanged, so active rows
+/// are forced onto AND-table triples whose middle slot is `φ`.
 pub struct GadgetNode<B: SnarkBackend> {
     bit_width: usize,
-    /// `Some(φ)`: prove `c3 = c1 ∧ φ` against a public constant second
-    /// operand; the payload carries two data columns `(c1, c3)`.
     constant_operand: Option<u64>,
     _phantom: PhantomData<B>,
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    /// `bit_width` is the paper's `n`: the number of bits per value. The
-    /// transparent AND table has `2^{2·bit_width}` rows, so keep the
-    /// width small (fingerprint bin counts, not machine words).
+    /// `bit_width` is the paper's `n`. The transparent AND table has
+    /// `2^{2·bit_width}` rows, so keep the width small (fingerprint bin
+    /// counts, not machine words).
     pub fn new(bit_width: usize) -> Self {
         assert!(bit_width > 0, "BitwiseAnd requires a positive bit width");
         Self {
@@ -84,8 +72,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
         }
     }
 
-    /// Prove `c3 = c1 ∧ constant` with a public `bit_width`-bit constant
-    /// second operand (no oracle needed for it).
+    /// Constant mode: proves `c3 = c1 ∧ constant` for a public
+    /// `bit_width`-bit `constant`.
     pub fn new_with_constant(bit_width: usize, constant: u64) -> Self {
         assert!(bit_width > 0, "BitwiseAnd requires a positive bit width");
         assert!(
@@ -184,7 +172,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 
     /// Verifier-side transparent AND table oracle:
-    /// `r1·Σ2^i x_i + r2·Σ2^i x_{n+i} + r3·Σ2^i x_i·x_{n+i}` — the
+    /// `r1·Σ2^i x_i + r2·Σ2^i x_{n+i} + r3·Σ2^i x_i·x_{n+i}`, the
     /// multilinear extension of [`Self::dense_and_table`].
     pub(crate) fn and_table_oracle(bit_width: usize, rs: [B::F; 3]) -> Oracle<B::F> {
         Oracle::new_multivariate(2 * bit_width, move |x: Vec<B::F>| {
@@ -304,24 +292,22 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             "BitwiseAnd expects (c1, c2, c3) data columns, or (c1, c3) in constant mode."
         );
 
-        // 1. Range checks: every entry of every column is `bit_width`-bit.
-        //    (The constant operand, if any, is public and asserted at
-        //    construction.)
+        // The constant operand, if any, is public and its range is asserted
+        // at construction.
         for &ind in &data_inds {
             let col = input.tracked_col_by_ind(ind);
             Self::add_range_inclusion(prover, &col, self.bit_width)?;
         }
 
-        // 2. Fold challenges — drawn after the columns are committed.
+        // Drawn after the columns are committed.
         let rs = [
             prover.get_and_append_challenge(b"bitwise_and_fold")?,
             prover.get_and_append_challenge(b"bitwise_and_fold")?,
             prover.get_and_append_challenge(b"bitwise_and_fold")?,
         ];
 
-        // 3. Lookup of the folded (activated) column in the AND table.
-        //    Activation multiplies the whole combined value (constant term
-        //    included), so inactive rows land on the (0, 0, 0) table row.
+        // Activation multiplies the whole combined value, constant term
+        // included, so inactive rows land on the (0, 0, 0) table row.
         let combined_activated = match self.constant_operand {
             None => input.fold(&data_inds, &rs).activated_data_tracked_poly(),
             Some(constant) => {

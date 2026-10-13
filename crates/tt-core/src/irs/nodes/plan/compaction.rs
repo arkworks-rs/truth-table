@@ -1,4 +1,5 @@
 use crate::irs::nodes::plan::compaction_dpuc;
+use crate::irs::nodes::utils::field_to_usize;
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
     utils::compaction as compaction_gadget,
@@ -9,7 +10,6 @@ use arithmetic::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
-use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use ark_std::One;
 
@@ -34,30 +34,24 @@ where
     B: SnarkBackend,
 {
     input: Arc<Node<B>>,
-    // The gadget node for proving the compaction operation:
-    // it asserts the output table is a row-domain permutation of the input's
-    // active rows (base compaction gadget: BoolCheck + Permutation, folding every
-    // row-domain data column by name). This binds the row domain but NOT the
-    // char-domain side segments of a string column.
+    // Proves that the output is a row-domain permutation of the input's
+    // active rows (BoolCheck + Permutation over the row-domain data columns).
+    // It does not bind the char-domain side segments of a string column.
     gadget: Arc<Node<B>>,
-    // Present iff the table has exactly one string column: the
-    // Domain-Preserving Update Check (paper §4.2.2) that closes the
-    // char-domain gap the permutation leaves open. `dpuc_base` is that
-    // column's name. See `compaction_dpuc`.
+    // The Domain-Preserving Update Check (paper §4.2.2), which binds the
+    // char-domain segments the permutation leaves open. Present iff
+    // `single_side_string_base` names a column, kept in `dpuc_base`. See
+    // `compaction_dpuc`.
     dpuc_gadget: Option<Arc<Node<B>>>,
     dpuc_base: Option<String>,
 }
 
-/// The base name of the single **side-emitting** string column of the
-/// compaction input subtree, iff there is exactly one. Only white-box string
-/// columns (LIKE / MCPM) receive char-domain side segments — a projected
-/// or equality-compared string column does not — so gating on
-/// [`Tree::required_side_columns`] (not the schema's string types) both
-/// attaches the DPUC child exactly when it will be active and matches the
-/// runtime `__chars`-side detection in
-/// [`compaction_dpuc::single_string_base`]. Computed at construction
-/// from the already-built input subtree, whose white-box gadgets are the
-/// authority on which columns get side polys.
+/// The base name of the input subtree's string column with char-domain side
+/// segments, iff there is exactly one. Only white-box string columns (LIKE /
+/// MCPM) get side segments, so this reads [`Tree::required_side_columns`],
+/// not the schema's string types. That attaches the DPUC child exactly when
+/// it is active and agrees with the run-time detection in
+/// [`compaction_dpuc::single_string_base`].
 pub fn single_side_string_base<B: SnarkBackend>(
     input_tree: &crate::irs::tree::Tree<B>,
 ) -> Option<String> {
@@ -134,8 +128,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             fields.push(ACTIVATOR_FIELD.as_ref().clone().into());
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
-        // Preserve the re-encoded side (char-domain) segments — string
-        // gadgets above this node bind to them.
+        // Keep the re-encoded char-domain side segments: string gadgets above
+        // this node bind to them.
         let updated = arithmetic::table::TrackedTable::new_with_side_cols(
             schema,
             polys,
@@ -186,13 +180,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
 
-        // Domain-Preserving Update Check: commit the char-binding
-        // witnesses (in the PreOrder gadget-init pass, like the Lookup
-        // gadget's multiplicity fallback) and stash the four payload
-        // tables on the composite child — which is visited later in this
-        // same pass, so the payload is in place when it initializes. Uses
-        // the RAW input/output payloads (with char-domain side segments),
-        // not the row-id-stripped tables the permutation consumes.
+        // Domain-Preserving Update Check: commit the char-binding witnesses
+        // and stage the four payload tables on the composite child, which
+        // this pre-order pass visits later. It takes the raw payloads, with
+        // their char-domain side segments, not the row-id-stripped tables.
         if let (Some(dpuc), Some(base)) = (&self.dpuc_gadget, &self.dpuc_base) {
             let raw_input = match virtualized_ir.payload_for_node(&self.input.id()) {
                 Some(PayloadStructure::PlanPayload(t)) => Some(t.clone()),
@@ -228,11 +219,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         _id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Seed the DPUC composite's sort-based offset no-dup: its planner
-        // lex-sorts the offset column at plan time, so rebuild that column
-        // here from the compacted output (deterministic and challenge-free)
-        // and stage it on the composite, which this PreOrder pass visits
-        // next. Prover only — the verifier's planner needs schema alone.
+        // The DPUC composite's sort-based offset no-dup sorts the offset
+        // column at plan time. Rebuild that column from the compacted output
+        // (deterministic, challenge-free) and stage it on the composite,
+        // which this pre-order pass visits next. Prover only: the verifier's
+        // planner needs the schema alone.
         if let (Some(dpuc), Some(base)) = (&self.dpuc_gadget, &self.dpuc_base) {
             let output = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
             let hint = compaction_dpuc::build_offset_plan_hint(output.data_frame().clone(), base)
@@ -368,7 +359,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let tracker_rc = input_act.tracker();
         let key = compaction_contig_key(virtualized_ir.tree(), id);
         let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
-        let s = field_to_usize::<B::F>(s_field)?;
+        let s = field_to_usize(s_field, "compaction contig s")?;
 
         let contig = tracker_rc
             .borrow_mut()
@@ -381,8 +372,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             fields.push(ACTIVATOR_FIELD.as_ref().clone().into());
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
-        // Preserve the re-emitted side (char-domain) oracles (mirrors
-        // the prover).
+        // Keep the char-domain side oracles, as the prover does.
         let updated = arithmetic::table_oracle::TrackedTableOracle::new_with_side_cols(
             schema,
             oracles,
@@ -427,9 +417,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
 
-        // Mirror the prover: track the char-binding witnesses in the same
-        // fixed order and assemble the composite's four payload tables,
-        // from the RAW (side-col-bearing) oracles.
+        // As the prover: track the char-binding witnesses in the same order
+        // and build the composite's four payload tables from the raw oracles.
         if let (Some(dpuc), Some(base)) = (&self.dpuc_gadget, &self.dpuc_base) {
             let raw_input = match virtualized_ir.payload_for_node(&self.input.id()) {
                 Some(PayloadStructure::PlanPayload(t)) => Some(t.clone()),
@@ -479,15 +468,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
 impl<B: SnarkBackend> LpNode<B> {
     pub fn new(input: Arc<Node<B>>, dpuc_base: Option<String>) -> Self {
-        // `contigous: true` — the output activator is a deterministic
-        // contig-one poly of weight s, so no separate contiguity check is
-        // needed beyond what the wrapped compaction gadget provides.
+        // `contigous: true`: the output activator is the contig-one poly of
+        // weight s, so it needs no separate contiguity check.
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             compaction_gadget::GadgetNode::new(true),
         )));
-        // Single-string tables also carry the Domain-Preserving Update
-        // Check, which binds the freshly re-emitted char-domain side
-        // segments the permutation cannot see.
         let dpuc_gadget = dpuc_base.as_ref().map(|_| {
             Arc::new(Node::<B>::Gadget(Arc::new(
                 dpuc_gadget_mod::GadgetNode::new(),
@@ -548,8 +533,8 @@ fn strip_row_id_tracked_oracle<B: SnarkBackend>(
     TrackedTableOracle::new(schema, cols, table.log_size())
 }
 
-/// A logical plan node that indicates that its input should be compacted.
-/// On the logical plan level, this node behaves like an identity operation.
+/// Marks its input for compaction. On the logical-plan level it is the
+/// identity.
 #[derive(Debug, Clone)]
 pub struct CompactionLogicalNode {
     input: Arc<LogicalPlan>,
@@ -603,13 +588,9 @@ impl UserDefinedLogicalNode for CompactionLogicalNode {
         Vec::new()
     }
 
-    /// Compaction is a pure pass-through on the logical plan level
-    /// (input.schema() == self.schema()); each output column IS the
-    /// child's same-indexed column. So route parent's requirements to
-    /// the child unchanged. Without this override, the default `None`
-    /// stops projection-pushdown at this boundary — see the parallel
-    /// `necessary_children_exprs` on `ResultCheckLogicalNode` for the
-    /// full rationale and consequence.
+    /// Every output column is the child's column of the same index, so the
+    /// identity mapping lets projection pushdown through; the default `None`
+    /// would stop it here.
     fn necessary_children_exprs(&self, output_columns: &[usize]) -> Option<Vec<Vec<usize>>> {
         Some(vec![output_columns.to_vec()])
     }
@@ -753,27 +734,6 @@ fn structural_path_to_node<B: SnarkBackend>(
     } else {
         None
     }
-}
-
-fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
-    let big = value.into_bigint();
-    let bytes = big.to_bytes_le();
-    let mut out: usize = 0;
-    let max = std::mem::size_of::<usize>();
-    for (i, byte) in bytes.iter().enumerate() {
-        if i >= max {
-            if *byte != 0u8 {
-                return Err(ark_piop::errors::SnarkError::VerifierError(
-                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
-                        "compaction contig s does not fit into usize".to_string(),
-                    ),
-                ));
-            }
-            continue;
-        }
-        out |= (*byte as usize) << (8 * i);
-    }
-    Ok(out)
 }
 
 #[cfg(test)]

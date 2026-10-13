@@ -1,12 +1,8 @@
-//! One-shot Poneglyph bench driver.
+//! Runs one (query, k) PoneglyphDB kzg circuit through setup, prove and
+//! verify, and prints one JSON object on the last line of stdout. Poneglyph's
+//! own `println!`s come before it; `run_pgn.sh` tees all of it to its raw log.
 //!
-//! Runs a single (query, k) PoneglyphDB kzg circuit through setup + prove +
-//! verify and prints a single JSON object on the LAST line of stdout. The
-//! Poneglyph prover's existing human-readable `println!`s (vk/pk/prove times,
-//! data-file paths, etc.) still flow to stdout above the JSON, which is what
-//! `run_pgn.sh` tees to its raw log file.
-//!
-//! Mapping between `--k` and lineitem dataset size (per the PoneglyphDB README):
+//! `--k` and the lineitem size (PoneglyphDB README):
 //!
 //! ```text
 //! k  rows
@@ -15,10 +11,9 @@
 //! 18 240K    ↔ TPC-H SF=0.04
 //! ```
 //!
-//! (The PoneglyphDB README claims Q3 fits at one-smaller k=15, but in practice
-//! the Q3 circuit panics with NotEnoughRowsAvailable at k=15, so `run_pgn.sh`
-//! sweeps all six queries at the same k=16/17/18. This binary just passes
-//! whatever `--k` it's given straight through.)
+//! The README says Q3 fits at k=15, but its circuit panics there with
+//! NotEnoughRowsAvailable, so `run_pgn.sh` sweeps all six queries at
+//! k=16/17/18. This binary passes `--k` through unchanged.
 
 use anyhow::Result;
 use clap::Parser;
@@ -39,8 +34,7 @@ struct Cli {
 
 #[derive(Serialize)]
 struct Output<'a> {
-    /// Marker so the parser can extract this object from amongst Poneglyph's
-    /// other human-readable stdout lines.
+    /// Lets the parser find this object among Poneglyph's other stdout lines.
     marker: &'a str,
     query: &'a str,
     bench: &'a BenchResult,

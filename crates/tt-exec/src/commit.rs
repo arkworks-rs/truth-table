@@ -23,7 +23,7 @@ use front_end::{
     shared::TTSharedConfig,
 };
 use tracing::info;
-use tt_core::prover::passes::materialization::configure_constraint_metadata_from_parquet_paths;
+use tt_core::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths;
 
 use front_end::structs::{Artifact, TTPk};
 
@@ -247,7 +247,7 @@ async fn commit_parquet_with_pk(
     .await
     .context("failed to register parquet")?;
 
-    // Install the rules BEFORE encoding: they decide how each string column
+    // Install the rules before encoding: they decide how each string column
     // is fingerprinted, and they are recorded in the oracle so prover and
     // verifier reproduce exactly this encoding.
     let rules = column_rules(&ctx, &table_name, width).await?;

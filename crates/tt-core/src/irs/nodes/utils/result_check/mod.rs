@@ -4,7 +4,7 @@ use arithmetic::{
     ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
-use ark_ff::PrimeField;
+use ark_ff::Zero;
 use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
@@ -209,12 +209,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 /// verifier holds in the clear.
 ///
 /// The claimed result comes from the prover and is not otherwise in the
-/// transcript, so it must be fixed before this check draws any challenge;
-/// a prover that knew the fold challenges could otherwise pick different
-/// rows that fold to the same values. The prover therefore commits the
-/// result on its own domain first, and a zerocheck against the verifier's
-/// copy ties each commitment to the claimed result. Only then are the fold
-/// challenges drawn and the two multisets compared.
+/// transcript, so it must be fixed before this check draws any challenge:
+/// a prover that knew the fold challenges could pick different rows that
+/// fold to the same values. So the prover first commits the result on its
+/// own domain, and a zerocheck against the verifier's copy ties each
+/// commitment to the claimed result. Only then are the fold challenges
+/// drawn and the two multisets compared.
 fn prove_result_check<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     t_table: &TrackedTable<B>,
@@ -415,14 +415,6 @@ fn fold_oracles<B: SnarkBackend>(
     folded
 }
 
-fn active_positions<F: PrimeField>(evals: &[F]) -> Vec<usize> {
-    evals
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, value)| (!value.is_zero()).then_some(idx))
-        .collect()
-}
-
 fn tracked_row_key<B: SnarkBackend>(
     table: &TrackedTable<B>,
     row_idx: usize,
@@ -454,7 +446,10 @@ fn active_row_multiset<B: SnarkBackend>(
         .expect("ResultCheck table activator missing")
         .evaluations();
     let mut counts = HashMap::new();
-    for row_idx in active_positions(&activator) {
+    for (row_idx, value) in activator.iter().enumerate() {
+        if value.is_zero() {
+            continue;
+        }
         let key = tracked_row_key(table, row_idx)?;
         *counts.entry(key).or_insert(0) += 1;
     }

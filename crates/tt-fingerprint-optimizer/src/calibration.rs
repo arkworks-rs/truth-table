@@ -1,11 +1,9 @@
 //! Drive the real prover on one LIKE query so the cost model
-//! ([`crate::model::CostModel`]) can be fitted to measured whole-prove times
-//! instead of hand-transcribed constants.
+//! ([`crate::model::CostModel`]) can be fitted to measured whole-prove times.
 //!
 //! A measured point is the query's [`crate::model::Shape`] under the active
 //! scheme (computed offline with the same encoder the prover uses) plus the
-//! wall time of proving it; the `tt-fp-calibrate` binary prints exactly
-//! that row.
+//! wall time of proving it. The `tt-fp-calibrate` binary prints that row.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -19,7 +17,7 @@ use tt_exec::test_utils::{resolve_key_paths, resolve_oracle_path_blocking};
 
 use crate::corpus::Corpus;
 
-/// Table / column the model is calibrated on — the lineitem `l_comment`
+/// Table / column the model is calibrated on: the lineitem `l_comment`
 /// corpus of the release bench.
 pub const CORPUS_TABLE: &str = "lineitem";
 pub const CORPUS_COLUMN: &str = "l_comment";
@@ -54,11 +52,10 @@ fn resolve_assets() -> Result<(PathBuf, PathBuf, PathBuf)> {
 /// l_comment LIKE 'pattern'` under the production planner (the prover picks
 /// the pre-filter's bins).
 ///
-/// Synchronous, mirroring the bench harness: the blocking asset resolvers
-/// run in this sync context (before any runtime is entered, so their own
-/// `block_on` never nests), then the async prover is driven by a fresh
-/// tokio runtime — DataFusion needs a live tokio reactor, which a
-/// non-tokio executor would not provide.
+/// Synchronous, like the bench harness: the blocking asset resolvers run
+/// before any runtime is entered, so their own `block_on` never nests, then
+/// a fresh tokio runtime drives the async prover (DataFusion needs a live
+/// tokio reactor).
 pub fn prove_pattern_seconds(pattern: &str) -> Result<Duration> {
     let (parquet, oracle, pk_path) = resolve_assets()?;
     let query = format!(
@@ -71,10 +68,9 @@ pub fn prove_pattern_seconds(pattern: &str) -> Result<Duration> {
         .with_pk_path(pk_path)
         .build()
         .context("build prove runner")?;
-    // Current-thread runtime, matching `#[tokio::test]`: the prover's heavy
-    // compute is rayon-parallel, so tokio only drives I/O. A multi-thread
-    // runtime here spawns num_cpus tokio workers that oversubscribe against
-    // rayon's num_cpus pool — measured 7-27x slower on the same prove.
+    // Current-thread runtime: the prover's heavy compute is rayon-parallel,
+    // so tokio only drives I/O. A multi-thread runtime's workers would
+    // oversubscribe against rayon's pool and slow the prove.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

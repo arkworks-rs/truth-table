@@ -15,13 +15,13 @@ pub struct DataGen {
     #[arg(long)]
     pub output_dir: Option<PathBuf>,
 
-    /// Generate the test dataset (scale = 0.001, default output dir =
-    /// tpch-data/test-data).
+    /// Generate the test dataset (scale = 0.0005, default output dir =
+    /// artifacts/test-data).
     #[arg(long, conflicts_with_all = ["scale", "bench"])]
     pub test: bool,
 
-    /// Generate the benchmark dataset (scale = 1, default output dir =
-    /// tpch-data/bench-data).
+    /// Generate the benchmark dataset (scale = 0.04, default output dir =
+    /// artifacts/bench-data).
     #[arg(long, conflicts_with_all = ["scale", "test"])]
     pub bench: bool,
 

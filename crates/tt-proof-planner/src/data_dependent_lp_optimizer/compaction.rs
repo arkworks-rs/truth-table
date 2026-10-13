@@ -9,17 +9,13 @@ use tt_core::irs::nodes::plan::{
 
 use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
 
-/// Data-dependent rule that wraps Filter / Aggregate nodes in a
-/// `CompactionLogicalNode` whenever the node's output row count fits in
-/// a strictly smaller power-of-two hypercube than its input — unless
-/// nothing downstream would read the compacted table. A node in the
-/// *result tail* (only Projections and SubqueryAliases between it and the
-/// `ResultCheck`) is left alone: those operators do no per-row proof work,
-/// and the result check's multiset argument takes the node's own domain,
-/// so the compaction (a row permutation plus a char-domain DPUC over every
-/// column, the projected-away ones included) would only add cost. Limit is
-/// excluded because wrapping it triggers prover-side `FalseClaim` panics on
-/// queries with explicit `LIMIT` (Q3, Q10).
+/// Wraps a Filter or Aggregate in a `CompactionLogicalNode` when its output
+/// fits a strictly smaller power-of-two hypercube than its input, unless the
+/// node is in the result tail (only Projections and SubqueryAliases between
+/// it and the `ResultCheck`). Those operators do no per-row proof work and
+/// the result check's multiset argument takes the node's own domain, so
+/// compacting there (a row permutation plus a char-domain DPUC over every
+/// column, the projected-away ones included) only adds cost.
 #[derive(Debug, Default)]
 pub struct CompactionRule;
 
@@ -57,11 +53,9 @@ fn collect_compaction_hints(
         hints.push(OptimizationHint::Compaction {
             target_path: path.clone(),
         });
-        // Keep walking: stacked shrinking filters (e.g. the LIKE
-        // fingerprint pre-filter under its LIKE filter) each deserve
-        // their own wrap — the apply side handles nested hints. Row
-        // counts are computed on the original plan, so a hint above
-        // never distorts the decision below.
+        // Keep walking: stacked shrinking filters (the LIKE pre-filter under
+        // its LIKE filter) each get their own wrap. Row counts come from the
+        // original plan, so a hint above does not change the decision below.
     }
 
     let child_in_result_tail = child_in_result_tail(plan, in_result_tail);
@@ -94,9 +88,8 @@ fn apply_compaction_hints_with_result_check_guard(
     // (an older proof, a different rule set) can never wrap a tail node.
     let child_in_result_tail = child_in_result_tail(&plan, in_result_tail);
 
-    // Post-order: rewrite children first so nested hints wrap before we
-    // (optionally) wrap the current node. Without this, an outer wrap would
-    // return early and skip any deeper hints in the same branch.
+    // Post-order: children are rewritten before the current node is wrapped,
+    // so nested hints in the same branch are all applied.
     let new_inputs = plan
         .inputs()
         .into_iter()
@@ -126,15 +119,10 @@ fn apply_compaction_hints_with_result_check_guard(
     }
 }
 
-/// Rebuild the `Vec<Expr>` argument that `LogicalPlan::with_new_exprs` expects.
-///
-/// `plan.expressions()` flattens `Join.on: Vec<(Expr, Expr)>` into
-/// `[left_0, right_0, left_1, right_1, ...]`, but `with_new_exprs` for Join
-/// requires each equi-expr to be a `BinaryExpr(left = right)`. Feeding the
-/// flattened form back in loses pairs and triggers
-/// `"The front part expressions should be an binary equality expression"`
-/// inside DataFusion. Rebuild the equality-wrapped form here so the
-/// round-trip is a true no-op.
+/// The `Vec<Expr>` that `LogicalPlan::with_new_exprs` expects. For a Join,
+/// `plan.expressions()` flattens `on` into `[left_0, right_0, left_1, ...]`
+/// while `with_new_exprs` requires one `left = right` equality per pair and
+/// errors on the flattened form, so the equalities are rebuilt here.
 pub(super) fn expressions_for_with_new_exprs(plan: &LogicalPlan) -> Vec<Expr> {
     if let LogicalPlan::Join(join) = plan {
         let mut exprs: Vec<Expr> = join
@@ -157,7 +145,10 @@ pub(super) fn expressions_for_with_new_exprs(plan: &LogicalPlan) -> Vec<Expr> {
 }
 
 fn ensure_compaction_target(plan: &LogicalPlan, path: &[usize]) -> DataFusionResult<()> {
-    if supports_compaction(plan) {
+    // TODO: Limit is excluded because wrapping it in Compaction triggers
+    // `HonestProverError(FalseClaim)` on queries with an explicit LIMIT
+    // (TPC-H Q3, Q10). Needs an IR-side investigation.
+    if matches!(plan, LogicalPlan::Filter(_) | LogicalPlan::Aggregate(_)) {
         return Ok(());
     }
     Err(DataFusionError::Plan(format!(
@@ -165,13 +156,6 @@ fn ensure_compaction_target(plan: &LogicalPlan, path: &[usize]) -> DataFusionRes
         path,
         plan.display()
     )))
-}
-
-fn supports_compaction(plan: &LogicalPlan) -> bool {
-    // Limit is excluded: wrapping a Limit in Compaction triggers
-    // `HonestProverError(FalseClaim)` on queries with explicit LIMIT (Q3, Q10).
-    // Needs an IR-side investigation before re-enabling.
-    matches!(plan, LogicalPlan::Filter(_) | LogicalPlan::Aggregate(_))
 }
 
 /// Whether `plan`'s inputs are in the result tail: `plan` is the

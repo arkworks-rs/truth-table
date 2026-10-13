@@ -7,14 +7,10 @@ use datafusion_expr::{EmptyRelation, LogicalPlan};
 
 use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
 
-/// Data-dependent rule that emits a `Truncate` hint for any LP subtree whose
-/// runtime output is empty. The verifier replays the hint by replacing the
-/// subtree with `LogicalPlan::EmptyRelation` carrying the original schema —
-/// DataFusion's structural `PropagateEmptyRelation` rule then further
-/// simplifies the surrounding plan.
-///
-/// Currently omitted from `data_dependent_lp_optimizer::rules()` by default;
-/// enable explicitly when needed (e.g., a future ablation bench).
+/// Emits a `Truncate` hint for every LP subtree whose runtime output is
+/// empty. The verifier replaces the subtree with an `EmptyRelation` of the
+/// same schema, and DataFusion's `PropagateEmptyRelation` then simplifies the
+/// surrounding plan. Not in the default `data_dependent_lp_optimizer::rules()`.
 #[derive(Debug, Default)]
 pub struct TruncateEmptyPayloadRule;
 
@@ -47,7 +43,6 @@ fn collect_truncate_hints(
     path: &mut Vec<usize>,
     hints: &mut Vec<OptimizationHint>,
 ) -> DataFusionResult<()> {
-    // Skip plans already known to be empty — nothing to truncate.
     if matches!(plan, LogicalPlan::EmptyRelation(_)) {
         return Ok(());
     }
@@ -55,8 +50,7 @@ fn collect_truncate_hints(
         hints.push(OptimizationHint::Truncate {
             target_path: path.clone(),
         });
-        // The whole subtree is empty; no point descending — any deeper hint
-        // would target a path that gets discarded anyway.
+        // Do not descend: a deeper hint would target a discarded path.
         return Ok(());
     }
     for (idx, input) in plan.inputs().into_iter().enumerate() {
@@ -67,9 +61,6 @@ fn collect_truncate_hints(
     Ok(())
 }
 
-/// Walk `plan` and at each `target_path` replace the subtree with an
-/// `EmptyRelation` carrying the original schema. Called by
-/// [`super::apply_optimization_hints`].
 pub(super) fn apply_truncate_hints(
     plan: LogicalPlan,
     path: &mut Vec<usize>,

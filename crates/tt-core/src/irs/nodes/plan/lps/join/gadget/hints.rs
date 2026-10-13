@@ -8,7 +8,6 @@ use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, Sca
 use datafusion_expr::{Expr, ExprFunctionExt, ExprSchemable, Join, col, lit};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::runtime::RuntimeFlavor;
 
 use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
 
@@ -40,9 +39,9 @@ fn build_indexed_join_frames(
     right: DataFrame,
     join: &Join,
 ) -> DataFusionResult<IndexedJoinFrames> {
-    // Prefer aliased row ids to avoid `__row_id__` collisions after optimizer
-    // rewrites (e.g. scalar-subquery joins). Fall back only when DataFusion still
-    // reports an ambiguity on this version.
+    // Aliased row ids avoid `__row_id__` collisions after optimizer rewrites
+    // (e.g. scalar-subquery joins). The unaliased path is the fallback when
+    // DataFusion still reports an ambiguity.
     build_indexed_join_frames_impl(left.clone(), right.clone(), join, true).or_else(|err| {
         if should_retry_source_mapping_without_aliased_row_ids(&err) {
             build_indexed_join_frames_impl(left, right, join, false)
@@ -58,7 +57,6 @@ fn build_indexed_join_frames_impl(
     join: &Join,
     aliased_row_ids: bool,
 ) -> DataFusionResult<IndexedJoinFrames> {
-    // Build join predicates (equi-join pairs plus optional filter).
     let mut join_exprs: Vec<Expr> = join
         .on
         .iter()
@@ -142,9 +140,7 @@ fn build_indexed_join_frames_impl(
     })?;
     let indexed = materialize_dataframe(indexed)?;
 
-    // Materialize the step-3 output-side lookup bases here so the join gadget
-    // does not need to reconstruct left/right payload slices later from the
-    // combined output table.
+    // The left and right payload slices of the output, in output row order.
     let output_left = indexed
         .clone()
         .select(with_helper_col(
@@ -166,20 +162,17 @@ fn build_indexed_join_frames_impl(
             right_indexed_aliases.iter().map(col).collect::<Vec<_>>(),
         ))?;
 
-    // Step 3 only needs a valid immediate-parent row id for each output-side
-    // payload row. Deriving source ids from the replayed join row ordering is
-    // brittle for nested joins, so instead we match the actual output-side
-    // payload rows back to the immediate input payload rows directly.
+    // The source lookup needs, for each output-side payload row, the row id of
+    // a matching row of the immediate input. It is found by payload equality:
+    // ids taken from the replayed join's row order are brittle for nested
+    // joins. Those ids are the fallback for rewritten subquery joins, where
+    // DataFusion may reshape the payload enough to break the equality lookup.
     let src_left = source_ids_from_payload_lookup(
         &output_left,
         &left,
         left_row_id.name.as_str(),
         SRC_LEFT_COL_NAME,
     )
-    // Most joins can map output payload rows back to immediate input rows by
-    // payload equality. Keep a row-id fallback for rewritten subquery joins
-    // where DataFusion may reshape the right-side payload enough to break that
-    // direct lookup even though the replayed join still carries the source ids.
     .or_else(|_| {
         source_ids_from_indexed_rows(&indexed, "__src_left_row_id__", SRC_LEFT_COL_NAME)
     })?;
@@ -214,8 +207,8 @@ fn source_ids_from_payload_lookup(
     input_row_id_name: &str,
     src_col_name: &str,
 ) -> DataFusionResult<DataFrame> {
-    let output_batches = collect_blocking(output_payload.clone())?;
-    let input_batches = collect_blocking(input_payload.clone())?;
+    let output_batches = crate::session::block_on(output_payload.clone().collect())?;
+    let input_batches = crate::session::block_on(input_payload.clone().collect())?;
 
     let mut payload_to_source = HashMap::<Vec<ScalarValue>, i64>::new();
     for batch in &input_batches {
@@ -322,8 +315,8 @@ fn source_ids_from_indexed_rows(
     helper_col_name: &str,
     src_col_name: &str,
 ) -> DataFusionResult<DataFrame> {
-    // Normalize replayed source ids back to the same Int64 row-id shape used by
-    // the immediate input hints before the nodup/lookup helpers consume them.
+    // Cast to the Int64 row-id type of the immediate input hints, which the
+    // nodup and lookup helpers expect.
     indexed
         .clone()
         .select(vec![
@@ -342,8 +335,8 @@ fn build_nodup_input_from_sources(
     src_left: &DataFrame,
     src_right: &DataFrame,
 ) -> DataFusionResult<DataFrame> {
-    let left_batches = collect_blocking(src_left.clone())?;
-    let right_batches = collect_blocking(src_right.clone())?;
+    let left_batches = crate::session::block_on(src_left.clone().collect())?;
+    let right_batches = crate::session::block_on(src_right.clone().collect())?;
     let Some(left_first) = left_batches.first() else {
         return session_context().read_batch(RecordBatch::new_empty(Arc::new(
             datafusion::arrow::datatypes::Schema::new(vec![
@@ -467,9 +460,8 @@ fn build_nodup_input_from_sources(
 fn scalar_i64(value: ScalarValue, col_name: &str) -> DataFusionResult<i64> {
     match value {
         ScalarValue::Int64(Some(v)) => Ok(v),
-        // Row-number helpers can surface as UInt64 depending on the DataFusion
-        // path that produced the source table, but the downstream lookup helpers
-        // expect a stable signed row-id domain.
+        // Row numbers can surface as UInt64 depending on the DataFusion path
+        // that produced the source table; the lookup helpers expect Int64.
         ScalarValue::UInt64(Some(v)) => i64::try_from(v).map_err(|_| {
             DataFusionError::Execution(format!(
                 "Join source mapping column {col_name} overflowed Int64"
@@ -486,8 +478,8 @@ fn append_source_to_output_payload(
     src_df: &DataFrame,
     src_col_name: &str,
 ) -> DataFusionResult<DataFrame> {
-    let output_batches = collect_blocking(output_payload.clone())?;
-    let src_batches = collect_blocking(src_df.clone())?;
+    let output_batches = crate::session::block_on(output_payload.clone().collect())?;
+    let src_batches = crate::session::block_on(src_df.clone().collect())?;
     let Some(output_first) = output_batches.first() else {
         return session_context().read_batch(RecordBatch::new_empty(Arc::new(
             datafusion::arrow::datatypes::Schema::empty(),
@@ -672,10 +664,10 @@ fn with_activator_only(mut exprs: Vec<Expr>) -> Vec<Expr> {
 
 fn materialize_dataframe(df: DataFrame) -> DataFusionResult<DataFrame> {
     let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)?;
-    // Keep the projected schema even when the join helper is empty; downstream
-    // source-table derivation still expects the payload columns to exist.
+    // An empty result keeps the projected schema: the source-table derivation
+    // expects the payload columns to exist.
     let schema = Arc::new(df.schema().as_arrow().clone());
-    let batches = collect_blocking(df)?;
+    let batches = crate::session::block_on(df.collect())?;
     let ctx = session_context();
     if batches.is_empty() {
         return ctx.read_batch(RecordBatch::new_empty(schema));
@@ -684,38 +676,6 @@ fn materialize_dataframe(df: DataFrame) -> DataFusionResult<DataFrame> {
     let batch_refs = batches.iter().collect::<Vec<_>>();
     let combined = concat_batches(&schema_ref, batch_refs)?;
     ctx.read_batch(combined)
-}
-
-fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
 }
 
 fn expr_has_system_column(expr: &Expr) -> bool {

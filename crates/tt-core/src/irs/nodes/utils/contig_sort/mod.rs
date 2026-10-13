@@ -40,7 +40,6 @@ use crate::{
 };
 mod hints;
 
-/// Labels for different gadget payloads used by this gadget.
 pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
@@ -62,7 +61,7 @@ pub struct PerColumnConfig {
     pub strict: bool,
 }
 
-/// GadgetNode for enforcing sorting of a table according to specified sort expressions.
+/// Enforces that a table is sorted according to its sort config.
 pub struct GadgetNode<B: SnarkBackend> {
     prescr_perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
@@ -534,101 +533,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // use ark_piop::errors::SnarkError::ProverError;
-        // use ark_piop::prover::errors::HonestProverError::FalseClaim;
-        // use ark_piop::prover::errors::ProverError as ProverErr;
-
-        // let false_claim = || ProverError(ProverErr::HonestProverError(FalseClaim));
-
-        // let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        // else {
-        //     return Ok(());
-        // };
-        // let Some(input_table) = payload.get(TABLE_LABEL).cloned() else {
-        //     return Ok(());
-        // };
-
-        // let sort_specs = sort_specs_for_table_prover(&self.sort_config, &input_table);
-        // let ordered_indices = ordered_data_indices_prover(&input_table, &sort_specs);
-        // if ordered_indices.is_empty() {
-        //     return Ok(());
-        // }
-
-        // let row_count = input_table.size();
-        // let input_active = input_table
-        //     .activator_tracked_poly()
-        //     .map(|poly| poly.evaluations())
-        //     .map(|evals| {
-        //         evals
-        //             .iter()
-        //             .map(|value| !value.is_zero())
-        //             .collect::<Vec<_>>()
-        //     })
-        //     .unwrap_or_else(|| vec![true; row_count]);
-
-        // ensure_active_prefix(&input_active).map_err(|_| false_claim())?;
-
-        // let active_len = input_active.iter().take_while(|active| **active).count();
-        // if active_len <= 1 {
-        //     return Ok(());
-        // }
-
-        // let mut input_columns = Vec::with_capacity(ordered_indices.len());
-        // let mut input_types = Vec::with_capacity(ordered_indices.len());
-        // let is_asc_by_col =
-        //     sort_directions_for_indices(&input_table, &sort_specs, &ordered_indices);
-        // let input_col_names = ordered_indices
-        //     .iter()
-        //     .map(|idx| {
-        //         input_table
-        //             .tracked_col_by_ind(*idx)
-        //             .field_ref()
-        //             .unwrap()
-        //             .name()
-        //             .to_string()
-        //     })
-        //     .collect::<Vec<_>>();
-        // for input_idx in ordered_indices.iter().copied() {
-        //     let input_col = input_table.tracked_col_by_ind(input_idx);
-        //     let field = input_col
-        //         .field_ref()
-        //         .expect("Expected field ref for contiguous sort input");
-        //     input_columns.push(input_col.data_tracked_poly().evaluations());
-        //     input_types.push(field.data_type().clone());
-        // }
-
-        // for row_idx in 0..(active_len - 1) {
-        //     let next_row = row_idx + 1;
-        //     let mut saw_difference = false;
-        //     for col_idx in 0..input_columns.len() {
-        //         let current = input_columns[col_idx][row_idx];
-        //         let next = input_columns[col_idx][next_row];
-        //         match compare_field_values::<B>(&input_types[col_idx], current, next)
-        //             .ok_or_else(false_claim)?
-        //         {
-        //             Ordering::Equal => continue,
-        //             Ordering::Less => {
-        //                 saw_difference = true;
-        //                 if !is_asc_by_col[col_idx] {
-        //                     return Err(false_claim());
-        //                 }
-        //                 break;
-        //             }
-        //             Ordering::Greater => {
-        //                 saw_difference = true;
-        //                 if is_asc_by_col[col_idx] {
-        //                     return Err(false_claim());
-        //                 }
-        //                 break;
-        //             }
-        //         }
-        //     }
-
-        //     if !saw_difference && sort_is_strict(&self.sort_config) {
-        //         return Err(false_claim());
-        //     }
-        // }
-
         Ok(())
     }
 
@@ -843,20 +747,16 @@ fn diff_output_type(data_type: &DataType) -> DataType {
         data_type.clone()
     } else {
         // Non-numeric input columns (Boolean, Utf8, Binary, …) get a
-        // sign-only diff shifted from `{-1, 0, 1}` to `{0, 1, 2}` — see
-        // `sign_only_diff_array` and the CASE-expression branch in
-        // `diff_input_on_ordered_via_windows`. The `u8` output lets the
-        // arithmetization encoder route to `MLE::U8` storage (16 MiB at
-        // nv=24) instead of the Field fallback the previous `Int64`
-        // encoding forced via its negative values.
+        // sign-only diff shifted from `{-1, 0, 1}` to `{0, 1, 2}`: a
+        // non-negative `u8` is stored as `MLE::U8`, a negative value would
+        // force the column into field-element storage.
         DataType::UInt8
     }
 }
 
-/// True when the diff column for `data_type` is emitted as the
-/// `{0, 1, 2}` shifted sign-only encoding (see `diff_output_type`).
-/// Callers of the sign gadget must subtract `1` from the tracked diff
-/// to recover the natural `{-1, 0, 1}` sign semantics.
+/// True when the diff column for `data_type` uses the shifted `{0, 1, 2}`
+/// sign-only encoding (see `diff_output_type`). Callers of the sign gadget
+/// must subtract `1` from the tracked diff to recover `{-1, 0, 1}`.
 pub(crate) fn is_sign_only_diff(data_type: &DataType) -> bool {
     data_type != &DataType::Date32 && !is_numeric_diff_type(data_type)
 }
@@ -885,9 +785,9 @@ fn sort_specs_for_table_prover<B: SnarkBackend>(
                     .tracked_col_by_ind(*idx)
                     .field_ref()
                     .expect("Expected field ref for Sort input");
-                // Skip both __row_id__ and auxiliary segments (e.g. __length).
-                // The sort/neq machinery sees one tie indicator per logical
-                // sort key — only primary segments belong here.
+                // Skip __row_id__ and auxiliary segments (e.g. __length): there is
+                // one tie indicator per logical sort key, so only primary segments
+                // belong here.
                 field.name() != ROW_ID_COL_NAME
                     && arithmetic::encoding::segment_base_name(field.name()).is_none()
             })
@@ -1125,12 +1025,9 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
             )
         };
 
-        // Sign-only diff columns arrive as `{0, 1, 2}` shifted from the
-        // natural `{-1, 0, 1}` (see `diff_output_type` / `is_sign_only_diff`
-        // for the memory rationale). Undo the +1 shift before the sign
-        // gadget consumes them so the field-arithmetic sign semantics
-        // are recovered. Subtracting a scalar is O(1) after the
-        // `add_scalar` virtualization in `ark_piop::prover::tracker`.
+        // Sign-only diff columns arrive shifted to `{0, 1, 2}` (see
+        // `is_sign_only_diff`): undo the +1 shift so the sign gadget sees
+        // `{-1, 0, 1}`.
         let diff_poly = if is_sign_only_diff(&input_field_type) {
             raw_diff_poly.sub_scalar_poly(B::F::one())
         } else {
@@ -1270,9 +1167,8 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
             )
         };
 
-        // Mirror the prover: undo the +1 shift applied to sign-only diff
-        // columns at emission time. See `is_sign_only_diff` and the
-        // prover-side wiring in `populate_sign_payloads_prover`.
+        // Mirror the prover: undo the +1 shift of sign-only diff columns
+        // (see `is_sign_only_diff`).
         let diff_oracle = if is_sign_only_diff(&input_field_type) {
             raw_diff_oracle.sub_scalar_oracle(B::F::one())
         } else {
@@ -1904,7 +1800,6 @@ fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
     TrackedTableOracle::new(schema, tracked_oracles, table.log_size())
 }
 
-// Pad contig-sort hints to a power-of-two row count for circuit alignment.
 fn pad_df_to_power_of_two(
     df: datafusion::prelude::DataFrame,
 ) -> datafusion_common::Result<datafusion::prelude::DataFrame> {
@@ -1921,7 +1816,7 @@ fn pad_df_to_power_of_two(
             .collect::<Vec<_>>(),
         arrow_schema.metadata().clone(),
     );
-    let batches = collect_blocking(df)?;
+    let batches = crate::session::block_on(df.collect())?;
     let (batches, _row_count) = pad_batches_to_power_of_two(&arrow_schema, batches)?;
     if batches.is_empty() {
         return Err(DataFusionError::Execution(
@@ -1937,42 +1832,6 @@ fn pad_df_to_power_of_two(
     Ok(padded_df)
 }
 
-// Collect a DataFrame from both async and non-async contexts.
-fn collect_blocking(
-    df: datafusion::prelude::DataFrame,
-) -> datafusion_common::Result<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            tokio::runtime::RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
-}
-
-// Pad batches to a power-of-two row count, preserving system columns.
 fn pad_batches_to_power_of_two(
     schema: &Schema,
     batches: Vec<RecordBatch>,
@@ -2015,8 +1874,8 @@ fn pad_batches_to_power_of_two(
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if field.name() == ROW_ID_COL_NAME {
-            // Preserve monotonic row ids across padding so any row-id-based ordering
-            // remains deterministic after materialization.
+            // Continue the row ids across padding so that an ordering by row id
+            // stays deterministic after materialization.
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
@@ -2037,8 +1896,7 @@ fn pad_batches_to_power_of_two(
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if let Some(batch) = combined.as_ref() {
             let base = batch.column(idx).clone();
-            // Repeat the last value for padded rows. This keeps arithmetic constraints
-            // stable under padding and matches existing gadget expectations.
+            // Repeat the last value on padded rows, as the gadgets downstream expect.
             let last = ScalarValue::try_from_array(base.as_ref(), row_count - 1)?;
             let pad_arr = last.to_array_of_size(pad)?;
             concat(&[base.as_ref(), pad_arr.as_ref()])?

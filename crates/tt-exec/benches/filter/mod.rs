@@ -9,7 +9,6 @@ use crate::support::{
 };
 
 fn filter_cases() -> &'static [BenchCase] {
-    // Static list of filter queries to benchmark.
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let cases = vec![
@@ -30,19 +29,15 @@ fn filter_cases() -> &'static [BenchCase] {
     })
 }
 
-/// Filter-by-pattern (SQL LIKE) benchmark cases spanning every factor
-/// shape SweepFactors handles: single-factor prefix / suffix / infix,
-/// and multi-factor patterns. Every case runs against
-/// `lineitem.l_comment` from the TPC-H bench dataset.
+/// LIKE cases over every factor shape SweepFactors handles (single-factor
+/// prefix, suffix and infix; multi-factor), on `nation.n_name` and
+/// `lineitem.l_comment`.
 fn filter_like_cases() -> &'static [BenchCase] {
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let cases: Vec<BenchCase> = vec![
-            // Nation LIKE audit set — three shapes on the same column
-            // (`n_name`) so the IR / prover / verifier / proof metrics
-            // are directly comparable across pattern kinds. Nation is
-            // ~25 rows, so these run in seconds and won't OOM the
-            // dashboard host.
+            // Three shapes on one small column (`n_name`, 25 rows): their
+            // metrics compare across pattern kinds and each runs in seconds.
             BenchCase {
                 name: "filter_like_prefix_nation",
                 query: r#"SELECT n_name FROM nation WHERE n_name LIKE 'IN%'"#,
@@ -61,7 +56,7 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 tables: &["nation"],
                 benchmark_suite: None,
             },
-            // t = 1, single infix — the most common shape.
+            // t = 1, infix.
             BenchCase {
                 name: "filter_like_infix",
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%green%'"#,
@@ -96,8 +91,8 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 tables: &["lineitem"],
                 benchmark_suite: None,
             },
-            // t = 3, three infix factors — exercises the past-chain
-            // for more than one inter-factor step.
+            // t = 3, three infix factors: the past-chain runs over more than
+            // one inter-factor step.
             BenchCase {
                 name: "filter_like_three_infix",
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%special%packages%beans%'"#,
@@ -136,13 +131,8 @@ fn bench_filter_verifier(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_filter_verifier", case.name);
 }
 
-// -----------------------------------------------------------------------------
-// SQL LIKE benchmarks — routed through the MCPM gadget via
-// `crates/tt-core/src/irs/nodes/plan/exprs/like.rs`. Requires an SRS
-// sized for the char-level side segments (bench SRS at
-// `log_size = 25` is typically sufficient for lineitem.l_comment;
-// smaller SRS will fail at commit time).
-
+// LIKE needs an SRS sized for the char-level side segments of
+// lineitem.l_comment (the bench SRS); a smaller one fails at commit time.
 #[divan::bench(args = filter_like_cases(), sample_size = 1, sample_count = 1)]
 fn bench_filter_like_prover(bencher: Bencher, case: BenchCase) {
     let assets = prepare_assets_cached(case);

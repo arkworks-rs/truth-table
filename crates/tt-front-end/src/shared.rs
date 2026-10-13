@@ -24,10 +24,9 @@ use tt_core::irs::nodes::plan::{
     compaction::CompactionLogicalNode, result_check::ResultCheckLogicalNode,
 };
 
-/// Shared front-end configuration used by the prover, verifier, and data owner.
-///
-/// This bundles the DataFusion analyzer/optimizer pipeline together with the
-/// query-planning context and the context oracles needed by truth-table passes.
+/// Configuration the prover, the verifier and the data owner share: the
+/// DataFusion analyzer and optimizer pipeline, the session context and the
+/// context oracles.
 pub struct TTSharedConfig<B: SnarkBackend> {
     analyzer: Analyzer,
     optimizer: Optimizer,
@@ -43,11 +42,9 @@ pub struct TTSharedConfig<B: SnarkBackend> {
 
 impl<B: SnarkBackend> TTSharedConfig<B> {
     #[allow(clippy::too_many_arguments)]
-    /// Build a shared configuration from explicit DataFusion components.
-    ///
-    /// The provided session context is wrapped with a custom query planner so
-    /// DataFusion can tolerate our no-op logical extension nodes when a physical
-    /// plan is built for query execution.
+    /// The session context gets a query planner that treats our logical
+    /// extension nodes as no-ops, so DataFusion can execute a plan that
+    /// contains them.
     pub fn new(
         analyzer: Analyzer,
         optimizer: Optimizer,
@@ -61,9 +58,9 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         observer: fn(&LogicalPlan, &dyn OptimizerRule),
     ) -> Self {
         let session_ctx = with_noop_extension_support(session_ctx);
-        // `tt_prefilter` must resolve on every session (hint-DF
-        // execution, data-dependent row counts, codec `ctx.udf(...)`
-        // lookups all go through this context).
+        // `tt_prefilter` must resolve on every session: hint-DF execution,
+        // data-dependent row counts and codec `ctx.udf(...)` lookups all go
+        // through this context.
         session_ctx
             .register_udf(tt_core::irs::nodes::plan::exprs::fp_prefilter::tt_prefilter_udf());
         Self {
@@ -80,7 +77,6 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         }
     }
 
-    /// Construct the default shared configuration used by front-end components.
     pub fn with_defaults(session_ctx: SessionContext) -> Self {
         Self::new(
             Analyzer::with_rules(proof_planner::lp_analyzer::rules()),
@@ -96,97 +92,82 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         )
     }
 
-    /// Borrow the shared analyzer.
     pub fn analyzer(&self) -> &Analyzer {
         &self.analyzer
     }
 
-    /// Borrow the shared optimizer.
     pub fn optimizer(&self) -> &Optimizer {
         &self.optimizer
     }
 
-    /// Borrow the shared proof-plan optimizer.
     pub fn pp_optimizer(&self) -> &ProofPlanOptimizer<B> {
         &self.pp_optimizer
     }
 
-    /// Borrow the shared data-dependent optimizer (produces hints the prover
-    /// ships with the proof for the verifier to replay).
+    /// Produces the hints the prover ships with the proof for the verifier to
+    /// replay.
     pub fn data_dependent_optimizer(&self) -> &DataDependentOptimizer {
         &self.data_dependent_optimizer
     }
 
-    /// Borrow the shared data-dependent proof-plan optimizer. Currently
-    /// holds an empty rule list — wired in for future data-dependent IR
-    /// optimizations.
+    /// Its default rule list is empty.
     pub fn data_dependent_pp_optimizer(&self) -> &DataDependentProofPlanOptimizer<B> {
         &self.data_dependent_pp_optimizer
     }
 
-    /// Borrow the context oracles visible to the front-end role.
     pub fn ctx_oracles(&self) -> &CtxOracles<B> {
         &self.ctx_oracles
     }
 
-    /// Borrow the DataFusion session context used for planning and execution.
     pub fn session_ctx(&self) -> &SessionContext {
         &self.session_ctx
     }
 
-    /// Borrow the DataFusion config options used during analysis.
     pub fn config_options(&self) -> &ConfigOptions {
         &self.config_options
     }
 
-    /// Borrow the optimizer context used during logical-plan optimization.
     pub fn optimizer_ctx(&self) -> &OptimizerContext {
         &self.optimizer_ctx
     }
 
-    /// Borrow the observer callback that runs after each optimizer rule.
+    /// Runs after each optimizer rule.
     pub fn observer(&self) -> fn(&LogicalPlan, &dyn OptimizerRule) {
         self.observer
     }
 
-    /// Parse a SQL query into DataFusion's unoptimized logical plan.
+    /// The unoptimized logical plan of `query`, with unique output names.
     pub async fn query_to_lp(&self, query: &str) -> LogicalPlan {
         let df = self.session_ctx().sql(query).await.unwrap();
         with_unique_output_names(df.into_unoptimized_plan())
     }
 
-    /// Run the configured analyzer pipeline on a logical plan.
     pub async fn analyze_lp(&self, lp: LogicalPlan) -> LogicalPlan {
         self.analyzer()
             .execute_and_check(lp, self.config_options(), |_plan_after_rule, _rule| {})
             .unwrap()
     }
 
-    /// Run the configured logical optimizer pipeline on an analyzed plan.
     pub async fn optimize_lp(&self, analyzed_lp: LogicalPlan) -> LogicalPlan {
         let optimized = self
             .optimizer()
             .optimize(analyzed_lp, self.optimizer_ctx(), self.observer())
             .unwrap();
-        // Deterministic post-pass (runs identically on prover and
-        // verifier): insert fingerprint pre-filters in front of LIKE
-        // filters. Must run after the structural rules — inside the
-        // rule list, MergeConsecutiveFilters/PushDownFilter would fold
-        // the inserted filter back into the LIKE filter.
+        // Deterministic post-pass, identical on prover and verifier: insert
+        // fingerprint pre-filters in front of LIKE filters. Inside the rule
+        // list, MergeConsecutiveFilters/PushDownFilter would fold the inserted
+        // filter back into the LIKE filter.
         proof_planner::lp_optimizer::insert_like_prefilters(optimized)
             .expect("LIKE pre-filter insertion should succeed")
     }
 }
 
 /// Renames repeated output column names so every result column has its own
-/// name.
-///
-/// SQL allows a result with repeated names (`SELECT l1.x, l2.x ...`), but the
-/// result table is matched column by column by name, and a table keyed by
-/// field would collapse the repeats into one column. The first occurrence
-/// keeps its name and later ones get the lowest free `name_<n>`, n >= 2.
-/// Prover and verifier plan from this same function, so both see the same
-/// names.
+/// name. SQL allows repeats (`SELECT l1.x, l2.x ...`), but the result table
+/// is matched column by column by name, and a table keyed by field would
+/// collapse the repeats into one column. The first occurrence keeps its name
+/// and later ones get the lowest free `name_<n>`, n >= 2. Prover and verifier
+/// both plan through this function, so both see the same names.
 fn with_unique_output_names(plan: LogicalPlan) -> LogicalPlan {
     use datafusion_common::Column;
     use datafusion_expr::{Expr, LogicalPlanBuilder};
@@ -230,7 +211,6 @@ fn with_noop_extension_support(session_ctx: SessionContext) -> SessionContext {
     SessionContext::new_with_state(state)
 }
 
-/// Query planner wrapper that injects a custom extension planner into DataFusion.
 #[derive(Debug)]
 struct TTQueryPlanner;
 
@@ -241,9 +221,8 @@ impl QueryPlanner for TTQueryPlanner {
         logical_plan: &LogicalPlan,
         session_state: &SessionState,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
-        // The default planner cannot build physical plans for our logical extension
-        // nodes, so we install a no-op extension planner for the specific nodes that
-        // should behave like passthrough wrappers at execution time.
+        // The default planner cannot build physical plans for our logical
+        // extension nodes.
         let planner =
             DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(TTNoOpExtensionPlanner)]);
         planner
@@ -252,8 +231,8 @@ impl QueryPlanner for TTQueryPlanner {
     }
 }
 
-/// Extension planner that turns selected truth-table logical extension nodes into
-/// no-op passthrough execution plans.
+/// Turns the truth-table extension nodes that only matter to the proof into
+/// passthrough execution plans.
 #[derive(Debug)]
 struct TTNoOpExtensionPlanner;
 
@@ -267,9 +246,8 @@ impl ExtensionPlanner for TTNoOpExtensionPlanner {
         physical_inputs: &[Arc<dyn ExecutionPlan>],
         _session_state: &SessionState,
     ) -> DataFusionResult<Option<Arc<dyn ExecutionPlan>>> {
-        // Compaction and ResultCheck affect proof construction, but they should
-        // not change the physical query execution path. Treat them as wrappers over
-        // a single input execution plan.
+        // Compaction and ResultCheck affect proof construction, not query
+        // execution: each is a wrapper over a single input execution plan.
         let is_supported_noop = node.as_any().is::<CompactionLogicalNode>()
             || node.as_any().is::<ResultCheckLogicalNode>();
         if !is_supported_noop {

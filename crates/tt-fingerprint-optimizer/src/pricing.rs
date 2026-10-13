@@ -13,8 +13,6 @@ use crate::corpus::{FeatureIndex, LengthPlanes, RowSet};
 use crate::model::{CostModel, Shape};
 use crate::workload::Query;
 
-// --- Bitset kernels -------------------------------------------------------
-
 /// Rows and characters of an intersection: the two numbers the cost model
 /// needs, accumulated in one pass.
 type Survivors = (usize, usize);
@@ -76,8 +74,6 @@ fn and_assign_count_generic(dst: &mut [u64], src: &[u64], len: &LengthPlanes) ->
 unsafe fn and_assign_count_popcnt(dst: &mut [u64], src: &[u64], len: &LengthPlanes) -> Survivors {
     and_assign_count_generic(dst, src, len)
 }
-
-// --- Problem --------------------------------------------------------------
 
 /// The fixed inputs of a pricing run.
 pub struct Problem<'a> {
@@ -155,8 +151,6 @@ impl Assignment {
         used.into_iter().filter(|&u| u).count()
     }
 }
-
-// --- Bin row sets ---------------------------------------------------------
 
 /// Each bin's rows: those having any of its features.
 struct State<'p, 'a> {
@@ -261,11 +255,10 @@ pub struct Selected {
 /// The prover holds the data, so it can afford the exact choice: starting
 /// from all rows, it repeatedly adds the limb, among those holding the
 /// pattern's bins, whose test leaves the fewest survivors, pricing the
-/// query after every step, and keeps the cheapest step count — possibly
-/// none. That is one bitset intersection per (step, candidate), a few
-/// milliseconds for a pattern's handful of limbs. Any subset is sound (the
-/// verifier checks the bins it is told, and every one is implied by the
-/// public pattern), so the choice needs no agreement with the verifier.
+/// query after every step, and keeps the cheapest step count, possibly
+/// none. Any subset is sound (the verifier checks the bins it is told, and
+/// every one is implied by the public pattern), so the choice needs no
+/// agreement with the verifier.
 pub fn select(problem: &Problem<'_>, assignment: &Assignment) -> Vec<Selected> {
     let state = State::new(problem, assignment);
     (0..problem.queries.len())

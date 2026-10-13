@@ -1,57 +1,20 @@
 //! Plan-time construction of the lookup `multiplicity` witness as a
-//! `HintDF`.
-//!
-//! Historically, the multiplicity poly was computed and committed at
-//! `initialize_gadgets` time by walking the super/included TrackedTable
-//! evaluations and calling `prover.track_and_commit_mat_mv_poly(...)`.
-//! That placed the commit late in the pipeline (post-tracking pass) and
-//! required a mirror `verifier.track_next_mv_com()` call, hard-wiring
-//! the commit order.
-//!
-//! This module lifts the multiplicity computation into plan-time hint
-//! planning: given the super and included HintDFs (already lazy
-//! DataFrames from upstream), we eagerly collect the ACTIVE rows of
-//! both, compute the multiplicity vector by the same algorithm the
-//! prover would run at runtime, and wrap the result in a
-//! MemTable-backed HintDF marked `should_materialize=true`. From then
-//! on, the standard materialization → arithmetization → commitment →
-//! tracking pipeline turns it into a `TrackedTable` in the payload —
-//! same treatment as any other base-table column.
-//!
-//! # Semantics
+//! `HintDF`: the standard materialization → arithmetization → commitment →
+//! tracking pipeline then turns it into a `TrackedTable` in the payload, like
+//! any base-table column.
 //!
 //! For each row `i` of the super table (in row-id order):
 //! - `multiplicity[i] = 0` if super's activator at row `i` is 0.
-//! - `multiplicity[i] = 0` if super's key tuple at row `i` was already
-//!   emitted at some earlier active super row (dedup — the
-//!   HintedLookupPIOP only counts against the first occurrence).
-//! - Otherwise `multiplicity[i] = count of active included rows whose
-//!   key tuple equals super[i]'s key tuple`.
+//! - `multiplicity[i] = 0` if super's key tuple at row `i` occurs at an
+//!   earlier active super row (the HintedLookupPIOP only counts against the
+//!   first occurrence).
+//! - Otherwise `multiplicity[i]` is the number of active included rows whose
+//!   key tuple equals super's at row `i`.
 //!
-//! Output HintDF schema: `{ __activator__: Bool, multiplicity: Int64 }`
-//! at the same log_size as super, with row_id assigned 0..2^k−1.
-//!
-//! # Design invariant this establishes
-//!
-//! This is the first conversion under the "all challenge-independent
-//! committed polys have a plan-time HintDF" invariant. Future
-//! conversions (sign chunks, BezoutNoDup dedup, MCPM per-factor slots)
-//! follow the same shape:
-//!
-//! 1. Add a `hints.rs` module under the gadget with builder(s) that
-//!    take upstream HintDFs and return the witness HintDF.
-//! 2. Call the builder from `initialize_gadget_plans` on both prover
-//!    and verifier sides — verifier uses a schema-matching HintDF so
-//!    the tracking pass consumes the commit in the right slot.
-//! 3. Guard the `initialize_gadgets` commit path so it only runs when
-//!    the payload doesn't already carry the tracked witness (fallback
-//!    for test harness usage).
-//!
-//! Verifier symmetry note: the verifier HintDF must have the same
-//! schema and `should_materialize` flags as the prover's, because the
-//! tracking pass consumes commits in the same field order on both
-//! sides. Actual data values on the verifier are unused (verifier
-//! doesn't run materialization).
+//! The verifier's HintDF must have the same schema and `should_materialize`
+//! flags as the prover's, because the tracking pass consumes commitments in
+//! the same field order on both sides. Its data values are unused (the
+//! verifier does not run materialization).
 
 use crate::session::session_context;
 use std::sync::Arc;
@@ -67,25 +30,15 @@ use datafusion::prelude::DataFrame;
 use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use tokio::runtime::RuntimeFlavor;
 
 use crate::irs::nodes::hints::HintDF;
 
-/// Build the multiplicity HintDF for a lookup gadget given the plan-time
-/// super and included HintDFs from an upstream gadget (typically `supp`).
+/// The multiplicity HintDF of a lookup gadget, from the plan-time super and
+/// included HintDFs of an upstream gadget (typically `supp`). Collects both
+/// eagerly and wraps the result in a MemTable-backed DataFrame.
 ///
-/// This eagerly runs the same algorithm as `expected_lookup_multiplicities_from_values`
-/// against the collected super/included data, then wraps the result in
-/// a MemTable-backed DataFrame. The DataFrame's `multiplicity` and
-/// `__activator__` fields are both marked `should_materialize=true` so
-/// the materialization/commitment passes produce a committed
-/// TrackedTable.
-///
-/// # Errors
-///
-/// Returns a DataFusion error if either input DataFrame can't be
-/// collected (rare — HintDFs are supposed to be materializable by the
-/// time plan passes run) or if the schemas disagree on data columns.
+/// Fails if an input DataFrame cannot be collected or if the two disagree
+/// on the number of data columns.
 pub fn build_multiplicity_hint(
     super_hint: &HintDF,
     included_hint: &HintDF,
@@ -93,7 +46,6 @@ pub fn build_multiplicity_hint(
     let super_df = super_hint.data_frame().clone();
     let included_df = included_hint.data_frame().clone();
 
-    // Extract the data columns (schema order, excluding system columns).
     let super_data_cols = data_column_names(&super_df);
     let included_data_cols = data_column_names(&included_df);
     if super_data_cols.len() != included_data_cols.len() {
@@ -104,17 +56,16 @@ pub fn build_multiplicity_hint(
         )));
     }
 
-    let super_batches = collect_blocking(super_df.clone())?;
-    let included_batches = collect_blocking(included_df.clone())?;
+    let super_batches = crate::session::block_on(super_df.clone().collect())?;
+    let included_batches = crate::session::block_on(included_df.clone().collect())?;
 
     let super_active = active_mask_from_batches(&super_batches);
     let included_active = active_mask_from_batches(&included_batches);
     let super_keys = key_tuples_from_batches(&super_batches, &super_data_cols)?;
     let included_keys = key_tuples_from_batches(&included_batches, &included_data_cols)?;
 
-    // Same algorithm as expected_lookup_multiplicities_from_values, but
-    // over ScalarValue tuples instead of field elements — DataFusion
-    // hasn't lifted to the field yet at plan time.
+    // Same result as `expected_lookup_multiplicities_from_values`, but over
+    // ScalarValue tuples: at plan time the values are not field elements.
     let mut included_counts: HashMap<Vec<ScalarValue>, i64> = HashMap::new();
     for (row, active) in included_active.iter().enumerate() {
         if *active {
@@ -138,29 +89,11 @@ pub fn build_multiplicity_hint(
     build_hint_from_values(multiplicities, super_active)
 }
 
-/// Schema-matching HintDF for the verifier side. Data values are not
-/// consumed by the verifier — the tracking pass just needs the schema
-/// and `should_materialize` flags to know which commit slot to consume
-/// from the proof. All-zero data is fine.
-pub fn build_multiplicity_hint_schema_only(super_hint: &HintDF) -> DataFusionResult<HintDF> {
-    // Verifier planning must not collect DataFrames (per convention);
-    // use the super hint's schema to derive log_size only via row count
-    // inference. We produce a placeholder DataFrame with all-zeros; the
-    // materialization pass never runs on the verifier side, so these
-    // values are unused.
-    let super_df = super_hint.data_frame().clone();
-    let super_row_count = infer_super_row_count(&super_df)?;
-    let mut multiplicities = vec![0i64; super_row_count];
-    let mut active = vec![false; super_row_count];
-    // Populate a minimum-length placeholder if the super count is zero
-    // (never expected in practice, but keep the DataFrame constructible).
-    if super_row_count == 0 {
-        multiplicities.push(0);
-        active.push(false);
-    }
-    let _ = &mut multiplicities;
-    let _ = &mut active;
-    build_hint_from_values(multiplicities, active)
+/// Schema-matching HintDF for the verifier side. Verifier planning must not
+/// collect DataFrames, and the tracking pass only reads the schema and the
+/// `should_materialize` flags, so the data is a one-row placeholder.
+pub fn build_multiplicity_hint_schema_only(_super_hint: &HintDF) -> DataFusionResult<HintDF> {
+    build_hint_from_values(vec![0], vec![false])
 }
 
 fn data_column_names(df: &DataFrame) -> Vec<String> {
@@ -267,10 +200,9 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
     let ctx = session_context();
     let df = ctx.read_table(Arc::new(mem_table))?;
 
-    // multiplicity: materialize. Activator + row_id: system columns, don't
-    // materialize — inactive super rows already carry multiplicity 0 (see
-    // the `!super_active[row]` skip above), so the masking is baked into the
-    // committed values and a separate activator poly would be redundant.
+    // Only `multiplicity` is materialized. Inactive super rows already carry
+    // multiplicity 0 (the `!super_active[row]` skip in
+    // `build_multiplicity_hint`), so an activator poly would be redundant.
     let multiplicity_fref: FieldRef = Arc::new(multiplicity_field);
     let activator_fref: FieldRef = Arc::new(activator_field);
     let row_id_fref: FieldRef = Arc::new(row_id_field);
@@ -279,49 +211,4 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
     should_materialize.insert(activator_fref, false);
     should_materialize.insert(row_id_fref, false);
     Ok(HintDF::new(df, should_materialize))
-}
-
-fn infer_super_row_count(super_df: &DataFrame) -> DataFusionResult<usize> {
-    // Verifier planning must not collect the super DataFrame. Fall back
-    // to a schema-only inference: the row count for a plan-time hint at
-    // gadget scope is determined by materialization, not by the schema
-    // alone. Return 0 here; the verifier-side hint's data values are
-    // never consumed (verifier skips materialization) — the tracking
-    // pass only needs the schema + should_materialize flags.
-    let _ = super_df;
-    Ok(0)
-}
-
-fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution(
-                        "multiplicity hint collection thread panicked".to_string(),
-                    )
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
 }

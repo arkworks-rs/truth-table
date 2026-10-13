@@ -23,8 +23,8 @@ pub struct GadgetNode<B: SnarkBackend> {
     sort_gadget: Arc<Node<B>>,
     compaction_gadget: Arc<Node<B>>,
     sort_specs: Vec<(String, bool, bool)>,
-    // Carry the logical `fetch` through gadget planning so helper sort hints
-    // mirror the top-k semantics of the enclosing Order By node.
+    // The logical `fetch`, so the helper sort hints apply the same top-k as the
+    // enclosing Order By node.
     fetch: Option<usize>,
 }
 
@@ -37,12 +37,9 @@ fn populate_output_expr(
 ) -> crate::irs::nodes::hints::HintDF {
     let input_df = input_hint.data_frame().clone();
 
-    // Verifier planning only needs shape/materialization metadata, not row values.
-    // Avoid expensive sort planning here when we're in verifier mode.
-    // Verifier planning only needs shape/materialization metadata, not row values.
-    // Avoid expensive sort planning here when we're in verifier mode.
+    // Verifier planning needs only shape and materialization metadata, not row
+    // values, so it builds a schema-only hint and skips sort planning.
     let output_hint = if skip_collection {
-        // Build a schema-only verifier hint directly (no DataFusion plan building).
         let has_activator = input_df
             .schema()
             .fields()
@@ -69,11 +66,11 @@ fn populate_output_expr(
             .fields()
             .iter()
             .any(|field| field.name() == ACTIVATOR_COL_NAME);
-        // Guarantee a materialized activator so downstream gadgets can rely on it.
+        // Downstream gadgets rely on a materialized activator, so add one when
+        // the input has none.
         let sort_input_df = if has_activator {
             input_df
         } else {
-            // Ensure the output carries an activator even if the input did not.
             input_df
                 .with_column(ACTIVATOR_COL_NAME, lit(true))
                 .expect("sort exprs should accept synthetic activator")
@@ -88,7 +85,8 @@ fn populate_output_expr(
             .iter()
             .filter(|field| !is_system_column(field.name()))
             .collect();
-        // Respect the sort spec ordering by column name, falling back to schema order if needed.
+        // Sort-spec order matched by column name; schema order when the specs
+        // do not cover every data column.
         if !sort_specs.is_empty() {
             let mut ordered = Vec::with_capacity(sort_specs.len());
             for (name, asc, nulls_first) in sort_specs {
@@ -124,7 +122,6 @@ fn populate_output_expr(
         };
 
         let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
-        // Project the data columns and activator (and row_id for deterministic ordering).
         let projected = sorted_df
             .schema()
             .fields()
@@ -142,8 +139,8 @@ fn populate_output_expr(
 
         crate::irs::nodes::hints::HintDF::new_materialized(sorted_df)
     };
-    // This helper payload is only used to seed downstream virtual tables.
-    // Keep all of its columns virtual so it does not introduce dead commitments.
+    // This payload only seeds downstream virtual tables: all its columns stay
+    // virtual so it adds no dead commitments.
     let mut should_materialize = IndexMap::new();
     for field in output_hint.data_frame().schema().fields() {
         should_materialize.insert(field.clone(), false);
@@ -218,7 +215,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             self.fetch,
             false,
         );
-        // Drop row-id from the input sort-exprs payload after it's been used for ordering.
+        // Row-id was only needed for ordering: drop it from the input payload.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
         populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
@@ -288,8 +285,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             self.fetch,
             true,
         );
-        // INPUT_SORT_EXPRS is not consumed during gadget wiring for OrderBy.
-        // Avoid extra verifier-side projection work here.
+        // INPUT_SORT_EXPRS is not consumed during gadget wiring, so the
+        // verifier skips the row-id strip the prover does.
         populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
@@ -373,7 +370,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort: Sort) -> Self {
-        // Preserve column names so sort-spec ordering can be matched to hint schemas.
+        // Column names are kept so the sort-spec order can be matched to hint schemas.
         let sort_specs: Vec<(String, bool, bool)> = sort
             .expr
             .iter()
@@ -385,7 +382,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 )
             })
             .collect();
-        // DataFusion sort expressions do not encode strictness, so default to true.
+        // DataFusion sort expressions do not encode strictness, so the sort
+        // gadget is non-strict.
         let strict: bool = false;
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::contig_sort::GadgetNode::new(

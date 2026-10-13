@@ -1,25 +1,13 @@
-//! Concrete node types that make up an IR tree.
+//! The node types of an IR tree.
 //!
-//! Every node falls into one of two categories:
+//! A [`Node`] is a [`PlanNode`] or a gadget. A plan node carries a DataFusion
+//! relational operator ([`PlanNode::LpBased`]: `Filter`, `Join`, …) or scalar
+//! expression ([`PlanNode::ExprBased`]: column, binary op, …). A gadget
+//! ([`Node::Gadget`]) is a low-level argument attached to a plan node during
+//! gadget planning: gadgets emit the constraints, plan nodes organize them.
 //!
-//! - [`PlanNode`] — carries a DataFusion logical-plan construct. Either
-//!   [`PlanNode::LpBased`] (a relational operator such as `Filter`, `Join`,
-//!   `Aggregate`) or [`PlanNode::ExprBased`] (a scalar expression like a
-//!   column ref, binary op, or aggregate function).
-//! - [`Node::Gadget`] — a low-level proof-system argument attached to a plan
-//!   node during gadget planning. Gadgets are what actually emit SNARK
-//!   constraints; plan nodes act as organizers.
-//!
-//! The runtime trait hierarchy:
-//!
-//! - [`IsNode`] — the common ancestor: name, display, cost, children.
-//! - [`IsPlanNode`] / [`IsLpNode`] / [`IsExprNode`] — plan-side specializations.
-//! - [`IsGadgetNode`] — gadget-side, requires both [`ProverNodeOps`] and
-//!   [`VerifierNodeOps`] so every gadget supports both roles.
-//! - [`IsProverPlanNode`] / [`IsVerifierPlanNode`] — side-specific output hints.
-//!
-//! Per-node sub-modules (one folder per plan operator / expression) sit under
-//! `plan::lps::*` and `plan::exprs::*`; shared utility nodes live in [`utils`].
+//! Plan operators and expressions each have a sub-module under `plan::lps`
+//! and `plan::exprs`; the gadget nodes are in [`utils`].
 
 use std::{
     any::Any,
@@ -64,26 +52,20 @@ pub mod hints;
 pub mod plan;
 pub mod utils;
 
-/// Stable identifier for a node inside an [`crate::irs::tree::Tree`] arena.
+/// Identifies a node in a [`crate::irs::tree::Tree`] arena.
 pub type NodeId = u64;
 
-/// One node in the IR tree — either a plan node or a gadget node.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
 pub enum Node<B: SnarkBackend> {
-    /// A logical-plan operator or scalar expression.
     Plan(PlanNode<B>),
-    /// A proof-system gadget attached to a plan node during gadget planning.
     Gadget(Arc<dyn IsGadgetNode<B>>),
 }
 
-/// Plan-side subdivision: relational operator vs. scalar expression.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
 pub enum PlanNode<B: SnarkBackend> {
-    /// A logical-plan operator (Filter, Join, Aggregate, …).
     LpBased(Arc<dyn IsLpNode<B>>),
-    /// A scalar expression (column, literal, binary op, aggregate fn, …).
     ExprBased(Arc<dyn IsExprNode<B>>),
 }
 
@@ -117,37 +99,29 @@ impl<B: SnarkBackend> Hash for PlanNode<B> {
     }
 }
 
-/// Common interface across all node kinds.
 pub trait IsNode<B>: Any + Send + Sync
 where
     B: SnarkBackend,
 {
-    /// Returns the human-readable name of this node.
     fn name(&self) -> String;
-    /// Returns a human-readable representation of this node.
     fn display(&self) -> String;
-    /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
-    /// Returns this node's children.
     fn children(&self) -> Vec<Arc<Node<B>>>;
-    /// Optional human-readable labels for each child edge.
+    /// One optional label per child edge, for display.
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         self.children().into_iter().map(|_| None).collect()
     }
     /// Base-table string columns whose char-level side polys (`__chars`,
-    /// `__orig_ind`, `__int_ind`, `__bnd`) this node's proof machinery
-    /// consumes. Default: none. White-box string nodes (e.g. `Like`)
-    /// override this; the union over a tree (see
-    /// [`crate::irs::tree::Tree::required_side_columns`]) decides which
-    /// columns get side polys emitted at all.
+    /// `__orig_ind`, `__int_ind`, `__bnd`) this node's proof reads. White-box
+    /// string nodes (e.g. `Like`) override this; see
+    /// [`crate::irs::tree::Tree::required_side_columns`].
     fn required_side_columns(&self) -> Vec<String> {
         Vec::new()
     }
-    /// Base-table string columns and the fingerprint limb columns
-    /// (`__fp{j}`) of each that this node's proof reads. Default: none. The
-    /// fingerprint pre-filter overrides this; the union over a tree (see
-    /// [`crate::irs::tree::Tree::required_fingerprint_columns`]) decides
-    /// which limbs table scans carry into the proof.
+    /// Base-table string columns and the fingerprint limb columns (`__fp{j}`)
+    /// of each that this node's proof reads. The fingerprint pre-filter
+    /// overrides this; see
+    /// [`crate::irs::tree::Tree::required_fingerprint_columns`].
     fn required_fingerprint_columns(&self) -> Vec<(String, Vec<usize>)> {
         Vec::new()
     }
@@ -171,7 +145,7 @@ where
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()>;
 
-    /// Optional hook for a pre-order gadget initialization pass.
+    /// Called in pre-order by the gadget initialization pass.
     fn initialize_gadgets(
         &self,
         id: NodeId,
@@ -179,7 +153,7 @@ where
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()>;
 
-    /// Optional hook for pre-order gadget planning.
+    /// Called in pre-order by the gadget planning pass.
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
@@ -197,7 +171,7 @@ where
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> SnarkResult<()>;
 
-    /// Optional hook for a pre-order gadget initialization pass.
+    /// Called in pre-order by the gadget initialization pass.
     fn initialize_gadgets(
         &self,
         id: NodeId,
@@ -205,7 +179,7 @@ where
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> SnarkResult<()>;
 
-    /// Optional hook for pre-order gadget planning.
+    /// Called in pre-order by the gadget planning pass.
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
@@ -213,12 +187,10 @@ where
     ) -> SnarkResult<()>;
 }
 
-/// Shared plan-node interface (both LP and expr-based).
 pub trait IsPlanNode<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
-    /// Returns the gadget associated with this plan node, if any.
     fn gadget(&self) -> Option<Node<B>>;
 }
 
@@ -226,7 +198,6 @@ pub trait IsProverPlanNode<B>: IsPlanNode<B>
 where
     B: SnarkBackend,
 {
-    /// Prover-side output hint.
     fn output(&self) -> HintDF;
 }
 
@@ -234,7 +205,6 @@ pub trait IsVerifierPlanNode<B>: IsPlanNode<B>
 where
     B: SnarkBackend,
 {
-    /// Verifier-side output hint.
     fn output(&self) -> HintDF;
 }
 
@@ -293,7 +263,7 @@ pub(crate) fn end_verifier_output_cache_scope() {
 }
 
 impl<B: SnarkBackend> Node<B> {
-    /// Deterministic node identifier derived from the hashing strategy used by the IR.
+    /// A hash of the node's address.
     pub fn id(&self) -> NodeId {
         let mut hasher = DefaultHasher::new();
         std::ptr::hash(self, &mut hasher);
@@ -499,14 +469,12 @@ impl<B: SnarkBackend> Node<B> {
 }
 
 impl<B: SnarkBackend> IsNode<B> for Node<B> {
-    /// Returns the human-readable name of this node.
     fn name(&self) -> String {
         match &self {
             Node::Plan(plan_node) => plan_node.name(),
             Node::Gadget(gadget_node) => gadget_node.name(),
         }
     }
-    /// Returns a human-readable representation of this node.
     fn display(&self) -> String {
         match &self {
             Node::Plan(plan_node) => plan_node.display(),
@@ -514,7 +482,6 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
         }
     }
 
-    /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         match &self {
             Node::Plan(plan_node) => plan_node.cost(statistics, schema),
@@ -522,14 +489,12 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
         }
     }
 
-    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Arc<Node<B>>> {
         match &self {
             Node::Plan(plan_node) => plan_node.children(),
             Node::Gadget(gadget_node) => gadget_node.children(),
         }
     }
-    /// Optional human-readable labels for each child edge.
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         match &self {
             Node::Plan(plan_node) => plan_node.child_edge_labels(),
@@ -650,35 +615,30 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
 }
 
 impl<B: SnarkBackend> PlanNode<B> {
-    /// Returns the human-readable name of this node.
     fn name(&self) -> String {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.name(),
             PlanNode::ExprBased(expr_node) => expr_node.name(),
         }
     }
-    /// Returns a human-readable representation of this node.
     fn display(&self) -> String {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.display(),
             PlanNode::ExprBased(expr_node) => expr_node.display(),
         }
     }
-    /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.cost(statistics, schema),
             PlanNode::ExprBased(expr_node) => expr_node.cost(statistics, schema),
         }
     }
-    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Arc<Node<B>>> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.children(),
             PlanNode::ExprBased(expr_node) => expr_node.children(),
         }
     }
-    /// Optional human-readable labels for each child edge.
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.child_edge_labels(),
@@ -686,7 +646,6 @@ impl<B: SnarkBackend> PlanNode<B> {
         }
     }
 
-    /// Returns the gadget associated with this plan node, if any.
     fn gadget(&self) -> Option<Node<B>> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.gadget(),
@@ -866,24 +825,19 @@ pub trait IsGadgetNode<B>: IsNode<B> + ProverNodeOps<B> + VerifierNodeOps<B>
 where
     B: SnarkBackend,
 {
-    /// Runs the gadget prover
     fn prove(
         &self,
         prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()>;
-    /// Runs the gadget honest prover check.
-    ///
-    /// Defaults to `prove` so existing gadgets don't need to implement it
-    /// unless they want a cheaper check-only path.
+    /// Checks the gadget's claims on the witness, for the honest-prover pass.
     fn honest_prover_check(
         &self,
         prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()>;
-    /// Runs the gadget verifier
     fn verify(
         &self,
         verifier: &mut ark_piop::verifier::ArgVerifier<B>,
@@ -898,8 +852,6 @@ pub trait IsLpNode<B>:
 where
     B: SnarkBackend,
 {
-    /// Constructs a proof plan node from a DataFusion logical plan.
-    // TODO: We might not need ctx here
     fn from_lp(_plan: LogicalPlan, self_ref: Weak<Node<B>>) -> Self
     where
         Self: Sized;
@@ -912,9 +864,6 @@ pub trait IsExprNode<B>:
 where
     B: SnarkBackend,
 {
-    /// Constructs a proof plan node from a DataFusion expression and its parent
-    /// logical plan.
-    // TODO: We might not need ctx and parent_logical_plan here
     fn from_expr(
         _expr: Expr,
         self_ref: Weak<Node<B>>,

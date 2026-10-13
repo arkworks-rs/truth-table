@@ -63,12 +63,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the payload for this gadget node.
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
-        // Extract the left, right, and output tracked tables from the payload.
         let (left_input, right_input, output) = match (
             gadget_payload.get(LEFT_INPUT_LABEL),
             gadget_payload.get(RIGHT_INPUT_LABEL),
@@ -80,7 +78,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
             _ => panic!("Expected left, right, and output tables for binary equality gadget"),
         };
 
-        // Ensure that the left and right inputs and output share the same activator polynomial. otherwise a binary operation on those inputs is invalid.
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
             right_input.activator_tracked_poly(),
@@ -93,7 +90,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
             "Left input and output must share the same activator polynomial"
         );
 
-        // Now that we are sure that the left and right inputs share the same activator polynomial, we get this activator.
         let shared_activator = left_input.activator_tracked_poly();
 
         let output_ind = output.data_tracked_polys_indices()[0];
@@ -119,11 +115,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
             TrackedTable::new(schema, polys, table.log_size())
         };
 
-        // Build the eq gadget inputs
-        // let eq_activator = match &shared_activator {
-        //     Some(poly) => poly * &output_poly,
-        //     None => output_poly.clone(),
-        // };
+        // Eq inputs: active on the rows where the output is 1.
         let eq_activator = output_poly.clone();
         let eq_left = build_table_with_activator(&left_input, &eq_activator.clone());
         let eq_right = build_table_with_activator(&right_input, &eq_activator.clone());
@@ -138,7 +130,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
             Some(PayloadStructure::GadgetPayload(eq_payload)),
         );
 
-        // Build the neq gadget inputs
+        // Neq inputs: active on the active rows where the output is 0.
         let neg_output_activator = output_poly
             .mul_scalar_poly(-B::F::one())
             .add_scalar_poly(B::F::one());
@@ -203,7 +195,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
                 map.get(OUTPUT_LABEL),
             ) {
                 (Some(left_input), Some(right_input), Some(output)) => {
-                    // Ensure that the left and right inputs and output share the same activator oracle.
                     debug_assert_eq!(
                         left_input.activator_tracked_poly(),
                         right_input.activator_tracked_poly(),
@@ -215,7 +206,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
                         "Left input and output must share the same activator oracle"
                     );
 
-                    // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
                     let shared_activator = left_input.activator_tracked_poly();
 
                     let output_ind = output.data_tracked_oracles_indices()[0];
@@ -263,16 +253,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
                                 )
                             };
 
-                    // Build the eq gadget inputs.
-                    // let eq_activator = match &shared_activator {
-                    //     Some(oracle) => oracle * &output_oracle,
-                    //     None => output_oracle.clone(),
-                    // };
+                    // Eq inputs: active on the rows where the output is 1.
                     let eq_activator = output_oracle.clone();
                     let eq_left = build_table_with_activator(left_input, &eq_activator);
                     let eq_right = build_table_with_activator(right_input, &eq_activator);
 
-                    // Build the neq gadget inputs.
+                    // Neq inputs: active on the active rows where the output is 0.
                     let neg_output_activator = output_oracle
                         .mul_scalar_oracle(-B::F::one())
                         .add_scalar_oracle(B::F::one());
@@ -339,12 +325,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the payload for this gadget node.
         let gadget_payload = match gadget_ready_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
-        // Extract the left, right, and output tracked tables from the payload.
         let (left_input, right_input, output) = match (
             gadget_payload.get(LEFT_INPUT_LABEL),
             gadget_payload.get(RIGHT_INPUT_LABEL),
@@ -354,7 +338,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
             _ => panic!("Expected left, right, and output tables for binary equality gadget"),
         };
 
-        // Ensure that the left and right inputs and output share the same activator oracle.
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
             right_input.activator_tracked_poly(),
@@ -366,7 +349,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
             "Left input and output must share the same activator oracle"
         );
 
-        // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
         let shared_activator = left_input.activator_tracked_poly();
         let output_ind = output.data_tracked_polys_indices()[0];
         let output_poly = output.tracked_col_by_ind(output_ind).data_tracked_poly();
@@ -394,12 +376,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the payload for this gadget node.
         let gadget_payload = match gadget_ready_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
-        // Extract the left, right, and output tracked tables from the payload.
         let (left_input, right_input, output) = match (
             gadget_payload.get(LEFT_INPUT_LABEL),
             gadget_payload.get(RIGHT_INPUT_LABEL),
@@ -409,7 +389,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
             _ => panic!("Expected left, right, and output tables for binary equality gadget"),
         };
 
-        // Ensure that the left and right inputs and output share the same activator oracle.
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
             right_input.activator_tracked_poly(),
@@ -421,7 +400,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
             "Left input and output must share the same activator oracle"
         );
 
-        // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
         let shared_activator = left_input.activator_tracked_poly();
         let output_ind = output.data_tracked_oracles_indices()[0];
         let output_poly = output

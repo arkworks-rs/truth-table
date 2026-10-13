@@ -145,7 +145,6 @@ async fn main() {
     });
     let (_nr, sql) = rows.into_iter().next().expect("query present");
     if !want_plan {
-        // Print only SQL for single query
         println!("{}", sql);
         return;
     }

@@ -24,8 +24,8 @@ use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 const BENCH_STATS_TARGET: &str = "bench_stats";
 pub const BENCH_STATS_JSONL_PATH: &str = "../../tt-results/raw/bench_stats.jsonl";
 
-// See stats_jsonl.rs for docs on the memory-sampling design; this is a
-// duplicated copy for the bench-only subscriber.
+// The memory sampler is a copy of the one documented in
+// `tt-exec/src/stats_jsonl.rs`.
 const MEMORY_SAMPLE_INTERVAL_MS: u64 = 10;
 
 #[cfg(target_os = "linux")]
@@ -65,13 +65,10 @@ struct MemorySampler {
 }
 
 impl MemorySampler {
-    /// Each sample also gets streamed to `sink` immediately as a
-    /// `{"kind":"mem_sample",...}` line and flushed. This is what
-    /// survives an OOM kill: even though the aggregate bench_query
-    /// record is only written on span close (which never runs if the
-    /// process gets SIGKILL'd), the individual mem_sample lines are
-    /// already on disk by the time the killer fires. The dashboard
-    /// reconstructs the RSS curve for killed queries from those lines.
+    /// Each sample is also written to `sink` at once as a
+    /// `{"kind":"mem_sample",...}` line. The aggregate record is written at
+    /// span close, which never runs if the process is killed (OOM); the
+    /// dashboard rebuilds the RSS curve of a killed query from these lines.
     fn start(sink: Arc<Mutex<JsonlSink>>, query: String) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let samples: Arc<Mutex<Vec<(u64, u64)>>> = Arc::new(Mutex::new(Vec::new()));
@@ -125,23 +122,18 @@ pub struct BenchStatsJsonlLayer {
 #[derive(Clone)]
 struct QueryLabel(String);
 
-/// Open timestamp of an ark-piop prover span we derive a timing from,
-/// stored per-span so nested / repeated spans each keep their own clock.
-///
-/// ark-piop used to measure these regions with its own `Instant`s and ship
-/// the durations as `bench_stats` events, duplicating clocks that
-/// `#[instrument]` already ran over the same code. The spans are now the
-/// only measurement. ark-piop owns the name tables
+/// Open time of an ark-piop prover span whose lifetime is a recorded timing,
+/// kept per span so nested and repeated spans each have their own clock.
+/// ark-piop owns the name tables
 /// ([`ark_piop::prover::tracker::SNARK_PROVER_TIMED_SPANS`] and
-/// [`ark_piop::prover::tracker::SC_REGION_SPANS`]) so a rename on their
-/// side can't silently drop a metric here, and the record keys are
-/// unchanged, so the dashboard sees the same JSON as before.
+/// [`ark_piop::prover::tracker::SC_REGION_SPANS`]), so a rename there cannot
+/// silently drop a metric here.
 struct SpanStart(Instant);
 
 /// Marks a `sc_bucket` span and pins which bucket it is. Every
 /// [`ark_piop::prover::tracker::SC_REGION_SPANS`] span nested inside one
-/// belongs to that bucket — that nesting is how a region duration finds
-/// its bucket without ark-piop threading an index through the call.
+/// belongs to that bucket: the nesting is how a region duration finds its
+/// bucket without ark-piop threading an index through the call.
 struct BucketSpan {
     index: u64,
     wall_start_ms: u64,
@@ -156,18 +148,14 @@ struct PassSpan {
     started: Instant,
 }
 
-/// Timings for one sumcheck bucket, assembled from its `sc_bucket` span and
-/// the region spans nested inside it.
-///
-/// ark-piop emits each bucket's *claim shape* as an `sc_buckets_json` blob
-/// once every bucket span has closed; [`PendingBenchRecord::merge`] splices
-/// these timings in by index so the record keeps the shape it had when the
-/// prover measured the durations itself.
+/// Timings of one sumcheck bucket, from its `sc_bucket` span and the region
+/// spans nested inside it. ark-piop emits each bucket's claim shape as an
+/// `sc_buckets_json` blob once every bucket span has closed;
+/// [`PendingBenchRecord::merge`] splices these timings in by index.
 ///
 /// `wall_start_ms` / `wall_end_ms` let the dashboard overlay bucket
-/// boundaries on the RSS-over-time curve. They are stamped here rather than
-/// in ark-piop on purpose: the sampler drawing that curve runs in this
-/// process, so these timestamps share its clock exactly.
+/// boundaries on the RSS curve. They are stamped here, not in ark-piop, so
+/// they share the clock of the sampler that draws that curve.
 #[derive(Default)]
 struct BucketTiming {
     wall_start_ms: u64,
@@ -271,11 +259,8 @@ where
         event.record(&mut visitor);
         let mut fields = visitor.fields;
 
-        // Tracker snapshots stream to disk immediately as their own JSONL
-        // records so they survive an OOM kill (the aggregate bench_query
-        // record never gets written if the span doesn't close). The
-        // dashboard picks them up via a `kind: "tracker_snapshot"`
-        // filter, same pattern as `mem_sample`.
+        // Tracker snapshots are streamed at once, like mem_sample, so they
+        // survive an OOM kill.
         if let Some(payload) = fields.remove("tracker_snapshot_json") {
             let q = fields
                 .get("query")
@@ -294,12 +279,10 @@ where
             return;
         }
 
-        // Sumcheck stream-policy decisions: one event per `prover_init`
-        // call. Streamed to its own JSONL line for OOM survival AND
-        // aggregated into the pending bench_query record so multiple
-        // runs of the same query can be told apart in the dashboard
-        // (streamed lines only carry the query name, not the run's
-        // timestamp, so they'd merge across runs otherwise).
+        // Sumcheck stream-policy decisions, one event per `prover_init` call.
+        // Streamed as a line of its own to survive an OOM kill, and added to
+        // the pending record: a streamed line carries only the query name, so
+        // the lines of two runs of one query cannot be told apart.
         if let Some(payload) = fields.remove("sumcheck_stream_decision_json") {
             let q = fields
                 .get("query")
@@ -381,10 +364,10 @@ where
             return;
         };
 
-        // Prover timings: the span's own lifetime is the measurement. These
-        // spans never hold a QueryLabel, so they exit before the bench_query
-        // handling below. Each `extensions_mut()` guard is released at its
-        // semicolon, before we walk ancestor spans for the query / bucket.
+        // Prover timings: the span's lifetime is the measurement. These spans
+        // hold no QueryLabel, so they return before the bench_query handling
+        // below. Each `extensions_mut()` guard is released at its semicolon,
+        // before the walk over ancestor spans for the query and the bucket.
         let span_start = span.extensions_mut().remove::<SpanStart>();
         if let Some(SpanStart(started)) = span_start {
             let duration_s = started.elapsed().as_secs_f64();
@@ -397,9 +380,8 @@ where
                             .snark_prover
                             .insert(key.to_string(), Value::String(duration_s.to_string()));
                     } else {
-                        // A bucket-pipeline region. It counts twice: once
-                        // toward the cross-bucket total the old aggregate
-                        // event carried, and once against its own bucket.
+                        // A bucket-pipeline region counts toward the
+                        // cross-bucket total and against its own bucket.
                         *record
                             .piop_region_totals
                             .entry(name.to_string())
@@ -419,9 +401,7 @@ where
             return;
         }
 
-        // A prover pass closed. Both endpoints are real measurements here:
-        // the start stamp is taken at span open rather than back-derived
-        // from `end - duration` the way the old event pair had to.
+        // A prover pass closed.
         let pass_span = span.extensions_mut().remove::<PassSpan>();
         if let Some(PassSpan {
             pass,
@@ -515,9 +495,8 @@ where
         .find_map(|span| span.extensions().get::<BucketSpan>().map(|b| b.index))
 }
 
-/// Same walk as [`query_from_scope`] but rooted at a span rather than an
-/// event — used to attribute a closing prover-timing span to its
-/// enclosing `bench_query`.
+/// The walk of [`query_from_scope`], rooted at a span instead of an event:
+/// attributes a closing prover-timing span to its enclosing `bench_query`.
 fn query_from_span_scope<S>(ctx: &Context<'_, S>, id: &Id) -> Option<String>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
@@ -614,8 +593,8 @@ impl PendingBenchRecord {
     fn merge(&mut self, fields: Map<String, Value>) {
         let mut fields = fields;
 
-        // Per-bucket sumcheck stats arrive as a JSON blob in one field.
-        // Parse and hoist it into `self.buckets`; last write wins.
+        // Per-bucket sumcheck stats arrive as a JSON blob in one field; the
+        // last one wins.
         if let Some(Value::String(blob)) = fields.remove("sc_buckets_json") {
             match serde_json::from_str::<Value>(&blob) {
                 Ok(mut parsed) => {
@@ -701,16 +680,11 @@ impl PendingBenchRecord {
         }
     }
 
-    /// Fold span-derived timings into ark-piop's per-bucket claim blob, so
-    /// the emitted record keeps the exact shape it had when the prover
-    /// measured the durations itself: a `timing` object of
-    /// `<region>_time_s` keys plus `total_time_s`, and the bucket's
-    /// wall-clock boundaries.
-    ///
-    /// A region that never ran (a bucket that short-circuits before degree
-    /// reduction) reports 0.0 rather than being omitted — the old
-    /// `ScCompileTimingBreakdown` was a fixed struct of `f64`s and the
-    /// dashboard still expects every key to be present.
+    /// Folds the span-derived timings into ark-piop's per-bucket claim blob:
+    /// a `timing` object of `<region>_time_s` keys plus `total_time_s`, and
+    /// the bucket's wall-clock boundaries. A region that never ran (a bucket
+    /// that short-circuits before degree reduction) reports 0.0: the dashboard
+    /// expects every key.
     fn splice_bucket_timings(&self, parsed: &mut Value) {
         let Some(buckets) = parsed.get_mut("buckets").and_then(Value::as_array_mut) else {
             return;
@@ -749,17 +723,11 @@ impl PendingBenchRecord {
     }
 
     fn into_json(mut self) -> Value {
-        // Cross-bucket region totals, filed under the same keys ark-piop's
-        // old `snark_prover_piop_breakdown` event carried. Stringified to
-        // match how every other numeric field reaches this map.
-        //
-        // Every region gets a key, including stages that never ran (a bucket
-        // can short-circuit before degree reduction). That event was a fixed
-        // struct of `f64`s, so a stage that didn't run reported 0 rather than
-        // going missing, and the dashboard still expects the full set. Keyed
-        // off bucket_timings, not piop_region_totals, so the whole block stays
-        // absent when no bucket ran at all — which is what the old
-        // `buckets.is_empty()` early return did.
+        // Cross-bucket region totals, stringified like every other numeric
+        // field of this map. Every region gets a key, including a stage that
+        // never ran: the dashboard expects the full set. Keyed off
+        // bucket_timings, not piop_region_totals, so the block is absent when
+        // no bucket ran at all.
         if !self.bucket_timings.is_empty() {
             for region in ark_piop::prover::tracker::SC_REGION_SPANS {
                 let seconds = self.piop_region_totals.get(*region).copied().unwrap_or(0.0);

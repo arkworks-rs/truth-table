@@ -1,10 +1,9 @@
-//! Error utilities for the TruthTable core crate.
+//! The crate-wide error type.
 
 use ark_piop::errors::SnarkError;
 use datafusion_common::DataFusionError;
 use thiserror::Error;
 
-/// Error type used across the TruthTable codebase.
 #[derive(Debug, Error)]
 pub enum TTError {
     #[error("{0}")]
@@ -20,5 +19,4 @@ pub enum TTError {
     DataFusion(#[from] DataFusionError),
 }
 
-/// Convenient result alias for functions that return a `TTError`.
 pub type TTResult<T> = Result<T, TTError>;

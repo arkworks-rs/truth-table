@@ -1,16 +1,12 @@
-//! A PIOP to check if the multisets of two sets of columns are equal
-//! considering their multiplicities.
+//! A PIOP for multiset equality with multiplicities, a generalization of
+//! [LogUp](https://eprint.iacr.org/2022/1530.pdf).
 //!
-//! More precisely, this PIOP checks that the union of the multisets of the
-//! activated elements in a set of columns, each under a multiplicity
-//! polynomial, equals the union for another set of columns under other
-//! multiplicity polynomials:
+//! It checks that the union of the multisets of the activated elements in a
+//! set of columns, each under a multiplicity polynomial, equals the union
+//! for another set of columns under other multiplicity polynomials:
 //!
 //! `sum_i sum_x mf_i(x) * Af_i(x) / (f_i(x) - gamma)
 //!     = sum_j sum_x mg_j(x) * Ag_j(x) / (g_j(x) - gamma)`.
-//!
-//! It is a generalization of the [LogUp](https://eprint.iacr.org/2022/1530.pdf)
-//! protocol and is heavily used throughout the other PIOPs.
 //!
 //! The protocol itself lives in ark-piop
 //! ([`ark_piop::piop::keyed_sumcheck`]). This module only says what a

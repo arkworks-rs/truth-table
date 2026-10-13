@@ -9,7 +9,6 @@ use crate::support::{
 };
 
 fn limit_cases() -> &'static [BenchCase] {
-    // Static list of LIMIT queries to benchmark.
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let cases = vec![

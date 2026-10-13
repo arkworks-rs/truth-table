@@ -6,7 +6,6 @@ use clap::{
 
 use tt_exec::cmd::{self, Runnable, TimedCommand};
 
-/// Define CLI styles
 fn cli_styles() -> Styles {
     Styles::styled()
         .header(AnsiColor::Cyan.on_default() | Effects::BOLD)
@@ -45,14 +44,12 @@ enum Commands {
     Query(cmd::query::Query),
 }
 
-/// Dispatch the truth table command
 async fn dispatch<C>(cmd: C) -> Result<()>
 where
     C: Runnable + TimedCommand + Send,
 {
     let timed = cmd.is_timed();
     let mut cmd = Some(cmd);
-    // Run the command with or without timing
     if timed {
         cmd.take()
             .expect("command already consumed")
@@ -66,7 +63,6 @@ where
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    // Dispatch based on the command
     match cli.command {
         Commands::Setup(cmd) => dispatch(cmd).await?,
         Commands::Commit(cmd) => dispatch(cmd).await?,

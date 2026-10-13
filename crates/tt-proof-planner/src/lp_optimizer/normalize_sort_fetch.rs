@@ -43,10 +43,9 @@ fn normalize_plan_node(plan: LogicalPlan) -> DataFusionResult<Transformed<Logica
         return Ok(Transformed::no(LogicalPlan::Sort(sort)));
     };
 
-    // Our proof pipeline models a full sort as a permutation and a top-k as a
-    // separate limit mask. Rewriting `Sort(fetch = k)` into `Sort + Limit(k)`
-    // keeps the sort proof shape unchanged and lets the existing Limit gadget
-    // handle the truncation.
+    // The proof models a full sort as a permutation and a top-k as a separate
+    // limit mask, so `Sort(fetch = k)` becomes `Sort + Limit(k)` and the Limit
+    // gadget does the truncation.
     let fetch_i64 = i64::try_from(fetch).map_err(|_| {
         DataFusionError::Execution(format!("sort fetch {fetch} does not fit into i64"))
     })?;

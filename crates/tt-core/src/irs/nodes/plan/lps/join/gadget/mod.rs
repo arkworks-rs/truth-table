@@ -85,8 +85,8 @@ fn derive_many_to_many_hints(
         left_hint,
         right_hint,
         output_hint,
-        // These are helper projections of __OUTPUT__ used by the join lookup PIOP.
-        // Keep them virtual so only the full join output is committed.
+        // Projections of __OUTPUT__, kept virtual so only the full join
+        // output is committed.
         output_left_hint: crate::irs::nodes::hints::HintDF::new_virtual(output_left_df),
         output_right_hint: crate::irs::nodes::hints::HintDF::new_virtual(output_right_df),
         src_left_hint: build_prover_source_hint(left_src_df, SRC_LEFT_COL_NAME),
@@ -239,9 +239,9 @@ fn force_materialize_row_id(
         return hint.clone();
     }
 
-    // Source-row mapping reconstructs provenance from concrete row ids, so row_id
-    // must be materialized even when the original hint marks it virtual.
-    let mut should_materialize = hint
+    // The source-row mapping needs concrete row ids, so row_id is materialized
+    // even when the original hint marks it virtual.
+    let should_materialize = hint
         .field_materialization_iter()
         .map(|(field, materialized)| {
             (
@@ -254,17 +254,12 @@ fn force_materialize_row_id(
             )
         })
         .collect::<IndexMap<_, _>>();
-    // Preserve shape even if the hint unexpectedly lacks row-id.
-    if should_materialize.is_empty() {
-        should_materialize = IndexMap::new();
-    }
     crate::irs::nodes::hints::HintDF::new(hint.data_frame().clone(), should_materialize)
 }
 
 fn force_materialize_all(
     hint: &crate::irs::nodes::hints::HintDF,
 ) -> crate::irs::nodes::hints::HintDF {
-    // Fast path: avoid rebuilding the map if all fields are already materialized.
     if hint
         .field_materialization_iter()
         .all(|(_, materialized)| *materialized)
@@ -272,8 +267,8 @@ fn force_materialize_all(
         return hint.clone();
     }
 
-    // The source-row hint builder replays the join in DataFusion, so it needs the
-    // full concrete left/right/output rows (including activators) at this stage.
+    // The source-row hint builder replays the join in DataFusion, so it needs
+    // the concrete left, right and output rows, activators included.
     let should_materialize = hint
         .field_materialization_iter()
         .map(|(field, _)| (field.clone(), true))
@@ -282,10 +277,10 @@ fn force_materialize_all(
 }
 
 pub enum Gadgets<B: SnarkBackend> {
-    // Full join proof stack: bool + nodup + match-pair utilities.
+    // General join: bool, nodup and match-pair child gadgets.
     ManyToMany(ManyToManyGadgets<B>),
-    // PK-FK join: the join gadget runs a single lookup itself (PKFKJoin), so
-    // no child gadgets are needed.
+    // PK-FK join: the join gadget runs the single PKFKJoin lookup itself and
+    // has no child gadgets.
     HasOne,
 }
 pub struct ManyToManyGadgets<B: SnarkBackend> {
@@ -365,9 +360,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 src_right_hint,
                 nodup_input_hint,
             } = derived;
-            // Overwrite with the concretized hints so later join-subgadgets (and
-            // provenance checks) see the same materialized inputs used to derive
-            // source-row hints.
+            // The many-to-many gadget reads left, right and output from the
+            // parent plan node's payload, so its own planned payload keeps
+            // only the source hints.
             gadget_payload.swap_remove(LEFT_LABEL);
             gadget_payload.swap_remove(RIGHT_LABEL);
             gadget_payload.swap_remove(OUTPUT_LABEL);
@@ -424,13 +419,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.many_to_many_gadgets().is_some() {
-            // First fetch the payload for the current node, prepared by the parent
             let Some(PayloadStructure::GadgetPayload(payload)) =
                 virtualized_ir.payload_for_node(&id).cloned()
             else {
                 panic!("Expected gadget payload for Join gadget node")
             };
-            // Among the payload, we expect left, right, and output tables
             let current_output = parent_plan_output_table(id, virtualized_ir)
                 .cloned()
                 .unwrap_or_else(|| panic!("Join parent plan payload missing output table"));
@@ -701,8 +694,8 @@ fn lookup_fold_challenges_prover<B: SnarkBackend>(
     prover: &mut ark_piop::prover::ArgProver<B>,
     width: usize,
 ) -> ark_piop::errors::SnarkResult<Vec<B::F>> {
-    // The included and super tables for one lookup must share the same fold
-    // challenges; otherwise the verifier compares different linear combinations.
+    // The included and super tables of one lookup are folded with the same
+    // challenges, or the lookup would compare different linear combinations.
     let mut challenges = Vec::with_capacity(width);
     for _ in 0..width {
         challenges.push(prover.get_and_append_challenge(b"lookup_fold")?);
@@ -1185,10 +1178,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 output_lookup_base_from_output(&output, &left_table, &right_table, true);
             let output_right_base =
                 output_lookup_base_from_output(&output, &left_table, &right_table, false);
-            // Purpose: Every row in the output table must consist of columns that come from some row in the left table.
-            // Method: We look up table output_left in input_left
-            // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
-            // input left = [left activator | left keys + left data + normal index]
+            // The left-side columns of every output row come from one row of
+            // the left input: look up
+            //   [output activator | left-side output columns, src_left] in
+            //   [left activator   | left columns, row index].
             let output_left = append_tracked_col(
                 &output_left_base,
                 Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
@@ -1202,7 +1195,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
                 index_poly,
             );
-            // Fold both sides with the same transcript challenges for this lookup.
             let left_fold_challs =
                 lookup_fold_challenges_prover(prover, output_left.num_data_tracked_cols())?;
             let output_folded = fold_lookup_table_prover(&output_left, &left_fold_challs);
@@ -1216,11 +1208,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 },
             )?;
 
-            // Purpose: Every row in the output table must consist of columns that come from some row in the right table.
-            // Method: We look up table output_right in input_right
-            // output right = [output activator | output keys + Output data coming from the right table + their source row number from the right table]
-            // input right = [right activator | right keys + right data + normal index]
-
+            // The same lookup for the right side.
             let output_right = append_tracked_col(
                 &output_right_base,
                 Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
@@ -1234,7 +1222,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
                 right_index_poly,
             );
-            // Fold both sides with the same transcript challenges for this lookup.
             let right_fold_challs =
                 lookup_fold_challenges_prover(prover, output_right.num_data_tracked_cols())?;
             let output_right_folded = fold_lookup_table_prover(&output_right, &right_fold_challs);
@@ -1415,7 +1402,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 index_oracle,
             );
 
-            // Mirror prover-side challenge reuse exactly.
             let left_fold_challs = lookup_fold_challenges_verifier(
                 verifier,
                 output_left.num_data_tracked_col_oracles(),
@@ -1445,7 +1431,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 right_index_oracle,
             );
 
-            // Mirror prover-side challenge reuse exactly.
             let right_fold_challs = lookup_fold_challenges_verifier(
                 verifier,
                 output_right.num_data_tracked_col_oracles(),
@@ -1514,8 +1499,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
             nodup_gadget,
             match_pair_gadget,
         });
-        // HasOne modes replace the child gadgets with the PKFKJoin lookup, matching the
-        // plan node's partial materialization.
+        // HasOne modes replace the child gadgets with the PKFKJoin lookup,
+        // matching the plan node's partial materialization.
         if join_mode != JoinMode::MANY_TO_MANY {
             gadgets = Gadgets::HasOne;
         }
@@ -1553,10 +1538,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
             *guard = mode;
         }
         if let Ok(mut gadgets) = self.gadgets.write() {
-            // Never rebuild MANY_TO_MANY children here: creating fresh child nodes would
-            // change node ids and break IR payload maps keyed by existing ids.
-            // HasOne modes drop the child gadgets; the join gadget proves the PKFKJoin
-            // lookup itself.
+            // HasOne modes drop the child gadgets. MANY_TO_MANY children are
+            // never rebuilt here: fresh nodes would have new ids and break the
+            // IR payload maps keyed by the existing ones.
             if mode != JoinMode::MANY_TO_MANY {
                 *gadgets = Gadgets::HasOne;
             }

@@ -39,7 +39,9 @@ fn add_avg_support(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
 
             for expr in aggr_expr.into_iter() {
                 let avg_params = match &expr {
-                    Expr::AggregateFunction(agg) if is_avg(agg) => Some(agg.params.clone()),
+                    Expr::AggregateFunction(agg) if agg.func.name().eq_ignore_ascii_case("avg") => {
+                        Some(agg.params.clone())
+                    }
                     _ => None,
                 };
 
@@ -76,10 +78,6 @@ fn add_avg_support(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
         }
         other => Ok(Transformed::no(other)),
     }
-}
-
-fn is_avg(agg: &AggregateExpr) -> bool {
-    agg.func.name().eq_ignore_ascii_case("avg")
 }
 
 fn build_aggregate_expr(udf: Arc<AggregateUDF>, params: &AggregateFunctionParams) -> Expr {

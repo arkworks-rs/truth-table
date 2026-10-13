@@ -544,8 +544,8 @@ impl JoinModeRepr {
 #[derive(Serialize, Deserialize)]
 struct TreeRepr {
     plan: LogicalPlanRepr,
-    // Keep join gadget mode stable across proof serialization so verifier and prover
-    // use the same join gadget shape.
+    // The join gadget modes travel with the tree, so that the verifier builds
+    // each join gadget in the prover's mode.
     #[serde(default)]
     join_modes: Vec<JoinModeRepr>,
 }
@@ -1371,7 +1371,7 @@ pub fn serialize_tree<B: SnarkBackend>(tree: &Tree<B>) -> TTResult<Vec<u8>> {
 }
 
 pub fn deserialize_tree<B: SnarkBackend>(bytes: &[u8]) -> TTResult<Tree<B>> {
-    // Backward compatibility: try bincode first (current), then JSON (legacy).
+    // bincode is the format; a JSON-encoded tree is accepted too.
     let repr: TreeRepr = match bincode::deserialize(bytes) {
         Ok(repr) => repr,
         Err(_) => serde_json::from_slice(bytes)

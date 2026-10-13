@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 """
-preprocess.py
-
-This script mirrors the preprocessing in `tt-tpch-data`:
+Mirrors the preprocessing in `tt-tpch-data`:
 
 1. Expands Date32/Date64/Timestamp columns by appending derived fields:
    - Date32: <name>_year, <name>_month, <name>_day
    - Date64/Timestamp: <name>_year, <name>_month, <name>_day, <name>_time
 2. Converts Float32/Float64 columns to Decimal128(18, 3).
-3. Adds a stable Int64 row id column (ROW_ID_COL_NAME).
-4. Removes rows that contain nulls in any data column.
-5. Adds a boolean activator column (ACTIVATOR_COL_NAME):
-   - True for original rows.
-6. Pads to the next power of two with null rows:
-   - Appended rows get activator=False.
+3. Removes rows that contain nulls in any data column.
+4. Adds an Int64 row id column (ROW_ID_COL_NAME) and a boolean activator
+   column (ACTIVATOR_COL_NAME), True for these rows.
+5. Pads with null rows, whose activator is False, until the row count is a
+   power of two.
 
-If the number of rows is already a power of two, no padding is done.
-----------------------------------------------------------------------
 USAGE:
     python preprocess.py input.parquet
         # Overwrites input file by default
@@ -30,28 +25,7 @@ OPTIONS:
     --row-id-name NAME
         Change the name of the row id column (default: ROW_ID_COL_NAME)
 
-----------------------------------------------------------------------
-VIRTUAL ENVIRONMENT SETUP:
-
-1. Create a virtual environment:
-       python3 -m venv venv
-
-2. Activate it:
-       source venv/bin/activate        # On Linux/Mac
-       venv\\Scripts\\activate         # On Windows (PowerShell)
-
-3. Install dependencies:
-       pip install -r requirements.txt
-
-   The requirements.txt should contain:
-       pyarrow>=14.0.0
-
-4. Run the script:
-       python preprocess.py input.parquet -o output.parquet
-
-5. Deactivate the environment when done:
-       deactivate
-----------------------------------------------------------------------
+Needs pyarrow: pip install -r requirements.txt
 """
 
 import argparse
@@ -263,23 +237,14 @@ def main():
     activator_col = args.activator_name
     row_id_col = args.row_id_name
 
-    # 1) Read
     table = read_parquet_to_table(in_path)
     original_rows = table.num_rows
 
-    # 2) Expand date/time columns
     table = expand_table(table)
-
-    # 3) Drop rows with nulls
     table = drop_rows_with_nulls(table)
-
-    # 4) Add row id and activator
     table = add_row_id_and_activator(table, row_id_col, activator_col)
-
-    # 5) Pad to power of two with null rows
     table = pad_to_power_of_two(table, row_id_col, activator_col)
 
-    # Write
     write_table_to_parquet(table, out_path)
 
     print(

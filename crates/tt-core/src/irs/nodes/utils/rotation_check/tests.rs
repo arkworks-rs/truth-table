@@ -1,9 +1,3 @@
-//! Tests for `RotationCheck` composite gadget node.
-//!
-//! Small tables of `log_size = 2` (n = 4). Semantics under test:
-//!   Direction::Right, shift s:  right[i] = left[(i - s) mod n]
-//!   Direction::Left,  shift s:  right[i] = left[(i + s) mod n]
-
 use std::sync::Arc;
 
 use ark_piop::{
@@ -83,8 +77,6 @@ fn run(
     run_gadget_pipeline(harness)
 }
 
-// ---- Positive cases ----
-
 #[test]
 fn identity_rotation_zero() {
     let left: Vec<F> = (0..4).map(|i| F::from(10u64 + i)).collect();
@@ -157,8 +149,6 @@ fn left_shift_by_three_equals_right_shift_by_one() {
     run(3, Direction::Left, left, right).expect("left-shift by 3 should verify");
 }
 
-// ---- Adversarial cases ----
-
 #[test]
 fn wrong_direction_rejected() {
     // left rotated LEFT by 1, but the gadget is configured as RIGHT by 1.
@@ -230,10 +220,10 @@ fn tampered_single_value_rejected() {
 
 #[test]
 fn fixed_permutation_fingerprint_collision_rejected_by_verifier() {
-    // For a left rotation by one, the prescribed source indices are
-    // [3, 0, 1, 2]. The former deterministic row fold `value + 2*index`
-    // made these unequal values collide with the claimed output plus its
-    // canonical indices, so the complete proof incorrectly verified.
+    // A left rotation by one prescribes the indices [3, 0, 1, 2]. Under a
+    // fixed row fold `value + 2*index` this false claim, paired with the
+    // indices [0, 1, 2, 3], folds to the same multiset as `left` does, so
+    // only a fold with random coefficients rejects it.
     let left = vec![
         F::from(10u64),
         F::from(20u64),

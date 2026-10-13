@@ -1,36 +1,22 @@
-//! A composite gadget node for paper §5.2.1 Data-Preserving Update Check (PIOP 3).
+//! Data-Preserving Update Check (paper §5.2.1, PIOP 3).
 //!
-//! Given a fresh activator pair `(char-act, a)` claimed to be the
-//! data-preserving update of an existing tuple `(orig-ind, ind, l)`, the
-//! gadget proves:
+//! Proves that a fresh activator pair `(char-act, a)` is a data-preserving
+//! update of the existing columns `(orig-ind, ind, l)`:
 //!
 //! 1. `char-act[c] ∈ {0, 1}` for every char slot,
 //! 2. `a[i] ∈ {0, 1}` for every string slot,
 //! 3. `Σ_{j : orig-ind[j] = i} char-act[j] = a[i] · l[i]` for every string `i`.
 //!
-//! Payload structure:
-//! - [`LHS_LABEL`] — char-level table with one data column `orig-ind`.
-//!   The table's activator column is `char-act`.
-//! - [`RHS_LABEL`] — string-level table with two data columns
-//!   in insertion order: `ind` (index 0) and `l` (index 1). The table's
-//!   activator column is `a`.
-//!
-//! Decomposition — three child gadgets:
-//! 1. `BoolCheck` on `char-act`
-//! 2. `BoolCheck` on `a`
-//! 3. `ActivatorConsistencyCheck` on `(orig-ind, char-act, l, a)`
-//!
-//! The BoolChecks are strictly speaking distinct payloads passed to two
-//! separate `bool::GadgetNode` children; the third bundles the keyed
-//! sumcheck that ties the two activators together via the length column.
-//!
-//! No inline claims. All obligations are discharged by the children.
+//! Every constraint is in a child: two `BoolCheck`s, and an
+//! `ActivatorConsistencyCheck` on `(orig-ind, char-act, l, a)`, whose keyed
+//! sumcheck ties the two activators together through the length column.
+use crate::irs::nodes::utils::bool_field;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::{SnarkBackend, errors::SnarkResult};
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
 
 use crate::{
@@ -45,14 +31,11 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
+/// Char-level table `{ orig-ind }` under `char-act`.
 pub const LHS_LABEL: &str = "__lhs__";
+/// String-level table `{ ind, l }`, in that order, under `a`.
 pub const RHS_LABEL: &str = "__rhs__";
 
-fn bool_field() -> FieldRef {
-    Arc::new(Field::new("data", DataType::Boolean, false))
-}
-
-/// Composite gadget node for the Data-Preserving Update relation.
 pub struct GadgetNode<B: SnarkBackend> {
     bool_char_act: Arc<Node<B>>,
     bool_a: Arc<Node<B>>,
@@ -137,12 +120,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .activator_tracked_poly()
             .expect("RHS must carry activator a");
 
-        // Two BoolCheck children — one per activator.
         set_bool_payload_prover(&self.bool_char_act, char_act, virtualized_ir);
         set_bool_payload_prover(&self.bool_a, a, virtualized_ir);
 
-        // ActivatorConsistencyCheck expects the same (LHS, RHS) shape we
-        // received, so forward the payload directly.
+        // ActivatorConsistencyCheck takes the same (LHS, RHS) tables.
         let mut ac_payload = IndexMap::new();
         ac_payload.insert(activator_consistency_check::LHS_LABEL.to_string(), lhs);
         ac_payload.insert(activator_consistency_check::RHS_LABEL.to_string(), rhs);

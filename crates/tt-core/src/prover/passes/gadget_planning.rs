@@ -10,9 +10,7 @@ use crate::irs::{
 };
 use ark_piop::SnarkBackend;
 
-/// Prover-side gadget planning pass.
-///
-/// This pass executes pre-order and lets each node update prover planning hints.
+/// Lets each node, in pre-order, update the prover's planning hints.
 pub struct GadgetPlanningPass<B: SnarkBackend> {
     planned_ir: RefCell<OutputPlannedIr<B>>,
 }

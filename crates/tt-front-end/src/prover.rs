@@ -38,25 +38,16 @@ use std::future::Future;
 /// Tracing target for spans and events the bench-stats subscriber consumes.
 pub const BENCH_STATS_TARGET: &str = "bench_stats";
 
-/// Span wrapping one prover pass. Its `pass` field names the pass, and its
-/// open→close lifetime is that pass's duration.
-///
-/// The subscriber turns each one into both halves of what two hand-rolled
-/// events used to carry: the `prover_time_<pass>_s` entry the dashboard's
-/// Prover Timing tab reads, and the `prover_pass_spans` marker its Memory
-/// tab overlays on the RSS curve.
+/// Span wrapping one prover pass. Its `pass` field names the pass and its
+/// lifetime is the pass's duration. The subscriber turns each one into the
+/// `prover_time_<pass>_s` entry and the `prover_pass_spans` marker the
+/// dashboard overlays on the RSS curve.
 pub const PROVER_PASS_SPAN: &str = "prover_pass";
 
 /// Name of the field on [`PROVER_PASS_SPAN`] carrying the pass name.
 pub const PROVER_PASS_FIELD: &str = "pass";
 
-/// Build the span for one prover pass.
-///
-/// The pass boundaries used to be measured with an `Instant` and shipped as
-/// events, which forced the start timestamp to be back-derived as
-/// `end - duration` — the `Instant` is a monotonic offset with no epoch to
-/// report. A span has two real endpoints, so the subscriber can stamp both
-/// directly and the overlay stops being an approximation.
+/// The [`PROVER_PASS_SPAN`] of one prover pass.
 pub fn pass_span(pass_name: &str) -> Span {
     info_span!(target: BENCH_STATS_TARGET, "prover_pass", pass = pass_name)
 }
@@ -65,19 +56,16 @@ pub struct TTProverConfig<B: SnarkBackend> {
     phantom: std::marker::PhantomData<B>,
 }
 impl<B: SnarkBackend> TTProverConfig<B> {
-    /// Create the default prover-side pass factory.
     pub fn new() -> Self {
         Self {
             phantom: std::marker::PhantomData,
         }
     }
 
-    /// Build the prover output-planning pass.
     pub fn output_planning_pass(&self) -> ProverOutputPlanningPass<B> {
         ProverOutputPlanningPass::new()
     }
 
-    /// Build the prover gadget-planning pass for a planned IR.
     pub fn gadget_planning_pass(
         &self,
         planned_ir: &OutputPlannedIr<B>,
@@ -85,17 +73,15 @@ impl<B: SnarkBackend> TTProverConfig<B> {
         ProverGadgetPlanningPass::new(planned_ir)
     }
 
-    /// Build the materialization pass.
     pub fn materialization_pass(&self) -> MaterializationPass<B> {
         MaterializationPass::new()
     }
 
-    /// Build the arithmetization pass. `side_columns` is the set of columns
-    /// white-box string gadgets consume char-level side polys for (from
-    /// `Tree::required_side_columns`); all other string columns skip
-    /// side-poly emission. `fingerprint_columns` (from
-    /// `Tree::required_fingerprint_columns`) likewise names the table-scan
-    /// columns that carry fingerprint limbs.
+    /// `side_columns` (from `Tree::required_side_columns`) are the columns
+    /// white-box string gadgets consume char-level side polys for; no other
+    /// string column gets side polys. `fingerprint_columns` (from
+    /// `Tree::required_fingerprint_columns`) are the table-scan columns that
+    /// carry fingerprint limbs.
     pub fn arithmetization_pass(
         &self,
         side_columns: std::collections::BTreeSet<String>,
@@ -107,7 +93,6 @@ impl<B: SnarkBackend> TTProverConfig<B> {
         )
     }
 
-    /// Build the commitment pass using the prover PCS parameters and context oracles.
     pub fn commitment_pass(
         &self,
         mv_pcs_param: Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
@@ -116,7 +101,6 @@ impl<B: SnarkBackend> TTProverConfig<B> {
         CommitmentPass::new(mv_pcs_param, ctx_oracles, false)
     }
 
-    /// Build the tracking pass for the current arithmetized payloads and optional query result.
     pub fn tracking_pass<'a>(
         &self,
         arg_prover: ArgProver<B>,
@@ -133,20 +117,15 @@ impl<B: SnarkBackend> Default for TTProverConfig<B> {
     }
 }
 
-/// Prover configuration that bundles planner rules and context oracles.
 pub struct TTProver<B: SnarkBackend> {
-    /// The configuration specific to the prover
     prover_config: TTProverConfig<B>,
-    /// The configuration shared between prover and verifier
     shared_config: TTSharedConfig<B>,
-    /// The inner argument prover
     arg_prover: RefCell<ArgProver<B>>,
     /// The fingerprint multiproofs the tracking pass produced, for the proof.
     fingerprint_openings: RefCell<tt_core::prover::passes::tracking::FingerprintOpenings>,
 }
 
 impl<B: SnarkBackend> TTProver<B> {
-    /// Create a prover from its pass configuration, shared configuration, and inner SNARK prover.
     pub fn new(
         prover_config: TTProverConfig<B>,
         shared_config: TTSharedConfig<B>,
@@ -160,44 +139,26 @@ impl<B: SnarkBackend> TTProver<B> {
         }
     }
 
-    /// Borrow the prover-specific configuration.
-    fn prover_config(&self) -> &TTProverConfig<B> {
-        &self.prover_config
-    }
-
-    /// Borrow the configuration shared between the prover and verifier.
-    fn shared_config(&self) -> &TTSharedConfig<B> {
-        &self.shared_config
-    }
-
-    /// Emit a named Graphviz artifact into the bench-stats tracing stream.
     fn emit_plan_graphviz(&self, name: &str, graphviz: impl Into<String>) {
         info!(target: "bench_stats", plan_name = name, plan_graphviz = graphviz.into(), "plan");
     }
 
-    /// Record a logical-plan snapshot for debugging and dashboard display.
     fn record_logical_plan(&self, name: &str, plan: &LogicalPlan) {
         let graphviz = plan.display_graphviz().to_string();
         debug!("{name}:\n{graphviz}");
         self.emit_plan_graphviz(name, graphviz);
     }
 
-    /// Emit a Graphviz snapshot for an IR stage.
-    fn emit_ir_graphviz(&self, name: &str, graphviz: String) {
-        self.emit_plan_graphviz(name, graphviz);
-    }
-
-    /// Record the Graphviz output for a completed IR stage. The stage's
-    /// duration is not recorded here — see [`pass_span`].
+    /// Logs and emits the Graphviz of a completed IR stage. Its duration
+    /// comes from [`pass_span`].
     fn record_ir_stage(&self, plan_name: &str, graphviz: String) {
         debug!("{plan_name}:\n{graphviz}");
-        self.emit_ir_graphviz(plan_name, graphviz);
+        self.emit_plan_graphviz(plan_name, graphviz);
     }
 
-    /// Run an IR stage inside its [`pass_span`] and emit its rendered
-    /// Graphviz view. The span closes at the end of the `run(...).await`
-    /// statement, so it brackets exactly the stage and not the Graphviz
-    /// rendering that follows.
+    /// Runs an IR stage inside its [`pass_span`] and emits its Graphviz view.
+    /// The span closes at the end of the `run(...).await` statement, so it
+    /// covers the stage and not the Graphviz rendering.
     async fn timed_ir_stage<T, F, Fut>(
         &self,
         pass_name: &str,
@@ -214,31 +175,28 @@ impl<B: SnarkBackend> TTProver<B> {
         Ok(output)
     }
 
-    /// Run the logical-plan pipeline and return the optimized plan together with
-    /// the verifier-facing hints needed to replay data-dependent optimizer choices.
+    /// Runs the logical-plan pipeline. Returns the optimized plan and the hints
+    /// the verifier needs to replay the data-dependent optimizer's choices.
     async fn lp_passes(&self, query: &str) -> TTResult<(LogicalPlan, OptimizationHints)> {
-        // 1. Build the raw logical plan from the SQL query.
-        let initial_lp = self.shared_config().query_to_lp(query).await;
+        let initial_lp = self.shared_config.query_to_lp(query).await;
         self.record_logical_plan("initial_logical_plan", &initial_lp);
 
-        // 2. Run analysis so later optimizer stages work with a fully resolved plan.
-        let analyzed_lp = self.shared_config().analyze_lp(initial_lp).await;
+        let analyzed_lp = self.shared_config.analyze_lp(initial_lp).await;
         self.record_logical_plan("analyzed_logical_plan", &analyzed_lp);
 
-        // 3. Apply the structural optimizer rules that do not depend on runtime data.
-        let structural_optimized_lp = self.shared_config().optimize_lp(analyzed_lp).await;
+        // The structural rules do not depend on the data.
+        let structural_optimized_lp = self.shared_config.optimize_lp(analyzed_lp).await;
         self.record_logical_plan(
             "structural_optimized_logical_plan",
             &structural_optimized_lp,
         );
 
-        // 4. Collect the data-dependent optimization hints that must travel in the proof.
+        // The data-dependent hints travel in the proof.
         let optimization_hints = self
-            .shared_config()
+            .shared_config
             .data_dependent_optimizer()
-            .collect_hints(self.shared_config().session_ctx(), &structural_optimized_lp)?;
+            .collect_hints(self.shared_config.session_ctx(), &structural_optimized_lp)?;
 
-        // 5. Materialize those hints into the final logical plan that the prover uses.
         let data_dependent_optimized_lp =
             apply_optimization_hints(structural_optimized_lp, &optimization_hints)?;
         self.record_logical_plan(
@@ -249,65 +207,58 @@ impl<B: SnarkBackend> TTProver<B> {
         Ok((data_dependent_optimized_lp, optimization_hints))
     }
 
-    /// Run the prover IR pipeline from the empty IR through the proving pass.
+    /// Runs the prover IR pipeline from the empty IR through the proving pass.
     async fn ir_passes(&self, initial_ir: EmptyIr<B>, result: Arc<MemTable>) -> TTResult<()> {
         debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
-        self.emit_ir_graphviz("initial_ir", initial_ir.display_graphviz(true));
-        // 1. Proof plan optimization passes
-        let optimized_initial_ir = self.shared_config().pp_optimizer().optimize(initial_ir);
+        self.emit_plan_graphviz("initial_ir", initial_ir.display_graphviz(true));
+        let optimized_initial_ir = self.shared_config.pp_optimizer().optimize(initial_ir);
         debug!(
             "optimized initial ir:\n{}",
             optimized_initial_ir.display_graphviz(true)
         );
-        self.emit_ir_graphviz(
+        self.emit_plan_graphviz(
             "optimized_initial_ir",
             optimized_initial_ir.display_graphviz(true),
         );
-        // 2. Output planning pass
         let output_planned_ir = self
             .timed_ir_stage(
                 "output_planning",
                 "output_planned_ir",
                 || async {
                     Ok(optimized_initial_ir
-                        .apply_local_pass_parallel(&self.prover_config().output_planning_pass()))
+                        .apply_local_pass_parallel(&self.prover_config.output_planning_pass()))
                 },
                 |ir| ir.display_graphviz(true),
             )
             .await?;
-        // 3. Gadget planning pass
         let gadget_planned_ir = self
             .timed_ir_stage(
                 "gadget_planning",
                 "gadget_planned_ir",
                 || async {
                     Ok(output_planned_ir.apply_local_pass_sequential(
-                        &self
-                            .prover_config()
-                            .gadget_planning_pass(&output_planned_ir),
+                        &self.prover_config.gadget_planning_pass(&output_planned_ir),
                     ))
                 },
                 |ir| ir.display_graphviz(true),
             )
             .await?;
         drop(output_planned_ir);
-        // 4. Materialization pass
         let materialized_ir = self
             .timed_ir_stage(
                 "materialization",
                 "materialized_ir",
                 || async {
                     Ok(gadget_planned_ir
-                        .apply_local_pass_parallel(&self.prover_config().materialization_pass()))
+                        .apply_local_pass_parallel(&self.prover_config.materialization_pass()))
                 },
                 |ir| ir.display_graphviz(true),
             )
             .await?;
         drop(gadget_planned_ir);
-        // 5. Arithmetization pass. Char-level side polys are emitted only
-        // for columns some white-box string gadget (e.g. LIKE) consumes —
-        // derived from the shared IR tree, so the verifier reaches the same
-        // decision without a wire hint.
+        // Char-level side polys are emitted only for columns some white-box
+        // string gadget (e.g. LIKE) consumes. The set comes from the shared IR
+        // tree, so the verifier reaches the same decision without a wire hint.
         let side_columns = materialized_ir.tree().required_side_columns();
         info!(?side_columns, "columns receiving char-level side polys");
         let fingerprint_columns = materialized_ir.tree().required_fingerprint_columns();
@@ -318,7 +269,7 @@ impl<B: SnarkBackend> TTProver<B> {
                 || async {
                     Ok(materialized_ir.apply_local_pass_parallel(
                         &self
-                            .prover_config()
+                            .prover_config
                             .arithmetization_pass(side_columns, fingerprint_columns),
                     ))
                 },
@@ -326,7 +277,6 @@ impl<B: SnarkBackend> TTProver<B> {
             )
             .await?;
         drop(materialized_ir);
-        // 6. Commitment pass
         let arg_prover = self.arg_prover.borrow().clone();
         let committed_ir = self
             .timed_ir_stage(
@@ -334,22 +284,21 @@ impl<B: SnarkBackend> TTProver<B> {
                 "committed_ir",
                 || async {
                     Ok(arithmetized_ir.apply_local_pass_parallel(
-                        &self.prover_config().commitment_pass(
+                        &self.prover_config.commitment_pass(
                             arg_prover.mv_pcs_prover_param(),
-                            self.shared_config().ctx_oracles().clone(),
+                            self.shared_config.ctx_oracles().clone(),
                         ),
                     ))
                 },
                 |ir| ir.display_graphviz(true),
             )
             .await?;
-        // 7. Tracking pass
         let tracked_ir = self
             .timed_ir_stage(
                 "tracking",
                 "tracked_ir",
                 || async {
-                    let tracking_pass = self.prover_config().tracking_pass(
+                    let tracking_pass = self.prover_config.tracking_pass(
                         arg_prover.clone(),
                         arithmetized_ir.payloads(),
                         Some(result.clone()),
@@ -365,7 +314,6 @@ impl<B: SnarkBackend> TTProver<B> {
             .await?;
         drop(arithmetized_ir);
         drop(committed_ir);
-        // 8. Virtualization pass
         let virtualized_ir = self
             .timed_ir_stage(
                 "virtualization",
@@ -382,7 +330,6 @@ impl<B: SnarkBackend> TTProver<B> {
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),
         );
-        // 9. Gadget initialization pass
         let gadget_ready_ir = self
             .timed_ir_stage(
                 "gadget_initialization",
@@ -396,7 +343,6 @@ impl<B: SnarkBackend> TTProver<B> {
             )
             .await?;
         drop(virtualized_ir);
-        // 10. Honest prover pass (optional, behind feature flag)
         let proving_ir_view = ProverGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),
@@ -412,7 +358,6 @@ impl<B: SnarkBackend> TTProver<B> {
             let _honest_ir = gadget_ready_ir.apply_local_pass_sequential(&honest_prover_pass);
             honest_prover_pass.take_result()?;
         }
-        // 11. Proving pass
         {
             let _pass = pass_span("proving_pass").entered();
             let proving_pass = ProvingPass::<B>::new(arg_prover.clone(), proving_ir_view);
@@ -424,22 +369,17 @@ impl<B: SnarkBackend> TTProver<B> {
         Ok(())
     }
 
-    /// Execute the query, run the prover pipeline, and assemble the final proof artifact.
+    /// Executes the query and proves it. Returns the result table and the
+    /// proof.
     pub async fn prove(&self, query: &str) -> TTResult<(Arc<MemTable>, TTProof<B>)> {
-        // 1. Compute the result of the query execution
         let result = self.execute(query).await?;
-        // 2. Perform logical plan passes such as analysis and optimizations and collect data-dependent hints to be sent to the verifier
         let (lp, optimization_hints) = self.lp_passes(query).await?;
-        // 3. Convert the logical plan to a truth-table IR
         let initial_ir = EmptyIr::<B>::from_logical_plan(&lp);
-        // 4. Perform IR passes
         self.ir_passes(initial_ir, Arc::clone(&result)).await?;
-        // 5. Assemble the truth-table proof
         let tt_proof = self.assemble_proof(optimization_hints)?;
         Ok((result, tt_proof))
     }
 
-    /// Assemble the truth-table proof
     fn assemble_proof(&self, optimization_hints: OptimizationHints) -> TTResult<TTProof<B>> {
         let arg_proof = self.arg_prover.borrow_mut().build_proof().unwrap();
         TTProof::new(
@@ -449,13 +389,13 @@ impl<B: SnarkBackend> TTProver<B> {
         )
     }
 
-    /// Execute the optimized query and return the raw result table that will be sent to the verifier.
+    /// The query's result table, which is sent to the verifier.
     async fn execute(&self, query: &str) -> TTResult<Arc<MemTable>> {
-        let lp = self.shared_config().query_to_lp(query).await;
-        let analyzed_lp = self.shared_config().analyze_lp(lp).await;
-        let optimized_lp = self.shared_config().optimize_lp(analyzed_lp).await;
+        let lp = self.shared_config.query_to_lp(query).await;
+        let analyzed_lp = self.shared_config.analyze_lp(lp).await;
+        let optimized_lp = self.shared_config.optimize_lp(analyzed_lp).await;
         let optimized_lp = filter_inactive_rows_for_execution(optimized_lp)?;
-        let df = DataFrame::new(self.shared_config().session_ctx().state(), optimized_lp);
+        let df = DataFrame::new(self.shared_config.session_ctx().state(), optimized_lp);
         let logical_schema = df.schema().as_arrow().clone();
         let batches = df.collect().await?;
         let mem_table = MemTable::try_new(Arc::new(logical_schema), vec![batches])?;

@@ -27,7 +27,7 @@ TEXT = "#0b0b0b"
 TEXT_2 = "#52514e"
 GRID = "#e4e3df"
 # Every regime is a solid line, so hue alone separates them: the Okabe-Ito
-# colors, as in plot_packing_regimes.py (adjacent pairs clear CVD dE 9.6).
+# colors.
 SERIES = ["#0072B2", "#D55E00", "#009E73", "#E69F00", "#CC79A7", "#56B4E9"]
 
 HOW = {

@@ -1,37 +1,18 @@
-//! A composite gadget node for paper §4.4 Length Filtering Check.
+//! Length Filtering Check (paper §5.3, PIOP 5).
 //!
-//! Given `src, ind, l, ah, ac`, a threshold `k`, and prover-produced
-//! filtered activators `a'h, a'c`, the gadget proves that
+//! Given `src, ind, l, ah, ac`, a threshold `k` and the prover's filtered
+//! activators `a'h, a'c`, proves that
 //!
 //!   a'h[i] = 1  iff  ah[i] = 1 and l[i] >= k
 //!
-//! and `a'c` is the matching char-level activator (`a'c[c] = a'h[src[c]]`
-//! on active chars).
+//! and that `a'c` is the matching char-level activator.
 //!
-//! Payload structure (all four slots required):
-//! - `CHAR_INPUT_LABEL` — char-level table `{ src }` with activator `ac`.
-//! - `STR_INPUT_LABEL` — string-level table `{ ind, l }` with activator `ah`.
-//!   `l` MUST carry an integer data type the Sign gadget understands
-//!   (Int32 is the natural choice for typical string lengths).
-//! - `CHAR_FILTERED_LABEL` — char-level table `{ a'c }`, no activator.
-//! - `STR_FILTERED_LABEL` — string-level table `{ a'h }`, no activator.
-//!
-//! The threshold `k` is a gadget-node parameter, not a payload column.
-//!
-//! Decomposition (paper PIOP 4):
-//! 1. (Activator validity)
-//!    a. Booleanity Check on `a'h` and on `a'c` — two `BoolCheck` children.
-//!    b. Activator Consistency Check on `(a'c, a'h)` — one `ActivatorConsistencyCheck` child.
-//! 2. (Containment) Zerocheck on `a'h · (1 - ah)` — inline in `prove`.
-//! 3. (False negative) Negative Sign Check on `(ah · (1 - a'h), l - k)`
-//!    — one `SignNode(Sign::Negative)` child.
-//! 4. (False positive) Non-Negative Sign Check on `(a'h, l - k)` — one
-//!    `SignNode(Sign::NonNegative)` child.
-//!
-//! All five children are populated in `initialize_gadgets`. `prove` /
-//! `verify` only emit the containment zerocheck; everything else is
-//! discharged by the child gadgets, which the pipeline walker runs in
-//! post-order.
+//! 1. Activator validity: Data-Preserving Update Check on
+//!    `(a'c, a'h, src, ind, l)`.
+//! 2. Containment: zerocheck on `a'h · (1 - ah)`.
+//! 3. False negatives: Negative Sign Check on `l - k` under `ah · (1 - a'h)`.
+//! 4. False positives: Non-Negative Sign Check on `l - k` under `a'h`.
+use crate::irs::nodes::utils::{resize_oracle, resize_poly};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -58,38 +39,22 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
+/// `{ src }` under `ac`.
 pub const CHAR_INPUT_LABEL: &str = "__char_input__";
+/// `{ ind, l }` under `ah`. `l` must carry an integer type the Sign gadget
+/// understands.
 pub const STR_INPUT_LABEL: &str = "__str_input__";
+/// `{ a'c }`.
 pub const CHAR_FILTERED_LABEL: &str = "__char_filtered__";
+/// `{ a'h }`.
 pub const STR_FILTERED_LABEL: &str = "__str_filtered__";
 
-/// Field type of the (l - k) column handed to the two sign-check
-/// children. Int32 comfortably covers realistic string lengths.
-/// Rebuild a `TrackedPoly` with the specified `log_size`. Used to
-/// sanitize derived polys (like `l - k` or `ah · (1 - a'h)`) whose
-/// stored `log_size` may be `0` when their inputs happen to fold to
-/// constants — the underlying value still evaluates correctly on any
-/// hypercube, but downstream tables assert on the size metadata.
-fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
-    TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
-}
-
-/// Verifier-side counterpart of [`resize_poly`].
-fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
-    TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
-}
-
+/// The `l - k` column of the two sign checks. Int32 covers realistic string
+/// lengths.
 fn l_minus_k_field() -> FieldRef {
     Arc::new(Field::new("__l_minus_k__", DataType::Int32, false))
 }
 
-/// Composite gadget node for the Length Filtering relation.
-///
-/// Matches paper §5.3 PIOP 5 exactly: one Data-Preserving Update Check
-/// on the filtered activator pair (which internally does the booleanity
-/// and activator-consistency checks), the containment zerocheck emitted
-/// inline in `prove`/`verify`, and two Sign children for the length-side
-/// false-positive and false-negative checks.
 pub struct GadgetNode<B: SnarkBackend> {
     threshold: u64,
     data_preserving: Arc<Node<B>>,
@@ -176,7 +141,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let l_col = str_input.tracked_col_by_ind(str_input.data_tracked_polys_indices()[1]);
         let a_h_prime_col =
             char_filtered.tracked_col_by_ind(char_filtered.data_tracked_polys_indices()[0]);
-        let _ = &a_h_prime_col; // name binding for clarity in comments below
+        let _ = &a_h_prime_col;
 
         let a_c_prime = char_filtered
             .tracked_col_by_ind(char_filtered.data_tracked_polys_indices()[0])
@@ -192,25 +157,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let _ac_poly = char_input
             .activator_tracked_poly()
             .expect("Length Filtering: char input must carry an activator (ac)");
-        // Snapshot domain sizes now (before we start mutably borrowing
-        // `virtualized_ir` to write child payloads).
         let str_domain = str_input.log_size();
 
-        // Derived polys used by the sign-check children.
         let k = B::F::from(self.threshold);
         let l_minus_k = l_poly.sub_scalar_poly(k);
-        // ah · (1 - a'h). Compute as (1 - a'h) · ah so a'h is on the
-        // left; matches the verifier-side ordering (see verify_inner's
-        // rationale about verifier `TrackedOracle` size metadata).
+        // ah · (1 - a'h), with a'h on the left to match the verifier's
+        // operand order (see the verifier's `initialize_gadgets`).
         let one_minus_ah_prime = a_h_prime
             .mul_scalar_poly(-B::F::from(1u64))
             .add_scalar_poly(B::F::from(1u64));
         let ah_minus_ah_prime: TrackedPoly<B> = &one_minus_ah_prime * &ah_poly;
 
-        // 1. (Activator Update Validity) Data-Preserving Update Check on
-        //    (char-act', a', orig-ind, ind, l). Internally: BoolCheck on
-        //    char-act', BoolCheck on a', and ActivatorConsistencyCheck on
-        //    (orig-ind, char-act', l, a').
+        // Step 1.
         set_dpuc_payload_prover(
             &self.data_preserving,
             &src_col,
@@ -221,9 +179,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             virtualized_ir,
         );
 
-        // 3. Negative sign check on (l - k) with activator ah · (1 - a'h).
-        //    Sanitize derived polys to the string domain size before
-        //    handing them to child tables.
+        // Step 3: negative sign check on l - k under ah · (1 - a'h).
         let l_minus_k_str = resize_poly(&l_minus_k, str_domain);
         let ah_minus_ah_prime_str = resize_poly(&ah_minus_ah_prime, str_domain);
         let a_h_prime_str = resize_poly(&a_h_prime, str_domain);
@@ -235,7 +191,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             virtualized_ir,
         );
 
-        // 4. Non-negative sign check on (l - k) with activator a'h.
+        // Step 4: non-negative sign check on l - k under a'h.
         set_sign_payload_prover(
             &self.nonneg_sign,
             &l_minus_k_str,
@@ -302,12 +258,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
         let k = B::F::from(self.threshold);
         let l_minus_k = l_oracle.sub_scalar_oracle(k);
-        // Compute ah * (1 - a'h) as (1 - a'h) * ah so a'h is on the left
-        // and the result inherits its log_size. Verifier-side arithmetic
-        // takes self.log_size verbatim (unlike the prover-side which
-        // combines sizes), so putting a possibly-non-constant operand
-        // first keeps the size metadata honest when the other side is a
-        // folded constant.
+        // ah · (1 - a'h) with a'h on the left. Verifier-side arithmetic takes
+        // the left operand's log_size (the prover side combines both), and
+        // `ah` may be a folded constant of log_size 0.
         let one_minus_ah_prime = a_h_prime
             .mul_scalar_oracle(-B::F::from(1u64))
             .add_scalar_oracle(B::F::from(1u64));
@@ -361,8 +314,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()> {
-        // Containment: a'h · (1 - ah) = 0. Every string kept must have
-        // been active in the input.
+        // Step 2: a'h · (1 - ah) = 0, i.e. every kept string was active.
         let PayloadInputsProver {
             str_input,
             str_filtered,
@@ -374,8 +326,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let a_h_prime = str_filtered
             .tracked_col_by_ind(str_filtered.data_tracked_polys_indices()[0])
             .data_tracked_poly();
-        // Compute a'h · (1 - ah) with a'h on the left — keeps log_size
-        // metadata correct when `ah` is committed as a folded constant.
+        // a'h on the left keeps the log_size right when `ah` is a folded
+        // constant.
         let one_minus_ah = ah
             .mul_scalar_poly(-B::F::from(1u64))
             .add_scalar_poly(B::F::from(1u64));
@@ -390,9 +342,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
         _id: NodeId,
     ) -> SnarkResult<()> {
-        // The composed children each carry their own honest checks; the
-        // containment relation is enforced by the zerocheck emitted in
-        // `prove`. Nothing extra here.
+        // The children carry their own honest checks.
         Ok(())
     }
 
@@ -413,7 +363,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let a_h_prime = str_filtered
             .tracked_col_oracle_by_ind(str_filtered.data_tracked_oracles_indices()[0])
             .data_tracked_oracle();
-        // Mirror prover-side ordering: a'h * (1 - ah).
         let one_minus_ah = ah
             .mul_scalar_oracle(-B::F::from(1u64))
             .add_scalar_oracle(B::F::from(1u64));
@@ -497,10 +446,8 @@ fn set_dpuc_payload_prover<B: SnarkBackend>(
     let ind_field = ind_col.field_ref().expect("ind must have a field ref");
     let l_field = l_col.field_ref().expect("l must have a field ref");
 
-    // LHS: char table with src (as data), activator = a'c.
-    // Use a'c's domain size (it's a caller-supplied filtered activator
-    // with a well-defined log_size); src's log_size can be 0 if src
-    // folds to a constant, which would be wrong for the table.
+    // The table takes a'c's log_size: src's can be 0 when src folds to a
+    // constant.
     let char_domain = a_c_prime.log_size().max(src_col.log_size());
     let mut lhs_polys = IndexMap::new();
     lhs_polys.insert(src_field.clone(), src_col.data_tracked_poly());
@@ -508,7 +455,6 @@ fn set_dpuc_payload_prover<B: SnarkBackend>(
     let lhs_schema = Schema::new(vec![src_field.as_ref().clone()]);
     let lhs = TrackedTable::new(Some(lhs_schema), lhs_polys, char_domain);
 
-    // RHS: string table with (ind, l) as data, activator = a'h.
     let str_domain = a_h_prime
         .log_size()
         .max(ind_col.log_size())

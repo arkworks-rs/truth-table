@@ -22,19 +22,14 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
         })
         .collect();
 
-    // 0. Make the original activator explicit so we don’t lose it
     let df = input
         .clone()
         .with_column_renamed(ACTIVATOR_COL_NAME, "__activator_orig__")
         .unwrap();
 
-    // 1. Aggregate only over active rows
     let active_df = df.clone().filter(col("__activator_orig__")).unwrap();
-    // 2. Join aggregates back to *all* rows.
-    //
-    // For simplicity, assume group_exprs are plain column refs,
-    // e.g. vec![col("group_col1"), col("group_col2")].
-    // Then we can extract the column names for the join:
+    // The aggregates are joined back to all rows on the group columns, so the
+    // group expressions must be plain column references.
     let group_cols: Vec<String> = aggregate
         .group_expr
         .iter()
@@ -71,14 +66,8 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
         )
         .unwrap();
 
-    // 3. Use a window function to pick a group representative
-    //
-    // We want: “first active row in each group” to keep activator = true.
-    // Others become false.
-    //
-    // row_number() OVER (PARTITION BY group_exprs ORDER BY nothing)
-    // and then:
-    //   new_activator = (orig_activator && row_number == 1)
+    // The representative of a group is its first row in (active first, row id)
+    // order: new activator = orig_activator && row_number == 1.
     let mut row_number_builder = row_number().partition_by(aggregate.group_expr.clone());
     let mut row_number_sort_exprs = vec![col("__activator_orig__").sort(false, true)];
     if !row_id_sort_exprs.is_empty() {
@@ -90,8 +79,6 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
         .expect("partitioned row_number window should build")
         .alias("__row_number__");
     let with_rownum = joined.window(vec![window_expr]).unwrap();
-    // 4. Define the new activator:
-    // new __activator__ = __activator_orig__ && __row_number__ == 1
 
     let new_activator_expr = when(
         col("__activator_orig__").and(col("__row_number__").eq(lit(1_i64))),
@@ -103,8 +90,7 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     let with_new_activator = with_rownum
         .with_column("__activator__", new_activator_expr)
         .unwrap();
-    // To keep deterministic output across executions, order the rows by the
-    // grouping columns (if any) and then by the representative flag.
+    // Deterministic row order: group columns, then row id, then row number.
     let mut sort_exprs: Vec<SortExpr> = aggregate
         .group_expr
         .iter()

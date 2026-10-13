@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Plot the measured single-threaded fingerprint benchmark: five square
-figures, every point a real run (no cost model).
+"""Plot the measured single-threaded fingerprint benchmark: square figures,
+every point a real run (no cost model).
 
 Usage:
     python3 scripts/plot_bench.py --commits results/bench-commits-l_comment.csv \

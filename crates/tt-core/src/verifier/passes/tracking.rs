@@ -36,17 +36,17 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
-/// A tracking pass that tracks and commits the verifier's arithmetized tables
-///
-/// This pass converts an IR with arithmetized tables into an IR with tracked tables; i.e. tables that are commited and added to the transcript, therefore tracked by the SNARK verifier with an associated id. Note that this pass is stateful, as it requires access to the verifier instance to perform the tracking and committing.
+/// Tracks the commitments of each node's table in the verifier, in the order
+/// the prover tracked them. Table-scan commitments come from `ctx_oracles`,
+/// the others from the proof.
 pub struct TrackingPass<B: SnarkBackend> {
     verifier: RefCell<ArgVerifier<B>>,
     ctx_oracles: CtxOracles<B>,
     output_memtable: Option<Arc<MemTable>>,
-    /// Columns some white-box string gadget consumes char-level side polys
-    /// for (from `Tree::required_side_columns`). The prover emits side
-    /// commitments only for these columns, so the verifier must expect
-    /// exactly the same set to keep the transcript in sync.
+    /// The string columns with char-level side polys (from
+    /// `Tree::required_side_columns`). The prover emits side commitments for
+    /// exactly these, so the verifier must expect the same set to keep the
+    /// transcript in sync.
     side_columns: std::collections::BTreeSet<String>,
     /// The fingerprint limbs, per column, a pre-filter tests (from
     /// `Tree::required_fingerprint_columns`). Table scans carry exactly
@@ -130,7 +130,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
         }
 
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
-        // Final output table: no side segments — no downstream PIOP consumes them.
+        // The final output table has no side segments: no PIOP reads them.
         let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None, None);
         let tracked_table = Self::track_output_table_oracle(&arith_table, &self.verifier);
         let gadget_id = root
@@ -170,10 +170,8 @@ where
         _id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<TrackedPayload<B>> {
-        // If there is no payload, do nothing
         let payload = payload?;
         match payload {
-            // If the payload is a plan,
             HintDFPayload::PlanPayload(hint_df) => {
                 if node.name() == "TableScan" {
                     let df_schema = hint_df.data_frame().schema();
@@ -183,8 +181,8 @@ where
                         .and_then(|name| self.ctx_oracles.table_oracle_by_name(&name))
                         .or_else(|| self.ctx_oracles.table_oracle_for_schema(&base_schema));
                     if let Some(oracle) = oracle {
-                        // TableScan commitments are public input and must come from the oracle
-                        // files, not from prover-selected proof commitments.
+                        // Table-scan commitments are public input: they come
+                        // from the oracle files, never from the proof.
                         return track_hint_df_from_oracle(
                             hint_df,
                             oracle,
@@ -195,8 +193,8 @@ where
                         )
                         .map(TrackedPayload::PlanPayload);
                     }
-                    // TableScan without cached oracle: prover emits side commits
-                    // for the gadget-consumed columns, verifier must consume them.
+                    // A table scan without an oracle: the prover emits side
+                    // commitments for `side_columns`, so consume them.
                     return track_hint_df(
                         hint_df,
                         &self.verifier,
@@ -206,15 +204,14 @@ where
                     .map(TrackedPayload::PlanPayload);
                 }
                 if node.name() == "Compaction" {
-                    // Compaction outputs re-emit side segments for the
-                    // gadget-consumed string columns (see
-                    // ArithmetizationPass); consume their commitments in
-                    // the same order the prover emitted them.
+                    // A Compaction output re-emits side segments for
+                    // `side_columns` (see ArithmetizationPass); consume
+                    // their commitments in the prover's order.
                     return track_hint_df(hint_df, &self.verifier, Some(&self.side_columns), None)
                         .map(TrackedPayload::PlanPayload);
                 }
-                // Intermediate operator: prover skips side segments (see
-                // ArithmetizationPass), so verifier must skip them too.
+                // An intermediate operator: the prover emits no side segments
+                // (see ArithmetizationPass), so expect none.
                 track_hint_df(hint_df, &self.verifier, None, None).map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
@@ -255,10 +252,9 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     let mut log_size = 0usize;
 
     let mut verifier = verifier.borrow_mut();
-    // Mirror prover order: all row-domain segments first, then all
-    // side-domain segments. Side commitments are always proof-emitted (even
-    // when row commitments come from ctx_oracle) so they consume IDs after
-    // the row pass is done.
+    // The prover's order: every row-domain segment, then every side-domain
+    // segment. Side commitments always come from the proof, even when the
+    // row commitments come from the ctx oracle, and take the ids after them.
     let materialized: Vec<FieldRef> = hint_df
         .field_materialization_iter()
         .filter(|&(_field, should_mat)| *should_mat)
@@ -309,9 +305,8 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
                         segment_field.name()
                     )
                 });
-            // Mirror prover-side external tracking for base-table commitments
-            // loaded from context instead of from the proof's serialized
-            // commitment map.
+            // As on the prover, a base-table commitment loaded from context
+            // is tracked as external.
             let tracked_oracle = verifier
                 .track_mat_mv_com_with_binding(commitment, CommitmentBinding::External)
                 .expect("verifier should track ctx_oracle commitment");
@@ -389,16 +384,15 @@ fn track_hint_df<B: SnarkBackend>(
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let qualified_fields = qualify_fields(df_schema_ref);
-    // Initialize some variables
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut side_cols: IndexMap<FieldRef, arithmetic::col_oracle::OracleBundle<B>> =
         IndexMap::new();
     let mut log_size = 0usize;
 
     let mut verifier = verifier.borrow_mut();
-    // Prover commits ALL row-domain segments first, then ALL side-domain
-    // segments. The verifier must consume commitments in the same order, so
-    // walk hint fields TWICE: once for row segments, once for side segments.
+    // The prover commits every row-domain segment, then every side-domain
+    // segment. Consume the commitments in that order: walk the hint fields
+    // once for each.
     let materialized: Vec<FieldRef> = hint_df
         .field_materialization_iter()
         .filter(|&(_field, should_mat)| *should_mat)
@@ -416,10 +410,9 @@ fn track_hint_df<B: SnarkBackend>(
                 arithmetic::encoding::selected_limbs(selection, qualified_field.name())
             });
         for segment_field in segment_fields::<B>(qualified_field, fingerprint) {
-            // Use the next expected id so the verifier's tracker stays in
-            // sync with the proof. The prover commits one polynomial per
-            // segment (e.g. hash + __length for strings), so the verifier
-            // must consume the same number of proof commitments here.
+            // The prover commits one polynomial per segment (e.g. hash and
+            // `__length` for a string); consume one proof commitment each to
+            // keep the tracker ids in sync.
             let oracle = verifier
                 .track_next_mv_com()
                 .expect("verifier should track prover commitment by id");
@@ -459,7 +452,6 @@ fn track_hint_df<B: SnarkBackend>(
             }
         }
     }
-    // If there was no columns to be materialized, return None
     if tracked_oracles.is_empty() {
         None
     } else {
@@ -477,11 +469,10 @@ fn track_hint_df<B: SnarkBackend>(
     }
 }
 
-/// Expand a hint-df field into the list of segment fields the prover-side
-/// arithmetization will produce (e.g. a Utf8 column expands to
-/// `[col, col__length]`, followed by the `fingerprint` limbs selected). The
-/// first segment uses the unchanged field; later segments inherit
-/// `metadata` and nullability but rename to `<col>{suffix}`.
+/// The segment fields the prover's arithmetization produces for a hint-df
+/// field (e.g. `[col, col__length]` for Utf8, then the selected
+/// `fingerprint` limbs). The first segment is the field itself; the others
+/// are named `<col>{suffix}` and keep its metadata and nullability.
 fn segment_fields<B: SnarkBackend>(
     field: &FieldRef,
     fingerprint: arithmetic::encoding::FingerprintLimbs,
@@ -521,9 +512,8 @@ fn segment_fields<B: SnarkBackend>(
         .collect()
 }
 
-/// Expand a hint-df field into the list of **side-domain** segment fields the
-/// prover-side encoder will emit (e.g. a Utf8 column produces a
-/// `<col>__chars` side segment).
+/// The side-domain segment fields the prover's encoder emits for a hint-df
+/// field (e.g. `<col>__chars` for Utf8).
 fn side_segment_fields<B: SnarkBackend>(field: &FieldRef) -> Vec<FieldRef> {
     let suffixes = arithmetic::encoding::side_segment_suffixes_for_type::<B::F>(field.data_type());
     suffixes
@@ -547,8 +537,8 @@ fn build_tracked_schema<'a>(
     tracked_fields: impl Iterator<Item = &'a FieldRef>,
     oracle_schema: Option<&Schema>,
 ) -> Schema {
-    // Keep field ordering exactly aligned with tracked_oracles keys, while
-    // merging table-level metadata from hint-df + oracle schema.
+    // Fields follow the tracked_oracles keys. Table metadata is merged from
+    // the hint-df schema and the oracle schema.
     let mut metadata = base_schema.metadata().clone();
     if let Some(schema) = oracle_schema {
         metadata.extend(schema.metadata().clone());
@@ -570,7 +560,7 @@ fn qualify_fields(df_schema: &DFSchema) -> IndexMap<FieldRef, FieldRef> {
             continue;
         }
         if let Some(qualifier) = qualifier {
-            // Mirror prover-side qualifier metadata to keep schemas aligned.
+            // The prover's qualifier metadata, to keep the schemas aligned.
             let mut metadata = updated.metadata().clone();
             metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier.to_string());
             updated = updated.with_metadata(metadata);
@@ -633,10 +623,9 @@ impl<B: SnarkBackend> TrackingPass<B> {
                 let oracle = ark_piop::verifier::structs::oracle::Oracle::new_multivariate(
                     arith_table.log_size(),
                     move |point| {
-                        // Fast path: hypercube points (every coord is 0 or 1)
-                        // become a direct array lookup — O(num_vars) instead of
-                        // O(2^num_vars). result_check's verifier extracts res˜
-                        // by querying at hypercube points, so this matters.
+                        // result_check's verifier reads the result at
+                        // hypercube points, where the evaluation is an array
+                        // lookup: O(num_vars) instead of O(2^num_vars).
                         if let Some(idx) = hypercube_index(&point, num_vars) {
                             return Ok(poly_evals.get(idx).copied().unwrap_or_else(B::F::zero));
                         }
@@ -655,9 +644,8 @@ impl<B: SnarkBackend> TrackingPass<B> {
     }
 }
 
-/// If every coordinate of `point` is exactly 0 or 1, return the integer index
-/// it represents (little-endian bit order); otherwise `None`. Used to short-
-/// circuit MLE evaluation at hypercube points to a direct array lookup.
+/// The index `point` encodes (little-endian bits) when every coordinate is
+/// 0 or 1, otherwise `None`.
 fn hypercube_index<F: Field + Copy>(point: &[F], num_vars: usize) -> Option<usize> {
     let zero = F::zero();
     let one = F::one();

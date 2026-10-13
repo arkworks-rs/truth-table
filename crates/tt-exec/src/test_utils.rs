@@ -24,33 +24,16 @@ use crate::{
 };
 use tpch_data::{bench_data_path, test_data_path};
 
-/// Init tracing for the test harness. When `TT_JSONL_STATS=1`, the
-/// JSONL statistics layer is installed on top of the standard subscriber
-/// so events on the `bench_stats` target (tracker snapshots, sumcheck
-/// stream-decision logs, per-bucket stats) land in
-/// `tt-results/raw/bench_stats.jsonl`. Otherwise falls back to the plain
-/// subscriber — matches the historical behavior.
-fn init_test_harness_tracing() {
-    init_test_tracing(jsonl_stats_enabled_from_env());
-}
-
 type B = BenchBackend;
 
-/// Executes an end-to-end proving and verification pipeline for the provided
-/// query by delegating to the CLI runners defined in `prove` and `verify`.
-/// The helper resolves the TPCH parquet and oracle assets for the supplied
-/// `table_names`, generating them on the fly when missing.
-/// Prove + verify a query against **bench-data** parquets using the
-/// bench-size proving/verifying keys (`DEFAULT_BENCH_LOG_SIZE`). Used
-/// by peak-RSS A/B benchmarks that need larger char-domain side polys
-/// than test-data provides. Otherwise identical to
-/// [`prove_and_verify_query`].
+/// [`prove_and_verify_query`] over the bench-data parquets with the
+/// bench-size keys (`DEFAULT_BENCH_LOG_SIZE`).
 pub async fn prove_and_verify_query_bench(
     query: &str,
     table_names: &[&str],
     proof_output_path: Option<PathBuf>,
 ) -> Result<()> {
-    init_test_harness_tracing();
+    init_test_tracing(jsonl_stats_enabled_from_env());
     let parquet_paths = table_names
         .iter()
         .map(|name| {
@@ -71,11 +54,8 @@ pub async fn prove_and_verify_query_bench(
         oracle_paths.push(oracle);
     }
 
-    // Wrap prove+verify in a `bench_query` span so the JSONL layer can
-    // key events (tracker snapshots, sumcheck stream-decision logs,
-    // per-bucket stats) back to this specific query. No-op when the
-    // JSONL layer isn't installed (span is just an inert info-level
-    // span).
+    // The `bench_query` span lets the JSONL layer key its events to this
+    // query.
     async move {
         let outputs = ProveBuilder::new()
             .with_query(query.to_owned())
@@ -103,12 +83,14 @@ pub async fn prove_and_verify_query_bench(
     .await
 }
 
+/// Proves and verifies `query` through the `prove` and `verify` runners,
+/// generating the keys and the oracles of `table_names` when missing.
 pub async fn prove_and_verify_query(
     query: &str,
     table_names: &[&str],
     proof_output_path: Option<PathBuf>,
 ) -> Result<()> {
-    init_test_harness_tracing();
+    init_test_tracing(jsonl_stats_enabled_from_env());
     let parquet_paths = table_names
         .iter()
         .map(|name| resolve_parquet_path(name))
@@ -147,14 +129,11 @@ pub async fn prove_and_verify_query(
     .await
 }
 
-/// A proof path unique to the calling test.
-///
-/// `resolve_output_path(None)` in `prove.rs` maps to one shared
-/// `artifacts/proof.pi` (and a result parquet derived from it). `cargo test`
-/// runs tests as threads in one process, so tests sharing that default
-/// overwrite each other's proof and result, and a test can end up verifying a
-/// sibling's proof. The harness names each test thread after its test; the pid
-/// keeps concurrent `cargo test` processes apart.
+/// A proof path unique to the calling test. The default is one shared
+/// `artifacts/proof.pi`, and `cargo test` runs tests as threads in one
+/// process, so tests sharing it would verify each other's proofs. The harness
+/// names each test thread after its test; the pid keeps concurrent
+/// `cargo test` processes apart.
 fn unique_proof_path() -> PathBuf {
     let thread = std::thread::current();
     let sanitized: String = thread
@@ -189,17 +168,14 @@ pub fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
 }
 
 pub async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
-    // Commit at most one table at a time PER PARQUET PATH. `cargo test` runs
-    // tests as threads in one process and every test that touches a table
-    // lands here. The lock is held across the whole check-then-build, so a
-    // second caller for the same table waits and then finds the first
-    // caller's published file instead of rebuilding it.
+    // One commit at a time per parquet path: `cargo test` runs tests as
+    // threads in one process. The lock is held across the check-then-build, so
+    // a second caller for the same table finds the first caller's file.
     let lock = oracle_build_lock(parquet_path);
     let _guard = lock.lock().await;
     resolve_oracle_path_locked(parquet_path, pk_path).await
 }
 
-/// Per-parquet-path build lock for [`resolve_oracle_path`].
 fn oracle_build_lock(parquet_path: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
@@ -212,16 +188,10 @@ fn oracle_build_lock(parquet_path: &Path) -> std::sync::Arc<tokio::sync::Mutex<(
 }
 
 /// Cache key for a committed oracle: everything the commitment depends on
-/// that can change between runs without the parquet path changing.
-///
-/// - the backend curve (commitments are curve-specific),
-/// - the fingerprint rules commit will record (they define the committed
-///   `__fp{j}` limb columns, so a rule change must never reuse an old
-///   oracle): the fingerprint mode and the version of each mode's rule,
-/// - the proving key file,
-/// - the parquet file's size and modification time,
-/// - how the commit path encodes this table, via [`hash_sample_encoding`], so
-///   a change to column encoding or padding never reuses a stale oracle.
+/// that can change without the parquet path changing. That is the backend,
+/// [`ORACLE_LAYOUT`], the size and modification time of the parquet and of the
+/// proving key, and how the commit path encodes the table
+/// ([`hash_sample_encoding`], which covers the fingerprint columns).
 async fn oracle_cache_key(parquet_path: &Path, pk_path: &Path) -> Result<String> {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut h = DefaultHasher::new();
@@ -243,8 +213,7 @@ async fn oracle_cache_key(parquet_path: &Path, pk_path: &Path) -> Result<String>
 }
 
 /// Bumped when the oracle files change without the encoding of the sample
-/// changing (2: fingerprint bins sealed under Merkle roots, bins in
-/// `<oracle>.bins`; 3: one rule for every column, the single-feature rule).
+/// changing.
 const ORACLE_LAYOUT: u32 = 3;
 
 /// Rows of the table run through the commit path's padding and
@@ -332,10 +301,9 @@ async fn resolve_oracle_path_locked(parquet_path: &Path, pk_path: &Path) -> Resu
         );
     }
 
-    // Build under a unique temporary name, then rename into place. Rename is
-    // atomic on one filesystem, so a reader in another process (the bench
-    // harness, a second `cargo test` binary) sees either no file or a
-    // complete one, never a partial write.
+    // Build under a unique temporary name, then rename into place: the rename
+    // is atomic, so a reader in another process (the bench harness, a second
+    // `cargo test` binary) never sees a partial file.
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())

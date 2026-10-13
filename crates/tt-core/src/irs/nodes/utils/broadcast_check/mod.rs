@@ -1,24 +1,22 @@
-//! A gadget node for paper §4.3 Broadcast Check.
+//! Broadcast check (paper §4.3).
 //!
 //! Given a string-level column `x` and a character-level column `x'`,
-//! together with `src` (character → owning-string index) and `ind`
-//! (string identity), the gadget proves for every active character `c`:
+//! with `src` (each character's owning-string index) and `ind` (the string
+//! identity), proves for every active character `c`:
 //!
 //! ```text
 //! x'[c] = x[src[c]]
 //! ```
 //!
-//! Payload structure:
-//! - `STR_LABEL` (`"__str__"`) — string-level table with data columns
-//!   `ind` (index 0) and `x` (index 1). The table's activator is `ah`.
-//! - `CHAR_LABEL` (`"__char__"`) — character-level table with data
-//!   columns `src` (index 0) and `x'` (index 1). The table's activator
-//!   is `ac`.
+//! Payload:
+//! - [`STR_LABEL`]: string-level table with data columns `ind`, `x` in that
+//!   order and activator `ah`.
+//! - [`CHAR_LABEL`]: character-level table with data columns `src`, `x'` in
+//!   that order and activator `ac`.
 //!
-//! Reduces to a single [`LookupPIOP`] on the
-//! fingerprinted pairs `(src + r·x')` ⊑ `(ind + r·x)` at a challenge `r`.
-//! Distinct `ind` values across active string rows is a well-formedness
-//! precondition on the caller.
+//! The check is one [`LookupPIOP`] of the folded pairs
+//! `(src + r·x')` ⊑ `(ind + r·x)` at a challenge `r`. The caller must ensure
+//! that `ind` is distinct across active string rows.
 use std::marker::PhantomData;
 
 use crate::irs::nodes::utils::lookup::piop::{LookupPIOP, LookupProverInput, LookupVerifierInput};
@@ -38,7 +36,6 @@ use crate::{
 pub const STR_LABEL: &str = "__str__";
 pub const CHAR_LABEL: &str = "__char__";
 
-/// Gadget node for the broadcast relation `x'[c] = x[src[c]]`.
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
 
 impl<B: SnarkBackend> Default for GadgetNode<B> {
@@ -139,8 +136,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let (str_col, char_col, src_col, ind_col) = payload_prover(gadget_ready_ir, id);
         let r = prover.get_and_append_challenge(b"broadcast_check_r")?;
 
-        // Fingerprint char side: src + r * x'. Data poly is virtual; the
-        // char activator masks inactive chars via the resulting col.
+        // Char side: src + r·x', under the char activator `ac`.
         let looked_up_data = &src_col.data_tracked_poly() + &(char_col.data_tracked_poly() * r);
         let looked_up_col = TrackedCol::new(
             looked_up_data,
@@ -148,7 +144,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             char_col.field_ref(),
         );
 
-        // Fingerprint string side: ind + r * x. Activator: ah (from ind_col).
+        // String side: ind + r·x, under the string activator `ah`.
         let super_data = &ind_col.data_tracked_poly() + &(str_col.data_tracked_poly() * r);
         let super_col = TrackedCol::new(
             super_data,
@@ -184,7 +180,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let str_act = str_col.activator_tracked_poly().map(|a| a.evaluations());
         let ind_data = ind_col.data_tracked_poly().evaluations();
 
-        // Build ind_value -> str_value over active string rows.
+        // ind -> x over active string rows.
         let mut ind_to_str: IndexMap<B::F, B::F> = IndexMap::with_capacity(str_data.len());
         for (i, (&ind_i, &x_i)) in ind_data.iter().zip(str_data.iter()).enumerate() {
             let active = str_act.as_ref().map(|a| !a[i].is_zero()).unwrap_or(true);

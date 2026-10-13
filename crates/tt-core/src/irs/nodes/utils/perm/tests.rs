@@ -1,9 +1,7 @@
-//! Tests for the `Permutation` gadget's column-folding rule.
-//!
-//! The gadget fingerprints selected row tuples with shared transcript
-//! challenges before the keyed sumcheck. These tests cover column alignment,
-//! honest permutations, and adversarial collisions against the former fixed
-//! coefficients.
+//! The `Permutation` gadget folds the selected columns of each row with
+//! shared transcript challenges before the keyed sumcheck. These tests cover
+//! column alignment, honest permutations and collisions that fixed fold
+//! coefficients would accept.
 
 use std::sync::Arc;
 
@@ -74,8 +72,6 @@ fn run_with_activators(
     run_gadget_pipeline(harness)
 }
 
-// ---- the fold-selection rule ----
-
 #[test]
 fn same_names_in_a_different_order_fold_by_name() {
     // The TPC-H group-by shape: both sides carry the same columns, but
@@ -105,13 +101,11 @@ fn duplicate_names_fold_positionally() {
     assert!(!should_fold_by_names(2, 2, &["a".into(), "a".into()]));
 }
 
-// ---- end-to-end ----
-
 #[test]
 fn reordered_columns_still_verify() {
-    // RIGHT holds the same rows as LEFT — rotated by one — but stores
-    // its columns in the opposite flat order. Folding positionally
-    // would pair challenge 1 with `a` on the left and `b` on the right.
+    // RIGHT holds the same rows as LEFT, rotated by one, but stores its
+    // columns in the opposite flat order. Folding positionally would pair
+    // challenge 1 with `a` on the left and `b` on the right.
     let left = [("a", [10, 20, 30, 40]), ("b", [1, 2, 3, 4])];
     let right = [("b", [4, 1, 2, 3]), ("a", [40, 10, 20, 30])];
     run(&left, &right).expect("a permuted table with reordered columns must verify");
@@ -150,8 +144,8 @@ fn row_pairing_is_preserved() {
 
 #[test]
 fn fixed_weight_collision_is_rejected_by_verifier() {
-    // The old fingerprint a + 2*b maps both (0, 1) and (2, 0) to 2.
-    // These committed tables therefore passed despite having different rows.
+    // A fixed fold a + 2*b maps both (0, 1) and (2, 0) to 2, so it would
+    // accept these tables although their rows differ.
     let left = [("a", [0, 3, 5, 7]), ("b", [1, 2, 3, 4])];
     let right = [("a", [2, 3, 5, 7]), ("b", [0, 2, 3, 4])];
     assert!(matches!(
@@ -195,9 +189,9 @@ fn partial_name_intersection_does_not_drop_a_column() {
 
 #[test]
 fn projected_name_fold_still_verifies() {
-    // Rematerialization can compare a projected output against a wider input.
-    // The common fingerprint must therefore use the selected-name width, not
-    // either table's physical width.
+    // Compaction can compare a projected output against a wider input, so
+    // the fold uses the selected-name width, not either table's physical
+    // width.
     let left = [("a", [10, 20, 30, 40]), ("b", [1, 2, 3, 4])];
     let right = [("a", [40, 10, 20, 30])];
     run(&left, &right).expect("the selected shared projection must still verify");

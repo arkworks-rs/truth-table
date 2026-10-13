@@ -1,49 +1,19 @@
-// Segment types + naming infrastructure. Value side: `EncodedSegment`,
-// `SideSegmentInfo`, `SideColData`, plus the internal `auto_segments`
-// wrapper for encoders that don't assign role-specific names. Name side:
-// the `""` primary convention, the `__enc<N>` auto-numbered convention,
-// and the type-family dispatchers (`segment_base_name`, `is_segment_of`,
-// `segment_suffixes_for_type`, `side_segment_suffixes_for_type`).
-// Family-specific suffix constants live with their encoders — see
-// `mod strings` for the string family.
+// Segment types and the segment naming conventions (`""` primary, `__enc<N>`).
 mod segment;
 
-// The `Encodable` trait every Arrow array implements, plus the two
-// `impl_col_adapter_map!` / `impl_col_adapter_unsupported!` macros that reduce
-// the boilerplate of adding a new type.
 mod encodable;
-
-// Internal helpers shared across encoders: hashing bytes into field elements,
-// computing field byte capacity, and shape-shifting per-row vectors into
-// per-column ones. Not part of the public API.
 mod util;
 
-// `Encodable` implementations for scalar-like Arrow arrays that map
-// element-wise via `impl_col_adapter_map!` — bool, all int / uint widths,
-// timestamp, date, time, duration, interval-year-month, decimals. Floats
-// are intentionally excluded; see `mod other` for the rejection.
+// Bool, integers, dates, times, durations, decimals.
 mod primitives;
 
-// String-family: `Encodable` implementations for `StringArray`,
-// `LargeStringArray`, `StringViewArray` (via the shared `encode_utf8_like`
-// core) plus the string-specific suffix constants and dispatcher helpers
-// (`STRING_LENGTH_SUFFIX`, `STRING_CHARS_SUFFIX`, `STRING_ORIG_IND_SUFFIX`,
-// `STRING_INT_IND_SUFFIX`, `STRING_BND_SUFFIX`). Emits row-domain
-// `{hash, __length}` segments, optionally the fingerprint limbs
-// `{__fp0 … __fp31}` and the side-domain
-// `{__chars, __orig_ind, __int_ind, __bnd}` segments.
+// Row-domain `{hash, __length}`, optional fingerprint limbs `__fp{j}`, and the
+// char-level side segments `{__chars, __orig_ind, __int_ind, __bnd}`.
 mod strings;
 
-// `Encodable` implementations for everything else — binary array variants,
-// `NullArray`, `IntervalDayTime` / `IntervalMonthDayNano`, `DictionaryArray`
-// — plus the `impl_col_adapter_unsupported!` invocations that reject
-// Float16 / Float32 / Float64 (IEEE bit-cast into a field is not
-// arithmetic-meaningful) and list / struct / union / map / run-end arrays.
+// Binary, null and interval arrays; rejects floats and nested types.
 mod other;
 
-// The top-level dispatcher: `encode_arrow_array_to_field` matches on Arrow
-// `DataType` and forwards to the right `Encodable::encode`, plus the
-// `scalar_to_fields` / `scalar_to_field` helpers for encoding literals.
 mod dispatch;
 
 pub use dispatch::{
@@ -79,16 +49,11 @@ mod tests {
 
         // 2 row-domain value segments (inlined hash + length) and 4
         // side-domain segments (chars, orig_ind, int_ind, bnd); a column
-        // with no name has no rule, so no fingerprint limbs. This test
-        // asserts only the value segments; the other shapes are exercised
-        // elsewhere.
+        // with no name has no rule, so no fingerprint limbs.
         let expected_len = 2 + 4;
         assert_eq!(encoded.len(), expected_len);
         assert_eq!(encoded[0].suffix, "");
         assert_eq!(encoded[1].suffix, STRING_LENGTH_SUFFIX);
-        // Materialize through the new accessor so the test survives whatever
-        // native backing the encoder picks (string hashes stay Fs; the
-        // length column may compress to U8s).
         let hash_col: Vec<Fr> = encoded[0].iter_values().collect();
         let length_col: Vec<Fr> = encoded[1].iter_values().collect();
         assert_eq!(hash_col.len(), array.len());
@@ -137,12 +102,12 @@ mod tests {
             segments[1].iter_values().collect::<Vec<_>>(),
             vec![Fr::from(5u64)]
         );
-        // scalar_to_field's single-field convenience refuses multi-segment scalars
+        // `scalar_to_field` refuses multi-segment scalars.
         assert!(scalar_to_field::<Fr>(&scalar).is_none());
     }
 
-    /// Each string column is fingerprinted under its OWN rule, and a column
-    /// the table's rules do not mention emits no limbs at all. The rules are
+    /// Each string column is fingerprinted under its own rule, and a column
+    /// the table's rules do not mention emits no limbs. The rules are
     /// process-global, so this test owns them for its duration.
     #[test]
     fn each_column_is_fingerprinted_under_its_own_rule() {
@@ -255,30 +220,4 @@ mod tests {
         assert_eq!(segment_base_name(&format!("c__fp{NUM_LIMBS}")), None);
         assert_eq!(segment_base_name("c__fp01"), None);
     }
-
-    // #[test]
-    // fn large_string_array_follows_same_rules() {
-    //     let array = LargeStringArray::from(vec![Some("x"), Some("yz"),
-    // None]);     let encoded = <LargeStringArray as
-    // Encodable<Fr>>::encode(&array).unwrap();
-
-    //     assert_eq!(encoded.len(), 1);
-    //     let column = &encoded[0];
-    //     assert_eq!(column[0], Fr::from(120u64));
-    //     assert_eq!(column[1], encode_hashed_bytes::<Fr>(b"yz")[0]);
-    //     assert_eq!(column[2], Fr::zero());
-    // }
-
-    // #[test]
-    // fn string_view_array_matches_behavior() {
-    //     let array = StringViewArray::from(vec![Some("m"), Some("no"), None]);
-    //     let encoded = <StringViewArray as
-    // Encodable<Fr>>::encode(&array).unwrap();
-
-    //     assert_eq!(encoded.len(), 1);
-    //     let column = &encoded[0];
-    //     assert_eq!(column[0], Fr::from(109u64));
-    //     assert_eq!(column[1], encode_hashed_bytes::<Fr>(b"no")[0]);
-    //     assert_eq!(column[2], Fr::zero());
-    // }
 }

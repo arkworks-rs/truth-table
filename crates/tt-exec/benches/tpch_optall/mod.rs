@@ -1,22 +1,17 @@
-//! Three-config ablation benchmark crossing the pp_optimizer (PK-FK join
-//! specialization) and the data_dependent_lp_optimizer (compaction):
+//! Ablation benchmark over the pp_optimizer (PK-FK join specialization) and
+//! the data_dependent_lp_optimizer (compaction):
 //!
-//!   - `..._all_off` — both empty. Every join stays `MANY_TO_MANY` and no
-//!     compaction wrappers are emitted.
-//!   - `..._pkfk_on_remat_off` — pp_optimizer enabled, data-dependent LP
-//!     optimizer empty (isolates PK-FK gain).
-//!   - `..._pkfk_off_remat_on` — pp_optimizer empty, data-dependent LP
-//!     optimizer enabled (isolates compaction gain).
+//!   - `..._all_off`: both empty. Every join stays `MANY_TO_MANY` and nothing
+//!     is compacted.
+//!   - `..._pkfk_on_remat_off`: only the pp_optimizer (isolates the PK-FK
+//!     gain).
+//!   - `..._pkfk_off_remat_on`: only the data-dependent LP optimizer (isolates
+//!     the compaction gain).
 //!
-//! `all_on` is intentionally omitted: it is identical to the production
-//! wiring, so the baseline `tpch` bench already covers it.
+//! `all_on` is the production wiring, which the `tpch` bench covers.
 //!
-//! Each variant runs the same three sub-benches as `tpch::`: `prover`,
-//! `verifier_crypto`, and `verifier_full`. The proof cache key is the bench
-//! case name, so each (query, config) combination caches its own proof. Both
-//! the prover (via `ProveBuilder::with_*_rules`) and the verifier (via
-//! `build_verifier_full_state_from_proof_with_pp_rules`) get the same rule
-//! lists.
+//! Each variant runs the three sub-benches of `tpch`. The proof cache key is
+//! the bench case name, so each (query, config) pair caches its own proof.
 
 use std::sync::Arc;
 
@@ -42,8 +37,8 @@ pub enum OptConfig {
 }
 
 impl OptConfig {
-    /// Data-dependent LP optimizer rule list: defaults when compaction is
-    /// enabled by this config, empty otherwise.
+    /// The default data-dependent LP rules when this config enables
+    /// compaction, none otherwise.
     fn data_dependent_rules(self) -> Vec<Arc<dyn DataDependentOptimizationRule>> {
         match self {
             OptConfig::PkFkOffCompactionOn => data_dependent_rules(),
@@ -51,8 +46,8 @@ impl OptConfig {
         }
     }
 
-    /// Proof-plan optimizer rule list: defaults when PK-FK is enabled by
-    /// this config, empty otherwise.
+    /// The default proof-plan rules when this config enables PK-FK, none
+    /// otherwise.
     fn pp_rules(self) -> Vec<Arc<dyn ProofPlanOptimizerRule<B>>> {
         match self {
             OptConfig::PkFkOnCompactionOff => pp_rules::<B>(),
@@ -65,11 +60,9 @@ fn prepare_verifier_state(
     case: BenchCase,
     config: OptConfig,
 ) -> crate::support::VerifierFullBenchState {
-    // Proof cache is keyed by case name, so each (query, config) caches
-    // independently. The prover sub-bench runs first within a single divan
-    // invocation and populates the cache; the verifier sub-benches then read
-    // it. The verifier must use the same pp rule list as the prover so both
-    // sides agree on each join's mode.
+    // The prover sub-bench runs first within one divan invocation and fills
+    // the proof cache. The verifier must use the prover's pp rule list so
+    // both sides agree on each join's mode.
     let assets = prepare_assets_cached(case);
     let bench_proof = ensure_proof(&assets);
     log_proof_size_once(case.name, case.query, &bench_proof);

@@ -4,9 +4,9 @@ use ark_ff::Zero;
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
 
 // TODO: Check if it can be optimized. Also, put in the paper
-/// Given a super column and a claimed included column, It outputs an MLE
-/// representing the multiplicity of the super polynomial elements in the
-/// claimed included column. This MLE will be used in the Multiplicity check
+/// The MLE of the multiplicities of the super column's elements in the
+/// claimed included column. A value's count sits on its first active super
+/// row; later duplicates get 0.
 pub fn calc_inclusion_multiplicity<B>(
     included_col: &TrackedCol<B>,
     super_col: &TrackedCol<B>,

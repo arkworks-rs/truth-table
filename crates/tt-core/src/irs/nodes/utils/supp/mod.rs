@@ -56,11 +56,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // First fetch the original and support hints from the payload.
         let (orig_hint, support_hint) = hints::io_plans(planned_ir, id);
-        // Then populate the nodup plans
         hints::populate_nodup(planned_ir, self.nodup.id(), support_hint.clone());
-        // Finally populate the lookup plans
         hints::populate_lookup(planned_ir, self.lookup.id(), orig_hint, support_hint);
         Ok(())
     }
@@ -79,20 +76,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // First fetch the original and support hints from the payload.
         let (payload, orig_table, super_table) = io_tables_prover(virtualized_ir, id);
-        // Then compute the RLCs for both tables.
         let (orig_rlc, super_rlc) = io_rlc_prover(&orig_table, &super_table);
-        // Then populate the nodup payloads
         populate_nodup_payload_prover(virtualized_ir, self.nodup.id(), super_table.clone())?;
-        // Then populate the lookup payloads
         populate_lookup_payload_prover(
             virtualized_ir,
             self.lookup.id(),
             orig_rlc.clone(),
             super_rlc.clone(),
         )?;
-        // Finally, populate the self RLC payload
         populate_self_rlc_payload_prover(id, virtualized_ir, payload, orig_rlc, super_rlc)?;
         Ok(())
     }
@@ -123,20 +115,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // First fetch the original and support hints from the payload.
         let (payload, orig_table, super_table) = io_tables_verifier(virtualized_ir, id);
-        // Then compute the RLCs for both tables.
         let (orig_rlc, super_rlc) = io_rlc_verifier(&orig_table, &super_table);
-        // Then populate the nodup payloads
         populate_nodup_payload_verifier(virtualized_ir, self.nodup.id(), super_table.clone())?;
-        // Then populate the lookup payloads
         populate_lookup_payload_verifier(
             virtualized_ir,
             self.lookup.id(),
             orig_rlc.clone(),
             super_rlc.clone(),
         )?;
-        // Finally, populate the self RLC payload
         populate_self_rlc_payload_verifier(id, virtualized_ir, payload, orig_rlc, super_rlc)?;
 
         Ok(())

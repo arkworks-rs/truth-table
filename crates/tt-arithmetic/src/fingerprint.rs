@@ -1,38 +1,32 @@
-//! String fingerprints (paper §6.1) with a runtime bin budget.
+//! String fingerprints (paper §6.1).
 //!
 //! A fingerprint is a bit vector of up to [`NUM_BINS`] bits: bit `b` is set
-//! iff the string has a feature assigned to bin `b`. Pre-filtering reduces the pattern-match test
-//! to the subset identity `fp(s) ∧ φ = φ`, where `φ` is the fingerprint of
-//! the pattern's literal factors.
+//! iff the string has a feature assigned to bin `b`. Pre-filtering reduces
+//! the pattern-match test to the subset identity `fp(s) ∧ φ = φ`, where `φ`
+//! is the fingerprint of the pattern's literal factors.
 //!
-//! One [`FingerprintScheme`] fixes a single feature → bin **assignment** over
-//! all [`NUM_BINS`] bins. A query does not have to test all of the pattern's
+//! A [`FingerprintScheme`] fixes one feature → bin assignment and a width
+//! (`bins`) that every assigned bin lies below. The data owner commits one
+//! boolean column per bin (a limb of [`LIMB_BITS`] = 1 bin), so a query
+//! pays only for the bins it tests. It need not test all of the pattern's
 //! bins: the prover picks the subset that makes the query cheapest
 //! ([`cost::select_bins`]), and the verifier only checks that every bin it
 //! is told is one of the pattern's. Dropping bins from `φ` only drops
-//! constraints, so every subset is sound. The scheme's **width** (`bins`)
-//! fixes the columns the data owner commits; every assigned bin lies below
-//! it.
-//!
-//! Fingerprints are committed one boolean column per bin (a *limb* of
-//! [`LIMB_BITS`] = 1 bin), so a query pays only for the bins it tests, and
-//! the Pre-Filtering Check is a single product constraint over them. A
-//! narrow scheme commits nothing wider: [`NUM_BINS`] is only a ceiling.
+//! constraints, so every subset is sound.
 //!
 //! # Features
 //!
-//! - a **character**: one ASCII byte;
-//! - a **bigram** / **trigram**: 2 / 3 adjacent bytes read over a 64-symbol
-//!   alphabet — the 62 ASCII alphanumerics, the space, and one symbol for
-//!   every other byte. An n-gram with a space or "other" symbol in it says
-//!   where a word starts or ends, which is what `% i%` or `%n %` need; the
-//!   alphanumeric-only n-grams break at spaces and cannot;
-//! - a **precedence** pair `ab`: an alphanumeric `a` whose first occurrence
+//! - a character: one ASCII byte;
+//! - a bigram or trigram: 2 or 3 adjacent bytes read over a 64-symbol
+//!   alphabet (the 62 ASCII alphanumerics, the space, and one symbol for
+//!   every other byte). An n-gram with a space or "other" symbol in it says
+//!   where a word starts or ends, which is what `% i%` or `%n %` need;
+//! - a precedence pair `ab`: an alphanumeric `a` whose first occurrence
 //!   comes before the last occurrence of an alphanumeric `b` (`aa` means `a`
 //!   occurs twice).
 //!
 //! A feature the assignment does not list sets no bin. Whatever the
-//! assignment, the construction is conservative: a string containing the
+//! assignment, there are no false negatives: a string containing the
 //! pattern has every character and n-gram of each literal factor, and every
 //! precedence pair of the factors read in order (a LIKE match keeps its
 //! factors in order and apart), so it sets every bin `φ` sets.
@@ -67,13 +61,11 @@ pub mod cost;
 pub mod merkle;
 pub mod single;
 
-/// The ceiling on how many bins a scheme may use. Not a per-scheme width:
-/// [`FingerprintScheme::num_limbs`] gives the limbs a scheme actually
-/// commits, and the Pre-Filtering Check folds limbs with a challenge rather
-/// than packing them into one field element, so nothing here is bounded by
-/// the scalar modulus.
+/// The ceiling on how many bins a scheme may use. A scheme commits only its
+/// own width ([`FingerprintScheme::num_limbs`]), and limbs are never packed
+/// into one field element, so the scalar modulus does not bound this.
 pub const NUM_BINS: usize = 2048;
-/// Bins per committed fingerprint column (a *limb*): one, so every bin is
+/// Bins per committed fingerprint column (a limb): one, so every bin is
 /// its own boolean column and a query tests exactly the bins it chooses.
 pub const LIMB_BITS: usize = 1;
 /// Limb columns a scheme using every bin would commit.
@@ -81,10 +73,8 @@ pub const NUM_LIMBS: usize = NUM_BINS.div_ceil(LIMB_BITS);
 /// 64-bit words in an [`FpMask`].
 pub const MASK_WORDS: usize = NUM_BINS.div_ceil(64);
 
-/// A bin index. Wider than a limb: [`NUM_BINS`] may exceed 256.
 pub type Bin = u16;
 
-/// An empty fingerprint.
 pub const EMPTY_MASK: FpMask = [0u64; MASK_WORDS];
 
 /// A fingerprint as a bit vector: bin `b` is bit `b % 64` of word `b / 64`.
@@ -175,9 +165,6 @@ fn symbol_key_byte(symbol: u32) -> u8 {
     }
 }
 
-// --- Features -------------------------------------------------------------
-
-/// The four feature kinds a fingerprint bins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FeatureKind {
     Char,
@@ -297,10 +284,10 @@ fn row_features(row: &[u8]) -> Vec<Feature> {
     out
 }
 
-/// Visit every distinct-or-not feature occurrence of `bytes` read in order:
-/// characters, bigrams and trigrams at their positions, then each
-/// precedence pair once. The encoder and offline tooling share this walk,
-/// so they can never disagree on what a string's features are.
+/// Visit every feature occurrence of `bytes`, repeats included: characters,
+/// bigrams and trigrams at their positions, then each precedence pair once.
+/// The rule builder and the offline tooling share this walk, and
+/// [`FingerprintScheme::fingerprint`] must set the same bins.
 pub fn for_each_feature(bytes: &[u8], mut visit: impl FnMut(Feature)) {
     let mut first = [u32::MAX; NUM_ALNUM];
     let mut last = [0u32; NUM_ALNUM];
@@ -356,16 +343,14 @@ pub fn for_each_feature(bytes: &[u8], mut visit: impl FnMut(Feature)) {
     }
 }
 
-// --- Scheme description ---------------------------------------------------
-
 /// A complete scheme as written in its TOML file.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct FingerprintConfig {
     /// Free-form provenance label.
     pub name: String,
-    /// The width: bins `0..bins` exist and the column commits
-    /// `bins / 8` limbs. Zero means no pre-filter.
+    /// The width: bins `0..bins` exist and the column commits one limb per
+    /// bin. Zero means no pre-filter.
     #[serde(default)]
     pub bins: usize,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -378,45 +363,32 @@ pub struct FingerprintConfig {
     pub precedence: BTreeMap<String, usize>,
 }
 
-/// Per-column fingerprint rules for one table.
+/// The fingerprint rule of each string column of one table, stored in the
+/// table's `.oracle` so prover and verifier read the same rule. `commit`
+/// gives every string column an entry ([`column_rule`]). A column with no
+/// entry, or with one of width zero, is not pre-filtered.
 ///
-/// The data owner optimizes every *string* column separately — other column
-/// types are never fingerprinted — and ships the result inside the table's
-/// `.oracle`, so prover and verifier read the same rule for the column a LIKE
-/// filters instead of sharing a compile-time default.
-///
-/// # Trust
-///
-/// A rule is trusted table metadata, on the same footing as the schema. The
-/// pre-filter avoids false negatives only when the committed `__fp` limbs were
-/// built with the same rule the verifier uses for the pattern, and nothing in
-/// the proof checks that they were. A data owner who declares one rule and
-/// commits limbs from another can hide rows of their own table — but they
-/// could equally commit different data, so this grants them no new power. What
-/// it does buy is that an untrusted *prover* cannot influence the rule, since
-/// the verifier takes it from the oracle and never from the proof.
-///
-/// A column with no entry is not pre-filtered at all, and neither is one
-/// of width zero — what a rule gives a column too small for a pre-filter to
-/// help. `commit` gives every string column an entry ([`column_rule`]).
+/// A rule is trusted table metadata, like the schema. The pre-filter has no
+/// false negatives only if the committed `__fp` limbs were built with the
+/// rule the verifier uses for the pattern, and the proof does not check
+/// that. A data owner who commits limbs from another rule can hide rows of
+/// their own table, but could as well commit different data. The prover
+/// cannot influence the rule: the verifier takes it from the oracle, never
+/// from the proof.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct FingerprintRules {
-    /// Rule per string column name.
     #[serde(default)]
     pub columns: BTreeMap<String, FingerprintConfig>,
 }
 
 impl FingerprintRules {
-    /// The rule for `column`, or `None` when it is not fingerprinted.
     pub fn get(&self, column: &str) -> Option<&FingerprintConfig> {
         self.columns.get(column)
     }
 
-    /// Fold another table's rules in.
-    ///
-    /// Rules are keyed by column name, and two tables may use the same name.
-    /// A disagreement is an error rather than last-one-wins, because
-    /// fingerprinting a column under the wrong rule drops rows that do match.
+    /// Fold another table's rules in. Rules are keyed by column name, and
+    /// two tables may use the same name: a disagreement is an error, because
+    /// fingerprinting a column under the wrong rule drops rows that match.
     pub fn merge(&mut self, other: FingerprintRules) -> Result<(), String> {
         for (column, config) in other.columns {
             match self.columns.get(&column) {
@@ -444,10 +416,8 @@ impl FingerprintRules {
     }
 }
 
-/// The rule `commit` gives a string column: one private bin per feature,
-/// the most common first, at most `width` bins
-/// ([`single::single_feature_rule_at`]). It needs no workload, only the
-/// column's active rows `strings`; width zero means no pre-filter.
+/// The rule `commit` gives a string column whose active rows are `strings`
+/// ([`single::single_feature_rule_at`]).
 pub fn column_rule<S: AsRef<[u8]> + Sync>(
     column: &str,
     strings: &[S],
@@ -456,10 +426,8 @@ pub fn column_rule<S: AsRef<[u8]> + Sync>(
     single::single_feature_rule_at(column, strings, width)
 }
 
-/// The table's per-column rules, installed once before encoding, planning or
-/// verifying. The data owner writes them; `commit` puts them in the `.oracle`;
-/// prover and verifier both read them back from there, so they cannot
-/// disagree about how a column was fingerprinted.
+/// The rules installed in this process, read by encoding, planning and
+/// verifying.
 #[derive(Default)]
 struct ActiveRules {
     rules: FingerprintRules,
@@ -474,13 +442,10 @@ fn rules_cell() -> &'static RwLock<ActiveRules> {
 }
 
 /// Install `rules` for every later encode, plan and verify in this process.
-///
-/// Rules accumulate rather than replace, because one process may hold several
-/// tables at once — a test harness proves many queries in parallel, and a join
-/// spans tables. Replacing would let one table's rules silently drop another's,
-/// and a column that falls back to the wrong rule loses rows that do match.
-/// Conflicting definitions for one column name are refused for the same
-/// reason. Use [`reset_rules`] to start over.
+/// Rules accumulate: one process may hold several tables at once (a join
+/// spans tables, a test harness proves queries in parallel), and replacing
+/// would drop another table's rules. Conflicting rules for one column name
+/// are refused ([`FingerprintRules::merge`]). [`reset_rules`] starts over.
 pub fn configure_rules(rules: FingerprintRules) -> Result<(), String> {
     let mut guard = rules_cell()
         .write()
@@ -496,14 +461,13 @@ pub fn configure_rules(rules: FingerprintRules) -> Result<(), String> {
     Ok(())
 }
 
-/// Forget every installed rule, so later columns take the default scheme.
+/// Forget every installed rule.
 pub fn reset_rules() {
     if let Ok(mut guard) = rules_cell().write() {
         *guard = ActiveRules::default();
     }
 }
 
-/// The rules currently installed.
 pub fn configured_rules() -> FingerprintRules {
     rules_cell()
         .read()
@@ -511,10 +475,9 @@ pub fn configured_rules() -> FingerprintRules {
         .unwrap_or_default()
 }
 
-/// The scheme that fingerprints `column`, or `None` when it is not
-/// fingerprinted: `column` is `None`, no rules are installed, the rules do
-/// not mention it, or its policy never uses a bin. The rules are
-/// authoritative; `commit` writes one for every string column.
+/// The scheme that fingerprints `column`, or `None` when it has none:
+/// `column` is `None`, the installed rules do not mention it, or its rule
+/// is invalid. A rule of width zero gives a scheme with no limbs.
 pub fn scheme_for_column(column: Option<&str>) -> Option<FingerprintScheme> {
     let column = column?;
     if let Ok(guard) = rules_cell().read()
@@ -525,8 +488,8 @@ pub fn scheme_for_column(column: Option<&str>) -> Option<FingerprintScheme> {
     let compiled = {
         let guard = rules_cell().read().ok()?;
         match guard.rules.get(column) {
-            // An invalid rule is dropped rather than panicking mid-encode;
-            // the column is then simply not pre-filtered.
+            // An invalid rule is dropped instead of panicking mid-encode;
+            // the column is then not pre-filtered.
             Some(config) => FingerprintScheme::from_config(config.clone()).ok(),
             None => None,
         }
@@ -593,21 +556,17 @@ impl FingerprintConfig {
     }
 }
 
-// --- Compiled scheme ------------------------------------------------------
-
-/// Table entry for "no bin" — [`set_bin`] writes nothing for it.
+/// Table entry for "no bin": [`set_bin`] writes nothing for it.
 const NO_BIN: Bin = Bin::MAX;
 
+/// The bin of every feature, indexed by feature id.
 #[derive(Debug)]
 struct Compiled {
     config: FingerprintConfig,
-    /// Bin per ASCII byte (non-ASCII bytes have none).
+    /// Indexed by byte; non-ASCII bytes have no bin.
     char_bin: [Bin; 256],
-    /// Bin per bigram id.
     bigram_bin: Vec<Bin>,
-    /// Bin per trigram id.
     trigram_bin: Vec<Bin>,
-    /// Bin per precedence id.
     precedence_bin: Vec<Bin>,
     /// For each alnum `a`: bit `b` set iff the pair `ab` has a bin.
     precedence_row: [u64; NUM_ALNUM],
@@ -664,10 +623,8 @@ fn set_bin(mask: &mut FpMask, bin: Bin) {
     }
 }
 
-// --- The scheme handle ----------------------------------------------------
-
-/// A fingerprint scheme: a compiled [`FingerprintConfig`] behind a cheap
-/// clonable handle. Equality compares the configs.
+/// A compiled [`FingerprintConfig`] behind a cheaply clonable handle.
+/// Equality compares the configs.
 #[derive(Debug, Clone)]
 pub struct FingerprintScheme(Arc<Compiled>);
 
@@ -704,13 +661,11 @@ impl FingerprintScheme {
     }
 
     /// Limb columns a string column under this scheme commits: enough to
-    /// hold every bin, and none at width zero. This, not [`NUM_LIMBS`], is
-    /// the committed width.
+    /// hold every bin, and none at width zero.
     pub fn num_limbs(&self) -> usize {
         self.max_bins().div_ceil(LIMB_BITS)
     }
 
-    /// Fingerprint of one string.
     pub fn fingerprint(&self, s: &[u8]) -> FpMask {
         let c = &*self.0;
         let mut mask = EMPTY_MASK;
@@ -798,11 +753,11 @@ impl FingerprintScheme {
     }
 
     /// Fingerprint `φ` of a pattern from its literal factors, in pattern
-    /// order (paper §6.2). Characters
-    /// and n-grams come from each factor alone — a wildcard can match
-    /// anything, so n-grams never cross factors. Precedence pairs come from
-    /// the factors read in sequence: a match keeps its factors in order, so
-    /// every pair the sequence orders is ordered in the matching string too.
+    /// order (paper §6.2). Characters and n-grams come from each factor
+    /// alone: a wildcard can match anything, so n-grams never cross factors.
+    /// Precedence pairs come from the factors read in sequence: a match
+    /// keeps its factors in order, so every pair the sequence orders is
+    /// ordered in the matching string too.
     pub fn pattern_fingerprint<'a>(&self, factors: impl IntoIterator<Item = &'a [u8]>) -> FpMask {
         let factors: Vec<&[u8]> = factors.into_iter().collect();
         let mut mask = EMPTY_MASK;
@@ -857,7 +812,7 @@ impl FingerprintScheme {
     }
 }
 
-/// The subset test `sub ∧ sup = sub` — `is_subset(φ, fp)` is the
+/// The subset test `sub ∧ sup = sub`. `is_subset(φ, fp)` is the
 /// pre-filter's keep condition.
 #[inline]
 pub fn is_subset(sub: &FpMask, sup: &FpMask) -> bool {
@@ -878,7 +833,6 @@ pub fn touched_limbs(mask: &FpMask) -> Vec<usize> {
     (0..NUM_LIMBS).filter(|&j| limb(mask, j) != 0).collect()
 }
 
-/// Whether bin `b` is set.
 #[inline]
 pub fn has_bin(mask: &FpMask, bin: usize) -> bool {
     mask[bin / 64] >> (bin % 64) & 1 == 1

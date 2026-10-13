@@ -2,7 +2,7 @@
 //!
 //! A [`Corpus`] holds the active strings of one table column. Its
 //! [`FeatureIndex`] lists every fingerprint feature (character, bigram,
-//! trigram, precedence pair — exactly the encoder's
+//! trigram, precedence pair: exactly the encoder's
 //! [`for_each_feature`](arithmetic::fingerprint::for_each_feature)) that occurs
 //! in some row, with the set of rows containing it as a bitset. Pre-filter
 //! survivors of any assignment are then exact bitset intersections.
@@ -81,9 +81,8 @@ impl Corpus {
         Ok(Self { strings })
     }
 
-    /// The string columns of a parquet file, in file order — the columns a
-    /// fingerprint can be built for. Lets callers work over a whole table
-    /// without being told its schema.
+    /// The string columns of a parquet file, in file order: the columns a
+    /// fingerprint can be built for.
     pub fn string_columns(path: &Path) -> Result<Vec<String>> {
         let file = File::open(path).with_context(|| format!("open parquet {}", path.display()))?;
         let schema = ParquetRecordBatchReaderBuilder::try_new(file)?
@@ -124,14 +123,13 @@ impl Corpus {
 }
 
 /// Row lengths held as bit-planes, so that the characters of a row set are
-/// `Σⱼ 2ʲ · |set ∧ planeⱼ|`.
+/// `Σⱼ 2ʲ · |set ∧ planeⱼ|`: exact, in a few word passes instead of a scan of
+/// every row.
 ///
 /// The cost model reads the LIKE's character count through a power-of-two
 /// domain, and surviving rows are longer than the corpus average (a long row
-/// is likelier to hold a pattern's features), so estimating their characters
-/// as `survivors × mean length` lands on the wrong side of a power of two
-/// often enough to matter. This makes the sum exact for the price of a
-/// handful of word passes instead of a scan of every row.
+/// is likelier to hold a pattern's features), so the estimate
+/// `survivors × mean length` can land on the wrong side of a power of two.
 pub struct LengthPlanes {
     planes: Vec<Vec<u64>>,
     total: f64,
@@ -181,7 +179,7 @@ impl LengthPlanes {
     }
 }
 
-/// Whether `s` matches the pattern `%f1%f2%…%` — every factor, in order,
+/// Whether `s` matches the pattern `%f1%f2%…%`: every factor, in order,
 /// without overlap (SQL `LIKE` semantics). The leftmost occurrence of each
 /// factor leaves the most room for the rest, so a greedy scan is exact.
 pub fn like_matches<F: AsRef<[u8]>>(s: &[u8], factors: &[F]) -> bool {
@@ -201,7 +199,7 @@ pub fn like_matches<F: AsRef<[u8]>>(s: &[u8], factors: &[F]) -> bool {
 
 /// The features every string matching `%f1%f2%…%` has: the characters and
 /// n-grams of each factor, and the precedence pairs of the factors read in
-/// sequence — the pattern side of the encoder, deduplicated.
+/// sequence. This is the pattern side of the encoder, deduplicated.
 pub fn pattern_features<F: AsRef<[u8]>>(factors: &[F]) -> Vec<Feature> {
     let mut out = Vec::new();
     for factor in factors {
@@ -221,8 +219,6 @@ pub fn pattern_features<F: AsRef<[u8]>>(factors: &[F]) -> Vec<Feature> {
     out.dedup();
     out
 }
-
-// --- Row bitsets ----------------------------------------------------------
 
 /// A set of corpus rows, one bit per row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -291,8 +287,6 @@ impl RowSet {
         })
     }
 }
-
-// --- Feature index --------------------------------------------------------
 
 /// Every feature occurring in a corpus, with the rows containing it.
 pub struct FeatureIndex {

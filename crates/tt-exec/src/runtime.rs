@@ -2,8 +2,8 @@ use std::future::Future;
 
 use tokio::runtime::{Builder, Handle};
 
-/// Runs an async future to completion without requiring callers to manage a
-/// Tokio runtime explicitly.
+/// Blocks on `future` on the current Tokio runtime, or on a fresh one if
+/// there is none.
 pub(crate) fn block_on<F>(future: F) -> F::Output
 where
     F: Future,

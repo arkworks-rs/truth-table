@@ -139,7 +139,6 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Produce a DataFrame with the IN-list result and scope metadata.
         let scope = self.scope[0]
             .upgrade()
             .expect("InList scope should be available during output");
@@ -182,7 +181,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Produce a DataFrame with the IN-list result and scope metadata.
         let scope = self.scope[0]
             .upgrade()
             .expect("InList scope should be available during output");

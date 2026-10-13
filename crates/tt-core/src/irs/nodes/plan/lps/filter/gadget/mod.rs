@@ -57,7 +57,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the gadget payload populated by the parent plan node.
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => panic!("Expected gadget payload for filter node"),
@@ -74,8 +73,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
             _ => panic!("Expected input, output, and predicate activator tables"),
         };
 
-        // Extract the activator polynomial from the input and the predicate polynomial
-        // (the first non-activator column) to build the left input.
+        // col_eq checks input_activator * predicate (left) against the output
+        // activator (right). Each is the first non-system column of its table.
         let input_act_poly = input_act
             .tracked_polys_iter()
             .find_map(|(field, poly)| (!is_system_column(field.name())).then(|| poly.clone()));
@@ -97,13 +96,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
         left_polys.insert(field_ref, left_poly);
         let left_table = TrackedTable::new(input_act.schema(), left_polys, input_act.log_size());
 
-        // Populate the col_eq gadget inputs.
         let mut col_eq_payload = match virtualized_ir.payload_for_node(&self.col_eq.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
 
-        // The right input is just the output activator.
         col_eq_payload.insert(eq::LEFT_LABEL.to_string(), left_table);
         col_eq_payload.insert(eq::RIGHT_LABEL.to_string(), output_act);
 
@@ -137,7 +134,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the gadget payload populated by the parent plan node.
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => panic!("Expected gadget payload for filter node"),
@@ -154,8 +150,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
             _ => panic!("Expected input, output, and predicate activator tables"),
         };
 
-        // Extract the activator oracle from the input and the predicate oracle
-        // (the first non-activator column) to build the left input.
         let input_act_oracle = input_act
             .tracked_oracles_iter()
             .find_map(|(field, oracle)| (!is_system_column(field.name())).then(|| oracle.clone()));
@@ -181,13 +175,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
             input_act.log_size(),
         );
 
-        // Populate the col_eq gadget inputs.
         let mut col_eq_payload = match virtualized_ir.payload_for_node(&self.col_eq.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
 
-        // The right input is just the output activator.
         col_eq_payload.insert(eq::LEFT_LABEL.to_string(), left_table);
         col_eq_payload.insert(eq::RIGHT_LABEL.to_string(), output_act);
 
@@ -235,7 +227,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for FilterNode<B> {
             .find_map(|(field, poly)| (!is_system_column(field.name())).then(|| poly.clone()))
             .expect("Filter gadget missing predicate poly");
 
-        // Enforce (1 - a) * b = 0.
+        // Zerocheck (1 - input_activator) * predicate = 0.
         let one_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
             Either::Right(B::F::one()),
             input_act_poly.log_size(),

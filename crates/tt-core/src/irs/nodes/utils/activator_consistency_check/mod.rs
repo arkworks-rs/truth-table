@@ -1,26 +1,24 @@
-//! A gadget node for paper §4.2 Activator Consistency Check.
+//! Activator consistency check (paper §4.2).
 //!
 //! Given a char-level column `src` with activator `ac`, and a string-level
-//! column `ind` with activator `ah` alongside a length column `l`, the
-//! gadget proves for every string row `i`:
+//! column `ind` with activator `ah` and a length column `l`, proves for
+//! every string row `i`:
 //!
 //! ```text
 //! #{ c : src[c] = ind[i], ac[c] = 1 } = ah[i] · l[i]
 //! ```
 //!
-//! Payload structure:
-//! - `LHS_LABEL` (`"__lhs__"`) — char-level table with a single data column
-//!   holding `src`. The table's activator column is `ac`.
-//! - `RHS_LABEL` (`"__rhs__"`) — string-level table with two data columns
-//!   in insertion order: `ind` (index 0) and `l` (index 1). The table's
-//!   activator column is `ah`.
+//! Payload:
+//! - [`LHS_LABEL`]: char-level table with the single data column `src` and
+//!   activator `ac`.
+//! - [`RHS_LABEL`]: string-level table with data columns `ind`, `l` in that
+//!   order and activator `ah`.
 //!
-//! The gadget reduces to a single [`KeyedSumcheck`]
-//! invocation at a random challenge `γ`, forcing the two multiplicity
-//! vectors (indexed by key) to agree row-wise via Schwartz–Zippel. `ind`
-//! must be distinct across active string rows — a well-formedness
-//! precondition on the caller (the natural instantiation is the identity
-//! polynomial).
+//! The check is one [`KeyedSumcheck`] with keys `src` and `ind`, which
+//! forces the per-key multiplicities of the two sides (1 per active char,
+//! `l` per active string) to agree. The caller must ensure that `ind` is
+//! distinct across active string rows; the natural choice is the identity
+//! polynomial.
 use std::marker::PhantomData;
 
 use crate::irs::nodes::utils::keyed_sumcheck::piop::{
@@ -42,7 +40,6 @@ use ark_piop::{errors::SnarkResult, piop::PIOP};
 pub const LHS_LABEL: &str = "__lhs__";
 pub const RHS_LABEL: &str = "__rhs__";
 
-/// Gadget node for the activator-consistency relation.
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
 
 impl<B: SnarkBackend> Default for GadgetNode<B> {

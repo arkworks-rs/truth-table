@@ -253,12 +253,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // First fetch the payloads prepared for this gadget to consume
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
             panic!("Expected gadget payload for Sign gadget node");
         };
-        // Then inside that payload, fetch the input
         let Some(input) = payload.get(INPUT_LABEL) else {
             panic!("Expected input for Sign gadget");
         };
@@ -297,7 +295,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         let _ = prover;
-        // Validate activated rows against the expected sign semantics.
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
             return Ok(());
@@ -398,12 +395,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // First fetch the payloads prepared for this gadget to consume
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
             panic!("Expected gadget payload for Sign gadget node");
         };
-        // Then inside that payload, fetch the input
         let Some(input) = payload.get(INPUT_LABEL) else {
             panic!("Expected input for Sign gadget");
         };
@@ -696,26 +691,30 @@ impl<B: SnarkBackend> SignNode<B> {
                 Self::add_range_inclusion_oracle(verifier, col, 15)?;
             }
             DataType::UInt32 => {
-                let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_uint32(verifier, col)?;
+                let (chunk3, chunk2, chunk1, chunk0) =
+                    Self::verify_non_neg_u16_chunks_4(verifier, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
                     Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
-                let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_int32(verifier, col)?;
+                let (chunk3, chunk2, chunk1, chunk0) =
+                    Self::verify_non_neg_u16_chunks_4(verifier, col)?;
                 Self::add_range_inclusion_oracle(verifier, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::UInt64 => {
-                let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_uint64(verifier, col)?;
+                let (chunk3, chunk2, chunk1, chunk0) =
+                    Self::verify_non_neg_u16_chunks_4(verifier, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
                     Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Int64 => {
-                let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_int64(verifier, col)?;
+                let (chunk3, chunk2, chunk1, chunk0) =
+                    Self::verify_non_neg_u16_chunks_4(verifier, col)?;
                 Self::add_range_inclusion_oracle(verifier, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
@@ -763,19 +762,6 @@ impl<B: SnarkBackend> SignNode<B> {
     }
 
     #[allow(clippy::complexity)]
-    fn verify_non_neg_uint32(
-        verifier: &mut ArgVerifier<B>,
-        tracked_col_oracle: &TrackedColOracle<B>,
-    ) -> SnarkResult<(
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-    )> {
-        Self::verify_non_neg_u16_chunks_4(verifier, tracked_col_oracle)
-    }
-
-    #[allow(clippy::complexity)]
     fn prove_non_neg_int32(
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
@@ -794,19 +780,6 @@ impl<B: SnarkBackend> SignNode<B> {
     }
 
     #[allow(clippy::complexity)]
-    fn verify_non_neg_int32(
-        verifier: &mut ArgVerifier<B>,
-        tracked_col_oracle: &TrackedColOracle<B>,
-    ) -> SnarkResult<(
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-    )> {
-        Self::verify_non_neg_u16_chunks_4(verifier, tracked_col_oracle)
-    }
-
-    #[allow(clippy::complexity)]
     fn prove_non_neg_uint64(
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
@@ -816,19 +789,6 @@ impl<B: SnarkBackend> SignNode<B> {
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_u64_into_u16s(n);
             [chunk3 as i64, chunk2 as i64, chunk1 as i64, chunk0 as i64]
         })
-    }
-
-    #[allow(clippy::complexity)]
-    fn verify_non_neg_uint64(
-        verifier: &mut ArgVerifier<B>,
-        tracked_col_oracle: &TrackedColOracle<B>,
-    ) -> SnarkResult<(
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-    )> {
-        Self::verify_non_neg_u16_chunks_4(verifier, tracked_col_oracle)
     }
 
     #[allow(clippy::complexity)]
@@ -847,19 +807,6 @@ impl<B: SnarkBackend> SignNode<B> {
                 chunk0 as i64,
             ]
         })
-    }
-
-    #[allow(clippy::complexity)]
-    fn verify_non_neg_int64(
-        verifier: &mut ArgVerifier<B>,
-        tracked_col_oracle: &TrackedColOracle<B>,
-    ) -> SnarkResult<(
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-        TrackedColOracle<B>,
-    )> {
-        Self::verify_non_neg_u16_chunks_4(verifier, tracked_col_oracle)
     }
 
     #[allow(clippy::complexity)]
@@ -1265,7 +1212,7 @@ impl<B: SnarkBackend> SignNode<B> {
 
     // Decode a field element that was encoded from a signed integer via `F::from(i128)`.
     // For negative values this uses the smaller-magnitude representative `-value`,
-    // which matches how signed literals are currently embedded into the field.
+    // which matches how signed literals are embedded into the field.
     fn field_signed_from_encoding(value: B::F, bits: usize) -> i128 {
         debug_assert!((1..=128).contains(&bits));
         let neg = -value;

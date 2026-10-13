@@ -1,12 +1,4 @@
-//! End-to-end tests for SweepFactors (paper §6.1 PIOP 7).
-//!
-//! - `honest_t1_prefix_verifies` — smoke test that the t=1 special case
-//!   behaves as expected (equivalent scope to FactorPlacement's own
-//!   prefix test, but routed through SweepFactors).
-//! - `honest_t2_two_infix_verifies` — realistic multi-factor case:
-//!   pattern `%ab%cd%` (two infix factors) against `"abcd"`. Exercises
-//!   the past_j chain, activator threading, and per-factor rotation
-//!   verification.
+//! Tests for SweepFactors (paper §6.1 PIOP 7) and `parse_like_pattern`.
 
 use std::sync::Arc;
 
@@ -41,10 +33,7 @@ fn pattern(bytes: &[u8]) -> Vec<F> {
     bytes.iter().map(|b| F::from(*b as u64)).collect()
 }
 
-// -----------------------------------------------------------------------------
-// t = 1: single-factor prefix
-// -----------------------------------------------------------------------------
-
+/// The single-factor case, on the fixture of FactorPlacement's prefix test.
 #[test]
 fn honest_t1_prefix_verifies() {
     const STR_NV: usize = 2;
@@ -56,7 +45,6 @@ fn honest_t1_prefix_verifies() {
     )));
     let gadget_id = gadget.id();
 
-    // Same "ab" + "ab" fixture as the FactorPlacement prefix test.
     let char_col = u(&[b'a' as u64, b'b' as u64, b'a' as u64, b'b' as u64]);
     let orig_ind = u(&[0, 0, 1, 1]);
     let int_ind = u(&[0, 1, 0, 1]);
@@ -224,13 +212,11 @@ fn honest_t1_prefix_verifies() {
     run_gadget_pipeline(harness).expect("SweepFactors t=1 prefix should verify");
 }
 
-// -----------------------------------------------------------------------------
-// t = 2: two infix factors — `%ab%cd%` against "abcd" | "abcd"
-// -----------------------------------------------------------------------------
-
+/// `%ab%cd%` against two strings `"abcd"`: covers the `past` check, the
+/// activator threading and the per-factor rotation chains.
 #[test]
 fn honest_t2_two_infix_verifies() {
-    const STR_NV: usize = 3; // 8 slots (2 real strings + 6 pad, though we use 2)
+    const STR_NV: usize = 3; // 8 slots: 2 real strings and 6 padding
     const CHAR_NV: usize = 3; // 8 slots
 
     let factors = vec![(pattern(b"ab"), Mode::Infix), (pattern(b"cd"), Mode::Infix)];
@@ -239,7 +225,6 @@ fn honest_t2_two_infix_verifies() {
     )));
     let gadget_id = gadget.id();
 
-    // Two strings "abcd" and "abcd", packed contiguously.
     let char_col = u(&[
         b'a' as u64,
         b'b' as u64,
@@ -257,14 +242,12 @@ fn honest_t2_two_infix_verifies() {
     let ind = u(&[0, 1, 2, 3, 4, 5, 6, 7]);
     let a = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
 
-    // Rotated char columns for each factor (both ℓ = 2).
+    // Both factors have ℓ = 2 and share the rotations.
     let char_0 = char_col.clone();
     let char_1 = shift_left(&char_col, 1);
-
-    // bnd(1) = shift_left(bnd, 1) — used by both infix rotated_bnd tables.
     let bnd_1 = shift_left(&bnd, 1);
 
-    // ---- Factor 0: "ab" ----
+    // Factor 0: "ab".
     let occurs_0 = u(&[1, 0, 0, 0, 1, 0, 0, 0]);
     let match_str_0 = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
     let mark_0 = u(&[1, 0, 0, 0, 1, 0, 0, 0]);
@@ -275,9 +258,8 @@ fn honest_t2_two_infix_verifies() {
     // past_0[c] = 1 iff int_ind[c] ≥ start_broadcast_0[c] + |"ab"| = 2.
     let past_0 = u(&[0, 0, 1, 1, 0, 0, 1, 1]);
 
-    // ---- Factor 1: "cd" ----
-    // Only chars past the "ab" mark (past_0=1) participate. At those
-    // char positions, "cd" occurs at int_ind = 2 within each string.
+    // Factor 1: "cd". Only chars with past_0 = 1 take part; among them "cd"
+    // occurs at int_ind = 2 of each string.
     let occurs_1 = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
     let match_str_1 = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
     let mark_1 = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
@@ -287,7 +269,6 @@ fn honest_t2_two_infix_verifies() {
     // leftmost_mask_1[c] = 1 iff int_ind[c] < 2.
     let leftmost_mask_1 = u(&[1, 1, 0, 0, 1, 1, 0, 0]);
 
-    // ---- Schemas and field refs ----
     let char_f = u64_field("char");
     let orig_ind_f = u64_field("orig_ind");
     let int_ind_f = u64_field("int_ind");
@@ -308,7 +289,6 @@ fn honest_t2_two_infix_verifies() {
     let flag_schema = Schema::new(vec![flag.as_ref().clone()]);
     let rot_char_schema = Schema::new(vec![char0_f.as_ref().clone(), char1_f.as_ref().clone()]);
 
-    // Helper to build a per-factor rotated_char table.
     let rot_char_cols = || -> Vec<(Arc<Field>, Vec<F>)> {
         vec![
             (char0_f.clone(), char_0.clone()),
@@ -349,7 +329,6 @@ fn honest_t2_two_infix_verifies() {
                 activator: Some(a),
             },
         )
-        // --- Factor 0 payload ---
         .with_table(
             gadget_id,
             &factor_label(0, "rotated_char"),
@@ -450,7 +429,6 @@ fn honest_t2_two_infix_verifies() {
                 activator: None,
             },
         )
-        // --- Factor 1 payload ---
         .with_table(
             gadget_id,
             &factor_label(1, "rotated_char"),
@@ -546,10 +524,6 @@ fn honest_t2_two_infix_verifies() {
     run_gadget_pipeline(harness).expect("SweepFactors t=2 two-infix should verify");
 }
 
-// -----------------------------------------------------------------------------
-// parse_like_pattern
-// -----------------------------------------------------------------------------
-
 fn assert_factors(pat: &str, expected: &[(&[u8], Mode)]) {
     let got = parse_like_pattern::<F>(pat).unwrap_or_else(|e| panic!("parse `{pat}`: {e}"));
     assert_eq!(got.len(), expected.len(), "factor count for `{pat}`");
@@ -621,7 +595,6 @@ fn parse_like_wildcard_only_returns_empty() {
 
 #[test]
 fn parse_like_collapses_adjacent_wildcards() {
-    // %%foo%%%bar%% behaves like %foo%bar%
     assert_factors(
         "%%foo%%%bar%%",
         &[(b"foo", Mode::Infix), (b"bar", Mode::Infix)],
@@ -630,7 +603,6 @@ fn parse_like_collapses_adjacent_wildcards() {
 
 #[test]
 fn parse_like_escaped_percent_is_literal() {
-    // `\%` becomes a literal `%` inside the factor.
     assert_factors(r"foo\%bar%", &[(b"foo%bar", Mode::Prefix)]);
 }
 
@@ -642,16 +614,12 @@ fn parse_like_rejects_underscore_wildcard() {
 
 #[test]
 fn parse_like_no_wildcards_is_prefix() {
-    // Documented limitation: falls into Prefix mode, not strict equality.
+    // Prefix mode, not equality: see `parse_like_pattern`.
     assert_factors("abc", &[(b"abc", Mode::Prefix)]);
 }
 
-// -----------------------------------------------------------------------------
-// Additional t = 2 mode variety — prefix-then-infix, using the witness
-// computer to generate all per-factor columns (proves the pipeline
-// works for mixed modes with a consistent bnd fixture).
-// -----------------------------------------------------------------------------
-
+/// Mixed modes (prefix then infix), with every per-factor column taken from
+/// the witness computer.
 #[test]
 fn honest_t2_prefix_then_infix_verifies_via_witness_computer() {
     use super::witness::{ScannedTables, compute_mcpm_witness};
@@ -703,10 +671,9 @@ fn honest_t2_prefix_then_infix_verifies_via_witness_computer() {
     };
     let w = compute_mcpm_witness(&tables, &factors);
 
-    // Sanity: both strings should match.
+    // Both strings match.
     assert_eq!(w.a_new, u(&[1, 1, 0, 0, 0, 0, 0, 0]));
 
-    // Wire the harness from the computed witnesses.
     let char_f = u64_field("char");
     let orig_ind_f = u64_field("orig_ind");
     let int_ind_f = u64_field("int_ind");
@@ -890,12 +857,8 @@ fn honest_t2_prefix_then_infix_verifies_via_witness_computer() {
         .expect("SweepFactors t=2 prefix+infix should verify with computed witnesses");
 }
 
-// -----------------------------------------------------------------------------
-// Malicious-prover soundness tests for SweepFactors
-// -----------------------------------------------------------------------------
-
-/// Malicious mask: flip `past_0` at char `flip`, lying about
-/// `int_ind ≥ start' + |pat|`. The Sign gadget should reject.
+/// Attack: flip `past_0` at char `flip`, lying about
+/// `int_ind ≥ start' + |pat|`. The Sign gadget must reject.
 fn past_flip_rejected(flip: usize) {
     const STR_NV: usize = 3;
     const CHAR_NV: usize = 3;
@@ -943,14 +906,12 @@ fn past_flip_rejected(flip: usize) {
     };
     let mut w = compute_mcpm_witness(&tables, &factors);
 
-    // Flip past_0 to the wrong value at `flip`. Honest is 0 there (int_ind
-    // < start_broadcast + 2 = 2), attacker claims 1, so the NonNegative
-    // Sign check sees 1 · (int_ind − 0 − 2) < 0.
+    // The honest value at `flip` is 0 (int_ind < start_broadcast + 2 = 2).
+    // Claiming 1 makes the sign input 1 · (int_ind − 0 − 2) < 0.
     let past = w.per_factor[0].past.as_mut().unwrap();
     assert_eq!(past[flip], F::from(0u64));
     past[flip] = F::from(1u64);
 
-    // Wire and expect failure.
     let harness = wire_from_witness(&tables, &w, gadget, gadget_id, STR_NV, CHAR_NV);
     assert!(
         run_gadget_pipeline(harness).is_err(),
@@ -964,14 +925,14 @@ fn malicious_past_before_the_occurrence_rejected() {
 }
 
 /// Claiming the second char of the "ab" occurrence is past it would let
-/// the next factor overlap the first — not SQL LIKE.
+/// the next factor overlap the first, which is not SQL LIKE.
 #[test]
 fn malicious_past_overlapping_the_occurrence_rejected() {
     past_flip_rejected(1);
 }
 
-/// Malicious mask: swap `leftmost_mask_1` to lie about `int_ind <
-/// start'`. Sign gadget should reject.
+/// Attack: flip `leftmost_mask_1`, lying about `int_ind < start'`. The Sign
+/// gadget must reject.
 #[test]
 fn malicious_leftmost_mask_wrong_flags_rejected() {
     const STR_NV: usize = 3;
@@ -1019,9 +980,8 @@ fn malicious_leftmost_mask_wrong_flags_rejected() {
         str_domain: STR_NV,
     };
     let mut w = compute_mcpm_witness(&tables, &factors);
-    // At c=2 in factor 1, int_ind=2 == start_broadcast=2, so mask is
-    // honest 0. Flip to 1 (attacker claims 2 < 2). Sign_input = 1 *
-    // (2 - 2 - 1) + 0 * (2 - 2) = -1 → Sign should reject.
+    // At c=2 in factor 1, int_ind = start_broadcast = 2, so the honest mask
+    // is 0. Claiming 1 makes the sign input 1 · (2 − 2 − 1) = −1.
     w.per_factor[1].leftmost_mask[2] = F::from(1u64);
 
     let harness = wire_from_witness(&tables, &w, gadget, gadget_id, STR_NV, CHAR_NV);
@@ -1031,9 +991,8 @@ fn malicious_leftmost_mask_wrong_flags_rejected() {
     );
 }
 
-/// Wire a full SweepFactors harness (t = 2 fixture, two infix factors)
-/// from computed witnesses. Extracted so the malicious-prover tests can
-/// tweak individual witness columns.
+/// A SweepFactors harness for the two-infix fixture, built from a witness
+/// that the attack tests have tampered with.
 fn wire_from_witness(
     tables: &super::witness::ScannedTables<F>,
     w: &super::witness::McpmWitness<F>,

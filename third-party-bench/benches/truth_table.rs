@@ -37,10 +37,9 @@ mod proof_stats {
 
     type B = BenchBackend;
 
-    /// Read the proof and result parquet from disk and emit the same
-    /// `proof_size`/`results` tracing fields the TPC-H bench harness emits.
-    /// Without this the third-party JSONL is missing those keys and the
-    /// dashboard's Proof Size / Results tabs show "n/a".
+    /// Emits the `proof_size`/`results` tracing fields the TPC-H bench harness
+    /// emits, read from the proof and result parquet on disk. Without them
+    /// the dashboard's Proof Size / Results tabs show "n/a".
     pub fn emit_proof_and_result_stats(query: &str, proof_path: &Path, result_path: &Path) {
         let snark_proof = match <TTProof<B> as Artifact>::load(proof_path) {
             Ok(p) => p,
@@ -162,7 +161,6 @@ mod proof_stats {
     }
 }
 
-// Paths for input/output artifacts.
 const PARQUET_DIR: &str = "artifact";
 const PARQUET_SUBDIR_PREFIX: &str = "size_";
 const PARQUET_FILE_PREFIX: &str = "bench_table_";
@@ -334,9 +332,8 @@ fn ensure_join_pk_fk_artifacts(bench_root: &Path, pow: u32) {
         .join("Join_PK_FK")
         .join("constraints.json");
 
-    // Self-heal: if an earlier run wrote target_right with the old "a" column,
-    // wipe every artifact that depended on it so the regeneration below picks
-    // up the new "a_fk" schema.
+    // A `target_right` without the "a_fk" column is stale: remove it and every
+    // artifact derived from it so they are regenerated below.
     if target_right.exists() && !parquet_has_column(&target_right, "a_fk") {
         for stale in [
             &target_right,

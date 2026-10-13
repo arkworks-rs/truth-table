@@ -11,7 +11,6 @@ use datafusion_common::{
 };
 use datafusion_expr::LogicalPlan;
 use serde::{Deserialize, Serialize};
-use tokio::runtime::RuntimeFlavor;
 use tt_core::irs::nodes::plan::compaction::CompactionLogicalNode;
 
 mod compaction;
@@ -21,25 +20,21 @@ pub use compaction::CompactionRule;
 pub use prefilter_bins::PrefilterBinsRule;
 pub use truncate_empty_payload::TruncateEmptyPayloadRule;
 
-/// Verifier-replayable data-dependent optimization decisions. Each rule's
-/// hints map to exactly one variant; `apply_optimization_hints` dispatches
-/// per-variant to the rule's apply path.
+/// A data-dependent decision the verifier replays. Each rule emits one
+/// variant.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum OptimizationHint {
     /// Set the bins the fingerprint pre-filter at `target_path` tests, or
-    /// remove it when `bins` is empty. Emitted by [`PrefilterBinsRule`]
-    /// from the prover's greedy choice; the verifier checks the bins are the
-    /// pattern's.
+    /// remove it when `bins` is empty. The verifier checks the bins are among
+    /// the pattern's.
     PrefilterBins {
         target_path: Vec<usize>,
         bins: Vec<Bin>,
     },
     /// Wrap the LP subtree at `target_path` in a `CompactionLogicalNode`.
     Compaction { target_path: Vec<usize> },
-    /// Replace the LP subtree at `target_path` with an `EmptyRelation`
-    /// carrying the original subtree's schema. Emitted by
-    /// [`TruncateEmptyPayloadRule`] when the prover observes that the
-    /// subtree's output is empty.
+    /// Replace the LP subtree at `target_path`, whose output is empty, with
+    /// an `EmptyRelation` of the same schema.
     Truncate { target_path: Vec<usize> },
 }
 
@@ -54,19 +49,15 @@ impl OptimizationHints {
     }
 }
 
-/// A data-dependent logical-plan optimization.
-///
-/// Parallel to DataFusion's `OptimizerRule`, but the result is a set of
-/// `OptimizationHint`s rather than a rewritten plan. Hints are emitted by the
-/// prover (which can see row counts) and shipped with the proof so the verifier
-/// can replay the same structural choice without re-running the data-dependent
-/// analysis.
+/// A data-dependent logical-plan optimization. Unlike DataFusion's
+/// `OptimizerRule` it returns `OptimizationHint`s instead of a rewritten plan:
+/// the prover, who sees row counts, ships them with the proof and the verifier
+/// replays them.
 pub trait DataDependentOptimizationRule: Send + Sync {
-    /// Stable identifier for this rule (used for diagnostics and rule filtering).
+    /// Stable identifier, used for diagnostics and rule filtering.
     fn name(&self) -> &str;
 
-    /// Walk the analyzed-and-structurally-optimized plan and produce any hints
-    /// this rule wants the verifier to replay.
+    /// `plan` is the analyzed and structurally optimized plan.
     fn collect_hints(
         &self,
         session_state: &SessionState,
@@ -74,29 +65,24 @@ pub trait DataDependentOptimizationRule: Send + Sync {
     ) -> DataFusionResult<Vec<OptimizationHint>>;
 }
 
-/// Runs a configured set of `DataDependentOptimizationRule`s over a plan and
-/// merges their hints into a single `OptimizationHints` payload.
 pub struct DataDependentOptimizer {
     rules: Vec<Arc<dyn DataDependentOptimizationRule>>,
 }
 
 impl DataDependentOptimizer {
-    /// Build an optimizer that runs the given rules in order.
     pub fn with_rules(rules: Vec<Arc<dyn DataDependentOptimizationRule>>) -> Self {
         Self { rules }
     }
 
-    /// Borrow the rule list (useful for filtering, e.g. benchmarks that ablate
-    /// individual rules).
+    /// For filtering, e.g. benchmarks that ablate individual rules.
     pub fn rules(&self) -> &[Arc<dyn DataDependentOptimizationRule>] {
         &self.rules
     }
 
-    /// Run every rule in order and return their merged hint set. Each rule
-    /// sees the plan with the earlier rules' hints applied, so a later
-    /// decision (e.g. compacting after a pre-filter) reflects the
-    /// earlier ones; [`apply_optimization_hints`] applies the variants in the
-    /// same order, so the verifier rebuilds the same plan.
+    /// Each rule sees the plan with the earlier rules' hints applied, so a
+    /// later decision (compacting after a pre-filter) reflects the earlier
+    /// ones. [`apply_optimization_hints`] applies the variants in the same
+    /// order, so the verifier rebuilds the same plan.
     pub fn collect_hints(
         &self,
         session_ctx: &SessionContext,
@@ -116,24 +102,19 @@ impl DataDependentOptimizer {
     }
 }
 
-/// Default set of data-dependent rules used by the production prover and data
-/// owner. Benchmarks (or other callers) may construct a `DataDependentOptimizer`
-/// from a filtered subset of this list to disable specific rules.
+/// The default rules of the prover and data owner. Benchmarks build a
+/// `DataDependentOptimizer` from a subset to disable specific rules.
 pub fn rules() -> Vec<Arc<dyn DataDependentOptimizationRule>> {
-    // `TruncateEmptyPayloadRule` is available but not included here; callers
-    // that want it can construct a `DataDependentOptimizer` with an extended
-    // rule list. Pre-filter bin counts come first: compaction decisions
-    // depend on how much the pre-filters drop.
+    // `TruncateEmptyPayloadRule` is not in the default list. The pre-filter
+    // rule comes first: compaction decisions depend on how much the
+    // pre-filters drop.
     vec![
         Arc::new(PrefilterBinsRule::new()),
         Arc::new(CompactionRule::new()),
     ]
 }
 
-/// Production entry point: run the default `DataDependentOptimizer` over the
-/// plan. Callers that need a filtered rule set (e.g. ablation benchmarks)
-/// should construct a `DataDependentOptimizer` directly via
-/// [`DataDependentOptimizer::with_rules`].
+/// Collects hints with the default [`rules`].
 pub fn collect_data_dependent_hints(
     session_ctx: &SessionContext,
     plan: &LogicalPlan,
@@ -141,21 +122,18 @@ pub fn collect_data_dependent_hints(
     DataDependentOptimizer::with_rules(rules()).collect_hints(session_ctx, plan)
 }
 
-/// Apply every collected hint to the plan, dispatching per-variant.
-///
-/// Pre-filter bin counts run first (they may remove a pre-filter, which
-/// shifts the paths below it, and compaction hints were collected on the
-/// plan after them). Truncate hints run next (they may eliminate entire
-/// subtrees, removing compaction targets that no longer need wrapping).
-/// Compaction hints run on whatever subtrees remain.
+/// Applies the hints by variant, in this order:
+/// 1. pre-filter bins: removing a pre-filter shifts the paths below it, and
+///    compaction hints were collected on the plan after these;
+/// 2. truncation: it can remove subtrees that hold compaction targets;
+/// 3. compaction, on the subtrees that remain.
 pub fn apply_optimization_hints(
     plan: LogicalPlan,
     hints: &OptimizationHints,
 ) -> DataFusionResult<LogicalPlan> {
     if hints.hints.is_empty() {
-        // No hints means nothing to do — skip the walk entirely to avoid the
-        // round-trip through with_new_exprs, which subtly changes Join nodes
-        // even when they shouldn't be touched.
+        // Skip the walk: the round-trip through `with_new_exprs` changes Join
+        // nodes even when no hint targets them.
         return Ok(plan);
     }
 
@@ -220,18 +198,15 @@ pub fn apply_optimization_hints(
     Ok(rewritten)
 }
 
-// ── Shared utilities for data-dependent rules ──────────────────────────────
-
-/// Count the rows produced by `plan` by executing it through DataFusion.
-/// Pre-existing compaction wrappers are stripped first so the row count
-/// reflects the underlying plan, not the wrapper layer.
+/// Counts the rows `plan` produces by executing it through DataFusion, with
+/// compaction wrappers stripped.
 pub(crate) fn row_count(
     session_state: &SessionState,
     plan: &LogicalPlan,
 ) -> DataFusionResult<usize> {
     let plan = strip_compaction(plan)?;
     let df = DataFrame::new(session_state.clone(), plan);
-    let batches = collect_blocking(df)?;
+    let batches = tt_core::session::block_on(df.collect())?;
     Ok(batches.iter().map(|batch| batch.num_rows()).sum())
 }
 
@@ -255,40 +230,4 @@ fn strip_compaction(plan: &LogicalPlan) -> DataFusionResult<LogicalPlan> {
         ))
     })?;
     Ok(transformed.data)
-}
-
-fn collect_blocking(
-    df: DataFrame,
-) -> DataFusionResult<Vec<datafusion::arrow::record_batch::RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution(
-                        "data-dependent rule collect thread panicked".to_string(),
-                    )
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
 }

@@ -59,19 +59,14 @@ pub fn query_stats_span(query: &str) -> Span {
     tracing::info_span!(target: JSONL_STATS_TARGET, "bench_query", query = %query)
 }
 
-/// How often the memory sampler reads `/proc/self/status` while a
-/// `bench_query` span is open. 10 ms gives fine-grained curves on short
-/// queries (~17 samples on a 170 ms LIKE run) and is still cheap on long
-/// queries (~5000 samples over 50 s ≈ 40 KB of JSON). Total sampler CPU
-/// cost is on the order of `interval / 10ms * 5μs`, well under 0.1% for
-/// any realistic bench.
+/// How often the memory sampler reads the RSS while a `bench_query` span is
+/// open: fine enough for a curve on a sub-second query, at a negligible CPU
+/// cost.
 const MEMORY_SAMPLE_INTERVAL_MS: u64 = 10;
 
-/// Read current process resident-set-size from `/proc/self/status` VmRSS
-/// field (kB → bytes). Returns None on non-Linux or read/parse failure.
-/// Prefers VmRSS over `/proc/self/statm` so we avoid hardcoding a page
-/// size (which is 4 KB on x86-64 but 16 KB/64 KB on some ARM/PowerPC
-/// hosts). Parse cost is a few μs — still negligible at 10 ms intervals.
+/// Resident set size in bytes, from the `VmRSS` field of `/proc/self/status`;
+/// `None` off Linux or on a read or parse failure. `VmRSS` is in kB, where
+/// `/proc/self/statm` counts pages of a host-dependent size.
 #[cfg(target_os = "linux")]
 fn read_rss_bytes() -> Option<u64> {
     let content = std::fs::read_to_string("/proc/self/status").ok()?;
@@ -102,12 +97,10 @@ fn wall_clock_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Background RSS sampler attached to each `bench_query` span. Spawns one
-/// thread on span open that sleeps `MEMORY_SAMPLE_INTERVAL_MS` between
-/// reads and appends `(wall_clock_ms, rss_bytes)` to a shared buffer.
-/// The buffer is drained on span close and stored as `memory_samples` in
-/// the JSONL record. The sampler thread is a no-op on non-Linux — the
-/// stat file simply returns None and no samples accumulate.
+/// RSS sampler of one `bench_query` span. A thread started at span open
+/// appends `(wall_clock_ms, rss_bytes)` every `MEMORY_SAMPLE_INTERVAL_MS`; the
+/// buffer is drained into the record at span close. Off Linux no sample
+/// accumulates.
 struct MemorySampler {
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
@@ -115,13 +108,10 @@ struct MemorySampler {
 }
 
 impl MemorySampler {
-    /// Each sample also gets streamed to `sink` immediately as a
-    /// `{"kind":"mem_sample",...}` line and flushed. This is what
-    /// survives an OOM kill: even though the aggregate bench_query
-    /// record is only written on span close (which never runs if the
-    /// process gets SIGKILL'd), the individual mem_sample lines are
-    /// already on disk by the time the killer fires. The dashboard
-    /// reconstructs the RSS curve for killed queries from those lines.
+    /// Each sample is also written to `sink` at once as a
+    /// `{"kind":"mem_sample",...}` line. The aggregate record is written at
+    /// span close, which never runs if the process is killed (OOM); the
+    /// dashboard rebuilds the RSS curve of a killed query from these lines.
     fn start(sink: Arc<Mutex<JsonlSink>>, query: String) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let samples: Arc<Mutex<Vec<(u64, u64)>>> = Arc::new(Mutex::new(Vec::new()));
@@ -175,23 +165,18 @@ pub struct BenchStatsJsonlLayer {
 #[derive(Clone)]
 struct QueryLabel(String);
 
-/// Open timestamp of an ark-piop prover span we derive a timing from,
-/// stored per-span so nested / repeated spans each keep their own clock.
-///
-/// ark-piop used to measure these regions with its own `Instant`s and ship
-/// the durations as `bench_stats` events, duplicating clocks that
-/// `#[instrument]` already ran over the same code. The spans are now the
-/// only measurement. ark-piop owns the name tables
+/// Open time of an ark-piop prover span whose lifetime is a recorded timing,
+/// kept per span so nested and repeated spans each have their own clock.
+/// ark-piop owns the name tables
 /// ([`ark_piop::prover::tracker::SNARK_PROVER_TIMED_SPANS`] and
-/// [`ark_piop::prover::tracker::SC_REGION_SPANS`]) so a rename on their
-/// side can't silently drop a metric here, and the record keys are
-/// unchanged, so the dashboard sees the same JSON as before.
+/// [`ark_piop::prover::tracker::SC_REGION_SPANS`]), so a rename there cannot
+/// silently drop a metric here.
 struct SpanStart(Instant);
 
 /// Marks a `sc_bucket` span and pins which bucket it is. Every
 /// [`ark_piop::prover::tracker::SC_REGION_SPANS`] span nested inside one
-/// belongs to that bucket — that nesting is how a region duration finds
-/// its bucket without ark-piop threading an index through the call.
+/// belongs to that bucket: the nesting is how a region duration finds its
+/// bucket without ark-piop threading an index through the call.
 struct BucketSpan {
     index: u64,
     wall_start_ms: u64,
@@ -206,18 +191,14 @@ struct PassSpan {
     started: Instant,
 }
 
-/// Timings for one sumcheck bucket, assembled from its `sc_bucket` span and
-/// the region spans nested inside it.
-///
-/// ark-piop emits each bucket's *claim shape* as an `sc_buckets_json` blob
-/// once every bucket span has closed; [`PendingBenchRecord::merge`] splices
-/// these timings in by index so the record keeps the shape it had when the
-/// prover measured the durations itself.
+/// Timings of one sumcheck bucket, from its `sc_bucket` span and the region
+/// spans nested inside it. ark-piop emits each bucket's claim shape as an
+/// `sc_buckets_json` blob once every bucket span has closed;
+/// [`PendingBenchRecord::merge`] splices these timings in by index.
 ///
 /// `wall_start_ms` / `wall_end_ms` let the dashboard overlay bucket
-/// boundaries on the RSS-over-time curve. They are stamped here rather than
-/// in ark-piop on purpose: the sampler drawing that curve runs in this
-/// process, so these timestamps share its clock exactly.
+/// boundaries on the RSS curve. They are stamped here, not in ark-piop, so
+/// they share the clock of the sampler that draws that curve.
 #[derive(Default)]
 struct BucketTiming {
     wall_start_ms: u64,
@@ -308,8 +289,7 @@ where
         {
             let mut ext = span.extensions_mut();
             ext.insert(QueryLabel(query.clone()));
-            // One sampler thread per bench_query span; joined on close.
-            // Streams samples to sink so they survive an OOM kill.
+            // One sampler thread per bench_query span, joined on close.
             ext.insert(MemorySampler::start(self.sink.clone(), query));
         }
     }
@@ -323,8 +303,8 @@ where
         event.record(&mut visitor);
         let mut fields = visitor.fields;
 
-        // Tracker snapshots stream immediately (like mem_sample) so they
-        // survive OOM.
+        // Tracker snapshots are streamed at once, like mem_sample, so they
+        // survive an OOM kill.
         if let Some(payload) = fields.remove("tracker_snapshot_json") {
             let q = fields
                 .get("query")
@@ -343,12 +323,10 @@ where
             return;
         }
 
-        // Sumcheck stream-policy decisions: one event per `prover_init`
-        // call. Streamed to its own JSONL line for OOM survival AND
-        // aggregated into the pending bench_query record so multiple
-        // runs of the same query can be told apart in the dashboard
-        // (streamed lines only carry the query name, not the run's
-        // timestamp, so they'd merge across runs otherwise).
+        // Sumcheck stream-policy decisions, one event per `prover_init` call.
+        // Streamed as a line of its own to survive an OOM kill, and added to
+        // the pending record: a streamed line carries only the query name, so
+        // the lines of two runs of one query cannot be told apart.
         if let Some(payload) = fields.remove("sumcheck_stream_decision_json") {
             let q = fields
                 .get("query")
@@ -430,10 +408,10 @@ where
             return;
         };
 
-        // Prover timings: the span's own lifetime is the measurement. These
-        // spans never hold a QueryLabel, so they exit before the bench_query
-        // handling below. Each `extensions_mut()` guard is released at its
-        // semicolon, before we walk ancestor spans for the query / bucket.
+        // Prover timings: the span's lifetime is the measurement. These spans
+        // hold no QueryLabel, so they return before the bench_query handling
+        // below. Each `extensions_mut()` guard is released at its semicolon,
+        // before the walk over ancestor spans for the query and the bucket.
         let span_start = span.extensions_mut().remove::<SpanStart>();
         if let Some(SpanStart(started)) = span_start {
             let duration_s = started.elapsed().as_secs_f64();
@@ -446,9 +424,8 @@ where
                             .snark_prover
                             .insert(key.to_string(), Value::String(duration_s.to_string()));
                     } else {
-                        // A bucket-pipeline region. It counts twice: once
-                        // toward the cross-bucket total the old aggregate
-                        // event carried, and once against its own bucket.
+                        // A bucket-pipeline region counts toward the
+                        // cross-bucket total and against its own bucket.
                         *record
                             .piop_region_totals
                             .entry(name.to_string())
@@ -468,9 +445,7 @@ where
             return;
         }
 
-        // A prover pass closed. Both endpoints are real measurements here:
-        // the start stamp is taken at span open rather than back-derived
-        // from `end - duration` the way the old event pair had to.
+        // A prover pass closed.
         let pass_span = span.extensions_mut().remove::<PassSpan>();
         if let Some(PassSpan {
             pass,
@@ -565,9 +540,8 @@ where
         .find_map(|span| span.extensions().get::<BucketSpan>().map(|b| b.index))
 }
 
-/// Same walk as [`query_from_scope`] but rooted at a span rather than an
-/// event — used to attribute a closing prover-timing span to its
-/// enclosing `bench_query`.
+/// The walk of [`query_from_scope`], rooted at a span instead of an event:
+/// attributes a closing prover-timing span to its enclosing `bench_query`.
 fn query_from_span_scope<S>(ctx: &Context<'_, S>, id: &Id) -> Option<String>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
@@ -664,9 +638,8 @@ impl PendingBenchRecord {
     fn merge(&mut self, fields: Map<String, Value>) {
         let mut fields = fields;
 
-        // Per-bucket sumcheck stats arrive as a JSON blob in one field.
-        // Parse and hoist it into `self.buckets`; last write wins if the
-        // prover somehow emits multiple (it shouldn't).
+        // Per-bucket sumcheck stats arrive as a JSON blob in one field; the
+        // last one wins.
         if let Some(Value::String(blob)) = fields.remove("sc_buckets_json") {
             match serde_json::from_str::<Value>(&blob) {
                 Ok(mut parsed) => {
@@ -746,16 +719,11 @@ impl PendingBenchRecord {
         }
     }
 
-    /// Fold span-derived timings into ark-piop's per-bucket claim blob, so
-    /// the emitted record keeps the exact shape it had when the prover
-    /// measured the durations itself: a `timing` object of
-    /// `<region>_time_s` keys plus `total_time_s`, and the bucket's
-    /// wall-clock boundaries.
-    ///
-    /// A region that never ran (a bucket that short-circuits before degree
-    /// reduction) reports 0.0 rather than being omitted — the old
-    /// `ScCompileTimingBreakdown` was a fixed struct of `f64`s and the
-    /// dashboard still expects every key to be present.
+    /// Folds the span-derived timings into ark-piop's per-bucket claim blob:
+    /// a `timing` object of `<region>_time_s` keys plus `total_time_s`, and
+    /// the bucket's wall-clock boundaries. A region that never ran (a bucket
+    /// that short-circuits before degree reduction) reports 0.0: the dashboard
+    /// expects every key.
     fn splice_bucket_timings(&self, parsed: &mut Value) {
         let Some(buckets) = parsed.get_mut("buckets").and_then(Value::as_array_mut) else {
             return;
@@ -794,17 +762,11 @@ impl PendingBenchRecord {
     }
 
     fn into_json(mut self) -> Value {
-        // Cross-bucket region totals, filed under the same keys ark-piop's
-        // old `snark_prover_piop_breakdown` event carried. Stringified to
-        // match how every other numeric field reaches this map.
-        //
-        // Every region gets a key, including stages that never ran (a bucket
-        // can short-circuit before degree reduction). That event was a fixed
-        // struct of `f64`s, so a stage that didn't run reported 0 rather than
-        // going missing, and the dashboard still expects the full set. Keyed
-        // off bucket_timings, not piop_region_totals, so the whole block stays
-        // absent when no bucket ran at all — which is what the old
-        // `buckets.is_empty()` early return did.
+        // Cross-bucket region totals, stringified like every other numeric
+        // field of this map. Every region gets a key, including a stage that
+        // never ran: the dashboard expects the full set. Keyed off
+        // bucket_timings, not piop_region_totals, so the block is absent when
+        // no bucket ran at all.
         if !self.bucket_timings.is_empty() {
             for region in ark_piop::prover::tracker::SC_REGION_SPANS {
                 let seconds = self.piop_region_totals.get(*region).copied().unwrap_or(0.0);
@@ -822,11 +784,8 @@ impl PendingBenchRecord {
         );
         let timestamp = self.timestamp_utc.clone();
 
-        // Reshape the flat `results_*` fields we merged in into the
-        // title-case object shape the dashboard's Results tab reads —
-        // it looks up "Rows Count" / "Size" / "Schema" / etc. Mirrors
-        // the divan bench harness's `into_json` reshape so both
-        // producers land in a compatible layout.
+        // The title-case shape the dashboard's Results tab reads, the same
+        // one the divan bench harness writes.
         let results_shaped = json!({
             "Rows Count": self.results.get("rows_count").cloned().unwrap_or(Value::Null),
             "Schema": self.results.get("schema").cloned().unwrap_or(Value::Null),
@@ -1154,22 +1113,13 @@ pub fn breakdown_grandchild_size(breakdown: &SizeBreakdown, key: &str, child_key
         .unwrap_or(0)
 }
 
-/// Compute all the proof-size + result-set metrics that
-/// [`emit_proof_size_bytes`] and [`emit_results_stats`] want and fire
-/// them under a single call. Uses the same accounting as the divan
-/// bench harness (`benches/support/mod.rs`) so a run driven through
-/// `test_utils::prove_and_verify_query{,_bench}` and one driven
-/// through the bench harness end up with byte-identical
-/// `proof_size.*` / `results.*` sections in the JSONL — the dashboard
-/// treats them interchangeably.
+/// Emits the proof-size and result-set stats of one proof, with the
+/// accounting of the divan bench harness (`benches/support/mod.rs`): the
+/// dashboard reads the `proof_size` and `results` sections of both producers
+/// alike.
 ///
-/// Called from `ProveRunner::run()` after `prover.prove()` while the
-/// `snark_proof` and `output_memtable` are still in scope (the write
-/// path drops the proof and consumes the memtable Arc). Async because
-/// `result_memtable_stats_async` reads the memtable via a datafusion
-/// `DataFrame` — calling the sync helper from an async caller would
-/// nest tokio runtimes (`Handle::block_on` inside a running runtime
-/// panics).
+/// Async because the sync [`result_memtable_stats`] would nest tokio
+/// runtimes, and `Handle::block_on` inside a running runtime panics.
 pub async fn emit_prove_stats<B>(
     query: &str,
     proof: &front_end::structs::TTProof<B>,
@@ -1251,10 +1201,8 @@ where
     Ok(())
 }
 
-/// Extended results-stats emitter that also carries the parquet
-/// sidecar path. The dashboard's Results tab reads
-/// `results.parquet_path` — the bench harness emits it directly, so
-/// mirror that field name here too.
+/// [`emit_results_stats`] plus the path of the result parquet, which the
+/// dashboard's Results tab reads as `results.parquet_path`.
 pub fn emit_results_stats_extended(
     query: &str,
     rows_count: usize,
@@ -1273,8 +1221,7 @@ pub fn emit_results_stats_extended(
     );
 }
 
-/// Async version — safe to call from inside a tokio runtime (unlike
-/// [`result_memtable_stats`] which is fine only from a sync caller).
+/// [`result_memtable_stats`] for a caller already inside a tokio runtime.
 pub async fn result_memtable_stats_async(
     mem_table: &Arc<MemTable>,
 ) -> anyhow::Result<(usize, String, usize)> {

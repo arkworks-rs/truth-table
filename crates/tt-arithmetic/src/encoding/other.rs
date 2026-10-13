@@ -93,14 +93,9 @@ impl<F: PrimeField> Encodable<F> for FixedSizeBinaryArray {
     }
 }
 
-// Some manual implementation of Encodable for complex types
-
 impl<F: PrimeField> Encodable<F> for NullArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        // NullArray is all-zeros in F. Cheapest representation is a
-        // bit-packed MLE with every bit clear: `len.div_ceil(8)` bytes total,
-        // 256× smaller than a `vec![F::zero(); len]`. `MLEStorage::Bit`
-        // lifts an unset bit to `F::zero()`, so semantics stay identical.
+        // All zeros, stored as a bit-packed MLE with every bit clear.
         let len = self.len();
         let byte_len = len.div_ceil(8).max(1);
         let num_vars = len.max(1).trailing_zeros() as usize;
@@ -182,11 +177,8 @@ where
     }
 }
 
-// Unsupported data types
-// Floats: IEEE bit-cast into a prime field is not arithmetic-meaningful, so
-// we reject them explicitly rather than silently pass through nonsense.
-// Callers that need numeric semantics should convert to Decimal128 first
-// (see `tt-tpch-data::convert_batch_to_decimalized`).
+// Floats are rejected: an IEEE bit pattern cast into a prime field has no
+// arithmetic meaning. Convert them to `Decimal128` first.
 impl_col_adapter_unsupported!(Float16Array, "Float16");
 impl_col_adapter_unsupported!(Float32Array, "Float32");
 impl_col_adapter_unsupported!(Float64Array, "Float64");

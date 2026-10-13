@@ -1,7 +1,5 @@
-//! A PIOP for checking that a column only contains binary values (0 or 1).
-//!
-//! More precisely, this PIOP checks if the activated elements of a column are
-//! either 0 or 1.
+//! A PIOP for checking that a polynomial only takes binary values (0 or 1) on
+//! the hypercube: the zerocheck `p * (1 - p) = 0`.
 
 use ark_ff::One;
 use ark_piop::{
@@ -59,7 +57,6 @@ impl<B: SnarkBackend> PIOP<B> for BinaryCheckPIOP<B> {
         Ok(())
     }
     fn prove_inner(prover: &mut ArgProver<B>, input: Self::ProverInput) -> SnarkResult<()> {
-        // set up the tracker and add a zerocheck claim
         let predicate = input.predicate;
         let one_minus_sel = predicate
             .mul_scalar_poly(B::F::one().neg())

@@ -113,7 +113,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         for idx in table.data_tracked_polys_indices() {
             let col = table.tracked_col_by_ind(idx);
-            // BinaryCheck only needs the predicate polynomial, so we pass the activated column.
             let predicate_data = col.data_tracked_poly();
             let predicate_activator = col.activator_tracked_poly();
             let one_minus_data = predicate_data
@@ -191,7 +190,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         for idx in table.data_tracked_oracles_indices() {
             let col = table.tracked_col_oracle_by_ind(idx);
-            // BinaryCheck only needs the predicate oracle, so we pass the activated column.
             let predicate_data = col.data_tracked_oracle();
             let predicate_activator = col.activator_tracked_oracle();
             let one_minus_data = predicate_data

@@ -29,21 +29,15 @@ pub const FINGERPRINT_RULES_METADATA_KEY: &str = "tt.fingerprint.rules";
 pub const EXTERNAL_COMMITMENT_SOURCE_METADATA_KEY: &str = "tt.external_commitment_source";
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
-/// An abstraction of a tracked oracle to an arithmetized table in dbSNARK
-/// A tracked oracle to an arithmetized table is represented by a set of tracked
-/// oracles representing the columns
+/// Verifier-side mirror of [`TrackedTable`]: the tracked oracles of a
+/// table's columns, stored by source column, with the same flat view
+/// ([`Self::tracked_oracles`]).
 pub struct TrackedTableOracle<B: SnarkBackend> {
-    /// The schema of the table, if any. Lists the flat Arrow fields
-    /// (primary + all expanded segments) so downstream that reads the
-    /// schema still sees the pre-expanded shape it expects.
+    /// Lists the flat Arrow fields (primaries and expanded segments).
     schema: Option<Schema>,
-    /// The tracked column oracles of the table, keyed by SOURCE column
-    /// name (not per-segment). Each `TrackedColOracle` owns its primary
-    /// row-domain oracle, its auxiliary row-domain oracles (e.g.
-    /// `__length`), and its side-domain oracles (e.g. `__chars`,
-    /// `__orig_ind`, `__int_ind`, `__bnd`).
+    /// Keyed by source column. Each `TrackedColOracle` owns its primary,
+    /// row-domain aux and side-domain oracles.
     tracked_col_oracles: IndexMap<FieldRef, TrackedColOracle<B>>,
-    /// The log size of the table
     log_size: usize,
 }
 
@@ -91,7 +85,6 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedTableOracle<B> {
 }
 
 impl<B: SnarkBackend> TrackedTableOracle<B> {
-    /// Constructs a single-column oracle table and optionally appends an activator column.
     pub fn single_column_with_activator(
         field: FieldRef,
         data_oracle: TrackedOracle<B>,
@@ -106,9 +99,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         TrackedTableOracle::new(None, oracles, log_size)
     }
 
-    /// Constructs a new `TrackedTableOracle` from the flat schema-order
-    /// oracles map. The flat input is regrouped internally into
-    /// source-column-keyed `tracked_col_oracles`.
+    /// A table oracle from the flat schema-order map of row-domain oracles,
+    /// regrouped by source column.
     pub fn new(
         schema: Option<Schema>,
         tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
@@ -117,8 +109,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         Self::new_with_side_cols(schema, tracked_oracles, log_size, IndexMap::new())
     }
 
-    /// Constructs a new `TrackedTableOracle` from flat row-domain oracles
-    /// + side oracles. Same regrouping logic as `new`.
+    /// [`Self::new`] with side-domain oracles, each attached to its source
+    /// column.
     pub fn new_with_side_cols(
         schema: Option<Schema>,
         tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
@@ -138,8 +130,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         }
     }
 
-    /// Constructs a `TrackedTableOracle` directly from a
-    /// source-column-keyed map (no regrouping).
+    /// A table oracle from columns already grouped by source column.
     pub fn new_from_col_oracles(
         schema: Option<Schema>,
         tracked_col_oracles: IndexMap<FieldRef, TrackedColOracle<B>>,
@@ -152,9 +143,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         }
     }
 
-    /// Read-only access to side-domain oracles, derived from source-column
-    /// storage on demand. Synthesized side FieldRefs inherit the source
-    /// column's metadata.
+    /// The side-domain oracles, keyed by a field named `<col><suffix>` that
+    /// carries the source column's metadata.
     pub fn side_cols(&self) -> IndexMap<FieldRef, OracleBundle<B>> {
         let mut out: IndexMap<FieldRef, OracleBundle<B>> = IndexMap::new();
         for (field, col) in self.tracked_col_oracles.iter() {
@@ -173,9 +163,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         out
     }
 
-    /// Insert (or attach) a side-domain oracle to the source column that
-    /// owns it. If the target col is `SingleSegment`, it is promoted to
-    /// `MultiSegment`.
+    /// Attach a side-domain oracle to the source column its name points to,
+    /// promoting a `SingleSegment` column to `MultiSegment`.
     pub fn insert_side_col(&mut self, field: FieldRef, side: OracleBundle<B>) {
         let base_name = crate::encoding::segment_base_name(field.name())
             .expect("insert_side_col: field name must carry a known segment suffix")
@@ -226,7 +215,6 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         tracked_oracles: &IndexMap<FieldRef, TrackedOracle<B>>,
         log_size: usize,
     ) -> SnarkResult<()> {
-        // All column oracles have the same tracker
         let first_oracle = tracked_oracles
             .values()
             .next()
@@ -238,9 +226,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             );
         });
 
-        // Folded-constant oracles evaluate identically on any hypercube,
-        // so their stored log_size is not required to match — mirrors the
-        // relaxation in `TrackedColOracle::check_new_args`.
+        // A folded-constant oracle evaluates identically on any hypercube,
+        // so its stored log_size need not match.
         tracked_oracles.values().for_each(|oracle| {
             if !oracle.is_constant() {
                 assert_eq!(
@@ -263,8 +250,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         Ok(())
     }
 
-    /// Returns the flat schema-order tracked oracles map, derived on
-    /// demand from the source-column-keyed storage.
+    /// The flat view: every row-domain segment under its own field, in
+    /// source-column order.
     pub fn tracked_oracles(&self) -> IndexMap<FieldRef, TrackedOracle<B>> {
         let mut out: IndexMap<FieldRef, TrackedOracle<B>> = IndexMap::new();
         for (field, col) in self.tracked_col_oracles.iter() {
@@ -286,8 +273,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         out
     }
 
-    /// Iterator over the flat schema-order tracked oracles. Yields owned
-    /// tuples (materialized on demand).
+    /// The flat view as an iterator of owned items.
     pub fn tracked_oracles_iter(
         &self,
     ) -> Box<dyn Iterator<Item = (FieldRef, TrackedOracle<B>)> + '_> {
@@ -312,20 +298,18 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         }))
     }
 
-    /// Direct accessor for the source-column-keyed storage.
+    /// The column oracles, keyed by source column.
     pub fn tracked_col_oracles(&self) -> IndexMap<FieldRef, TrackedColOracle<B>> {
         self.tracked_col_oracles.clone()
     }
 
-    /// Iterator over source-column-keyed entries (borrowed refs).
     pub fn tracked_col_oracles_iter(
         &self,
     ) -> impl Iterator<Item = (&FieldRef, &TrackedColOracle<B>)> {
         self.tracked_col_oracles.iter()
     }
 
-    /// Look up a specific side-domain oracle by source column name and
-    /// suffix.
+    /// The side-domain oracle `suffix` of source column `col_name`.
     pub fn side_segment(&self, col_name: &str, suffix: &str) -> Option<&OracleBundle<B>> {
         self.tracked_col_oracles
             .iter()
@@ -333,7 +317,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             .and_then(|(_, col)| col.side_segment(suffix))
     }
 
-    /// Indices into the flat schema-order view of all non-system columns.
+    /// Flat-view indices of the non-system columns.
     pub fn data_tracked_oracles_indices(&self) -> Vec<usize> {
         self.tracked_oracles()
             .keys()
@@ -342,7 +326,6 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             .collect()
     }
 
-    /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
@@ -351,17 +334,15 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         self.schema.as_ref()
     }
 
-    /// Returns the log size of the table
     pub fn log_size(&self) -> usize {
         self.log_size
     }
 
-    /// Returns the size of the table
     pub fn size(&self) -> usize {
         1 << self.log_size()
     }
 
-    /// Pretty-print the tracked table oracle by showing only the column names.
+    /// A text table with the flat view's column names.
     pub fn pretty_string(&self) -> String {
         let flat = self.tracked_oracles();
         if flat.is_empty() {
@@ -389,7 +370,8 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         out
     }
 
-    /// Folds the specified column oracles by flat schema-order indices.
+    /// The linear combination of the flat-view columns `col_inds` with the
+    /// challenges `challs`; a single column is returned as is.
     pub fn fold(&self, col_inds: &[usize], challs: &[B::F]) -> TrackedColOracle<B> {
         let flat = self.tracked_oracles();
         let first_idx = *col_inds
@@ -421,15 +403,14 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         TrackedColOracle::new(folded, self.activator_tracked_poly(), None)
     }
 
-    /// Folds all the data (i.e. excluding the activator column) tracked column
-    /// oracles
+    /// [`Self::fold`] over every non-system column.
     pub fn fold_all_data_oracles(&self, challs: &[B::F]) -> TrackedColOracle<B> {
         let data_col_indices = self.data_tracked_oracles_indices();
         self.fold(&data_col_indices, challs)
     }
 
-    /// Returns the tracked column oracle at the specified flat schema-order
-    /// index, wrapped as SingleSegment.
+    /// The flat-view entry `col_ind` as a `SingleSegment` column oracle
+    /// with the table's activator.
     pub fn tracked_col_oracle_by_ind(&self, col_ind: usize) -> TrackedColOracle<B> {
         let flat = self.tracked_oracles();
         let (field_ref, data_tracked_oracle) =
@@ -441,17 +422,13 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         )
     }
 
-    /// Returns the tracked column oracle with the specified source column
-    /// name, fully grouped. Returns `None` if `name` is not a source
-    /// column here.
+    /// The source column `name` with all its segments.
     pub fn tracked_col_oracle_by_name(&self, name: &str) -> Option<TrackedColOracle<B>> {
         self.tracked_col_oracles
             .iter()
             .find_map(|(f, c)| (f.name() == name).then(|| c.clone()))
     }
 
-    /// Returns the tracked column oracles at the specified flat schema-order
-    /// indices.
     pub fn tracked_col_oracles_by_indices(&self, indices: &[usize]) -> Vec<TrackedColOracle<B>> {
         indices
             .iter()
@@ -459,15 +436,11 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             .collect()
     }
 
-    /// Returns a subtable oracle containing the tracked columns at the
-    /// specified flat schema-order indices, plus the activator (if any).
-    /// Aux/side segments of retained source columns are carried over
-    /// intact.
+    /// Verifier-side mirror of `TrackedTable::tracked_subtable_by_indices`.
     pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTableOracle<B> {
         let flat = self.tracked_oracles();
-        // Verifier mirror of `TrackedTable::tracked_subtable_by_indices` —
-        // retain by source-column identity, not by name, so a self-join's two
-        // same-named columns stay distinguishable.
+        // Retain by source-column identity, not by name, so a self-join's
+        // two same-named columns stay apart.
         let owners: Vec<FieldRef> = self
             .tracked_col_oracles
             .iter()
@@ -551,17 +524,15 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         TrackedTableOracle::new_from_col_oracles(sub_schema, sub_cols, self.log_size)
     }
 
-    /// Returns all the tracked column oracles (flat schema-order, each
-    /// wrapped as SingleSegment).
+    /// Every flat-view entry as a `SingleSegment` column oracle.
     pub fn all_tracked_col_oracles(&self) -> Vec<TrackedColOracle<B>> {
         self.tracked_col_oracles_by_indices(
             &(0..self.num_total_tracked_col_oracles()).collect::<Vec<usize>>(),
         )
     }
 
-    /// Number of flat schema-order ROW-DOMAIN columns including
-    /// activator. Matches the length of `tracked_oracles()` (side
-    /// segments live in `side_cols()` and are counted separately).
+    /// Number of flat-view entries, the activator included and side
+    /// segments excluded.
     pub fn num_total_tracked_col_oracles(&self) -> usize {
         self.tracked_col_oracles
             .values()
@@ -569,7 +540,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             .sum()
     }
 
-    /// Number of flat schema-order data columns (excluding system).
+    /// Number of flat-view entries that are not system columns.
     pub fn num_data_tracked_col_oracles(&self) -> usize {
         self.tracked_oracles()
             .keys()
@@ -577,17 +548,15 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             .count()
     }
 
-    /// Returns the tracked oracle of the activator column, if any.
+    /// The oracle of the activator column.
     pub fn activator_tracked_poly(&self) -> Option<TrackedOracle<B>> {
         self.tracked_col_oracles.iter().find_map(|(field, col)| {
             (field.name() == ACTIVATOR_COL_NAME).then(|| col.data_tracked_oracle())
         })
     }
 
-    /// Constructs an `TrackedTableOracle` from an `TrackedTable` by tracking
-    /// the column and activator polynomials using the provided verifier
-    /// It's assumed that the verifier already has the commitments of the
-    /// polynomials being tracked
+    /// The oracle of `table`: `verifier` tracks, by id, the commitment of
+    /// each flat-view polynomial, which it must already hold.
     pub fn from_tracked_table(
         table: TrackedTable<B>,
         verifier: &mut ArgVerifier<B>,
@@ -615,12 +584,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     }
 }
 
-/// Regroup a flat `IndexMap<FieldRef, TrackedOracle<B>>` + a flat
-/// `IndexMap<FieldRef, OracleBundle<B>>` into the source-column-keyed
-/// shape stored by `TrackedTableOracle`. Verifier-side mirror of
-/// `regroup_flat_into_tracked_cols` in `table.rs`. Orphan aux fields
-/// (aux whose primary is absent from the flat input) become their own
-/// SingleSegment entries — preserves scratch-table semantics.
+/// Verifier-side mirror of `regroup_flat_into_tracked_cols` in `table.rs`.
 fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
     tracked_oracles: &IndexMap<FieldRef, TrackedOracle<B>>,
     side_cols: &IndexMap<FieldRef, OracleBundle<B>>,
@@ -633,8 +597,6 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
         .filter(|f| crate::encoding::segment_base_name(f.name()).is_none())
         .map(|f| f.name().to_string())
         .collect();
-    // Mirror of the prover-side `ambiguous_primaries`; see
-    // `crate::table::regroup_flat_into_tracked_cols`.
     let ambiguous_primaries: std::collections::HashSet<String> = {
         let mut seen = std::collections::HashSet::new();
         tracked_oracles
@@ -688,9 +650,6 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
                 Some(field.clone()),
             )
         } else {
-            // Preserve the row-vs-side split the caller already knows
-            // (tracked_oracles → row, side_cols → side). See prover-side
-            // regroup_flat_into_tracked_cols for the equivalent rationale.
             TrackedColOracle::new_multi_split(
                 OracleBundle::new(oracle.clone(), shared_activator.clone()),
                 row_aux_bundles,
@@ -703,8 +662,8 @@ fn regroup_flat_into_tracked_col_oracles<B: SnarkBackend>(
     out
 }
 
-/// Per-side-segment commitment pair (data + activator) plus sizing metadata.
-/// Mirrors `ArithSideCol` at the commitment layer.
+/// The commitments to a side segment's data and activator: `ArithSideCol`
+/// at the commitment layer.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
 pub struct ArithSideColOracle<B: SnarkBackend> {
@@ -716,16 +675,14 @@ pub struct ArithSideColOracle<B: SnarkBackend> {
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
-/// An abstraction of an oracle to an arithmetized table in dbSNARK
-/// An arithmetic table might not be tracked and can be serialized and
-/// deserialized
+/// The commitments to an arithmetized table, not tracked. It can be
+/// serialized.
 pub struct ArithTableOracle<B: SnarkBackend> {
     _phantom: std::marker::PhantomData<B>,
     schema: Option<Schema>,
     commitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
     log_size: usize,
-    /// Side-domain commitments (data + activator pairs) keyed by side
-    /// segment field reference (e.g. `<col>__chars`).
+    /// Keyed by the side segment's own field (`<col>__chars`).
     side_commitments: IndexMap<FieldRef, ArithSideColOracle<B>>,
     /// Per string column, its fingerprint bin commitments sealed under a
     /// Merkle root (see [`Self::seal_fingerprints`]). The `__fp{b}` fields
@@ -747,7 +704,6 @@ pub struct FingerprintBinsOracle<B: SnarkBackend> {
     bins: Option<Vec<<B::MvPCS as PCS<B::F>>::Commitment>>,
 }
 
-/// A multivariate commitment of backend `B`.
 type Commitment<B> = <<B as SnarkBackend>::MvPCS as PCS<<B as SnarkBackend>::F>>::Commitment;
 
 fn commitment_bytes<C: CanonicalSerialize>(commitment: &C) -> Vec<u8> {
@@ -818,9 +774,8 @@ fn constraints_summary_label(schema: Option<&Schema>) -> Option<String> {
 }
 
 impl<B: SnarkBackend> ArithTableOracle<B> {
-    /// The table's per-column fingerprint rules, or `None` when it was
-    /// committed before per-column rules (every column then takes the default
-    /// scheme, exactly as that table was encoded).
+    /// The table's per-column fingerprint rules, or `None` when its schema
+    /// carries none that parse.
     pub fn fingerprint_rules(&self) -> Option<crate::fingerprint::FingerprintRules> {
         let raw = self
             .schema_ref()?
@@ -829,7 +784,7 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         crate::fingerprint::FingerprintRules::from_toml_str(raw).ok()
     }
 
-    /// Constructs a new `ArithTableOracle` with no side commitments.
+    /// An oracle with no side commitments.
     pub fn new(
         schema: Option<Schema>,
         commitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
@@ -838,8 +793,6 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         Self::new_with_side_commitments(schema, commitments, log_size, IndexMap::new())
     }
 
-    /// Constructs a new `ArithTableOracle` with explicit side-domain
-    /// commitments.
     pub fn new_with_side_commitments(
         schema: Option<Schema>,
         commitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
@@ -922,7 +875,7 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         self
     }
 
-    /// Per string column, its sealed fingerprint bins.
+    /// The sealed fingerprint bins of each string column.
     pub fn fingerprints(&self) -> &IndexMap<String, FingerprintBinsOracle<B>> {
         &self.fingerprints
     }
@@ -1011,7 +964,6 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         Ok(())
     }
 
-    /// Read-only access to side-domain commitment entries.
     pub fn side_commitments(&self) -> &IndexMap<FieldRef, ArithSideColOracle<B>> {
         &self.side_commitments
     }
@@ -1021,7 +973,6 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         commitments: &IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
         _log_size: usize,
     ) -> SnarkResult<()> {
-        // If schema is provided, it must match the fields of the commitments
         if let Some(schema) = &schema {
             schema
                 .fields()
@@ -1034,27 +985,25 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         Ok(())
     }
 
-    /// Returns the map of column commitments in the table
+    /// The row-domain column commitments, without the sealed fingerprint
+    /// bins.
     pub fn commitments(&self) -> &IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment> {
         &self.commitments
     }
 
-    /// Returns the log size of the table
     pub fn log_size(&self) -> usize {
         self.log_size
     }
 
-    /// Returns the size of the table
     pub fn size(&self) -> usize {
         1 << self.log_size()
     }
 
-    /// Number of columns in the table including activator (if any)
+    /// Number of row-domain columns, the activator included.
     pub fn num_total_cols(&self) -> usize {
         self.commitments.len()
     }
 
-    /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
@@ -1062,7 +1011,8 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         self.schema.as_ref()
     }
 
-    /// Returns the optional table-level constraint summary JSON generated during commitment.
+    /// The table's constraint summary (primary and foreign keys) as JSON,
+    /// written at commit.
     pub fn constraints_summary_json(&self) -> Option<&str> {
         self.schema
             .as_ref()
@@ -1092,8 +1042,7 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         }
         self
     }
-    /// Constructs an `ArithTableOracle` from a `TrackedTableOracle` by
-    /// extracting
+    /// The commitments behind a `TrackedTableOracle`'s oracles.
     pub fn from_tracked_table_oracle(table_oracle: &TrackedTableOracle<B>) -> Self
     where
         <B::MvPCS as PCS<B::F>>::Commitment: Clone,
@@ -1117,11 +1066,9 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
                             .expect("side segment must carry a tracked activator")
                             .commitment(),
                         log_size: side.log_size(),
-                        // `active_len` is not carried on the tracked
-                        // layer; no downstream consumer reads this
-                        // field on `ArithSideColOracle`. See
-                        // verifier/passes/tracking.rs for the parallel
-                        // placeholder used on the verifier side.
+                        // Placeholder: the tracked layer does not carry
+                        // `active_len`, and nothing reads it from an
+                        // `ArithSideColOracle`.
                         active_len: 0,
                     },
                 )
@@ -1137,7 +1084,6 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         }
     }
 
-    /// Returns the oracle of the activator column, if any
     pub fn activator_commitment(&self) -> Option<&<B::MvPCS as PCS<B::F>>::Commitment> {
         self.commitments
             .iter()
@@ -1285,9 +1231,9 @@ where
         let log_size =
             usize::try_from(log_size_raw).map_err(|_| SerializationError::InvalidData)?;
 
-        // Fingerprint roots. An oracle written before bins were sealed ends
-        // here and carries its bins inline instead; sealing them now gives
-        // prover and verifier the same roots either way.
+        // Fingerprint roots. An oracle file without them ends here and
+        // carries its bins inline, among the commitments; sealing them
+        // below gives prover and verifier the same roots either way.
         let mut fingerprints = IndexMap::new();
         if let Ok(count) = u64::deserialize_with_mode(&mut reader, compress, validate) {
             for _ in 0..count {

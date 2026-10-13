@@ -1,13 +1,7 @@
-//! Tests for `ActivatorConsistencyCheck` gadget node.
-//!
-//! Uses the [`crate::test_utils::gadget_harness`] harness to build a one-node
-//! IR, populate its payload, and drive prove/verify end-to-end.
-
 use std::sync::Arc;
 
 use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
-use indexmap::IndexMap;
 
 use super::{GadgetNode, LHS_LABEL, RHS_LABEL};
 use crate::irs::nodes::Node;
@@ -40,9 +34,8 @@ fn rhs_len_field() -> Arc<Field> {
     Arc::new(Field::new("l", DataType::UInt64, false))
 }
 
-/// Runs prove + verify with the given length column and activators. `None`
-/// for an activator means "no activator" (all rows active). Returns the
-/// verification result.
+/// Proves and verifies with the given length column and activators. `None`
+/// for an activator means all rows are active.
 fn run(
     length_evals: Vec<F>,
     char_act_evals: Option<Vec<F>>,
@@ -149,14 +142,4 @@ fn inactive_string_with_active_chars_rejected() {
         run(length, None, str_act).is_err(),
         "inactive string with active chars must not verify"
     );
-}
-
-// Silence unused-import lint (Node<B> only surfaces through `build_gadget`).
-#[allow(dead_code)]
-fn _touch_types<T: SnarkBackend>(_ir: &crate::prover::irs::GadgetReadyIr<T>) {}
-
-// Keep IndexMap import warning-free when the test module doesn't use it directly.
-#[allow(dead_code)]
-fn _touch_indexmap() -> IndexMap<String, ()> {
-    IndexMap::new()
 }

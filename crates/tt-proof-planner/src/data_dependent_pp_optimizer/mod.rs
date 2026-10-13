@@ -1,63 +1,43 @@
-//! Data-dependent proof-plan optimizer rules.
+//! Data-dependent proof-plan optimizer rules: the counterpart of
+//! [`crate::data_dependent_lp_optimizer`] on the truth-table IR, after the
+//! structural [`crate::pp_optimizer`] pass. The prover decides from runtime
+//! information, emits [`ProofPlanOptimizationHint`]s, and the verifier replays
+//! them to rebuild the prover's IR.
 //!
-//! Parallel to [`crate::data_dependent_lp_optimizer`], but operates on the
-//! truth-table IR (`InitialIr<B>`) after the structural
-//! [`crate::pp_optimizer`] pass. Rules in this module make decisions that
-//! depend on runtime information only the prover sees, emit
-//! [`ProofPlanOptimizationHint`]s, and the verifier replays those hints to
-//! reproduce the prover's IR shape.
-//!
-//! The list is currently empty — this module exists as wiring for future
-//! rules. When the first rule lands, the implementer should:
-//!
-//!  1. Add a variant to [`ProofPlanOptimizationHint`].
-//!  2. Push a `Arc<RuleStruct>` into [`rules`].
-//!  3. Extend [`apply_proof_plan_optimization_hints`] to dispatch on the new
-//!     variant.
-//!  4. Plumb [`ProofPlanOptimizationHints`] into the [`TTProof`]
-//!     serialization so the verifier receives them.
+//! There are no rules. Adding the first one needs a
+//! [`ProofPlanOptimizationHint`] variant, an entry in [`rules`], a dispatch
+//! arm in [`apply_proof_plan_optimization_hints`], and
+//! [`ProofPlanOptimizationHints`] carried in the serialized proof.
 
 use std::sync::Arc;
 
 use ark_piop::SnarkBackend;
 use tt_core::irs::shared_ir::InitialIr;
 
-/// A data-dependent proof-plan optimization.
-///
-/// Parallel to [`crate::pp_optimizer::ProofPlanOptimizerRule`], but the result
-/// is a set of [`ProofPlanOptimizationHint`]s the verifier will replay,
-/// not a directly-rewritten IR. Hints are emitted by the prover (which has
-/// access to runtime row counts via materialized payloads) and shipped with
-/// the proof.
+/// Unlike [`crate::pp_optimizer::ProofPlanOptimizerRule`], a rule returns
+/// hints for the verifier to replay instead of a rewritten IR.
 pub trait DataDependentProofPlanOptimizationRule<B: SnarkBackend>: Send + Sync {
-    /// Stable identifier for this rule (used for diagnostics and rule filtering).
+    /// Stable identifier, used for diagnostics and rule filtering.
     fn name(&self) -> &str;
 
-    /// Walk the structurally-optimized IR and produce any hints this rule
-    /// wants the verifier to replay.
+    /// `ir` is the structurally optimized IR.
     fn collect_hints(&self, ir: &InitialIr<B>) -> Vec<ProofPlanOptimizationHint>;
 }
 
-/// Runs a configured set of [`DataDependentProofPlanOptimizationRule`]s over
-/// the IR and merges their hints into a single [`ProofPlanOptimizationHints`]
-/// payload.
 pub struct DataDependentProofPlanOptimizer<B: SnarkBackend> {
     rules: Vec<Arc<dyn DataDependentProofPlanOptimizationRule<B>>>,
 }
 
 impl<B: SnarkBackend> DataDependentProofPlanOptimizer<B> {
-    /// Build an optimizer that runs the given rules in order.
     pub fn with_rules(rules: Vec<Arc<dyn DataDependentProofPlanOptimizationRule<B>>>) -> Self {
         Self { rules }
     }
 
-    /// Borrow the rule list (useful for filtering, e.g. benchmarks that
-    /// ablate individual rules).
+    /// For filtering, e.g. benchmarks that ablate individual rules.
     pub fn rules(&self) -> &[Arc<dyn DataDependentProofPlanOptimizationRule<B>>] {
         &self.rules
     }
 
-    /// Run every rule against `ir` and return their merged hint set.
     pub fn collect_hints(&self, ir: &InitialIr<B>) -> ProofPlanOptimizationHints {
         let mut hints = Vec::new();
         for rule in &self.rules {
@@ -67,8 +47,7 @@ impl<B: SnarkBackend> DataDependentProofPlanOptimizer<B> {
     }
 }
 
-/// Verifier-replayable proof-plan optimization decisions. Currently has no
-/// variants because there are no rules; future rules add variants here.
+/// A decision the verifier replays. Uninhabited while there are no rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProofPlanOptimizationHint {}
 
@@ -83,30 +62,24 @@ impl ProofPlanOptimizationHints {
     }
 }
 
-/// Apply a set of proof-plan optimization hints to an IR. Currently a no-op
-/// because [`ProofPlanOptimizationHint`] has no variants; future rules add
-/// dispatch arms here.
+/// A no-op while [`ProofPlanOptimizationHint`] is uninhabited: the match is
+/// exhaustive with zero arms.
 pub fn apply_proof_plan_optimization_hints<B: SnarkBackend>(
     ir: InitialIr<B>,
     hints: &ProofPlanOptimizationHints,
 ) -> InitialIr<B> {
     if let Some(hint) = hints.hints.first() {
-        // `ProofPlanOptimizationHint` is uninhabited today — this match is
-        // exhaustive with zero arms. Add a variant + dispatch when a rule
-        // is introduced.
         match *hint {}
     }
     ir
 }
 
-/// Default set of data-dependent proof-plan rules. Empty for now; production
-/// callers and benchmarks both pull from this list.
+/// The default rules, shared by production callers and benchmarks.
 pub fn rules<B: SnarkBackend>() -> Vec<Arc<dyn DataDependentProofPlanOptimizationRule<B>>> {
     vec![]
 }
 
-/// Production entry point: run the default [`DataDependentProofPlanOptimizer`]
-/// over the IR.
+/// Collects hints with the default [`rules`].
 pub fn collect_data_dependent_pp_hints<B: SnarkBackend>(
     ir: &InitialIr<B>,
 ) -> ProofPlanOptimizationHints {

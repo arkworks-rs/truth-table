@@ -1,23 +1,19 @@
-//! DataFusion-side planner rules for truth-table proofs.
+//! DataFusion-side planner rules for truth-table proofs, between DataFusion
+//! and `tt-core`:
 //!
-//! This crate sits between DataFusion and `tt-core`. It contains:
+//! - [`lp_analyzer`]: analyzer rules that run before optimization.
+//! - [`lp_optimizer`]: structural rules that rewrite the logical plan into a
+//!   shape the truth-table IR can consume.
+//! - [`data_dependent_lp_optimizer`]: rules whose decisions depend on runtime
+//!   row counts. The prover runs them and ships
+//!   [`data_dependent_lp_optimizer::OptimizationHints`] with the proof so the
+//!   verifier rebuilds the same plan.
+//! - [`pp_optimizer`]: rewrite rules on the truth-table IR built from the
+//!   optimized logical plan.
+//! - [`data_dependent_pp_optimizer`]: the same hint mechanism on `InitialIr<B>`.
 //!
-//! - [`lp_analyzer`] — analyzer rules that run before optimization,
-//!   normalizing the logical plan into a shape the rest of the pipeline expects.
-//! - [`lp_optimizer`] — structural optimizer rules that rewrite the logical
-//!   plan into a shape the truth-table IR can consume.
-//! - [`data_dependent_lp_optimizer`] — data-dependent optimizer rules whose
-//!   decisions depend on runtime row counts. The prover runs them and emits
-//!   [`data_dependent_lp_optimizer::OptimizationHints`] that travel with the
-//!   proof so the verifier can reproduce the same plan shape.
-//! - [`pp_optimizer`] — proof-plan rewrite rules that operate on the
-//!   truth-table IR after it has been built from the optimized logical plan.
-//! - [`data_dependent_pp_optimizer`] — data-dependent proof-plan rules whose
-//!   decisions depend on runtime IR state. Parallel to
-//!   [`data_dependent_lp_optimizer`] but operates on `InitialIr<B>`.
-//!
-//! The public [`ProofPlanner`] type is a placeholder for a future unified entry
-//! point; today the prover and verifier call the individual rule sets directly.
+//! [`ProofPlanner`] is an unimplemented placeholder: the prover and verifier
+//! call the rule sets directly.
 
 use ark_piop::SnarkBackend;
 use datafusion::prelude::SessionContext;

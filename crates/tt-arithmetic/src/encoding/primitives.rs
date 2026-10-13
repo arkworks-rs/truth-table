@@ -1,19 +1,13 @@
 //! Encoders for scalar-shaped Arrow arrays.
 //!
-//! Each `impl Encodable` here picks the smallest [`MLEStorage`] variant that
-//! faithfully represents the column, so the resulting `MLE` is built directly
-//! as `MLE::Bit`, `MLE::U8`, `MLE::U32`, or `MLE::U64` storage — no `Vec<F>`
-//! materialization at any point in the row-domain ingest path.
+//! Each encoder builds its `MLE` directly in the smallest storage that
+//! represents the column (bits, `u8`, `u32`, `u64`, packed decimal), with
+//! no intermediate `Vec<F>`. Nulls encode as zero.
 //!
-//! Signed integer types (`Int8Array`, …, `Int64Array`) peek at their values
-//! first: if every entry is `>= 0` they use the matching unsigned variant
-//! (`from_u8s` / `from_u32s` / `from_u64s`); otherwise they fall back to a
-//! field-element MLE because a negative in `F` is `MODULUS - abs(v)`, a
-//! full-fat 254-bit scalar that no compressed variant can hold. Nulls read
-//! as zero (matches the eager-encoding contract).
-//!
-//! Decimals stay field-native — `from_le_bytes_mod_order` is intrinsically
-//! field-native. Same for `Interval*` limb packings in `other.rs`.
+//! Signed types (integers, dates, `Decimal128`) use the unsigned storage
+//! when every value is non-negative. Otherwise they fall back to field
+//! elements: a negative `v` is `MODULUS - |v|` in `F`, which no compact
+//! storage holds.
 
 use ark_ff::PrimeField;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
@@ -32,10 +26,8 @@ use super::encodable::{Encodable, impl_col_adapter_map};
 use super::segment::{EncodedSegment, auto_segments};
 use super::util::collect_by_columns;
 
-/// Number of multilinear variables corresponding to a physical `len`.
-/// Encoders always receive pow2-length arrays in our pipeline (arithmetization
-/// pow2-asserts row batches; scalars are len=1; string encoder pow2-pads side
-/// buffers), so the ilog2 is exact.
+/// Number of variables of an array of `len` rows. Arithmetization only
+/// passes power-of-two row batches, and a scalar has one row.
 #[inline]
 fn num_vars_of(len: usize) -> usize {
     assert!(
@@ -44,12 +36,6 @@ fn num_vars_of(len: usize) -> usize {
     );
     len.trailing_zeros() as usize
 }
-
-// ── Boolean ──────────────────────────────────────────────────────────────
-//
-// Bit-packed MLE. Semantics preserved from the previous `if v { F::one() }
-// else { F::zero() }` mapping: nulls read as `false` → `F::zero()`, matching
-// the eager encoder's null contract.
 
 impl<F: PrimeField> Encodable<F> for BooleanArray {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
@@ -70,11 +56,6 @@ impl<F: PrimeField> Encodable<F> for BooleanArray {
     }
 }
 
-// ── Unsigned integers ────────────────────────────────────────────────────
-//
-// Direct handoff of the arrow buffer into the matching MLE variant. Nulls
-// read as 0 (matches the previous `F::zero()` contract).
-
 impl<F: PrimeField> Encodable<F> for UInt8Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         let bytes: Vec<u8> = (0..self.len())
@@ -90,9 +71,7 @@ impl<F: PrimeField> Encodable<F> for UInt8Array {
 
 impl<F: PrimeField> Encodable<F> for UInt16Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        // Promote u16 → u32 at MLE-construction time. `MLEStorage` has no
-        // `U16` variant; the 2× hit is still 8× smaller than Field storage
-        // and lets us reuse the existing U32 commit / lift paths.
+        // `MLEStorage` has no `U16` variant, so `u16` is stored as `u32`.
         let words: Vec<u32> = (0..self.len())
             .map(|i| {
                 if self.is_null(i) {
@@ -136,23 +115,9 @@ impl<F: PrimeField> Encodable<F> for UInt64Array {
     }
 }
 
-// ── Signed integers (sign-peek → unsigned MLE, else Fs fallback) ─────
-//
-// A signed value `v < 0` maps to `F::from(v as i128)` which internally
-// becomes `MODULUS - abs(v)` — a full 254-bit scalar with no small-int
-// representation. So we scan once: if every non-null entry is non-negative
-// we use the matching unsigned MLE (`v as uN`); if any entry is negative we
-// fall back to a full-fat Field MLE, matching the previous behavior
-// bit-for-bit.
-//
-// Nulls read as zero (matches the previous `F::zero()` null semantics),
-// same as the unsigned encoders above.
-
-// Sign-peek inlined per encoder rather than lifted to a generic — the arrow
-// `ArrayAccessor` trait is implemented on `&PrimitiveArray<T>`, not the owned
-// type, and the resulting bound leaks lifetime noise into every call site.
-// The one-liner `(0..len).all(|i| self.is_null(i) || self.value(i) >= 0)` is
-// clearer and monomorphizes cleanly per type.
+// The sign check is repeated per signed encoder instead of being generic:
+// arrow implements `ArrayAccessor` on `&PrimitiveArray<T>`, not the owned
+// type, and that bound would put a lifetime on every call site.
 
 impl<F: PrimeField> Encodable<F> for Int8Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
@@ -170,7 +135,6 @@ impl<F: PrimeField> Encodable<F> for Int8Array {
             let mle = MLE::<F>::from_u8s(bytes, num_vars_of(self.len()));
             return Ok(vec![EncodedSegment::primary_mle(mle)]);
         }
-        // Fallback: field-native encoding (matches prior semantics).
         let cols = collect_by_columns(self.len(), |i| {
             if self.is_null(i) {
                 vec![F::zero()]
@@ -189,7 +153,6 @@ impl<F: PrimeField> Encodable<F> for Int16Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         let all_non_negative = (0..self.len()).all(|i| self.is_null(i) || self.value(i) >= 0);
         if all_non_negative {
-            // Same u16 → u32 promotion as UInt16Array above.
             let words: Vec<u32> = (0..self.len())
                 .map(|i| {
                     if self.is_null(i) {
@@ -276,16 +239,9 @@ impl<F: PrimeField> Encodable<F> for Int64Array {
     }
 }
 
-// ── Dates / times / timestamps / durations ───────────────────────────────
-//
-// Arrow stores these as signed integers of various widths. The same
-// sign-peek rule applies — non-negative → matching unsigned MLE, negative →
-// field fallback.
-
 impl<F: PrimeField> Encodable<F> for Date32Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        // Date32 is days-since-epoch as i32. Realistic date columns are
-        // post-1970 → non-negative → U32.
+        // Days since the epoch as `i32`: non-negative from 1970 on.
         let all_non_negative = (0..self.len()).all(|i| self.is_null(i) || self.value(i) >= 0);
         if all_non_negative {
             let words: Vec<u32> = (0..self.len())
@@ -316,7 +272,7 @@ impl<F: PrimeField> Encodable<F> for Date32Array {
 
 impl<F: PrimeField> Encodable<F> for Date64Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
-        // Date64 is milliseconds-since-epoch as i64. Same rule as Date32.
+        // Milliseconds since the epoch as `i64`.
         let all_non_negative = (0..self.len()).all(|i| self.is_null(i) || self.value(i) >= 0);
         if all_non_negative {
             let words: Vec<u64> = (0..self.len())
@@ -345,11 +301,8 @@ impl<F: PrimeField> Encodable<F> for Date64Array {
     }
 }
 
-// Time / Timestamp / Duration: kept on the eager Fs path for now. These
-// types come up rarely in TPC-H and the value ranges vary widely by unit
-// (seconds vs nanoseconds). Left as `impl_col_adapter_map!` so we preserve
-// the pre-refactor behavior exactly for them; can be tightened later if a
-// workload actually needs it.
+// Times, timestamps, durations and year-month intervals are always encoded
+// as field elements.
 impl_col_adapter_map!(TimestampSecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(TimestampMillisecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(TimestampMicrosecondArray, |v| F::from(v as i128));
@@ -364,17 +317,9 @@ impl_col_adapter_map!(DurationMicrosecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(DurationNanosecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(IntervalYearMonthArray, |v| F::from(v as i128));
 
-// Decimal128: sign-peek like Int64. Non-negative → PackedDecimal storage
-// (16 B/row via parallel high/low u64 vectors; commit path reuses `msm_u64`
-// twice — see `pcs/pst13/mod.rs`). Any negative row → fall back to the
-// eager field-native path via `from_le_bytes_mod_order`, because negative
-// values in `F` become `MODULUS − |v|`, a full 254-bit scalar that a
-// 128-bit packed backing can't represent.
-//
-// TPC-H's `l_extendedprice`, `l_discount`, `l_tax`, `o_totalprice`,
-// `ps_supplycost`, `p_retailprice`, `c_acctbal`, `s_acctbal`, and
-// `n_regionkey`-adjacent decimals are all naturally non-negative, so the
-// common case takes the packed path.
+// A non-negative `Decimal128` column is stored packed, as high and low
+// `u64` halves (16 bytes per row). A column with a negative value falls
+// back to field elements through `from_le_bytes_mod_order`.
 impl<F: PrimeField> Encodable<F> for Decimal128Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         let all_non_negative = (0..self.len()).all(|i| self.is_null(i) || self.value(i) >= 0);
@@ -391,16 +336,12 @@ impl<F: PrimeField> Encodable<F> for Decimal128Array {
                 high.push((v >> 64) as u64);
                 low.push(v as u64);
             }
-            // `scale()` is the fixed-point exponent from the source
-            // DataType metadata (e.g. TPC-H's `l_extendedprice` is
-            // Decimal128(15,2) → scale=2). Cast to u8 fits every
-            // spec-permitted precision (0..=38).
+            // The fixed-point exponent of the data type. A `Decimal128`
+            // scale is at most 38, so it fits a `u8`.
             let scale_u8 = self.scale() as u8;
             let mle = MLE::<F>::from_packed_decimal(high, low, scale_u8, num_vars_of(n));
             return Ok(vec![EncodedSegment::primary_mle(mle)]);
         }
-        // Negative-mixed fallback — same encoding as before this variant
-        // existed, so historical Field-backed decimals stay bit-identical.
         let cols = collect_by_columns(self.len(), |i| {
             if self.is_null(i) {
                 vec![F::zero()]
@@ -414,8 +355,7 @@ impl<F: PrimeField> Encodable<F> for Decimal128Array {
         todo!("Decoding Decimal128Array is not implemented yet")
     }
 }
-// Decimal256 has no 128-bit packing available; stays field-native. TPC-H
-// doesn't use Decimal256 in practice.
+// `Decimal256` does not fit the packed storage.
 impl_col_adapter_map!(Decimal256Array, |v: <datafusion::arrow::datatypes::Decimal256Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
     &v.to_le_bytes()
 ));

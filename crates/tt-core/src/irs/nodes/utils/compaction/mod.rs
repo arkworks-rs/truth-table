@@ -297,14 +297,13 @@ fn populate_perm_payloads_verifier<B: SnarkBackend>(
     Ok(())
 }
 
-/// Restrict `table` to the columns `reference` carries.
+/// Restricts `table` to the columns `reference` carries.
 ///
-/// Note this selects columns; it does not reorder them.
+/// This selects columns without reordering them:
 /// `tracked_subtable_by_indices` rebuilds the subtable in the table's own
-/// `tracked_cols` order, so any permutation expressed here is discarded.
-/// Downstream that is fine: the permutation gadget folds both sides by name
-/// (see `utils::perm::should_fold_by_names`), so it no longer depends on the
-/// two sides sharing a column order.
+/// `tracked_cols` order. The two sides need not share a column order, since
+/// the permutation gadget folds both by name
+/// (`utils::perm::should_fold_by_names`).
 fn restrict_table_to_reference_columns<B: SnarkBackend>(
     table: &TrackedTable<B>,
     reference: &TrackedTable<B>,
@@ -319,7 +318,6 @@ fn restrict_table_to_reference_columns<B: SnarkBackend>(
     table.tracked_subtable_by_indices(&indices)
 }
 
-/// Verifier mirror of [`restrict_table_to_reference_columns`].
 fn restrict_table_oracle_to_reference_columns<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     reference: &TrackedTableOracle<B>,
@@ -334,18 +332,17 @@ fn restrict_table_oracle_to_reference_columns<B: SnarkBackend>(
     table.tracked_subtable_by_indices(&indices)
 }
 
-/// Locate each of `reference`'s data columns within `table`, as indices into
+/// Locates each of `reference`'s data columns within `table`, as indices into
 /// `table`'s flat view.
 ///
 /// Both inputs are flat views (`tracked_polys` / `tracked_oracles` key order),
-/// which is the index space `tracked_subtable_by_indices` expects and the same
-/// space `fallback_indices` lives in. Taking schemas here instead would mix two
-/// index spaces: a schema lists only user-visible fields, while the flat view
-/// also expands every arithmetization segment (`__length`, ...) and carries
-/// `__activator__`.
+/// the index space of `tracked_subtable_by_indices` and of `fallback_indices`.
+/// Schemas would mix two index spaces: a schema lists only user-visible
+/// fields, while the flat view also expands every arithmetization segment
+/// (`__length`, ...) and carries `__activator__`.
 ///
-/// Falls back to `fallback_indices` — keep every data column — whenever the
-/// correspondence is not unambiguous.
+/// Falls back to `fallback_indices`, every data column, whenever the
+/// correspondence is ambiguous.
 fn reference_column_indices(
     table_fields: &[FieldRef],
     reference_fields: &[FieldRef],

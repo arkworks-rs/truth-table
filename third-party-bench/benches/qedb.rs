@@ -3,7 +3,6 @@ use std::path::Path;
 use qedb::bench::benchmark_parquet_once_cached;
 use tpch_data::preprocess_parquet;
 
-// Paths for input/output artifacts.
 const PARQUET_DIR: &str = "artifact";
 const PARQUET_SUBDIR_PREFIX: &str = "size_";
 const PARQUET_FILE_PREFIX: &str = "bench_table_";

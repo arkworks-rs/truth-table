@@ -1,19 +1,13 @@
 use ark_ff::PrimeField;
 use sha2::{Digest, Sha256};
 
-/// Compress arbitrary bytes to a 32-byte digest that serves as the canonical
-/// field encoding for long strings and opaque binary values. Must be
-/// collision-resistant: two inputs hashing equal are indistinguishable to
-/// every downstream constraint (equality, joins, group-by), so a collision
-/// would let a prover change query semantics while satisfying the proof.
-#[inline]
-pub(crate) fn hash_to_32_bytes(data: &[u8]) -> [u8; 32] {
-    Sha256::digest(data).into()
-}
-
+/// The field encoding of a long string or an opaque binary value: its
+/// 32-byte digest. The hash must be collision-resistant: two inputs hashing
+/// equal are indistinguishable to every constraint (equality, joins,
+/// group-by), so a collision would let a prover change the query's result.
 #[inline]
 pub(crate) fn encode_hashed_bytes<F: PrimeField>(bytes: &[u8]) -> Vec<F> {
-    let hash_bytes = hash_to_32_bytes(bytes);
+    let hash_bytes: [u8; 32] = Sha256::digest(bytes).into();
     encode_bytes_to_fields::<F>(&hash_bytes)
 }
 
