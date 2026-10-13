@@ -1703,6 +1703,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     ) -> SnarkResult<()> {
         let inputs = extract_prover_inputs(gadget_ready_ir, id, self.mode, self.pattern.len());
         let char_domain = inputs.char_input.log_size();
+        // The gadget reads the strings only through `char^(0)` and its
+        // rotations, so `char^(0)` has to be the input's `char` column.
+        let char_binding = &inputs.rotated_chars[0] - &inputs.char_col;
+        prover.add_mv_zerocheck_claim(resize_poly(&char_binding, char_domain).id())?;
 
         // Fingerprint coefficients — sampled per instance. Each successive
         // call with the same tag yields a fresh challenge because the
@@ -1874,6 +1878,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     ) -> SnarkResult<()> {
         let inputs = extract_verifier_inputs(gadget_ready_ir, id, self.mode, self.pattern.len());
         let char_domain = inputs.char_input.log_size();
+        let char_binding = &inputs.rotated_chars[0] - &inputs.char_col;
+        verifier.add_mv_zerocheck_claim(resize_oracle(&char_binding, char_domain).id());
 
         let mut coeffs = Vec::with_capacity(self.pattern.len());
         for _ in 0..self.pattern.len() {

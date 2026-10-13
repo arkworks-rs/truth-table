@@ -629,9 +629,8 @@ fn set_rotation_chain_payload_prover<B: SnarkBackend>(
     char_domain: usize,
     ir: &mut GadgetReadyIr<B>,
 ) {
-    // `char^{(0)}` is the base char column and is trusted to match the
-    // char_input's `char` column at the caller's layer. The rotation
-    // chain proves `char^{(δ)} = ρ_{-1}(char^{(δ-1)})` for δ = 1..k-1.
+    // The chain proves `char^{(δ)} = ρ_{-1}(char^{(δ-1)})` for δ = 1..k-1.
+    // `char^{(0)}` is bound to the input's `char` column by Factor Placement.
     assert_eq!(
         checks.len() + 1,
         rotated_chars.len(),

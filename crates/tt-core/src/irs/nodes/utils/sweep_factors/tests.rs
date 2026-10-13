@@ -53,7 +53,6 @@ fn honest_t1_prefix_verifies() {
 /// The input strings are `"xy"`, but the committed `char^(0)` and everything
 /// derived from it are those of `"ab"`.
 #[test]
-#[ignore = "soundness gap: char^(0) is not bound to the char column of the input"]
 fn rotated_chars_of_other_strings_rejected() {
     assert!(
         run_gadget_pipeline(t1_prefix_harness(b"xyxy")).is_err(),
