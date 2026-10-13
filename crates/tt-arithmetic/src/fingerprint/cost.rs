@@ -3,11 +3,11 @@
 //!
 //! For `SELECT … FROM t WHERE c LIKE p` the planner builds, bottom-up:
 //!
-//! 1. the pre-filter `tt_prefilter(c, p, bins)` — only when the pattern has
+//! 1. the pre-filter `tt_prefilter(c, p, bins)`, only when the pattern has
 //!    a bin to test: a row-domain witness and one zerocheck over the product
-//!    of the tested bins' committed columns (a *limb* is one bin; see
+//!    of the tested bins' committed columns (a limb is one bin; see
 //!    [`super::LIMB_BITS`]), priced per tested bin;
-//! 2. a compaction of the survivors — only when they fit a strictly
+//! 2. a compaction of the survivors, only when they fit a strictly
 //!    smaller hypercube than the input (`next_pow2⁺(s) < next_pow2⁺(n)`):
 //!    a row-domain permutation and the char-domain DPUC over the compacted
 //!    strings;
@@ -15,31 +15,25 @@
 //!    pattern character and one placement sweep per factor over the char
 //!    domain;
 //! 4. the result check, priced separately when the matches fit a strictly
-//!    smaller hypercube than the LIKE's input rows.
-//!
-//! Stage 4 is named for a second compaction of the LIKE output, which
-//! the planner no longer performs; the fit keeps only a small
-//! per-character term for it, and the per-stage split of this model is
-//! not to be read as a breakdown.
+//!    smaller hypercube than the LIKE's input rows (the `second_compaction`
+//!    terms; the planner does not compact the LIKE output).
 //!
 //! The model prices each stage by the padded domain it works on, with
 //! coefficients fitted offline to whole-prove measurements
 //! (`tt-fp-opt fit`, fed by the `tt-fp-calibrate` binary) and compiled in
 //! from `cost_model.toml`. It is linear in the coefficients, so a
-//! non-negative least-squares fit over measured points recovers them.
+//! non-negative least-squares fit over measured points recovers them. Only
+//! the total is fitted: the per-stage split is not a breakdown of the
+//! proving time.
 //!
 //! # Choosing the bins
 //!
 //! The prover holds the data, so it picks which of the pattern's bins the
-//! pre-filter tests ([`select_bins`]), one limb — one bin — at a time:
-//! starting from every row, it repeatedly adds the bin whose test leaves
-//! the fewest survivors, prices the query after each step, and keeps the
-//! cheapest step count — possibly none. Any subset is sound (the verifier
-//! checks the bins it is told
-//! against the public pattern, and testing a bin only drops rows that do
-//! not match), so the choice needs no training and no agreement with the
-//! verifier beyond the list of bins. The model is only a heuristic here: a
-//! wrong coefficient costs time, never correctness.
+//! pre-filter tests ([`select_bins`]). Any subset is sound: the verifier
+//! checks the bins it is told against the public pattern, and testing a bin
+//! only drops rows that do not match. So the choice needs no agreement with
+//! the verifier beyond the list of bins, and the model is only a heuristic:
+//! a wrong coefficient costs time, never correctness.
 
 use std::sync::OnceLock;
 
@@ -103,7 +97,6 @@ pub const TERMS: [&str; 15] = [
     "like_rows_per_extra_factor",
 ];
 
-/// Number of model terms.
 pub const NUM_TERMS: usize = TERMS.len();
 
 /// The regressors of a shape: seconds = `coefficients · terms(shape)`.
@@ -152,8 +145,8 @@ pub struct CostModel {
     pub coefficients: [f64; NUM_TERMS],
 }
 
-/// The prover's cost model, compiled into the binary: the limb model fitted
-/// on `l_comment` whole-prove times.
+/// The prover's cost model, compiled into the binary: fitted on `l_comment`
+/// whole-prove times.
 pub const DEFAULT_COST_MODEL_TOML: &str = include_str!("../../cost_model.toml");
 
 impl Default for CostModel {
@@ -199,8 +192,6 @@ impl CostModel {
     }
 }
 
-// --- Bin selection --------------------------------------------------------
-
 /// What [`select_bins`] chose for one query.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Selection {
@@ -230,22 +221,19 @@ pub fn mask_of(bins: &[Bin]) -> FpMask {
 /// whose active rows are `strings`, fingerprinted under `scheme` as
 /// `fingerprints`, when `matches` of them match.
 ///
-/// The pre-filter pays per limb, not per bin: a touched limb is one lookup
-/// whether it tests one of the pattern's bins or all of them. So the
-/// choice is made in whole limbs. Each step adds the limb, among those
-/// holding the pattern's bins, whose test (all the pattern's bins in it)
-/// leaves the fewest survivors (ties to the lowest limb), then prices the
-/// query with `model`. The cheapest step count wins, including zero (no
-/// pre-filter). The whole chain is priced rather than stopping at the
-/// first step that does not pay, since the cost falls in steps at powers
-/// of two: a limb that saves nothing can precede one that crosses a step.
-/// A row's fingerprint stands in for the row: a NULL is an empty string,
-/// whose empty fingerprint fails every test, as the pre-filter's `false`
-/// on NULL requires. Exact and cheap: one bitset intersection per
-/// candidate limb per step, for a pattern's handful of limbs.
+/// The choice is greedy and made in whole limbs, the unit the pre-filter
+/// pays for. Each step adds the limb, among those holding the pattern's
+/// bins, whose test (all the pattern's bins in it) leaves the fewest
+/// survivors (ties to the lowest limb), then prices the query with `model`.
+/// The cheapest step count wins, including zero (no pre-filter). The whole
+/// chain is priced instead of stopping at the first step that does not pay,
+/// since the cost falls in steps at powers of two: a limb that saves
+/// nothing can precede one that crosses a step. A row's fingerprint stands
+/// in for the row: a NULL is an empty string, whose empty fingerprint fails
+/// every test, as the pre-filter's `false` on NULL requires.
 ///
-/// For benchmarks, [`FORCE_BINS_ENV`] replaces the priced choice with a
-/// fixed prefix of the same chain.
+/// [`FORCE_BINS_ENV`] replaces the priced choice with a fixed prefix of the
+/// same chain.
 pub fn select_bins<S: AsRef<[u8]>>(
     scheme: &FingerprintScheme,
     model: &CostModel,
@@ -263,7 +251,10 @@ pub fn select_bins<S: AsRef<[u8]>>(
                 .then(a.cmp(&b))
         })
         .expect("the chain starts with no pre-filter");
-    let best = forced_bins().map_or(best, |k| k.min(chain.steps.len() - 1));
+    let forced: Option<usize> = std::env::var(FORCE_BINS_ENV)
+        .ok()
+        .and_then(|k| k.parse().ok());
+    let best = forced.map_or(best, |k| k.min(chain.steps.len() - 1));
     let mut bins: Vec<Bin> = chain.limbs[..best]
         .iter()
         .flat_map(|&j| chain.bins_of_limb(j))
@@ -281,10 +272,6 @@ pub fn select_bins<S: AsRef<[u8]>>(
 /// that sweep the number of bins tested; any prefix is sound, so it can
 /// only change the proving time.
 pub const FORCE_BINS_ENV: &str = "TT_PREFILTER_FORCE_BINS";
-
-fn forced_bins() -> Option<usize> {
-    std::env::var(FORCE_BINS_ENV).ok()?.parse().ok()
-}
 
 /// The prover's greedy chain for one query: the limbs in the order it adds
 /// them, and the query's shape and cost after each prefix (`steps[k]`

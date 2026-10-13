@@ -111,28 +111,6 @@ impl HintDF {
 
     pub fn project_materialized(&self) -> Option<LogicalPlan> {
         todo!()
-        // let schema = self.plan.schema();
-        // let projection_exprs: Vec<Expr> = schema
-        //     .iter()
-        //     .filter(|&(_qualifier, field)| {
-        //         self.should_materialize.get(field).copied().unwrap_or(false)
-        //     })
-        //     .map(|(qualifier, field)| Expr::from((qualifier, field)))
-        //     .collect();
-
-        // if projection_exprs.len() == schema.fields().len() {
-        //     return Some(self.plan.clone());
-        // }
-
-        // if projection_exprs.is_empty() {
-        //     return None;
-        // }
-
-        // LogicalPlanBuilder::from(self.plan.clone())
-        //     .project(projection_exprs)
-        //     .expect("failed to build projection for materialized columns")
-        //     .build()
-        //     .ok()
     }
 }
 
@@ -311,7 +289,7 @@ pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
         return hint.clone();
     }
 
-    // Row-id is only for deterministic ordering, so drop it before storing payloads.
+    // The row id only fixes the row order; drop it before storing payloads.
     let projected: Vec<Expr> = df
         .schema()
         .fields()
@@ -554,8 +532,8 @@ fn normalize_hint_df(
         .collect();
 
     let already_normalized = match data_fram.logical_plan() {
-        // A normalized HintDF is exactly the projection we build above.
-        // If it already matches, avoid re-projecting/casting.
+        // A normalized HintDF is exactly the projection built above; one that
+        // already matches is not projected again.
         LogicalPlan::Projection(proj) => proj.expr == projection,
         _ => false,
     };

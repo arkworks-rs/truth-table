@@ -19,10 +19,10 @@ use std::collections::BTreeSet;
 /// Which fingerprint limb columns table-scan string columns carry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FingerprintColumns {
-    /// Every limb of every string column — the data owner commits them all
+    /// Every limb of every string column: the data owner commits them all,
     /// so any query can pre-filter any column on any bins.
     All,
-    /// Only these limbs — a query carries the limbs its pre-filters test
+    /// Only the limbs a query's pre-filters test
     /// (from `Tree::required_fingerprint_columns`).
     Only(arithmetic::encoding::FingerprintSelection),
 }
@@ -38,13 +38,11 @@ impl FingerprintColumns {
     }
 }
 
-/// An arithmetization pass that arithmetizes the prover's materialized in-memory tables
-///
-/// This pass converts an IR with materialized in-memory tables into an IR with arithmetized tables, meaning that each column is encoded and represented as multilinear extensions (MLEs) over a finite field.
+/// Encodes each column of the materialized tables as multilinear extensions
+/// over the field.
 pub struct ArithmetizationPass<B> {
-    /// Columns some white-box string gadget will consume char-level side
-    /// polys for (from `Tree::required_side_columns`). Every other string
-    /// column skips side-poly encoding entirely.
+    /// The string columns that get char-level side polys
+    /// (from `Tree::required_side_columns`).
     side_columns: BTreeSet<String>,
     /// Table-scan string columns that get fingerprint limb segments.
     fingerprint_columns: FingerprintColumns,
@@ -80,16 +78,11 @@ where
         _id: NodeId,
         payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
-        // Side-domain string columns are restricted to base tables
-        // (TableScan) and Compaction outputs: intermediate operators
-        // denormalize string columns across join fan-outs, which would
-        // produce char-level polys sized to (joined_rows × avg_len) and
-        // blow past both the SRS ceiling and available memory. A
-        // Compaction output is a compacted single-table snapshot (no
-        // fan-out), and re-encoding it here is exactly what shrinks the
-        // char domain for string gadgets above it. In both cases only
-        // columns some white-box string gadget actually consumes get
-        // side polys.
+        // Side-domain string columns exist only on table scans and Compaction
+        // outputs. Elsewhere a join fan-out would size the char-level polys
+        // to joined_rows × avg_len, past the SRS and memory. Re-encoding a
+        // Compaction output (no fan-out) is what shrinks the char domain for
+        // the string gadgets above it.
         let side_filter = (node.name() == "TableScan" || node.name() == "Compaction")
             .then_some(&self.side_columns);
         // Fingerprint limbs are owner-committed base-table data: only table
@@ -125,10 +118,8 @@ where
     }
 }
 
-/// Arithmetize one materialized table. `side_columns` gates char-level
-/// side-poly emission per column: `None` (intermediate operators, output
-/// table) emits none; `Some(set)` (TableScan) emits side polys only for
-/// columns in the set — those a white-box string gadget will consume.
+/// `side_columns` names the columns that get char-level side polys; `None`
+/// (intermediate operators, output table) gives none.
 /// `fingerprint_columns` gates fingerprint limb segments the same way.
 pub fn arithmetize_materialized_table<F: PrimeField>(
     mat: &MaterializedTable,
@@ -156,18 +147,9 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
     let log_vars = total_rows.trailing_zeros() as usize;
     let num_total_cols = schema_ref.fields().len();
 
-    // Row-domain segments per source column. Side-domain segments are split
-    // out into `side_segments_by_col` below and assembled into ArithSideCol
-    // entries after row encoding completes. Side segments carry native small
-    // ints (bytes or u32) so the in-memory side-col storage stays much
-    // smaller than the field-element form.
-    //
-    // Row-domain segments already carry a fully-built `MLE<F>` from the
-    // encoder — the arrow → native Vec → MLE conversion happens in one
-    // pass inside `encode_arrow_array_to_field`, using whichever
-    // `MLEStorage` variant is smallest for the source arrow type. No
-    // `Vec<F>` intermediate for compressible columns; no separate
-    // "backing" type to bridge encoders and this pass.
+    // Per source column: the row-domain segments, which the encoder returns
+    // as MLEs, and the side-domain segments, kept as native small ints
+    // (bytes or u32) because that is much smaller than field elements.
     let mut row_segments_by_col: Vec<Vec<(FieldRef, MLE<F>)>> = Vec::with_capacity(num_total_cols);
     let mut side_segments_by_col: Vec<
         Vec<(
@@ -215,10 +197,8 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
             match segment.side {
                 None => {
                     let mle = segment.mle.expect("row-domain segment must carry an MLE");
-                    // Row-domain segments come out of the encoder sized to
-                    // arrow_len == total_rows == 2^log_vars, so the MLE's
-                    // num_vars already matches the table's. Assert to
-                    // catch any encoder that ever forgets this contract.
+                    // The encoder sizes a row-domain segment to
+                    // total_rows = 2^log_vars.
                     debug_assert_eq!(
                         mle.num_vars(),
                         log_vars,
@@ -257,12 +237,9 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
         .collect();
     let schema = Some(Schema::new(schema_fields));
 
-    // Build side-column entries from raw bytes. ArithSideCol stores the
-    // pow2-padded byte buffer plus `active_len`; commit/track passes
-    // materialize transient `MLE<F>` views (for both data and the
-    // contiguous-one activator) only at the moment of MSM / proof-binding.
-    // For columns the per-column filter excluded, the encoder was told not
-    // to build side segments at all, so their groups are empty here.
+    // An `ArithSideCol` keeps the pow2-padded native buffer and `active_len`.
+    // The commitment and tracking passes build the `MLE<F>` views of the data
+    // and of its contiguous-one activator when they need them.
     let mut side_cols: IndexMap<FieldRef, arithmetic::table::ArithSideCol> = IndexMap::new();
     for column_group in side_segments_by_col {
         for (field_ref, data, active_len) in column_group {

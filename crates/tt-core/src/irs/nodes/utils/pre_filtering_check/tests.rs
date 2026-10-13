@@ -1,13 +1,11 @@
-//! Tests for `PreFilteringCheck` composite gadget node (paper PIOP 8),
-//! under a local one-bin-per-character fixture so the gadget's arithmetic
-//! is exercised independently of whatever scheme the system deploys.
+//! Tests for `PreFilteringCheck` (paper PIOP 8), under a local
+//! one-bin-per-character scheme so that they do not depend on the deployed
+//! one.
 //!
-//! Setup mirrors the length-filtering fixture: 2 strings, 4 characters;
-//! string 0 owns char 0, string 1 owns chars 1-3. `ind = [0, 1]`,
-//! `orig-ind = [0, 1, 1, 1]`, lengths `l = [1, 3]`. The pattern is the
-//! paper's `%dar%`: strings whose fingerprint misses one of `d`, `a`,
-//! `r` must be dropped. They are bins 10, 13 and 27, one committed boolean
-//! column each.
+//! Fixture: 2 strings, 4 characters; string 0 owns char 0, string 1 owns
+//! chars 1-3, so `ind = [0, 1]`, `orig-ind = [0, 1, 1, 1]`, `l = [1, 3]`. The
+//! pattern is the paper's `%dar%`: a string whose fingerprint misses one of
+//! `d`, `a`, `r` (bins 13, 10 and 27, one boolean column each) is dropped.
 
 use std::sync::Arc;
 
@@ -205,11 +203,10 @@ fn every_tested_bin_is_its_own_column() {
     assert_eq!(fingerprint::touched_limbs(&phi(16)), vec![10, 13]);
 }
 
-// ---- Positive cases ----
-
 #[test]
 fn superset_kept_and_true_negative_dropped() {
-    // "darling" ⊇ {d,a,r} → kept; "lemon" misses d/a/r bins → dropped.
+    // "darling" has d, a and r and is kept; "lemon" misses them and is
+    // dropped.
     for full_mode in [true, false] {
         run(
             honest([b"darling", b"lemon"], [1, 1], [1, 0]),
@@ -222,9 +219,8 @@ fn superset_kept_and_true_negative_dropped() {
 
 #[test]
 fn false_positive_of_the_scheme_survives_the_filter() {
-    // "radish" contains d, a, r (so its per-char fingerprint passes)
-    // without containing "dar" — the pre-filter keeps it; the exact
-    // protocol downstream would remove it. The PIOP must accept the keep.
+    // "radish" contains d, a and r without containing "dar": the pre-filter
+    // keeps it and the exact protocol downstream removes it.
     run(honest([b"radish", b"dab"], [1, 1], [1, 0]), NUM_BINS, true)
         .expect("fingerprint false positives are legitimately kept");
 }
@@ -286,8 +282,6 @@ fn many_tested_bins_verify() {
         "keeping the string missing a needed bin must be rejected"
     );
 }
-
-// ---- Adversarial cases ----
 
 #[test]
 fn keeping_a_failing_string_rejected() {

@@ -1,116 +1,42 @@
-//! A composite gadget node for paper §6.1 PIOP 8 Factor Placement.
+//! Factor Placement (paper §6.1, PIOP 8).
 //!
-//! Given a fixed factor `p = (str, mode)` of length `ℓ`, current activators
-//! `(a, char-act)`, the pre-rotated character columns `{char^(δ)}_{δ=0..ℓ-1}`,
-//! fingerprint coefficients `r_0, ..., r_{ℓ-1}`, and the tuple columns
-//! `(bnd, orig-ind, int-ind, ind)`, this gadget proves that the prover-sent
-//! witnesses `(occurs, match, mark, start)` — plus mode-dependent
-//! `({bnd^(δ)}_{δ=1..ℓ-1}, int-ind^(ℓ), end)` — correctly identify the *leftmost*
-//! occurrence of `str` at each string's admissible window, honouring `mode`
-//! (prefix / suffix / infix).
+//! For a fixed factor `p = (str, mode)` of length `ℓ`, proves that the
+//! prover-sent `(occurs, match, mark, start)` identify the leftmost occurrence
+//! of `str` in each string's admissible window (prefix, suffix or infix).
+//! The char-level input is `{ char, orig-ind, int-ind, bnd }` under `char-act`,
+//! the string-level input is `{ ind }` under `a`. The rotations `char^(δ)` are
+//! trusted here; Sweep Factors verifies them. `occurs`, `match`, `mark` and
+//! `mask` are boolean-checked.
 //!
-//! # Current scope
-//!
-//! - All three modes ([`Mode::Prefix`], [`Mode::Suffix`], [`Mode::Infix`])
-//!   are wired.
-//! - **Step 4d (Lookup Check for placement) is wired**: with a fresh
-//!   Fiat-Shamir challenge `γ`, the parties do a Lookup Check on
-//!   `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`.
-//!   Combined with the two count sumchecks in step 4c (both sides have
-//!   `n_m` active rows), the ⊑ becomes equality, tying each matched
-//!   string's `start` to the `int-ind` of its mark.
-//! - **Step 4e (leftmost check) is wired**: prover commits `start'` (the
-//!   char-level broadcast of `start`) and a boolean char-level `mask`
-//!   with `mask[c] = 1 iff int-ind[c] < start'[c]`. Three children
-//!   discharge the correctness of these witnesses:
-//!   - [`bool_check`] on `mask`,
-//!   - [`broadcast_check`] on `(start, start')`,
-//!   - [`sign::SignNode`]`(NonNegative)` on
-//!     `mask · (start' - int-ind - 1) + (1 - mask) · (int-ind - start')`,
-//!     activated by `char-act` — being `≥ 0` everywhere is equivalent to
-//!     `mask` matching its honest value.
-//!
-//!   Together with the inline zerocheck `occurs · mask · match' = 0`,
-//!   any candidate occurrence to the left of the mark is rejected —
-//!   so `start` is now the *leftmost* occurrence of each matched string.
-//!
-//! # Payload structure
-//!
-//! - [`CHAR_INPUT_LABEL`] — char-level table `{ char, orig-ind, int-ind, bnd }`
-//!   with activator `char-act`.
-//! - [`STR_INPUT_LABEL`] — string-level table `{ ind }` with activator `a`.
-//! - [`ROTATED_CHAR_LABEL`] — char-level table with `ℓ` data columns
-//!   `char^(0), ..., char^(ℓ-1)` in insertion order, no activator.
-//!   `char^(0)` should equal the input `char` column; the higher rotations
-//!   are verified upstream by Sweep Factors (this gadget trusts them).
-//! - [`OCCURS_LABEL`] — char-level table `{ occurs }`, no activator.
-//! - [`MATCH_LABEL`] — string-level table `{ match }`, no activator.
-//! - [`MARK_LABEL`] — char-level table `{ mark }`, no activator.
-//! - [`START_LABEL`] — string-level table `{ start }`, no activator.
-//! - [`MATCH_BROADCAST_LABEL`] — char-level table `{ match' }` — the
-//!   prover's broadcast of `match` to the char level, no activator.
-//! - [`ROTATED_INT_IND_LABEL`] — **suffix only** — char-level table
-//!   `{ int-ind^(ℓ) }` = `ρ_{-ℓ}(int-ind)`, verified by an extra
-//!   `RotationCheck(Direction::Left, shift=ℓ)` child.
-//! - [`END_LABEL`] — **suffix only** — char-level boolean `{ end }` with
-//!   `end[c] = 1 iff int-ind^(ℓ)[c] ≠ int-ind[c] + ℓ`: an occurrence at `c`
-//!   ends its string (the slot `ℓ` to the right starts the next string or
-//!   is padding, both with internal index 0). Pinned inline, see below.
-//! - [`ROTATED_BND_LABEL`] — **infix and suffix** — char-level table with
-//!   `ℓ − 1` data columns holding `bnd(1), ..., bnd(ℓ-1)` in insertion
-//!   order (each successive column is a shift-left-by-1 of the previous;
-//!   `bnd(0)` is the input `bnd` column). Verified by `ℓ − 1`
-//!   `RotationCheck(Direction::Left, shift=1)` children on
-//!   `(bnd(δ-1), bnd(δ))`. For `ℓ = 1` the table may be absent since the
-//!   sum is empty.
-//! - [`START_BROADCAST_LABEL`] — char-level table `{ start' }` where
-//!   `start'[c] = start[orig-ind[c]]`. Step 4e broadcasts the string-level
-//!   `start` to the char domain via a [`broadcast_check`] child.
-//! - [`LEFTMOST_MASK_LABEL`] — char-level table `{ mask }` where
-//!   `mask[c] = 1 iff int-ind[c] < start'[c]`. Discharged by a
-//!   [`bool_check`] child and pinned to its honest value by a
-//!   [`sign::SignNode`] child (see the Step 4e block above).
-//!
-//! # Decomposition
-//!
-//! Children (fixed 9 + mode-dependent):
-//! - `BoolCheck` on `occurs`, `match`, `mark` (three children).
-//! - `BroadcastCheck` on `(match, match')` — i.e. `match'[c] = match[orig-ind[c]]`.
-//! - `NoDup(Bezout)` on `(orig-ind, mark)` — at most one mark per string.
-//! - `Lookup` on `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`
-//!   — Step 4d placement check.
-//! - `BoolCheck` on `mask` — Step 4e mask booleanity.
-//! - `BroadcastCheck` on `(start, start')` — Step 4e start broadcast.
-//! - `SignNode(NonNegative)` on the Step 4e mask-selected difference,
-//!   activated by `char-act`.
-//! - (Suffix only) `RotationCheck(Direction::Left, shift=ℓ)` on
-//!   `(int-ind, int-ind^(ℓ))`.
-//! - (Infix and suffix) `ℓ − 1` `RotationCheck(Direction::Left, shift=1)`
-//!   children forming the chain `bnd(δ-1) → bnd(δ)` for `δ = 1..ℓ-1`.
-//!
-//! Inline claims emitted by `prove`/`verify`:
-//! - `att_mask` derivation depends on mode:
-//!   - Prefix: `char-act · bnd` (derived).
-//!   - Infix: `char-act · (1 − Σ_{δ=1..ℓ-1} bnd(δ))` (derived from the
-//!     payload-supplied rotated `bnd` columns).
-//!   - Suffix: the infix mask times `end`, where with
-//!     `d := int-ind^(ℓ) − int-ind − ℓ` the inline claims
-//!     `char-act · end · (1 − end) = 0`, `char-act · (1 − end) · d = 0` and
-//!     NoZero `char-act · end · d + (1 − char-act · end)` pin `end` to
-//!     `[d ≠ 0]` on every active char. (Anchoring on the next string's
-//!     activator instead would miss the last string and any string whose
-//!     successor is inactive.)
-//! - Fingerprint challenges `r_0, ..., r_{ℓ-1}` are sampled here (unique
-//!   transcript tag per gadget instance).
-//! - `wf := Σ r_δ · char^(δ)`, `pf := Σ r_δ · str[δ]`, `diff := wf − pf`.
-//! - Zerocheck: `occurs · (1 − att_mask) = 0`.
-//! - Zerocheck: `occurs · diff = 0`.
-//! - NoZeroCheck: `att_mask · (1 − occurs) · diff + (1 − att_mask · (1 − occurs))`
-//!   ≠ 0 everywhere (a Bezout-style "if candidate is unmarked, then diff ≠ 0").
-//! - Zerocheck: `occurs · (1 − match') = 0`.
-//! - Zerocheck: `mark · (1 − occurs) = 0`.
-//! - Sumcheck: `Σ mark = n_m` and `Σ match = n_m`.
-//! - Zerocheck: `occurs · mask · match' = 0` — Step 4e leftmost constraint.
+//! - Step 3, candidates. With fingerprint challenges `r_0, ..., r_{ℓ-1}` and
+//!   `diff := Σ r_δ · char^(δ) − Σ r_δ · str[δ]`: `occurs · (1 − att_mask) = 0`,
+//!   `occurs · diff = 0`, and NoZero on `u · diff + (1 − u)` with
+//!   `u := att_mask · (1 − occurs)` (an unmarked candidate has `diff ≠ 0`).
+//!   `att_mask` is `char-act · bnd` for a prefix and
+//!   `char-act · (1 − Σ_{δ=1..ℓ-1} bnd(δ))` for an infix, where `bnd(δ)` is
+//!   `bnd` shifted left by `δ`, proved by a chain of `ℓ − 1` rotation checks.
+//! - Suffix: the infix mask times a boolean `end`, 1 iff an occurrence at `c`
+//!   ends its string. The slot `ℓ` to the right then starts the next string or
+//!   is padding, both with internal index 0, so with `int-ind^(ℓ)` the
+//!   rotation of `int-ind` by `ℓ` and `d := int-ind^(ℓ) − int-ind − ℓ`, the
+//!   claims `char-act · end · (1 − end) = 0`, `char-act · (1 − end) · d = 0` and
+//!   NoZero on `char-act · end · d + (1 − char-act · end)` pin `end` to
+//!   `[d ≠ 0]` on every active char. Anchoring on the next string's activator
+//!   instead would miss the last string and any string whose successor is
+//!   inactive.
+//! - Step 4b, no false negatives: `occurs · (1 − match') = 0`, where `match'`
+//!   is the char-level broadcast of `match`.
+//! - Step 4c, one mark per matched string: `mark · (1 − occurs) = 0`, NoDup on
+//!   `(orig-ind, mark)`, and `Σ mark = Σ match = n_m`.
+//! - Step 4d, placement: a Lookup
+//!   `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)` with a fresh
+//!   challenge `γ`. Both sides have `n_m` active rows, so `⊑` is equality and
+//!   each matched string's `start` is the `int-ind` of its mark.
+//! - Step 4e, leftmost: `start'` is the char-level broadcast of `start`, and a
+//!   NonNegative sign check on
+//!   `mask · (start' − int-ind − 1) + (1 − mask) · (int-ind − start')` under
+//!   `char-act` pins `mask` to `[int-ind < start']`. Then
+//!   `occurs · mask · match' = 0` rejects any occurrence left of the mark.
 
 use crate::session::session_context;
 use std::marker::PhantomData;
@@ -155,21 +81,17 @@ pub const MATCH_LABEL: &str = "__match__";
 pub const MARK_LABEL: &str = "__mark__";
 pub const START_LABEL: &str = "__start__";
 pub const MATCH_BROADCAST_LABEL: &str = "__match_broadcast__";
-/// Suffix-only: prover-committed `ρ_{-ℓ}(int-ind)`.
+/// Suffix only: `ρ_{-ℓ}(int-ind)`.
 pub const ROTATED_INT_IND_LABEL: &str = "__rotated_int_ind__";
-/// Suffix-only: prover-committed boolean `end` (see the module docs).
+/// Suffix only: the boolean `end` of the module docs.
 pub const END_LABEL: &str = "__end__";
-/// Infix and suffix: prover-committed rotated `bnd(1), ..., bnd(ℓ-1)` columns,
-/// in insertion order (each is shift-left-by-1 of the previous, with
-/// `bnd(0)` being the input `bnd`). May be absent when `ℓ = 1`.
+/// Infix and suffix: the columns `bnd(1), ..., bnd(ℓ-1)` in insertion order,
+/// each the previous one shifted left by 1 (`bnd(0)` is the input `bnd`).
+/// May be absent when `ℓ = 1`.
 pub const ROTATED_BND_LABEL: &str = "__rotated_bnd__";
-/// Char-level broadcast of `start`: `start'[c] = start[orig_ind[c]]`.
-/// Wired to Step 4(e) via a [`broadcast_check`] child on `(start, start')`.
+/// `start'[c] = start[orig-ind[c]]`.
 pub const START_BROADCAST_LABEL: &str = "__start_broadcast__";
-/// Char-level boolean `mask`: `mask[c] = 1 iff int_ind[c] < start'[c]`.
-/// Wired to Step 4(e) via a [`bool_check`] child on `mask` and a
-/// [`sign::SignNode`] on `mask · (start' - int_ind - 1) + (1 - mask) ·
-/// (int_ind - start')`, which is non-negative iff `mask` is honest.
+/// `mask[c] = 1 iff int-ind[c] < start'[c]`.
 pub const LEFTMOST_MASK_LABEL: &str = "__leftmost_mask__";
 
 /// Anchoring mode for the factor.
@@ -177,9 +99,9 @@ pub const LEFTMOST_MASK_LABEL: &str = "__leftmost_mask__";
 pub enum Mode {
     /// Match anchored at each string's start.
     Prefix,
-    /// Match anchored at each string's end. (Not yet implemented.)
+    /// Match anchored at each string's end.
     Suffix,
-    /// Match may occur at any interior position. (Not yet implemented.)
+    /// Match may occur at any position.
     Infix,
 }
 
@@ -190,7 +112,6 @@ fn u64_field(name: &str) -> FieldRef {
     Arc::new(Field::new(name, DataType::UInt64, false))
 }
 
-/// Composite gadget node for a single factor placement.
 pub struct GadgetNode<B: SnarkBackend> {
     pattern: Vec<B::F>,
     mode: Mode,
@@ -199,22 +120,16 @@ pub struct GadgetNode<B: SnarkBackend> {
     bool_mark: Arc<Node<B>>,
     broadcast_match: Arc<Node<B>>,
     nodup_mark: Arc<Node<B>>,
-    /// Step 4d: Lookup on `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`.
+    /// Step 4d.
     lookup_placement: Arc<Node<B>>,
     /// Suffix only: proves `int-ind^(ℓ) = ρ_{-ℓ}(int-ind)`.
     int_ind_rot_check: Option<Arc<Node<B>>>,
     /// Infix and suffix: `ℓ − 1` rotation checks in a chain, each proving
     /// `bnd(δ) = ρ_{-1}(bnd(δ-1))` for `δ = 1..ℓ-1`.
     bnd_rot_checks: Vec<Arc<Node<B>>>,
-    /// Step 4(e): BoolCheck on the prover-committed `mask` column.
+    // Step 4e children.
     bool_leftmost_mask: Arc<Node<B>>,
-    /// Step 4(e): BroadcastCheck on `(start, start_broadcast)` — proves
-    /// `start_broadcast[c] = start[orig_ind[c]]`.
     broadcast_start: Arc<Node<B>>,
-    /// Step 4(e): NonNegative Sign on the mask-selected difference
-    /// `mask · (start' - int_ind - 1) + (1 - mask) · (int_ind - start')`,
-    /// activated by `char_act`. Being ≥ 0 everywhere pins `mask` to its
-    /// honest value.
     sign_leftmost: Arc<Node<B>>,
     _phantom: PhantomData<B>,
 }
@@ -224,13 +139,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
         Self::new_with_nodup_mode(pattern, mode, nodup::Mode::SortBased)
     }
 
-    /// Test-facing constructor that lets callers pick the nodup_mark
-    /// gadget's mode explicitly. Production callers should use
-    /// [`Self::new`] which defaults to `SortBased` (required for the
-    /// LIKE plan-time pipeline). Test harnesses that skip
-    /// `initialize_gadget_plans` need `BezoutBased` because its
-    /// `initialize_gadgets` is a no-op and doesn't require the
-    /// plan-time LEX_SORTED_LABEL hint.
+    /// For tests. [`Self::new`] uses `SortBased`, which needs the plan-time
+    /// `LEX_SORTED_LABEL` hint; a harness that skips
+    /// `initialize_gadget_plans` has to use `BezoutBased`.
     pub fn new_with_nodup_mode(pattern: Vec<B::F>, mode: Mode, nodup_mode: nodup::Mode) -> Self {
         assert!(
             !pattern.is_empty(),
@@ -342,8 +253,6 @@ fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> Trac
     TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
 }
 
-// ---- Payload extraction ----
-
 #[allow(dead_code)]
 struct InputsProver<B: SnarkBackend> {
     char_input: TrackedTable<B>,
@@ -359,18 +268,15 @@ struct InputsProver<B: SnarkBackend> {
     occurs: TrackedPoly<B>,
     match_str: TrackedPoly<B>,
     mark: TrackedPoly<B>,
-    // start is committed but currently unused pending Step 4e wiring.
     start: TrackedPoly<B>,
     match_broadcast: TrackedPoly<B>,
-    /// Suffix only: prover-committed `ρ_{-ℓ}(int-ind)` and `end`.
+    /// Suffix only.
     rotated_int_ind: Option<TrackedPoly<B>>,
+    /// Suffix only.
     end: Option<TrackedPoly<B>>,
-    /// Infix and suffix: prover-committed `bnd(1), ..., bnd(ℓ-1)`. Empty
-    /// for prefix mode or when `ℓ = 1`.
+    /// `bnd(1), ..., bnd(ℓ-1)`. Empty for prefix mode or when `ℓ = 1`.
     rotated_bnds: Vec<TrackedPoly<B>>,
-    /// Step 4(e): char-level `start'` where `start'[c] = start[orig_ind[c]]`.
     start_broadcast: TrackedPoly<B>,
-    /// Step 4(e): char-level `mask` where `mask[c] = 1 iff int_ind[c] < start'[c]`.
     leftmost_mask: TrackedPoly<B>,
 }
 
@@ -391,14 +297,10 @@ struct InputsVerifier<B: SnarkBackend> {
     mark: TrackedOracle<B>,
     start: TrackedOracle<B>,
     match_broadcast: TrackedOracle<B>,
-    /// Suffix only: prover-committed `ρ_{-ℓ}(int-ind)` and `end`.
     rotated_int_ind: Option<TrackedOracle<B>>,
     end: Option<TrackedOracle<B>>,
-    /// Infix and suffix: prover-committed `bnd(1), ..., bnd(ℓ-1)`.
     rotated_bnds: Vec<TrackedOracle<B>>,
-    /// Step 4(e): char-level `start'`.
     start_broadcast: TrackedOracle<B>,
-    /// Step 4(e): char-level `mask`.
     leftmost_mask: TrackedOracle<B>,
 }
 
@@ -698,8 +600,6 @@ fn single_col_oracle<B: SnarkBackend>(t: &TrackedTableOracle<B>, label: &str) ->
         .data_tracked_oracle()
 }
 
-// ---- Child payload wiring ----
-
 fn set_bool_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     data: &TrackedPoly<B>,
@@ -727,9 +627,8 @@ fn set_bool_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
-/// Broadcast check payload:
-/// - STR side: `{ ind, match }` with activator `a` (string data + activator)
-/// - CHAR side: `{ orig-ind, match' }` with activator `char-act`
+/// String side `{ ind, match }` under `a`, char side `{ orig-ind, match' }`
+/// under `char-act`.
 fn set_broadcast_match_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     inputs: &InputsProver<B>,
@@ -814,9 +713,8 @@ fn set_nodup_mark_payload_prover<B: SnarkBackend>(
         polys,
         char_domain,
     );
-    // Merge with any pre-existing payload — under SortBased the pipeline
-    // has already populated LEX_SORTED_LABEL (from nodup's plan-time hint);
-    // starting from a fresh IndexMap would drop it and break SortNoDup.
+    // Merge into the existing payload: under SortBased it already holds
+    // LEX_SORTED_LABEL from nodup's plan-time hint, which SortNoDup needs.
     let mut payload = match ir.payload_for_node(&node.id()).cloned() {
         Some(PayloadStructure::GadgetPayload(map)) => map,
         _ => IndexMap::new(),
@@ -847,8 +745,6 @@ fn set_nodup_mark_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
-/// Suffix-only: wire the `RotationCheck` child that proves
-/// `int-ind^(ℓ) = ρ_{-ℓ}(int-ind)`.
 fn set_int_ind_rot_check_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     inputs: &InputsProver<B>,
@@ -913,11 +809,8 @@ fn set_int_ind_rot_check_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
-/// Step 4d: wire the Lookup child on
-/// `(match, ind + γ · start) ⊑ (mark, orig-ind + γ · int-ind)`. The
-/// derived linear combinations are virtual polys built from `γ` sampled
-/// via Fiat-Shamir just before this call. `match` and `mark` sit as the
-/// respective side's activator.
+/// Step 4d. The two linear combinations are virtual; `match` and `mark` are
+/// the activators of their sides.
 fn set_lookup_placement_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     inputs: &InputsProver<B>,
@@ -1004,7 +897,7 @@ fn set_lookup_placement_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
-/// Infix-only: wire each `RotationCheck` in the `bnd(δ-1) → bnd(δ)` chain.
+/// Infix and suffix: `checks[δ]` proves `bnd(δ+1) = ρ_{-1}(bnd(δ))`.
 fn set_bnd_chain_rot_check_payloads_prover<B: SnarkBackend>(
     checks: &[Arc<Node<B>>],
     inputs: &InputsProver<B>,
@@ -1017,7 +910,6 @@ fn set_bnd_chain_rot_check_payloads_prover<B: SnarkBackend>(
         "infix: rotated_bnds length must match rot_checks length"
     );
     for (delta, check) in checks.iter().enumerate() {
-        // check[delta] proves bnd(delta+1) = ρ_{-1}(bnd(delta))
         let left_poly = if delta == 0 {
             inputs.bnd.clone()
         } else {
@@ -1094,11 +986,8 @@ fn set_bnd_chain_rot_check_payloads_verifier<B: SnarkBackend>(
     }
 }
 
-// ---- Step 4(e) children: leftmost check (broadcast_start + bool_mask + sign) ----
-
-/// Broadcast check payload for `start_broadcast[c] = start[orig_ind[c]]`:
-/// - STR side: `{ ind, start }` with activator `a`.
-/// - CHAR side: `{ orig_ind, start_broadcast }` with activator `char_act`.
+/// String side `{ ind, start }` under `a`, char side `{ orig-ind, start' }`
+/// under `char-act`.
 fn set_broadcast_start_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     inputs: &InputsProver<B>,
@@ -1167,10 +1056,7 @@ fn set_broadcast_start_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
-/// Sign check payload wrapping the derived `sign_input` — a `Int64`-typed
-/// column (differences fit in `i64`) with activator `char_act`. The Sign
-/// gadget checks `sign_input * char_act ≥ 0` on the hypercube, which
-/// (combined with the BoolCheck on `mask`) pins `mask` to its honest value.
+/// `Int64`, since the step 4e differences are signed and fit in `i64`.
 fn sign_input_field() -> FieldRef {
     Arc::new(Field::new(
         "__leftmost_sign_input__",
@@ -1215,27 +1101,21 @@ fn set_sign_leftmost_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
-/// Build the derived `sign_input` polynomial for the leftmost Sign check:
-///   `mask · (start' - int_ind - 1) + (1 - mask) · (int_ind - start')`
-/// Non-negative iff `mask` truthfully indicates `int_ind < start'`.
+/// `mask · (start' − int-ind − 1) + (1 − mask) · (int-ind − start')`:
+/// non-negative iff the boolean `mask` equals `[int-ind < start']`.
 fn build_leftmost_sign_input_poly<B: SnarkBackend>(inputs: &InputsProver<B>) -> TrackedPoly<B> {
     let mask = &inputs.leftmost_mask;
     let start_bcast = &inputs.start_broadcast;
     let int_ind = &inputs.int_ind;
 
-    // start' - int_ind - 1
     let start_minus_int = start_bcast - int_ind;
     let start_minus_int_minus_one = start_minus_int.sub_scalar_poly(B::F::from(1u64));
-    // int_ind - start'
     let int_minus_start = int_ind - start_bcast;
 
-    // mask · (start' - int_ind - 1)
     let term1 = mask * &start_minus_int_minus_one;
-    // 1 - mask
     let one_minus_mask = mask
         .mul_scalar_poly(-B::F::from(1u64))
         .add_scalar_poly(B::F::from(1u64));
-    // (1 - mask) · (int_ind - start')
     let term2 = &one_minus_mask * &int_minus_start;
 
     let sign_input = &term1 + &term2;
@@ -1263,10 +1143,7 @@ fn build_leftmost_sign_input_oracle<B: SnarkBackend>(
     resize_oracle(&sign_input, inputs.char_input.log_size())
 }
 
-// ---- Fingerprint & diff derivation ----
-
-/// Build `wf := Σ r_δ · char^(δ)`, `pf := Σ r_δ · str[δ]`, `diff := wf − pf`.
-/// Returns `(diff_poly, pf_scalar)`.
+/// `diff := wf − pf` with `wf := Σ r_δ · char^(δ)` and `pf := Σ r_δ · str[δ]`.
 fn build_diff_poly<B: SnarkBackend>(
     rotated_chars: &[TrackedPoly<B>],
     pattern: &[B::F],
@@ -1275,7 +1152,6 @@ fn build_diff_poly<B: SnarkBackend>(
 ) -> TrackedPoly<B> {
     assert_eq!(rotated_chars.len(), pattern.len());
     assert_eq!(coeffs.len(), pattern.len());
-    // wf = Σ r_δ · char^(δ)
     let mut wf = rotated_chars[0].mul_scalar_poly(coeffs[0]);
     for (chi, r) in rotated_chars.iter().zip(coeffs.iter()).skip(1) {
         let term = chi.mul_scalar_poly(*r);
@@ -1318,11 +1194,9 @@ fn sum_of_field<B: SnarkBackend>(poly: &TrackedPoly<B>) -> B::F {
         .fold(B::F::zero(), |acc, v| acc + v)
 }
 
-/// Deterministic key for `add_miscellaneous_field_element` / lookup by both
-/// prover and verifier. We do NOT key by raw NodeId — prover and verifier
-/// build separate trees whose pointer-derived ids differ across runs.
-/// DFS rank among FactorPlacement nodes stays deterministic across both
-/// trees, mirroring the pattern used by `nodup::active_input_rows_misc_key`.
+/// Key of this node's miscellaneous field elements: its DFS rank among the
+/// FactorPlacement nodes. A `NodeId` would not do, because the prover and the
+/// verifier build separate trees whose ids differ.
 fn miscellaneous_key<B: SnarkBackend>(
     target_id: NodeId,
     tree: &crate::irs::tree::Tree<B>,
@@ -1366,54 +1240,13 @@ fn miscellaneous_key<B: SnarkBackend>(
     format!("factor_placement_{fp_rank}_{tag}")
 }
 
-/// Blocking DataFrame collect that works in both current-thread and
-/// multi-thread tokio runtimes.
-fn collect_blocking_fp(df: datafusion::prelude::DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            tokio::runtime::RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| {
-                            datafusion_common::DataFusionError::Execution(e.to_string())
-                        })?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    datafusion_common::DataFusionError::Execution(
-                        "factor placement nodup hint collection thread panicked".to_string(),
-                    )
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| datafusion_common::DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
-}
-
-/// Combine LIKE's plan-time `orig_ind` (Int64) and `mark` (Int64
-/// {0,1}) virtual HintDFs into the shape SortNoDup expects for
-/// `INPUT_LABEL`: an `Int64` data column `orig_ind` plus a `Boolean`
-/// activator column, both marked `should_materialize = false`.
+/// Combines LIKE's plan-time `orig_ind` (Int64) and `mark` (Int64 in {0,1})
+/// hints into the `INPUT_LABEL` shape SortNoDup expects: an `Int64` data
+/// column `orig_ind` and a `Boolean` activator, neither materialized.
 fn build_nodup_mark_input_hint(orig_ind: &HintDF, mark: &HintDF) -> DataFusionResult<HintDF> {
-    // Pull orig_ind values from the first data column of the orig_ind hint.
-    let orig_batches = collect_blocking_fp(orig_ind.data_frame().clone())?;
-    let mark_batches = collect_blocking_fp(mark.data_frame().clone())?;
+    let orig_batches = crate::session::block_on(orig_ind.data_frame().clone().collect())?;
+    let mark_batches = crate::session::block_on(mark.data_frame().clone().collect())?;
 
-    // Concatenate all batches so we get a single row-aligned view.
     let orig_schema = orig_batches.first().map(|b| b.schema()).ok_or_else(|| {
         datafusion_common::DataFusionError::Plan("empty orig_ind hint".to_string())
     })?;
@@ -1434,7 +1267,7 @@ fn build_nodup_mark_input_hint(orig_ind: &HintDF, mark: &HintDF) -> DataFusionRe
         )));
     }
 
-    // Find the "data" columns (first non-system column) of each input.
+    // The data column is the first one that is neither row id nor activator.
     let orig_data_idx = orig_combined
         .schema()
         .fields()
@@ -1524,10 +1357,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         set_bool_payload_prover(&self.bool_mark, &inputs.mark, virtualized_ir);
         set_broadcast_match_payload_prover(&self.broadcast_match, &inputs, virtualized_ir);
         set_nodup_mark_payload_prover(&self.nodup_mark, &inputs, virtualized_ir);
-        // Sample γ for Step 4d BEFORE the Lookup child's own init runs.
-        // Both prover and verifier sample it here so their transcripts stay
-        // synchronized (initialize_gadgets is a pre-order pass, so this
-        // executes before the Lookup child's initialize_gadgets).
+        // γ of step 4d. `initialize_gadgets` is a pre-order pass, so both
+        // sides sample it here, before the Lookup child's own initialization.
         let gamma = prover.get_and_append_challenge(b"factor_placement_gamma")?;
         set_lookup_placement_payload_prover(&self.lookup_placement, &inputs, gamma, virtualized_ir);
         if let Some(ref rot_check) = self.int_ind_rot_check {
@@ -1536,8 +1367,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         if !self.bnd_rot_checks.is_empty() {
             set_bnd_chain_rot_check_payloads_prover(&self.bnd_rot_checks, &inputs, virtualized_ir);
         }
-        // Step 4(e): leftmost check — BoolCheck(mask), BroadcastCheck(start),
-        // and Sign(NonNegative) on the mask-selected difference.
         set_bool_payload_prover(
             &self.bool_leftmost_mask,
             &inputs.leftmost_mask,
@@ -1560,12 +1389,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        // Combine the LIKE-injected `orig_ind` and `mark` char-domain
-        // hints into a single INPUT_LABEL HintDF for the SortNoDup child
-        // (`nodup_mark`). SortNoDup's planner then uses the combined
-        // table to compute LEX_SORTED_LABEL. All fields stay virtual —
-        // the concrete TrackedPolys are still committed at prove time
-        // by LIKE's existing pipeline.
+        // Give the SortNoDup child (`nodup_mark`) its INPUT_LABEL hint, built
+        // from the `orig_ind` and `mark` hints LIKE injected; its planner
+        // derives LEX_SORTED_LABEL from it. All fields stay virtual: LIKE
+        // commits the polynomials at prove time.
         let own = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
@@ -1633,7 +1460,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             );
         }
-        // Step 4(e): leftmost check — mirror of the prover side.
         set_bool_payload_verifier(
             &self.bool_leftmost_mask,
             &inputs.leftmost_mask,
@@ -1656,12 +1482,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        // Combine the LIKE-injected `orig_ind` and `mark` char-domain
-        // hints into a single INPUT_LABEL HintDF for the SortNoDup child
-        // (`nodup_mark`). SortNoDup's planner then uses the combined
-        // table to compute LEX_SORTED_LABEL. All fields stay virtual —
-        // the concrete TrackedPolys are still committed at prove time
-        // by LIKE's existing pipeline.
+        // Same as the prover's `initialize_gadget_plans`.
         let own = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
@@ -1704,24 +1525,18 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let inputs = extract_prover_inputs(gadget_ready_ir, id, self.mode, self.pattern.len());
         let char_domain = inputs.char_input.log_size();
 
-        // Fingerprint coefficients — sampled per instance. Each successive
-        // call with the same tag yields a fresh challenge because the
-        // transcript has advanced with prior claims.
+        // Fingerprint coefficients. The same tag yields a fresh challenge on
+        // each call because the transcript absorbs every challenge it gives.
         let mut coeffs = Vec::with_capacity(self.pattern.len());
         for _ in 0..self.pattern.len() {
             coeffs.push(prover.get_and_append_challenge(b"factor_placement_r")?);
         }
 
-        // Prefix: att_mask := char-act · bnd (derived).
-        // Infix:  att_mask := char-act · (1 - Σ_{δ=1..ℓ-1} bnd(δ)) (derived
-        //         from the payload-supplied rotated bnd columns).
-        // Suffix: the infix mask · end, with `end` pinned below.
         let att_mask = match self.mode {
             Mode::Prefix => resize_poly(&(&inputs.char_act * &inputs.bnd), char_domain),
             Mode::Infix | Mode::Suffix => {
-                // sum := Σ_{δ=1..ℓ-1} bnd(δ)
                 let one_minus_sum = if inputs.rotated_bnds.is_empty() {
-                    // ℓ = 1: sum is empty, so 1 - 0 = 1 (constant 1 poly).
+                    // ℓ = 1: the sum is empty, so this is the constant 1.
                     inputs
                         .bnd
                         .mul_scalar_poly(B::F::zero())
@@ -1763,10 +1578,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             prover.add_mv_nozerocheck_claim(resize_poly(&ends, char_domain).id())?;
         }
 
-        // diff := Σ r_δ · char^(δ) − pf
         let diff = build_diff_poly::<B>(&inputs.rotated_chars, &self.pattern, &coeffs, char_domain);
 
-        // Step 3(b): Zerocheck on occurs · (1 − att_mask).
+        // Step 3(b): occurs · (1 − att_mask) = 0.
         {
             let one_minus_am = att_mask
                 .mul_scalar_poly(-B::F::from(1u64))
@@ -1775,18 +1589,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             prover.add_mv_zerocheck_claim(resize_poly(&claim, char_domain).id())?;
         }
 
-        // Step 3(c): Zerocheck on occurs · diff.
+        // Step 3(c): occurs · diff = 0.
         {
             let claim = &inputs.occurs * &diff;
             prover.add_mv_zerocheck_claim(resize_poly(&claim, char_domain).id())?;
         }
 
-        // Step 3(d): "NoZero on (diff, att_mask · (1 − occurs))" — encoded as
-        //   nozerocheck on `am_un · diff + (1 − am_un)` where
-        //   `am_un := att_mask · (1 − occurs)`.
-        // Collapses to `diff` when am_un = 1 (unmarked candidate) and to
-        // 1 elsewhere — so requiring it non-zero everywhere is exactly the
-        // paper's "unmarked candidate ⇒ diff ≠ 0".
+        // Step 3(d): NoZero on `am_un · diff + (1 − am_un)` with
+        // `am_un := att_mask · (1 − occurs)`. It equals `diff` on an unmarked
+        // candidate and 1 elsewhere.
         {
             let one_minus_occ = inputs
                 .occurs
@@ -1802,7 +1613,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             prover.add_mv_nozerocheck_claim(resize_poly(&witness, char_domain).id())?;
         }
 
-        // Step 4(b): no false negatives — occurs · (1 − match') = 0.
+        // Step 4(b): occurs · (1 − match') = 0.
         {
             let one_minus_mprime = inputs
                 .match_broadcast
@@ -1812,7 +1623,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             prover.add_mv_zerocheck_claim(resize_poly(&claim, char_domain).id())?;
         }
 
-        // Step 4(c) part 1: no false positives — mark · (1 − occurs) = 0.
+        // Step 4(c): mark · (1 − occurs) = 0.
         {
             let one_minus_occ = inputs
                 .occurs
@@ -1822,12 +1633,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             prover.add_mv_zerocheck_claim(resize_poly(&claim, char_domain).id())?;
         }
 
-        // Step 4(c) part 3: Σ mark = n_m, Σ match = n_m.
+        // Step 4(c): Σ mark = n_m and Σ match = n_m. The two sumchecks share
+        // the claimed value, which is what forces the sums to agree.
         let n_m_mark = sum_of_field::<B>(&inputs.mark);
         let n_m_match = sum_of_field::<B>(&inputs.match_str);
-        // Honest prover sanity: they should agree.
-        // (Note: not an on-chain check; the two sumchecks with a common
-        // claimed value force this at the verifier level.)
         let n_m = n_m_match;
         let _ = n_m_mark;
 
@@ -1836,18 +1645,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         prover.add_mv_sumcheck_claim(inputs.mark.id(), n_m)?;
         prover.add_mv_sumcheck_claim(inputs.match_str.id(), n_m)?;
 
-        // Step 4(d) LookupCheck on (match, ind+γ·start) ⊑ (mark, orig-ind+γ·int-ind)
-        // is wired as a child gadget via `lookup_placement`; γ is sampled
-        // in `initialize_gadgets` (see the comment there).
-
-        // Step 4(e): leftmost check — Zerocheck on
-        //   occurs · leftmost_mask · match_broadcast = 0.
-        // Combined with the BoolCheck on `mask`, the BroadcastCheck on
-        // `(start, start')`, and the NonNegative Sign on
-        //   mask · (start' - int_ind - 1) + (1 - mask) · (int_ind - start')
-        // — all wired in `initialize_gadgets` — this forces `mask[c] = 1
-        // iff int_ind[c] < start'[c]`, so any candidate occurrence to the
-        // left of the mark contradicts the zerocheck and is rejected.
+        // Step 4(e): occurs · mask · match' = 0.
         {
             let masked = &inputs.occurs * &inputs.leftmost_mask;
             let claim = &resize_poly(&masked, char_domain) * &inputs.match_broadcast;
@@ -1974,10 +1772,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         verifier.add_mv_sumcheck_claim(inputs.mark.id(), n_m);
         verifier.add_mv_sumcheck_claim(inputs.match_str.id(), n_m);
 
-        // Step 4(d) is wired via `lookup_placement`; `start` and `int-ind`
-        // are used there.
-
-        // Step 4(e): leftmost check — Zerocheck mirroring the prover side.
         {
             let masked = &inputs.occurs * &inputs.leftmost_mask;
             let claim = &resize_oracle(&masked, char_domain) * &inputs.match_broadcast;

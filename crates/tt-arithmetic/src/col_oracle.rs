@@ -4,11 +4,7 @@ use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
 use indexmap::{IndexMap, IndexSet};
 
-/// Verifier-side mirror of `PolyBundle`: data oracle plus its
-/// paired activator (optional — row aux inherit primary's, which may
-/// itself be `None` on unfiltered base tables). Row-vs-side is a
-/// derived property (compare `data.log_size()` against the owning
-/// column's primary log_size).
+/// Verifier-side mirror of [`crate::col::PolyBundle`].
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
 pub struct OracleBundle<B: SnarkBackend> {
@@ -28,24 +24,18 @@ impl<B: SnarkBackend> OracleBundle<B> {
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
-/// Verifier-side mirror of `TrackedCol`. Row-domain and side-domain aux
-/// oracles live in the same `aux_segments` map; see [`OracleBundle`].
+/// Verifier-side mirror of [`crate::col::TrackedCol`], with the same
+/// explicit row/side split.
 pub enum TrackedColOracle<B: SnarkBackend> {
     SingleSegment {
-        /// The column's data oracle + its (optional) activator.
         oracle_bundle: OracleBundle<B>,
         field_ref: Option<FieldRef>,
     },
     MultiSegment {
-        /// The primary (canonical) data oracle + its activator.
         primary_oracle_bundle: OracleBundle<B>,
-        /// All auxiliary oracle bundles (row-domain + side-domain),
-        /// keyed by segment suffix. Row/side classification lives in
-        /// the sibling `side_aux_suffixes` set — see the prover-side
-        /// [`crate::col::TrackedCol`] enum docstring for why the
-        /// historical `log_size` heuristic was insufficient.
+        /// Row-domain and side-domain auxiliary segments, keyed by suffix.
         aux_oracle_bundles: IndexMap<String, OracleBundle<B>>,
-        /// Subset of `aux_oracle_bundles` keys that are side-domain.
+        /// The keys of `aux_oracle_bundles` that are side-domain.
         side_aux_suffixes: IndexSet<String>,
         field_ref: Option<FieldRef>,
     },
@@ -90,7 +80,7 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedColOracle<B> {
 }
 
 impl<B: SnarkBackend> TrackedColOracle<B> {
-    /// Constructs a single-segment tracked column oracle.
+    /// A single-segment column oracle.
     pub fn new(
         data_tracked_oracle: TrackedOracle<B>,
         activator_tracked_oracle: Option<TrackedOracle<B>>,
@@ -106,12 +96,9 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Constructs a multi-segment tracked column oracle from a MERGED aux
-    /// list. Prefer [`Self::new_multi_split`] when the caller has the
-    /// row-vs-side split at hand — see the prover-side [`crate::col::TrackedCol::new_multi`]
-    /// for the same rationale. This shim auto-classifies each aux by
-    /// log_size against the primary; unreliable when the side domain is
-    /// pow2-padded to the row size.
+    /// [`Self::new_multi_split`] for a merged aux list, classifying each aux
+    /// by `log_size` against the primary. Unreliable when a side domain is
+    /// padded to the row size (see [`crate::col::TrackedCol::new_multi`]).
     pub fn new_multi(
         primary_oracle_bundle: OracleBundle<B>,
         aux_oracle_bundles_input: Vec<(String, OracleBundle<B>)>,
@@ -130,8 +117,8 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         Self::new_multi_split(primary_oracle_bundle, row_aux, side_aux, field_ref)
     }
 
-    /// Constructs a multi-segment tracked column oracle with explicit
-    /// row-vs-side classification. Preferred over [`Self::new_multi`].
+    /// A multi-segment column oracle from its primary bundle and its
+    /// row-domain and side-domain aux bundles.
     pub fn new_multi_split(
         primary_oracle_bundle: OracleBundle<B>,
         row_aux_input: Vec<(String, OracleBundle<B>)>,
@@ -181,9 +168,8 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         if activator_tracked_oracle.is_some() {
             let activator = activator_tracked_oracle.as_ref().unwrap();
             // A folded-constant oracle evaluates identically on any hypercube,
-            // so its stored log_size is unconstrained. Only enforce the size
-            // match when both sides are non-constant. Mirrors
-            // `TrackedCol::check_new_args`.
+            // so its stored log_size is unconstrained: the sizes must match
+            // only when both sides are non-constant.
             if !data_tracked_oracle.is_constant() && !activator.is_constant() {
                 debug_assert_eq!(data_tracked_oracle.log_size(), activator.log_size());
             }
@@ -191,9 +177,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Returns the log size of the tracked oracle. All row-domain
-    /// segments in a multi-segment oracle share the same log size by
-    /// construction.
+    /// The log size of the row domain, which all row-domain segments share.
     pub fn log_size(&self) -> usize {
         match self {
             Self::SingleSegment { oracle_bundle, .. } => oracle_bundle.log_size(),
@@ -204,7 +188,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Returns the primary data oracle.
+    /// The primary data oracle.
     pub fn data_tracked_oracle(&self) -> TrackedOracle<B> {
         match self {
             Self::SingleSegment { oracle_bundle, .. } => oracle_bundle.data.clone(),
@@ -215,7 +199,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Returns the primary segment's activator oracle.
+    /// The activator of the primary data oracle.
     pub fn activator_tracked_oracle(&self) -> Option<TrackedOracle<B>> {
         match self {
             Self::SingleSegment { oracle_bundle, .. } => oracle_bundle.activator.clone(),
@@ -226,7 +210,6 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Returns the field reference, if any.
     pub fn field_ref(&self) -> Option<FieldRef> {
         match self {
             Self::SingleSegment { field_ref, .. } | Self::MultiSegment { field_ref, .. } => {
@@ -235,8 +218,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Total number of oracles in this column (primary + all aux, row-
-    /// domain AND side-domain). Always >= 1.
+    /// The primary plus every aux segment, row-domain and side-domain.
     pub fn num_segments(&self) -> usize {
         match self {
             Self::SingleSegment { .. } => 1,
@@ -246,10 +228,8 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Iterate `(id, data, activator)` over ROW-domain segments only:
-    /// primary yields `id = None`, row-aux yields `id = Some(sid)`.
-    /// Side-domain aux excluded via the explicit `side_aux_suffixes`
-    /// marker (see the enum docstring for context).
+    /// `(id, data, activator)` of the row-domain segments only: the primary
+    /// with `id = None`, then each row-domain aux with `id = Some(suffix)`.
     #[allow(clippy::type_complexity)]
     pub fn segments_iter(
         &self,
@@ -281,9 +261,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Look up ANY aux segment (row-domain or side-domain) by id.
-    /// Returns `None` if the id is not registered (including for
-    /// `SingleSegment` oracles).
+    /// The aux segment `aux_id`, row-domain or side-domain.
     pub fn aux_segment(&self, aux_id: &str) -> Option<&OracleBundle<B>> {
         match self {
             Self::SingleSegment { .. } => None,
@@ -293,8 +271,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Look up a side-domain segment specifically (returns `None` if the
-    /// id resolves to a row-domain aux).
+    /// The side-domain segment `side_id`; `None` for a row-domain aux.
     pub fn side_segment(&self, side_id: &str) -> Option<&OracleBundle<B>> {
         match self {
             Self::SingleSegment { .. } => None,
@@ -312,8 +289,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Iterate `(suffix, aux)` over every side-domain segment in this
-    /// column oracle, in insertion order. Empty for `SingleSegment`.
+    /// `(suffix, aux)` of every side-domain segment, in insertion order.
     pub fn side_segments_iter(&self) -> Box<dyn Iterator<Item = (&str, &OracleBundle<B>)> + '_> {
         match self {
             Self::SingleSegment { .. } => Box::new(std::iter::empty()),
@@ -330,7 +306,6 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Returns the verifier tracker.
     pub fn tracker_ref(&self) -> ArgVerifier<B> {
         let oracle = match self {
             Self::SingleSegment { oracle_bundle, .. } => &oracle_bundle.data,
@@ -342,8 +317,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         ArgVerifier::new_from_tracker_rc(oracle.tracker().clone())
     }
 
-    /// Returns the primary data oracle multiplied by its activator
-    /// (when one exists).
+    /// The primary data oracle times its activator, when it has one.
     pub fn activated_data_tracked_oracle(&self) -> TrackedOracle<B> {
         match self.activator_tracked_oracle() {
             Some(activator) => &self.data_tracked_oracle() * &activator,
@@ -351,7 +325,7 @@ impl<B: SnarkBackend> TrackedColOracle<B> {
         }
     }
 
-    /// Pretty-print column oracle headers (primary segment only).
+    /// A text table with the headers of the primary segment.
     pub fn pretty_string(&self) -> String {
         let base_name = self
             .field_ref()

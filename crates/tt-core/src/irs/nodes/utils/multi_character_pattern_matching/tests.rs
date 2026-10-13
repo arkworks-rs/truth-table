@@ -1,12 +1,5 @@
-//! End-to-end test for `MultiCharacterPatternMatching` (paper §6.1 PIOP 6),
-//! single-factor t = 1 case.
-//!
-//! Fixture (matched str/char domain log sizes to keep the sumcheck
-//! equalization consistent for now):
-//! - `n_str = 4` (log 2), `n_char = 4` (log 2).
-//! - Two real strings, both `"ab"` of length 2; two inactive padding strings.
-//! - Pattern factor: `"ab"` (k = 2), Mode::Prefix.
-//! - Both real strings match; padding strings drop out via activators.
+//! Tests for `MultiCharacterPatternMatching` (paper §6.1 PIOP 6). The string
+//! and char domains have the same log size in every fixture.
 
 use std::sync::Arc;
 
@@ -60,11 +53,12 @@ fn pattern_ab() -> Vec<F> {
     u(&[b'a' as u64, b'b' as u64])
 }
 
+/// Two strings `"ab"` and two inactive padding strings against the prefix
+/// factor `"ab"`: both real strings match.
 #[test]
 fn honest_prefix_single_factor_verifies() {
-    // BezoutBased nodup_mark: the test harness bypasses
-    // `initialize_gadget_plans`, so `SortBased` would panic on the
-    // missing plan-time LEX_SORTED_LABEL hint.
+    // BezoutBased: the harness skips `initialize_gadget_plans`, so the
+    // LEX_SORTED_LABEL hint that `SortBased` needs is never produced.
     let gadget = Arc::new(Node::Gadget(Arc::new(
         GadgetNode::<B>::new_with_nodup_mode(
             vec![(pattern_ab(), Mode::Prefix)],
@@ -73,42 +67,35 @@ fn honest_prefix_single_factor_verifies() {
     )));
     let gadget_id = gadget.id();
 
-    // Char-level fixed columns.
     let char_col = u(&[b'a' as u64, b'b' as u64, b'a' as u64, b'b' as u64]);
     let orig_ind = u(&[0, 0, 1, 1]);
     let int_ind = u(&[0, 1, 0, 1]);
     let bnd = u(&[1, 0, 1, 0]);
     let char_act_old = u(&[1, 1, 1, 1]);
-    // String-level fixed columns.
     let ind = u(&[0, 1, 2, 3]);
     let l = i32_vals(&[2, 2, 0, 0]);
     let a_old = u(&[1, 1, 0, 0]);
 
-    // Length-filter outputs (k=2, both real strings kept).
+    // Length-filter outputs: threshold 2 keeps both real strings.
     let char_act_old_prime = u(&[1, 1, 1, 1]);
     let a_old_prime = u(&[1, 1, 0, 0]);
 
-    // Post-match activators.
     let char_act_new = u(&[1, 1, 1, 1]);
     let a_new = u(&[1, 1, 0, 0]);
 
-    // Rotated char columns for FactorPlacement.
     let char_0 = char_col.clone();
     let char_1 = shift_left(&char_col, 1);
 
-    // Factor Placement witnesses.
     let occurs = u(&[1, 0, 1, 0]);
     let match_str = u(&[1, 1, 0, 0]);
     let mark = u(&[1, 0, 1, 0]);
     let start = u(&[0, 0, 0, 0]);
     let match_broadcast = u(&[1, 1, 1, 1]);
-    // Step 4(e) witnesses (leftmost check). Both strings mark at int_ind=0
-    // (their leftmost occurrence), so start=0 → start_broadcast=0 → no
-    // char position is "before start" → leftmost_mask=0 everywhere.
+    // Both marks are at int_ind = 0, so start = 0 and no char lies before
+    // it: the leftmost mask is 0 everywhere.
     let start_broadcast = u(&[0, 0, 0, 0]);
     let leftmost_mask = u(&[0, 0, 0, 0]);
 
-    // Field refs.
     let char_f = u64_field("char");
     let orig_ind_f = u64_field("orig_ind");
     let int_ind_f = u64_field("int_ind");
@@ -285,11 +272,8 @@ fn honest_prefix_single_factor_verifies() {
     run_gadget_pipeline(harness).expect("honest PIOP 6 (t=1, prefix) should verify");
 }
 
-// -----------------------------------------------------------------------------
-// t = 2: two infix factors — pattern `%ab%cd%` against `"abcd"` | `"abcd"`.
-// End-to-end MCPM: DPUC + LFC (threshold = 4) + SweepFactors + verdict.
-// -----------------------------------------------------------------------------
-
+/// `%ab%cd%` against two strings `"abcd"`: DPUC, LFC with threshold 4,
+/// SweepFactors and the verdict together.
 #[test]
 fn honest_two_infix_verifies() {
     const STR_NV: usize = 3; // 8 slots
@@ -304,7 +288,6 @@ fn honest_two_infix_verifies() {
     )));
     let gadget_id = gadget.id();
 
-    // Char/string layout: two "abcd" strings packed contiguously.
     let char_col = u(&[
         b'a' as u64,
         b'b' as u64,
@@ -320,24 +303,22 @@ fn honest_two_infix_verifies() {
     let bnd = u(&[1, 0, 0, 0, 1, 0, 0, 0]);
     let char_act_old = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let ind = u(&[0, 1, 2, 3, 4, 5, 6, 7]);
-    // Both real strings length 4 (= threshold), rest inactive.
+    // Both real strings have length 4, the threshold.
     let l = i32_vals(&[4, 4, 0, 0, 0, 0, 0, 0]);
     let a_old = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
 
-    // Length-filter output: both strings pass (l ≥ 4).
     let char_act_old_prime = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let a_old_prime = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
 
-    // Post-match activators: both strings satisfy `%ab%cd%`.
     let char_act_new = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let a_new = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
 
-    // Rotated char cols (shared shape across both factors, ℓ = 2 each).
+    // Both factors have ℓ = 2 and share the rotations.
     let char_0 = char_col.clone();
     let char_1 = shift_left(&char_col, 1);
     let bnd_1 = shift_left(&bnd, 1);
 
-    // ---- Factor 0: "ab" ----
+    // Factor 0: "ab".
     let occurs_0 = u(&[1, 0, 0, 0, 1, 0, 0, 0]);
     let match_str_0 = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
     let mark_0 = u(&[1, 0, 0, 0, 1, 0, 0, 0]);
@@ -348,7 +329,7 @@ fn honest_two_infix_verifies() {
     // past_0[c] = 1 iff int_ind[c] ≥ start_broadcast_0[c] + |"ab"| = 2.
     let past_0 = u(&[0, 0, 1, 1, 0, 0, 1, 1]);
 
-    // ---- Factor 1: "cd" ----
+    // Factor 1: "cd".
     let occurs_1 = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
     let match_str_1 = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
     let mark_1 = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
@@ -357,7 +338,6 @@ fn honest_two_infix_verifies() {
     let start_broadcast_1 = u(&[2, 2, 2, 2, 2, 2, 2, 2]);
     let leftmost_mask_1 = u(&[1, 1, 0, 0, 1, 1, 0, 0]);
 
-    // ---- Field refs and schemas ----
     let char_f = u64_field("char");
     let orig_ind_f = u64_field("orig_ind");
     let int_ind_f = u64_field("int_ind");
@@ -452,7 +432,6 @@ fn honest_two_infix_verifies() {
                 activator: None,
             },
         )
-        // --- Factor 0 ---
         .with_table(
             gadget_id,
             &factor_label(0, "rotated_char"),
@@ -556,7 +535,6 @@ fn honest_two_infix_verifies() {
                 activator: None,
             },
         )
-        // --- Factor 1 ---
         .with_table(
             gadget_id,
             &factor_label(1, "rotated_char"),

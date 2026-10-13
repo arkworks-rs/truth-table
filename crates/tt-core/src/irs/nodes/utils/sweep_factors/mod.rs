@@ -1,68 +1,33 @@
-//! Composite gadget for paper §6.1 PIOP 7 Sweep Factors.
+//! Sweep Factors (paper §6.1, PIOP 7).
 //!
-//! Given a factor list `[(str_1, mode_1), …, (str_t, mode_t)]`, base
-//! char/string tables, and initial activators `(alive_c_0, alive_h_0)`
-//! (typically the outputs of Length Filtering), this gadget places each
-//! factor sequentially and threads activator state between rounds so
-//! that factor `j+1` may only match char positions past factor `j`'s
-//! mark and only inside strings that matched factor `j`.
+//! Places the `t` factors `p_j = (str_j, mode_j)` one after the other,
+//! threading the activators so that factor `j+1` can only match chars past
+//! factor `j`'s occurrence, inside strings that matched factor `j`. The input
+//! tables carry the initial activators `(alive_c_0, alive_h_0)`, typically
+//! the outputs of Length Filtering. Every constraint is in a child.
 //!
-//! # Per-round pipeline for factor `j` (0-indexed)
+//! For factor `j = 0, …, t − 1`, of length `k_j`:
+//! 1. Rotation chain: `k_j − 1` rotation checks prove
+//!    `char^{(δ)}_j = ρ_{-1}(char^{(δ−1)}_j)`, with `char^{(0)}_j` the `char`
+//!    column.
+//! 2. `FactorPlacement(p_j)` on the inputs under `alive_c_j` and `alive_h_j`.
+//!    Both are virtual (products of earlier rounds' witnesses), so the
+//!    verifier rebuilds them itself.
+//! 3. Past check, for `j < t − 1`: a boolean-checked `past_j` with
+//!    `past_j[c] = 1 iff int_ind[c] ≥ start'_j[c] + k_j`, i.e. the char lies
+//!    after the end of the occurrence, so factors never overlap (SQL LIKE
+//!    semantics). A NonNegative sign check on
+//!    `past_j · (int_ind − start'_j − k_j) + (1 − past_j) · (start'_j + k_j − 1 − int_ind)`
+//!    under `alive_c_j` pins it. `start'_j` is the broadcast of `start_j`
+//!    that `FactorPlacement(p_j)` already verifies.
+//! 4. Update: `alive_c_{j+1} := alive_c_j · past_j · match'_j` and
+//!    `alive_h_{j+1} := match_j`. `match'_j` is the broadcast of `match_j`
+//!    that `FactorPlacement(p_j)` checks, so the two activators stay
+//!    consistent: a string that misses factor `j` has no live char left for
+//!    factor `j+1`.
 //!
-//! 1. **Rotation chain** — verify the payload-supplied rotated char
-//!    columns `char^{(1)}_j, …, char^{(k_j−1)}_j` against `char` via
-//!    `k_j − 1` `RotationCheck(Left, shift=1)` children on
-//!    `(char^{(δ−1)}_j, char^{(δ)}_j)`; `char^{(0)}_j` is `char`
-//!    itself.
-//! 2. **Activator rebuild** — rebuild `CHAR_INPUT` with activator
-//!    `alive_c_{j-1}` and `STR_INPUT` with activator `alive_h_{j-1}`;
-//!    both activators are virtual polys (products of prior rounds'
-//!    witnesses) so the verifier reproduces them directly.
-//! 3. **FactorPlacement(p_j)** — one child; consumes the rebuilt inputs
-//!    plus the per-factor payload (occurs / match / mark / start /
-//!    match_broadcast / start_broadcast / leftmost_mask + mode-specific
-//!    rotated_bnd / rotated_int_ind / end).
-//! 4. **Past check** (only for `j < t − 1`) — prover commits `past_j`, a
-//!    boolean char-level column with `past_j[c] = 1 iff int_ind[c] ≥
-//!    start'_j[c] + k_j` (the char lies after the end of the occurrence,
-//!    so factors never overlap — SQL LIKE semantics). Discharged by:
-//!    - `BoolCheck` on `past_j`,
-//!    - `SignNode(NonNegative)` on the mask-selected difference
-//!      `past_j · (int_ind − start'_j − k_j) + (1 − past_j) ·
-//!      (start'_j + k_j − 1 − int_ind)`, activated by `alive_c_{j-1}`.
-//!
-//!    Note: `start'_j` (the char-level broadcast of `start_j`) is
-//!    already committed and verified inside `FactorPlacement(p_j)` — we
-//!    reuse it here without an extra `BroadcastCheck`.
-//! 5. **Activator update** — `alive_c_j := alive_c_{j-1} · past_j ·
-//!    match'_j` (chars after the j-th occurrence, inside strings that
-//!    matched factor j, stay alive), `alive_h_j := match_j` (strings that
-//!    matched factor j stay alive). `match'_j` is the broadcast of `match_j`
-//!    that `FactorPlacement(p_j)` already checks, so the two activators stay
-//!    consistent: a string that misses factor j has no live char left for
-//!    factor j+1.
-//!
-//! # Output
-//!
-//! The final alive_h_{t-1} = `match_{t-1}` is exposed to callers via the
-//! per-factor `MATCH_LABEL_{t-1}` in the input payload. Downstream
-//! composites (e.g. MCPM) enforce their own verdict zerocheck against
-//! this column.
-//!
-//! # Payload structure
-//!
-//! - `CHAR_INPUT_LABEL` / `STR_INPUT_LABEL` — base tables. `STR_INPUT`
-//!   carries the *initial* string activator `alive_h_0` (typically
-//!   `a^{old'}` from LFC). `CHAR_INPUT` carries the *initial* char
-//!   activator `alive_c_0` (typically `char-act^{old'}` from LFC).
-//! - Per factor `j` (0-indexed), via [`factor_label`]`(j, …)`:
-//!   - `"rotated_char"` — `k_j` char-level columns `char^{(0)}_j..char^{(k_j−1)}_j`.
-//!   - `"occurs"`, `"match"`, `"mark"`, `"start"`, `"match_broadcast"`,
-//!     `"start_broadcast"`, `"leftmost_mask"` — FactorPlacement
-//!     witnesses (see that module's docs).
-//!   - `"rotated_bnd"` — infix and suffix modes only, when `k_j ≥ 2`.
-//!   - `"rotated_int_ind"`, `"end"` — suffix mode only.
-//!   - `"past"` — for `j < t − 1` only. Boolean char-level column.
+//! The result is `match_{t-1}`, which the caller reads from the payload at
+//! [`factor_label`]`(t − 1, "match")`.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -92,39 +57,23 @@ pub use factor_placement::Mode;
 pub const CHAR_INPUT_LABEL: &str = "__char_input__";
 pub const STR_INPUT_LABEL: &str = "__str_input__";
 
-/// Parse a SQL LIKE pattern into a factor list suitable for
+/// Parses a SQL LIKE pattern (bytes) into the factor list for
 /// [`GadgetNode::new`].
 ///
-/// The pattern is a byte-oriented ASCII string; wildcards are `%`
-/// (zero or more chars) and `_` (single char). The **single-char `_`
-/// wildcard is not supported** yet — parsing rejects any pattern that
-/// contains it. Escape sequences (`\%`, `\_`) are treated as literals.
+/// The pattern is split on unescaped `%`. A non-empty segment before the
+/// first `%` is a `Prefix` factor, one after the last `%` a `Suffix` factor,
+/// any other non-empty segment an `Infix` factor; empty segments are
+/// dropped. So `"foo%bar%baz"` gives `[(foo, Prefix), (bar, Infix), (baz,
+/// Suffix)]` and `"%foo%bar%"` gives `[(foo, Infix), (bar, Infix)]`. The
+/// empty pattern and `"%"` give an empty list, which callers special-case
+/// (they match every string).
 ///
-/// The resulting factor list is derived by splitting on `%`:
-/// - A leading non-empty segment before the first `%` becomes a
-///   `Prefix` factor.
-/// - A trailing non-empty segment after the last `%` becomes a
-///   `Suffix` factor.
-/// - Every other non-empty segment (between two `%`s) becomes an
-///   `Infix` factor.
-/// - Empty segments (adjacent `%`s, or `%` at either end) are dropped
-///   from the factor list — they represent unconstrained regions.
+/// `\%` is a literal `%`. The `_` wildcard is not supported: a pattern with
+/// an unescaped `_` is rejected.
 ///
-/// The empty pattern and the pattern `"%"` both return `Ok(vec![])`,
-/// which callers should special-case (they match all strings).
-///
-/// Examples:
-/// - `"abc%"` → `[(abc, Prefix)]`
-/// - `"%abc"` → `[(abc, Suffix)]`
-/// - `"%abc%"` → `[(abc, Infix)]`
-/// - `"foo%bar%baz"` → `[(foo, Prefix), (bar, Infix), (baz, Suffix)]`
-/// - `"%foo%bar%"` → `[(foo, Infix), (bar, Infix)]`
-///
-/// **Known limitation**: a wildcard-free pattern (e.g. `"abc"`) parses
-/// to `[(abc, Prefix)]`, which — combined with the LFC threshold — is
-/// equivalent to `LIKE 'abc%'`, NOT strict equality. Callers wanting
-/// `col = 'abc'` semantics should lower to a direct equality expression
-/// rather than routing through `parse_like_pattern`.
+/// A pattern without wildcards (`"abc"`) parses to `[(abc, Prefix)]`, which
+/// with the LFC threshold means `LIKE 'abc%'`, not equality. A caller that
+/// wants `col = 'abc'` must lower to an equality expression instead.
 pub fn parse_like_pattern<F: ark_ff::PrimeField>(
     pattern: &str,
 ) -> Result<Vec<(Vec<F>, Mode)>, String> {
@@ -137,15 +86,12 @@ pub fn parse_like_pattern<F: ark_ff::PrimeField>(
         .collect())
 }
 
-/// Byte-level core of [`parse_like_pattern`]: same wildcard/escape
-/// semantics, but factors stay raw bytes. Used by callers that need the
-/// literal bytes rather than field elements (e.g. the fingerprint
-/// pre-filter, which hashes factor bytes into the pattern fingerprint).
+/// [`parse_like_pattern`] with the factors left as bytes, for callers such as
+/// the fingerprint pre-filter that hash the factor bytes.
 pub fn parse_like_pattern_bytes(pattern: &str) -> Result<Vec<(Vec<u8>, Mode)>, String> {
     if pattern.is_empty() {
         return Ok(Vec::new());
     }
-    // Reject `_` (single-char wildcard) until we support it.
     let bytes = pattern.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -153,7 +99,7 @@ pub fn parse_like_pattern_bytes(pattern: &str) -> Result<Vec<(Vec<u8>, Mode)>, S
             return Err("LIKE `_` (single-char wildcard) is not supported yet".to_string());
         }
         if bytes[i] == b'\\' && i + 1 < bytes.len() {
-            // Skip escape target; escapes are treated as literals below too.
+            // An escaped byte is not a wildcard.
             i += 2;
             continue;
         }
@@ -202,12 +148,11 @@ pub fn parse_like_pattern_bytes(pattern: &str) -> Result<Vec<(Vec<u8>, Mode)>, S
     Ok(factors)
 }
 
-/// Payload label for the per-factor `name` slot at factor index `j`
-/// (0-indexed). Slots: `"rotated_char"`, `"occurs"`, `"match"`, `"mark"`,
+/// Payload label of slot `name` of factor `j` (0-indexed). The slots are
+/// FactorPlacement's `"rotated_char"`, `"occurs"`, `"match"`, `"mark"`,
 /// `"start"`, `"match_broadcast"`, `"start_broadcast"`, `"leftmost_mask"`,
-/// `"rotated_bnd"` (infix and suffix, k ≥ 2 only), `"rotated_int_ind"` and
-/// `"end"` (suffix only), and
-/// `"past"` (for `j < t − 1` only).
+/// `"rotated_bnd"` (infix and suffix, `k ≥ 2`), `"rotated_int_ind"` and
+/// `"end"` (suffix), and `"past"` (for `j < t − 1`).
 pub fn factor_label(j: usize, name: &str) -> String {
     format!("__f{j}_{name}__")
 }
@@ -229,15 +174,12 @@ fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> Trac
     TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
 }
 
-/// Sweep Factors gadget over an ordered list of `(pattern, mode)` factors.
 pub struct GadgetNode<B: SnarkBackend> {
     factors: Vec<(Vec<B::F>, Mode)>,
-    // One FactorPlacement child per factor.
     factor_placements: Vec<Arc<Node<B>>>,
-    // Rotation chain per factor: `k_j − 1` `RotationCheck(Left, 1)` children.
+    // Per factor, `k_j − 1` `RotationCheck(Left, 1)` children.
     rotation_chains: Vec<Vec<Arc<Node<B>>>>,
-    // Past-check children (one set per inter-factor step, i.e. `t − 1`
-    // sets when `t ≥ 2`; empty for `t = 1`).
+    // Past-check children, one pair per factor except the last.
     bool_pasts: Vec<Arc<Node<B>>>,
     sign_pasts: Vec<Arc<Node<B>>>,
     _phantom: PhantomData<B>,
@@ -248,11 +190,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
         Self::new_with_nodup_mode(factors, crate::irs::nodes::utils::nodup::Mode::SortBased)
     }
 
-    /// Test-facing constructor that lets callers pick the nodup_mark
-    /// mode inside each nested FactorPlacement. Production callers
-    /// should use [`Self::new`] (defaults to `SortBased`, required for
-    /// LIKE's plan-time hint pipeline). Test harnesses that skip
-    /// `initialize_gadget_plans` need `BezoutBased`.
+    /// For tests: see [`factor_placement::GadgetNode::new_with_nodup_mode`].
     pub fn new_with_nodup_mode(
         factors: Vec<(Vec<B::F>, Mode)>,
         nodup_mode: crate::irs::nodes::utils::nodup::Mode,
@@ -357,8 +295,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 }
 
-// ---- Payload extraction ----
-
 struct FactorProver<B: SnarkBackend> {
     rotated_chars: Vec<TrackedPoly<B>>,
     occurs: TrackedTable<B>,
@@ -371,8 +307,8 @@ struct FactorProver<B: SnarkBackend> {
     rotated_bnd: Option<TrackedTable<B>>,
     rotated_int_ind: Option<TrackedTable<B>>,
     end: Option<TrackedTable<B>>,
-    // Convenience: the single data column of `match_str`, `match_broadcast`,
-    // `start_broadcast`, `past`.
+    // The single data column of `match_str`, `match_broadcast`,
+    // `start_broadcast` and `past`.
     match_col: TrackedPoly<B>,
     match_broadcast_col: TrackedPoly<B>,
     start_broadcast_col: TrackedPoly<B>,
@@ -621,17 +557,15 @@ fn single_col_oracle<B: SnarkBackend>(t: &TrackedTableOracle<B>) -> TrackedOracl
     t.tracked_col_oracle_by_ind(idx).data_tracked_oracle()
 }
 
-// ---- Child payload wiring ----
-
 fn set_rotation_chain_payload_prover<B: SnarkBackend>(
     checks: &[Arc<Node<B>>],
     rotated_chars: &[TrackedPoly<B>],
     char_domain: usize,
     ir: &mut GadgetReadyIr<B>,
 ) {
-    // `char^{(0)}` is the base char column and is trusted to match the
-    // char_input's `char` column at the caller's layer. The rotation
-    // chain proves `char^{(δ)} = ρ_{-1}(char^{(δ-1)})` for δ = 1..k-1.
+    // The chain proves `char^{(δ)} = ρ_{-1}(char^{(δ-1)})` for δ = 1..k-1.
+    // `char^{(0)}` is not checked here: the caller is trusted to pass the
+    // `char` column of the char input.
     assert_eq!(
         checks.len() + 1,
         rotated_chars.len(),
@@ -770,8 +704,8 @@ fn set_sign_past_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(payload)));
 }
 
-/// Rebuild the base char_input with a fresh activator, preserving the
-/// four data columns `char, orig_ind, int_ind, bnd` in the same order.
+/// `char_input` under a new activator; the data columns `char, orig_ind,
+/// int_ind, bnd` keep their order.
 fn rebuild_char_input_prover<B: SnarkBackend>(
     char_input: &TrackedTable<B>,
     activator: TrackedPoly<B>,
@@ -900,8 +834,6 @@ fn rebuild_str_input_verifier<B: SnarkBackend>(
     TrackedTableOracle::new(Some(schema), oracles, str_input.log_size())
 }
 
-/// Forward the per-factor payload into the FactorPlacement child's
-/// payload map, using the labels FactorPlacement expects.
 fn set_factor_placement_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     factor: &FactorProver<B>,
@@ -909,8 +841,8 @@ fn set_factor_placement_payload_prover<B: SnarkBackend>(
     str_input: TrackedTable<B>,
     ir: &mut GadgetReadyIr<B>,
 ) {
-    // The rotated_char table for FactorPlacement carries all k columns
-    // without an activator; rebuild it from the individual polys.
+    // FactorPlacement takes the k rotated columns as one table with no
+    // activator.
     let char_domain = char_input.log_size();
     let rot_cols: Vec<(FieldRef, TrackedPoly<B>)> = factor
         .rotated_chars
@@ -1048,11 +980,9 @@ fn set_factor_placement_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(child)));
 }
 
-/// Build the derived `sign_input` polynomial for the per-factor past
-/// check of a factor of length `k`:
-///   `past · (int_ind − start' − k) + (1 − past) · (start' + k − 1 − int_ind)`
-/// Non-negative iff `past` truthfully indicates `int_ind ≥ start' + k`, i.e.
-/// the char lies after the end of the factor's occurrence.
+/// `past · (int_ind − start' − k) + (1 − past) · (start' + k − 1 − int_ind)`
+/// for a factor of length `k`: non-negative iff the boolean `past` equals
+/// `[int_ind ≥ start' + k]`.
 fn build_past_sign_input_poly<B: SnarkBackend>(
     past: &TrackedPoly<B>,
     int_ind: &TrackedPoly<B>,
@@ -1097,8 +1027,6 @@ fn build_past_sign_input_oracle<B: SnarkBackend>(
     resize_oracle(&sign_input, log_size)
 }
 
-// ---- Prover / Verifier impls ----
-
 impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
@@ -1135,7 +1063,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .tracked_col_by_ind(char_input.data_tracked_polys_indices()[2])
             .data_tracked_poly();
 
-        // Initial activators come from the caller-supplied tables.
         let alive_c_0 = char_input
             .activator_tracked_poly()
             .expect("SweepFactors: CHAR_INPUT must carry alive_c_0");
@@ -1152,7 +1079,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             let has_past = j + 1 < t;
             let factor = extract_factor_prover(&payload, j, pattern.len(), *mode, has_past);
 
-            // 1) Rotation chain on this factor's rotated_char columns.
             set_rotation_chain_payload_prover(
                 &self.rotation_chains[j],
                 &factor.rotated_chars,
@@ -1160,11 +1086,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             );
 
-            // 2) Rebuild inputs with the current alive activators.
             let child_char = rebuild_char_input_prover(&char_input, alive_c.clone());
             let child_str = rebuild_str_input_prover(&str_input, alive_h.clone());
 
-            // 3) Wire FactorPlacement(p_j).
             set_factor_placement_payload_prover(
                 &self.factor_placements[j],
                 &factor,
@@ -1173,7 +1097,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             );
 
-            // 4) Past check (only for j < t - 1) + activator update.
             if let Some(past) = factor.past_col.as_ref() {
                 set_bool_past_payload_prover(&self.bool_pasts[j], past, virtualized_ir);
                 let sign_input = build_past_sign_input_poly(
@@ -1191,15 +1114,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                     virtualized_ir,
                 );
 
-                // 5) Alive updates for the next round: chars after this
-                //    factor's occurrence, inside strings that matched it.
+                // Next round: chars after this occurrence, inside strings
+                // that matched this factor.
                 alive_c = &(&alive_c * past) * &factor.match_broadcast_col;
                 alive_h = factor.match_col.clone();
             }
         }
-        // For the final factor (j = t-1) no past-check is needed and the
-        // alive updates from the final round are unused; the caller
-        // reads match_{t-1} from the payload.
         let _ = (alive_c, alive_h);
         Ok(())
     }
@@ -1209,14 +1129,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        // Forward the LIKE-injected plan-time hints down to each
-        // per-factor FactorPlacement child. The shared `orig_ind` hint
-        // gets fan-out to every child at key
-        // `"__like_orig_ind_plan_hint__"`; the per-factor `mark` hint
-        // arrives here as `"__like_f{j}_mark_plan_hint__"` and is
-        // routed to child `j` under the single-mark key
-        // `"__like_mark_plan_hint__"` (each FactorPlacement owns one
-        // mark).
+        // Forward LIKE's plan-time hints to the FactorPlacement children:
+        // the shared `orig_ind` hint goes to every child, and factor `j`'s
+        // `"__like_f{j}_mark_plan_hint__"` goes to child `j` under
+        // `"__like_mark_plan_hint__"`.
         let own = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
@@ -1347,14 +1263,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        // Forward the LIKE-injected plan-time hints down to each
-        // per-factor FactorPlacement child. The shared `orig_ind` hint
-        // gets fan-out to every child at key
-        // `"__like_orig_ind_plan_hint__"`; the per-factor `mark` hint
-        // arrives here as `"__like_f{j}_mark_plan_hint__"` and is
-        // routed to child `j` under the single-mark key
-        // `"__like_mark_plan_hint__"` (each FactorPlacement owns one
-        // mark).
+        // Same as the prover's `initialize_gadget_plans`.
         let own = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
@@ -1393,10 +1302,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
         _id: NodeId,
     ) -> SnarkResult<()> {
-        // All constraints are discharged by children (per-factor
-        // FactorPlacement, per-factor rotation chain, and per-inter-
-        // factor past check). Downstream composites read
-        // `MATCH_LABEL_{t-1}` from the payload for their verdict.
+        // Every constraint is in a child.
         Ok(())
     }
 

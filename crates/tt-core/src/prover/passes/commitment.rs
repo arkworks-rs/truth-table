@@ -16,12 +16,9 @@ use indexmap::IndexMap;
 use serde_json::{Value, json};
 use tracing::{debug, info};
 
-/// Build a side-col data `MLE<F>` that keeps the native small-scalar storage.
-///
-/// The returned MLE uses `MLEStorage::U8` for byte columns and `MLEStorage::U32`
-/// for u32 columns — 32× and 8× smaller than the equivalent field-element
-/// representation. The storage survives across the tracker's Arc clone and the
-/// PCS commit (which materializes transiently for MSM only).
+/// A side-col data MLE in its native storage (`MLEStorage::U8` or `U32`),
+/// 32× and 8× smaller than field elements. The PCS commit expands it for the
+/// MSM only.
 fn materialize_side_data_mle<F: PrimeField>(
     data: &arithmetic::encoding::SideColData,
     log_size: usize,
@@ -36,16 +33,6 @@ fn materialize_side_data_mle<F: PrimeField>(
     Arc::new(mle)
 }
 
-/// Build the contiguous-one activator MLE for a side col as bit-packed
-/// storage. `MLEStorage::Bit` gives a 256× reduction over the field-element
-/// form for a mask of arbitrary size.
-fn materialize_side_activator_mle<F: PrimeField>(
-    log_size: usize,
-    active_len: usize,
-) -> Arc<MLE<F>> {
-    Arc::new(MLE::<F>::from_prefix_activator(active_len, log_size))
-}
-
 use crate::ctx_oracles::CtxOracles;
 use crate::irs::ir::LocalPass;
 use crate::irs::nodes::{IsNode, Node, NodeId};
@@ -53,24 +40,21 @@ use crate::prover::payloads::{ArithPayload, CommittedPayload};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-/// Commitment cache keyed by the BLAKE3 digest of an MLE's evaluations.
-/// Enables reuse of MSM results for identical polynomials across nodes.
+/// Commitments keyed by the BLAKE3 digest of an MLE's evaluations, so that
+/// identical polynomials across nodes share one MSM.
 type CommitmentCache<B> = Mutex<
     BTreeMap<[u8; 32], <<B as SnarkBackend>::MvPCS as PCS<<B as SnarkBackend>::F>>::Commitment>,
 >;
 
-/// A commitment pass that turns arithmetized tables into table oracles.
-///
-/// This pass commits to each arithmetized column and records only the resulting
-/// commitments inside an `ArithTableOracle`, enabling parallel commitment.
+/// Commits to each arithmetized column and keeps only the commitments, in an
+/// `ArithTableOracle`, which lets the pass run in parallel.
 pub struct CommitmentPass<B: SnarkBackend> {
     mv_pcs_param: Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
     ctx_oracles: CtxOracles<B>,
     allow_table_scan_commit_without_ctx: bool,
-    total_committed: AtomicUsize, // Count polynomials committed by this pass.
-    total_ctx_loaded: AtomicUsize, // Count polynomials loaded from ctx oracles.
-    /// Cache from BLAKE3 digest of MLE evaluations to commitment, so identical
-    /// polynomials across different nodes reuse the same MSM result.
+    total_committed: AtomicUsize,
+    /// Polynomials whose commitments came from the ctx oracles.
+    total_ctx_loaded: AtomicUsize,
     commitment_cache: CommitmentCache<B>,
 }
 
@@ -124,8 +108,8 @@ where
                     && let Some(schema) = arith_table.schema()
                 {
                     if let Some(oracle) = self.ctx_oracles.table_oracle_for_schema(&schema) {
-                        // A cached table-scan commitment is only safe to reuse when it lives
-                        // on the same multilinear domain as the current arithmetized table.
+                        // A cached table-scan commitment is reusable only on the
+                        // multilinear domain of the arithmetized table.
                         if oracle.log_size() == arith_table.log_size() {
                             debug!(
                                 node = %node.name(),
@@ -135,11 +119,9 @@ where
                             );
                             self.total_ctx_loaded
                                 .fetch_add(oracle.commitments().len(), Ordering::Relaxed);
-                            // The cached ctx oracle was built before side
-                            // segments existed and only carries row-domain
-                            // commitments. If the freshly arithmetized table
-                            // has side columns (e.g. `__chars`), commit them
-                            // here so the proof carries those commitments.
+                            // A ctx oracle carries row-domain commitments
+                            // only. Commit the table's side columns (e.g.
+                            // `__chars`) here so that the proof carries them.
                             let cached = oracle.clone().with_external_commitment_source(true);
                             let merged = merge_cached_oracle_with_side_commitments::<B>(
                                 cached,
@@ -224,10 +206,8 @@ where
     }
 }
 
-/// Merge fresh side-domain commitments into a cached row-domain oracle.
-/// Used by the TableScan fast-path so cached ctx oracles (which predate side
-/// segments) still acquire the per-column `__chars` data + activator
-/// commitments produced by the current arithmetized table.
+/// Adds the side-domain commitments of `arith_table` (data and activator per
+/// side col) to a cached row-domain oracle.
 fn merge_cached_oracle_with_side_commitments<B: SnarkBackend>(
     cached: ArithTableOracle<B>,
     arith_table: &arithmetic::table::ArithTable<B::F>,
@@ -263,12 +243,14 @@ fn merge_cached_oracle_with_side_commitments<B: SnarkBackend>(
         arithmetic::table_oracle::ArithSideColOracle<B>,
     > = IndexMap::with_capacity(arith_table.side_cols().len());
     for (field_ref, side) in arith_table.side_cols() {
-        // Materialize transient MLE views from raw bytes / active_len.
-        // Each Arc is dropped immediately after the commit call returns,
-        // so the field-element form never persists past the MSM.
+        // Each MLE is dropped when its commit returns, so the field-element
+        // form does not outlive the MSM.
         let data_mle = materialize_side_data_mle::<B::F>(&side.data, side.log_size);
         let data_comm = commit(data_mle, field_ref.name());
-        let act_mle = materialize_side_activator_mle::<B::F>(side.log_size, side.active_len);
+        let act_mle = Arc::new(MLE::<B::F>::from_prefix_activator(
+            side.active_len,
+            side.log_size,
+        ));
         let act_comm = commit(act_mle, field_ref.name());
         side_commitments.insert(
             field_ref.clone(),
@@ -290,33 +272,19 @@ fn arith_to_oracle<B: SnarkBackend>(
     mv_pcs_param: &Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
     cache: &CommitmentCache<B>,
 ) -> ArithTableOracle<B> {
-    // Apply structural-redundancy detection (Constant / Rle) at the
-    // commitment boundary. Rows here are ingested arithmetized columns
-    // that will live in the tracker for the rest of the query and be
-    // committed via MSM — collapsing an all-zeros or few-runs shape into
-    // its compact form now saves storage across every subsequent poly
-    // read AND lets `commit_impl_inner` take its Constant/Rle fast path
-    // (no Vec<F> materialization, one scalar mul instead of a full MSM).
-    //
-    // Cost is one native-scan-with-early-bail per column; benefit is that
-    // activator-shaped columns, all-null columns, and prefix / suffix
-    // patterns land in their smallest possible form before the tracker
-    // Arc-shares them across the whole pass pipeline.
-    //
-    // We intentionally do NOT run this inside ark-piop's `.compressed()`
-    // (which the tracker calls at every registration): small gadget polys
-    // registered in tight inner loops get called hundreds of times per
-    // query, and even a cheap native scan there measurably regresses
-    // small-table benches. Doing it once at the commitment boundary hits
-    // the columns that matter and skips the hot short-lived ones.
+    // Detect structural redundancy (Constant / Rle) once, here. These
+    // columns stay in the tracker for the whole query, and the compact form
+    // saves storage and lets the commit take its Constant/Rle fast path (one
+    // scalar mul, no MSM). ark-piop's `.compressed()` does not run this
+    // scan: the tracker calls it at every registration, which includes the
+    // small gadget polys registered in hot loops.
     let entries: Vec<(usize, _, _)> = arith_table
         .polynomials()
         .iter()
         .enumerate()
         .map(|(idx, (field_ref, mle_arc))| {
-            // Only rebuild if the Arc is uniquely owned OR the redundancy
-            // scan finds a compressible shape — otherwise keep the same
-            // Arc and avoid disturbing sharing with the tracker.
+            // Keep the same Arc, shared with the tracker, unless the scan
+            // finds a compressible shape.
             let compressed = mle_arc.as_ref().clone().detect_redundancy();
             let arc = if matches!(
                 compressed.storage(),
@@ -338,12 +306,10 @@ fn arith_to_oracle<B: SnarkBackend>(
             .par_iter()
             .map(|(idx, field_ref, mle_arc)| {
                 let digest = mle_digest(mle_arc.as_ref());
-                // Fast path: check cache under a short lock.
                 if let Some(cached) = cache.lock().unwrap().get(&digest) {
                     tracing::warn!(field = %field_ref.name(), "commitment cache hit — skipping MSM");
                     return (*idx, field_ref.clone(), cached.clone());
                 }
-                // Slow path: compute MSM, then insert into cache.
                 let commitment = B::MvPCS::commit(Arc::clone(mv_pcs_param), mle_arc)
                     .expect("failed to commit arithmetized polynomial");
                 cache
@@ -377,8 +343,7 @@ fn arith_to_oracle<B: SnarkBackend>(
         }
     }
 
-    // Commit side-domain (data, activator) pairs. Each is its own MLE on its
-    // own multilinear domain, so commits are computed independently.
+    // Side-domain (data, activator) pairs, each an MLE on its own domain.
     let mut side_commitments: IndexMap<
         datafusion::arrow::datatypes::FieldRef,
         arithmetic::table_oracle::ArithSideColOracle<B>,
@@ -406,7 +371,10 @@ fn arith_to_oracle<B: SnarkBackend>(
     for (field_ref, side) in arith_table.side_cols() {
         let data_mle = materialize_side_data_mle::<B::F>(&side.data, side.log_size);
         let data_comm = commit_with_cache(data_mle, field_ref.name());
-        let act_mle = materialize_side_activator_mle::<B::F>(side.log_size, side.active_len);
+        let act_mle = Arc::new(MLE::<B::F>::from_prefix_activator(
+            side.active_len,
+            side.log_size,
+        ));
         let act_comm = commit_with_cache(act_mle, field_ref.name());
         side_commitments.insert(
             field_ref.clone(),
@@ -430,10 +398,9 @@ fn arith_to_oracle<B: SnarkBackend>(
     )
 }
 
-/// Record the per-column fingerprint rules this table was encoded under, so
-/// prover and verifier read them from the oracle instead of sharing a
-/// compile-time default. Nothing is written when no rules are installed — no
-/// string column of that table is fingerprinted.
+/// Records the per-column fingerprint rules this table was encoded under, so
+/// that prover and verifier read them from the oracle. Nothing is written
+/// when no rules are installed: no string column is fingerprinted then.
 fn enrich_schema_with_fingerprint_rules(schema: Option<Schema>) -> Option<Schema> {
     let schema = schema?;
     let rules = arithmetic::fingerprint::configured_rules();
@@ -456,8 +423,8 @@ fn enrich_schema_with_fingerprint_rules(schema: Option<Schema>) -> Option<Schema
 fn enrich_schema_with_constraint_summary(schema: Option<Schema>) -> Option<Schema> {
     let mut schema = schema?;
 
-    // Build a compact, table-local summary from column metadata so commitment
-    // payloads can carry key/relationship hints without re-reading sidecar files.
+    // A summary of the column metadata, so that the committed payload carries
+    // the key and foreign-key hints without the sidecar files.
     let mut pk_cols = Vec::new();
     let mut fk_entries = Vec::new();
 

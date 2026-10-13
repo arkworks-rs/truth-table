@@ -74,10 +74,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             Some(hint_df) => hint_df,
             None => return Ok(()),
         };
-        // Compute the multiplicity witness eagerly from the upstream
-        // super/included HintDFs and hand a real HintDF (not a virtual
-        // placeholder) to the standard materialization → commitment →
-        // tracking pipeline. See `hints.rs` for the design invariant.
+        // The multiplicity witness is a real HintDF (not a virtual
+        // placeholder), so the standard materialization → commitment →
+        // tracking pipeline commits it.
         let multiplicities_hint = hints::build_multiplicity_hint(super_hint, included_hint)
             .map_err(|e| {
                 ark_piop::errors::SnarkError::Artifact(format!(
@@ -107,16 +106,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
-        // Fast path: if the plan-time HintDF was materialized+committed
-        // into a TrackedTable by the standard pipeline, the payload
-        // already carries SUPER_MULTIPLICITIES_LABEL and we have
-        // nothing to commit here.
+        // The standard pipeline has already committed the plan-time hint.
         if payload.get(SUPER_MULTIPLICITIES_LABEL).is_some() {
             return Ok(());
         }
-        // Fallback: no plan-time hint (e.g. test harness driving this
-        // gadget in isolation). Compute + commit the multiplicity table
-        // in-place, preserving the pre-refactor behavior.
+        // No plan-time hint (e.g. a test harness driving this gadget in
+        // isolation): compute and commit the multiplicity table here.
         let (Some(included_table), Some(super_table)) = (
             payload.get(INCLUDED_LABEL).cloned(),
             payload.get(SUPER_LABEL).cloned(),
@@ -149,11 +144,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(hint_df) => hint_df,
             None => return Ok(()),
         };
-        // Verifier gets a schema-matching HintDF so the tracking pass
-        // consumes the matching commit slot in the same field order the
-        // prover committed. Data values are placeholders — verifier
-        // skips materialization, only the schema + should_materialize
-        // flags matter here.
+        // A schema-matching HintDF, so that the tracking pass consumes the
+        // commitment in the same field order as the prover committed it.
         let multiplicities_hint =
             hints::build_multiplicity_hint_schema_only(super_hint).map_err(|e| {
                 ark_piop::errors::SnarkError::Artifact(format!(
@@ -182,13 +174,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
-        // Fast path: tracking pass already produced the multiplicity
-        // TrackedTableOracle from the plan-time HintDF; nothing to do.
+        // The tracking pass has already produced the multiplicity oracle
+        // from the plan-time HintDF.
         if payload.get(SUPER_MULTIPLICITIES_LABEL).is_some() {
             return Ok(());
         }
-        // Fallback: test harness path. Track the next committed
-        // multiplicity oracle inline.
+        // No plan-time hint (test harness): track the next committed
+        // multiplicity oracle here.
         let Some(super_table) = payload.get(SUPER_LABEL) else {
             return Ok(());
         };
@@ -355,15 +347,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             )));
         }
 
-        // Only the multiplicity *values*, and only on rows the super table
-        // marks active, are part of the witness. `multiplicities_from_table`
-        // hands the PIOP the bare data poly, which becomes `mgxs` against
-        // `gxs = [super_col]`; the keyed-sumcheck identity sums over active
-        // `g` alone, so inactive rows drop out whatever their multiplicity
-        // holds. The multiplicity table's own activator is never read — it is
-        // materialized independently from the plan-time hint and legitimately
-        // differs from the super table's, so comparing the two masks rejected
-        // honest witnesses (Q1, Q5, Q8, Q12 all verify but failed here).
+        // Only the multiplicity values on rows the super table marks active
+        // are part of the witness: `multiplicities_from_table` hands the PIOP
+        // the bare data poly, which becomes `mgxs` against `gxs = [super_col]`,
+        // and the keyed-sumcheck identity sums over active `g` alone. The
+        // multiplicity table's own activator is never read and can differ
+        // from the super table's, so the two masks are not compared.
         for row in 0..expected.len() {
             if !super_active[row] {
                 continue;
@@ -538,8 +527,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
-/// Compute a per-row multiplicity table for lookup constraints.
-///
 fn multiplicities_from_runtime_tables_prover<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     super_table: &TrackedTable<B>,
@@ -672,12 +659,9 @@ fn active_mask_from_optional<F: ark_ff::Field>(values: Option<&Vec<F>>, size: us
 /// included rows, placed on the tuple's first active super row (later
 /// duplicates get 0).
 ///
-/// Sort-based and parallel: on a 2^23-row character domain the previous
-/// string-keyed sequential hash count was the longest single-threaded
-/// stretch of a proof (13.8 s), and a parallel hash map over field
-/// elements still spent half its time hashing and rehashing. Single-column
-/// tables (the common case) sort the field elements themselves; wider
-/// tables sort row tuples.
+/// Sort-based and parallel, because a hash count is too slow on a large
+/// domain. Single-column tables (the common case) sort the field elements
+/// themselves; wider tables sort row tuples.
 fn expected_lookup_multiplicities_from_values<B: SnarkBackend>(
     super_values: &[Vec<B::F>],
     included_values: &[Vec<B::F>],

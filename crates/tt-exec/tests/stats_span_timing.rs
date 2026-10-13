@@ -1,22 +1,16 @@
-//! End-to-end pin for the span-derived prover timings.
+//! [`BenchStatsJsonlLayer`] derives the prover timings from the open-to-close
+//! lifetime of `bench_stats`-targeted spans: `snark_prover_piop_time_s` /
+//! `_mv_pcs_` / `_uv_pcs_` from the three subproof functions, and each
+//! sumcheck bucket's `timing` object and wall-clock boundaries from the
+//! `sc_bucket` / `SC_REGION_SPANS` spans (ark-piop emits only the bucket's
+//! claim shape).
 //!
-//! `snark_prover_piop_time_s` / `_mv_pcs_` / `_uv_pcs_` used to be measured
-//! by ark-piop's `compile_proof` with its own `Instant` and shipped as a
-//! `snark_prover_times` event. They are now derived by
-//! [`BenchStatsJsonlLayer`] from the open→close lifetime of the
-//! `bench_stats`-targeted spans on the three subproof functions.
-//!
-//! The same is true of the per-bucket sumcheck breakdown: ark-piop emits
-//! only each bucket's claim shape, and the layer splices in the `timing`
-//! object and wall-clock boundaries it derived from the `sc_bucket` /
-//! `SC_REGION_SPANS` spans.
-//!
-//! That path crosses a crate boundary, a tracing target, a level filter,
-//! and a span-scope lookup — none of which any type checks. ark-piop's
+//! That path crosses a crate boundary, a tracing target, a level filter and a
+//! span-scope lookup, none of which any type checks. ark-piop's
 //! `snark_prover_timed_spans_are_instrumented` covers its half (the spans
-//! open, on the right target and level); this covers the rest: that the
-//! layer attributes them to the enclosing `bench_query` and writes them
-//! under the keys the dashboard reads.
+//! open, on the right target and level); this covers the rest: the layer
+//! attributes them to the enclosing `bench_query` and writes them under the
+//! keys the dashboard reads.
 
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE, types::artifact::Artifact};
 use serde_json::Value;
@@ -49,8 +43,7 @@ fn record_from<F: FnOnce()>(body: F) -> Value {
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         // mem_sample / tracker_snapshot lines stream out during the run; the
-        // aggregate record is written at span close and is the only one
-        // carrying a "query" key at the top level alongside "prover".
+        // aggregate record is the only one with a top-level "prover" key.
         .find(|entry| entry.get("prover").is_some())
         .unwrap_or_else(|| panic!("no aggregate bench_query record in {}", path.display()))
 }
@@ -97,11 +90,9 @@ fn prover_subproof_spans_become_jsonl_timings() {
                 snark_prover.keys().collect::<Vec<_>>()
             )
         });
-        // Recorded as a string, matching how FieldValueVisitor stringified
-        // the f64 on the old event path — the dashboard parses it as such.
-        // Strictly positive: a zero would mean the clock was read once
-        // rather than at both span open and close. An empty nv=4 compile
-        // still measures on the order of 10 µs.
+        // Recorded as a string, which is what the dashboard parses. Strictly
+        // positive: a zero would mean the clock was read once instead of at
+        // both span open and close.
         let elapsed = seconds(raw, key);
         assert!(
             elapsed.is_finite() && elapsed > 0.0,
@@ -135,8 +126,7 @@ fn bucket_region_spans_become_per_bucket_and_aggregate_timings() {
             .as_object()
             .unwrap_or_else(|| panic!("bucket {index} has no spliced `timing` object: {bucket}"));
 
-        // Every region key must be present even when its stage never ran —
-        // the old fixed-struct breakdown always emitted all of them.
+        // Every region key must be present even when its stage never ran.
         let mut summed = 0.0;
         for region in ark_piop::prover::tracker::SC_REGION_SPANS {
             let key = format!("{region}_time_s");
@@ -166,9 +156,8 @@ fn bucket_region_spans_become_per_bucket_and_aggregate_timings() {
     }
 
     // The aggregate the dashboard's piop-breakdown pie reads. Every region
-    // key must be present once any bucket has run, even for a stage that
-    // never executed — the old fixed-struct event always emitted all eight,
-    // and an absent key reads as null rather than zero downstream.
+    // key must be present once any bucket has run: an absent key reads as
+    // null downstream, not zero.
     let snark_prover = record["snark prover"].as_object().unwrap();
     let mut total = 0.0;
     for region in ark_piop::prover::tracker::SC_REGION_SPANS {
@@ -188,10 +177,9 @@ fn bucket_region_spans_become_per_bucket_and_aggregate_timings() {
     assert!(total > 0.0, "every region aggregate was zero");
 }
 
-/// A prover pass span feeds two destinations that used to be two hand-rolled
-/// events: the `prover_time_<pass>_s` entry and the `prover_pass_spans`
-/// timeline marker. Uses tt-front-end's own [`front_end::prover::pass_span`]
-/// constructor, so the span name, target, and field name are the real ones.
+/// A prover pass span feeds the `prover_time_<pass>_s` entry and the
+/// `prover_pass_spans` timeline marker. Uses [`front_end::prover::pass_span`],
+/// so the span name, target and field name are the real ones.
 #[test]
 fn prover_pass_spans_become_timings_and_markers() {
     let record = record_from(|| {
@@ -219,10 +207,8 @@ fn prover_pass_spans_become_timings_and_markers() {
         .find(|m| m["pass"] == "arithmetization")
         .unwrap_or_else(|| panic!("no marker for the pass: {markers:?}"));
 
-    // Both endpoints are measured now. The old event pair back-derived the
-    // start as `end - duration`; here the span's two ends are independent
-    // stamps, so the elapsed wall span must agree with the monotonic
-    // duration rather than equalling it by construction.
+    // The span's two ends are independent wall-clock stamps, so their
+    // difference must agree with the monotonic duration.
     let start = marker["wall_start_ms"].as_u64().expect("wall_start_ms");
     let end = marker["wall_end_ms"].as_u64().expect("wall_end_ms");
     assert!(
@@ -238,9 +224,9 @@ fn prover_pass_spans_become_timings_and_markers() {
 }
 
 /// The proof-size record is filled key by key from ark-piop's size breakdown,
-/// so a part of the proof the layer does not know is dropped without an error:
-/// the LogUp-GKR subproofs were, while they were a third of a proof. Every
-/// part must reach the record, and the top-level ones together are the proof.
+/// so a part of the proof the layer does not know is dropped without an error.
+/// Every part must reach the record, and the top-level ones together are the
+/// proof.
 #[test]
 fn proof_size_record_carries_every_part_of_the_proof() {
     let mut proof_parts = None;

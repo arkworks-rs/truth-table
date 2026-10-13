@@ -1,21 +1,9 @@
-//! Core intermediate representation and proving / verifying pass pipelines.
+//! The IR of the truth-table protocol and the passes that prove and verify it.
 //!
-//! `tt-core` is the engine room of the truth-table protocol. It owns:
-//!
-//! - The IR (`irs`) — plan nodes, gadget nodes, expressions, and the tree
-//!   structure that the prover and verifier both operate on.
-//! - The prover-side passes (`prover::passes`) — output planning, gadget
-//!   planning, materialization, arithmetization, commitment, tracking,
-//!   virtualization, gadget initialization, and final proving.
-//! - The matching verifier-side passes (`verifier::passes`) that consume
-//!   optimization hints and commitments to replay the prover's plan and
-//!   check the resulting arguments.
-//! - The shared context oracles (`ctx_oracles`) that carry committed-table
-//!   metadata between prover and verifier, and the crate-wide error type
-//!   (`errors::TTError`, `errors::TTResult`).
-//!
-//! Most users should depend on the `tt-front-end` crate instead; this one is
-//! the lower-level library that `tt-front-end` is built on top of.
+//! The prover and the verifier build the same tree of plan and gadget nodes
+//! (`irs`) and run mirrored pass pipelines over it (`prover::passes`,
+//! `verifier::passes`). `tt-front-end` is the crate to depend on; it is built
+//! on this one.
 
 pub mod ctx_oracles;
 pub mod errors;

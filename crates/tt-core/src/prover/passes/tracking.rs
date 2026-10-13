@@ -31,11 +31,8 @@ use std::{
 };
 use tracing::{debug, info};
 
-/// Build a side-col data `MLE<F>` that keeps the native small-scalar storage.
-///
-/// The returned MLE uses `MLEStorage::U8` for byte columns and `MLEStorage::U32`
-/// for u32 columns — 32× and 8× smaller than the equivalent field-element
-/// representation. The storage survives across the tracker's Arc clone.
+/// A side-col data MLE in its native storage (`MLEStorage::U8` or `U32`),
+/// 32× and 8× smaller than field elements.
 fn materialize_side_data_mle<F: PrimeField>(
     data: &arithmetic::encoding::SideColData,
     log_size: usize,
@@ -50,23 +47,11 @@ fn materialize_side_data_mle<F: PrimeField>(
     Arc::new(mle)
 }
 
-/// Build the contiguous-one activator MLE as bit-packed storage — 256×
-/// smaller than the field-element form.
-fn materialize_side_activator_mle<F: PrimeField>(
-    log_size: usize,
-    active_len: usize,
-) -> Arc<MLE<F>> {
-    Arc::new(MLE::<F>::from_prefix_activator(active_len, log_size))
-}
-
-/// A tracking pass that tracks the prover's arithmetized tables using commitments.
-///
-/// This pass converts an IR with committed table oracles into an IR with tracked tables; i.e.
-/// tables that are tracked by the SNARK prover with an associated id. Commitments are supplied
-/// by the commitment pass, so this pass stays sequential and only tracks.
+/// Tracks the arithmetized tables in the prover under the commitments the
+/// commitment pass supplies. It only tracks, so it stays sequential.
 pub struct TrackingPass<'a, B: SnarkBackend> {
     prover: RefCell<ArgProver<B>>,
-    total_committed: Cell<usize>, // Track committed polynomial count across the entire pass.
+    total_committed: Cell<usize>,
     arith_payloads: &'a IndexMap<NodeId, Option<ArithPayload<B::F>>>,
     output_memtable: Option<Arc<MemTable>>,
     /// One multiproof per table-scan column whose fingerprint bins this
@@ -93,7 +78,6 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
         }
     }
 
-    /// The multiproofs of the fingerprint bins this pass opened.
     pub fn take_fingerprint_openings(&self) -> FingerprintOpenings {
         self.fingerprint_openings.take()
     }
@@ -109,7 +93,7 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
 
         let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
-        // Final output table: no side segments — no downstream PIOP consumes them.
+        // The final output table has no side segments: no PIOP reads them.
         let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None, None);
         let tracked_table = Self::track_arith_table_without_commitment(&arith_table, &self.prover)?;
         let gadget_id = root
@@ -300,9 +284,8 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
     // Fingerprint bins opened per column, in tracking order.
     let mut opened: IndexMap<&str, Vec<usize>> = IndexMap::new();
     for (field_ref, mle_arc) in arith_table.polynomials() {
-        // TableScan can reuse commitments from ctx_oracles; those commitments
-        // must remain trackable but should not be counted as proof-emitted PCS
-        // commitments.
+        // A table scan reuses commitments from ctx_oracles: they are tracked
+        // but do not count as proof-emitted.
         let mut binding = if external_commitments {
             CommitmentBinding::External
         } else {
@@ -324,9 +307,7 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
                 commitment
             }
         };
-        // Compression is applied inside `track_mat_mv_p_with_commitment` in
-        // ark-piop — the ArgProver wrapper hands the poly through unchanged,
-        // and the tracker auto-classifies before storing.
+        // ark-piop's tracker compresses the poly before storing it.
         let tracked_poly = prover_borrow
             .track_mat_mv_poly_with_commitment(mle_arc, commitment, binding)
             .expect("failed to track polynomial with commitment");
@@ -342,10 +323,9 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         fingerprint_openings.borrow_mut().push(siblings);
     }
 
-    // Side-domain columns: each side col contributes (data, activator) tracked
-    // polys. Side commitments are always freshly emitted by the prover (even
-    // when the row-domain side came from a cached ctx oracle) so they bind as
-    // `ProofEmitted` regardless of `external_commitments`.
+    // Each side col gives a (data, activator) pair of tracked polys. The
+    // prover always emits the side commitments itself, even when the
+    // row-domain ones come from a ctx oracle, so they bind as `ProofEmitted`.
     let mut tracked_side_cols: IndexMap<FieldRef, arithmetic::col::PolyBundle<B>> =
         IndexMap::with_capacity(arith_table.side_cols().len());
     for (field_ref, side) in arith_table.side_cols() {
@@ -353,10 +333,7 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
             .side_commitments()
             .get(field_ref)
             .expect("commitment oracle missing side col entry");
-        // Materialize transient MLEs from raw bytes / active_len so the
-        // tracker can clone its own Arc. The local handles drop at the end
-        // of the loop body; the tracker keeps its clones for the proof
-        // lifetime.
+        // The tracker keeps its own Arc clones of these MLEs.
         let data_mle = materialize_side_data_mle::<B::F>(&side.data, side.log_size);
         let data_poly = prover_borrow
             .track_mat_mv_poly_with_commitment(
@@ -365,7 +342,10 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
                 CommitmentBinding::ProofEmitted,
             )
             .expect("failed to track side data polynomial with commitment");
-        let act_mle = materialize_side_activator_mle::<B::F>(side.log_size, side.active_len);
+        let act_mle = Arc::new(MLE::<B::F>::from_prefix_activator(
+            side.active_len,
+            side.log_size,
+        ));
         let activator_poly = prover_borrow
             .track_mat_mv_poly_with_commitment(
                 &act_mle,
@@ -387,21 +367,12 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         oracle.log_size(),
         "commitment oracle log_size should match arith table"
     );
-    // Build the TrackedTable first, then derive the schema from the
-    // POST-REGROUP row-domain field order (`tracked.tracked_polys()` after
-    // `regroup_flat_into_tracked_cols` groups primary+aux per source col).
-    //
-    // Rationale: `arith_table.polynomials()` may interleave a source column's
-    // aux row-domain segments after other primary columns (e.g. the string
-    // encoder emits `[primary_A, primary_B, aux_A_len, aux_B_len]`), but the
-    // regroup pulls each aux under its owning primary and the verifier's
-    // `TrackedTableOracle::from_tracked_table` walks the post-regroup order
-    // (`all_tracked_cols`) when populating its data_map. If the schema were
-    // built from the pre-regroup insertion order, its field-per-position
-    // would diverge from the data_map's field-per-position and
-    // `TrackedTableOracle::check_new_args` would trip
-    // `Schema fields must match the tracked oracle fields`. Deriving from
-    // the post-regroup iterator guarantees agreement in both directions.
+    // The schema lists the row-domain fields in the table's regrouped order.
+    // `arith_table.polynomials()` can put a column's aux segments after other
+    // primary columns (`[primary_A, primary_B, aux_A_len, aux_B_len]`), but
+    // `TrackedTable` groups each aux under its primary, the verifier's
+    // `TrackedTableOracle::from_tracked_table` walks that order, and
+    // `TrackedTableOracle::check_new_args` rejects a schema in another one.
     let table = TrackedTable::new_with_side_cols(
         None,
         tracked_polys,
@@ -432,8 +403,8 @@ fn tracked_schema_with_oracle_metadata(
         return None;
     }
 
-    // Keep field ordering exactly aligned with tracked_polys keys, while merging
-    // table-level metadata from arith + oracle schemas (oracle takes precedence).
+    // Fields follow the tracked_polys keys. Table metadata is merged from
+    // both schemas, the oracle's taking precedence.
     let mut metadata = arith_schema
         .as_ref()
         .map(|s| s.metadata().clone())

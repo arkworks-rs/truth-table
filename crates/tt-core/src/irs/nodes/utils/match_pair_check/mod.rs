@@ -28,14 +28,15 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
-/// The left join keys (either a single key or a composite key)
+/// The left join keys (a single key or a composite key).
 pub const LEFT_LABEL: &str = "__left__";
-/// The right join keys (either a single key or a composite key)
+/// The right join keys (a single key or a composite key).
 pub const RIGHT_LABEL: &str = "__right__";
-/// The output of the join gadget
-/// TODO: This is not in the paper, but we use it here to extract the number of matches; i.e. `s` in the paper's notation. We should remove it in the future
+/// The output of the join gadget.
+/// TODO: not in the paper; it is only read for the number of matches (`s`
+/// in the paper's notation). Remove it.
 pub const OUT_LABEL: &str = "__out__";
-/// The union of left and right keys
+/// The union of the left and right keys.
 pub const UNION_LABEL: &str = "__union__";
 
 thread_local! {
@@ -140,7 +141,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Get the context plans for this node
         let Some(ctx) = load_match_pair_planning_context(id, planned_ir) else {
             panic!(
                 "Match-Pair gadget planning payload should have been populated by the parent Join gadget"
@@ -275,7 +275,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Get the ctx plans for this node
         let Some(ctx) = load_match_pair_planning_context(id, planned_ir) else {
             panic!(
                 "Match-Pair gadget planning payload should have been populated by the parent Join gadget"
@@ -558,7 +557,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .get(OUT_LABEL)
             .cloned()
             .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", OUT_LABEL));
-        // Honest check: sum of pair multiplicities equals output active count.
+        // Σ over keys of (left count · right count) must equal the number of
+        // active output rows.
         let left_counts = active_row_multiset::<B>(&left_keys);
         let right_counts = active_row_multiset::<B>(&right_keys);
         let output_active = active_row_count::<B>(&output_table);
@@ -961,7 +961,7 @@ fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, 
         };
         left_cols.push(left_col.clone());
         right_cols.push(right_col.clone());
-        // Use a deterministic, unambiguous alias for each join key.
+        // A deterministic alias that cannot clash between the two sides.
         key_names.push(format!("__mp_key_{idx}"));
     }
 

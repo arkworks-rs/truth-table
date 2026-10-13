@@ -2,7 +2,7 @@ use datafusion::{
     arrow::datatypes::DataType, config::ConfigOptions, optimizer::analyzer::AnalyzerRule,
 };
 use datafusion_common::{DFSchema, Result, tree_node::Transformed};
-use datafusion_expr::{Expr, expr::AggregateFunction as AggregateExpr, logical_plan::LogicalPlan};
+use datafusion_expr::{Expr, logical_plan::LogicalPlan};
 
 use super::common::cast_expression_to_type;
 
@@ -72,7 +72,8 @@ fn align_aggregate_expr(
 ) -> Result<(Expr, bool)> {
     match expr {
         Expr::AggregateFunction(mut agg) => {
-            if !should_rewrite(&agg) {
+            let name = agg.func.name();
+            if !(name.eq_ignore_ascii_case("sum") || name.eq_ignore_ascii_case("avg")) {
                 return Ok((Expr::AggregateFunction(agg), false));
             }
 
@@ -90,11 +91,6 @@ fn align_aggregate_expr(
         }
         other => Ok((other, false)),
     }
-}
-
-fn should_rewrite(agg: &AggregateExpr) -> bool {
-    let name = agg.func.name();
-    name.eq_ignore_ascii_case("sum") || name.eq_ignore_ascii_case("avg")
 }
 
 #[cfg(test)]

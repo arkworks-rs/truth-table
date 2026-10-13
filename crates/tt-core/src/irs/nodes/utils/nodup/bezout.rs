@@ -40,13 +40,11 @@ impl<B: SnarkBackend> GadgetNode<B> {
             panic!("Expected input table for NoDup gadget");
         };
         let col = Self::single_col_from_table(prover, &input_table)?;
-        ///////////////////// Deduplication check /////////////////////
         let compacted_in_col = Compactor::compact_col(prover, &col)?;
-        ///////////////////// Some useful variables /////////////////////
-        // The number of variables in all the polynomials in this protocol
+        // The number of variables of every multivariate polynomial in this protocol.
         let num_vars = compacted_in_col.data_tracked_poly().log_size();
 
-        // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
+        // The query point of f and f': x_1 = 0 and every other variable 1.
         let f_query_point: Vec<B::F> = if num_vars == 0 {
             Vec::new()
         } else {
@@ -55,9 +53,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 .collect()
         };
 
-        ///////////////////// Compute the deduplicated polynomial /////////////////////
+        // The column with its inactive entries replaced by random values; the
+        // zerocheck ties it to the input on the active rows.
         // TODO: Make sure the randomness is provided safely
-
         let dedup_mle = if let Some(activator_tracked_poly) =
             compacted_in_col.activator_tracked_poly()
         {
@@ -75,10 +73,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
             )
         };
 
-        ///////////// Compute the challenge /////////////////////
         let chall: B::F = prover.get_and_append_challenge(b"bezout")?;
 
-        ///////////////////// Compute f, gives us z(r) /////////////////////
+        // f is the product tree over `chall - c_i`; it gives z(chall).
         // TODO: Pass around iterators instead of slices
         let chall_minus_ci_evals: Vec<B::F> = dedup_mle
             .evaluations()
@@ -88,9 +85,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
 
         let f_poly = compute_product_poly(&chall_minus_ci_evals, dedup_mle.num_vars())?;
         let f_p_tr = prover.track_and_commit_mat_mv_poly(&f_poly)?;
-        ///////////////////// Compute the derivative product polynomial z'(r)
-        ///////////////////// /////////////////////
 
+        // f' is the derivative of that tree; it gives z'(chall).
         let f_prime_poly = compute_derivative_poly(
             &chall_minus_ci_evals,
             &f_poly.evaluations(),
@@ -98,23 +94,16 @@ impl<B: SnarkBackend> GadgetNode<B> {
         )?;
         let f_prime_p_tr = prover.track_and_commit_mat_mv_poly(&f_prime_poly)?;
 
-        ///////////////////// Compute z(x) and z'(x) = d/dx z(x) /////////////////////
+        // z(x) = prod (x - c_i), z'(x) = d/dx z(x), and the Bezout polynomials
+        // t, s with t * z + s * z' = 1.
         let z_p = build_root_products(&dedup_mle.evaluations());
         let z_p_prime = d_dx(&z_p);
-
-        ///////////////////// Compute the Bezout polynomials /////////////////////
-
         let (t_p, s_p) = bez_polys(&z_p, &z_p_prime);
-        ///////////////////// Commit to the Bezout polynomials /////////////////////
         let t_p_tr = prover.track_and_commit_mat_uv_poly(t_p)?;
-
         let s_p_tr = prover.track_and_commit_mat_uv_poly(s_p)?;
-
-        ///////////////////// Sanity check for the Bezout identity /////////////////////
 
         #[cfg(feature = "honest-prover")]
         {
-            // The size of all the polynomials in this protocol, i.e. 2^num_vars
             let poly_size = 2_i32.pow(num_vars as u32) as usize;
             let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
             let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
@@ -133,14 +122,13 @@ impl<B: SnarkBackend> GadgetNode<B> {
             }
         }
 
-        ///////////////////// Evaluation claims for the Bezout identity
-        ///////////////////// /////////////////////
         prover.add_mv_eval_claim(f_p_tr.id(), &f_query_point)?;
         prover.add_mv_eval_claim(f_prime_p_tr.id(), &f_query_point)?;
         prover.add_uv_eval_claim(t_p_tr.id(), chall)?;
         prover.add_uv_eval_claim(s_p_tr.id(), chall)?;
 
-        ///////////////////// Proving the well-formednes of f/////////////////////
+        // TODO: prove that f and f' are well formed; no claim ties them to
+        // the deduplicated column.
 
         Ok(())
     }
@@ -160,11 +148,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
         };
 
         let tracked_col_oracle = Self::single_col_from_table_oracle(verifier, &input_table)?;
-        ///////////////////// Deduplication check /////////////////////
         let compacted_in_tracked_col_oracle =
             Compactor::compact_tracked_col_oracle(verifier, &tracked_col_oracle)?;
 
-        ///////////////////// Some useful variables /////////////////////
         let num_vars = compacted_in_tracked_col_oracle.log_size();
         let f_query_point: Vec<B::F> = if num_vars == 0 {
             Vec::new()
@@ -184,10 +170,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
             verifier.add_mv_zerocheck_claim(dedup_wit_tr_cm.id());
         }
 
-        ///////////////////// Compute the challenge /////////////////////
         let chall: B::F = verifier.get_and_append_challenge(b"bezout")?;
 
-        ///////////////////// Track commitments /////////////////////
         let f_p_cm = verifier.track_next_mv_com()?;
         let f_prime_p_cm = verifier.track_next_mv_com()?;
         let t_p_tr = verifier.track_next_uv_com()?;
@@ -323,41 +307,29 @@ fn p_prep<B: SnarkBackend>(
     ))
 }
 
-/// Compute the product polynomial $f(X): \mathbb{F}^{\mu+1}\to\mathbb{F}$ such
-/// that $$ f(X)=[(1-x_1)\cdot p(x_2, ..., x_n, 0) + x_1\cdot f(x_2, ..., x_n,
-/// 0)]\times [(1-x_1)\times p(x_2, ..., x_n, 1) + x_1\times f(x_2, ..., x_n,
-/// 1)]$$ on the boolean hypercube {0,1}^n
+/// The product polynomial `prod` of `p` (given by `evals`) on the boolean
+/// hypercube:
 ///
-/// The caller needs to check num_vars matches in f and g
-/// Cost: linear in N.
+/// `prod(x_1, ..., x_n) :=
+///   [(1-x1)*p(x2, ..., xn, 0) + x1*prod(x2, ..., xn, 0)] *
+///   [(1-x1)*p(x2, ..., xn, 1) + x1*prod(x2, ..., xn, 1)]`
+///
+/// with `prod(1, ..., 1) := 0`. Linear in the number of evaluations.
 pub(super) fn compute_product_poly<F: PrimeField>(
     evals: &[F],
     num_vars: usize,
 ) -> SnarkResult<MLE<F>> {
-    // ===================================
-    // prod(x)
-    // ===================================
-    //
-    // `prod(x)` can be computed via recursing the following formula for 2^n-1
-    // times
-    //
-    // `prod(x_1, ..., x_n) :=
-    //      [(1-x1)*p(x2, ..., xn, 0) + x1*prod(x2, ..., xn, 0)] *
-    //      [(1-x1)*p(x2, ..., xn, 1) + x1*prod(x2, ..., xn, 1)]`
-    //
-    // At any given step, the right hand side of the equation
-    // is available via either p_x or the current view of prod_x
+    // The formula is applied 2^n - 1 times; at each step its right-hand side
+    // is available from `evals` or from the entries of `prod` computed so far.
     let mut prod_x_evals = vec![];
     for x in 0..(1 << num_vars) - 1 {
-        // sign will decide if the evaluation should be looked up from p_x or
-        // prod_x; x_zero_index is the index for the evaluation (x_2, ..., x_n,
-        // 0); x_one_index is the index for the evaluation (x_2, ..., x_n, 1);
+        // `sign` says whether to look the factors up in `evals` or in `prod`;
+        // the two indices are those of (x_2, ..., x_n, 0) and (x_2, ..., x_n, 1).
         let (x_zero_index, x_one_index, sign) = index(x, num_vars);
         if !sign {
             prod_x_evals.push(evals[x_zero_index] * evals[x_one_index]);
         } else {
-            // sanity check: if we are trying to look up from the prod_x_evals table,
-            // then the target index must already exist
+            // An entry of `prod` must exist before it is looked up.
             if x_zero_index >= prod_x_evals.len() || x_one_index >= prod_x_evals.len() {
                 return Err(SnarkError::Artifact(format!(
                     "compute_product_poly: index out of bounds at x={x} (x_zero={x_zero_index}, x_one={x_one_index}, len={})",
@@ -368,49 +340,27 @@ pub(super) fn compute_product_poly<F: PrimeField>(
         }
     }
 
-    // prod(1, 1, ..., 1) := 0
     prod_x_evals.push(F::zero());
     Ok(MLE::from_evaluations_vec(num_vars, prod_x_evals))
 }
 
-/// Compute the product polynomial $f'(X): \mathbb{F}^{\mu+1}\to\mathbb{F}$ such
-/// that $$ f(X)=[(1-x_1)\cdot p(x_2, ..., x_n, 0) + x_1\cdot f(x_2, ..., x_n,
-/// 0)]\times [(1-x_1)\times p(x_2, ..., x_n, 1) + x_1\times f(x_2, ..., x_n,
-/// 1)]$$ on the boolean hypercube {0,1}^n
-///
-///
-/// The caller needs to check num_vars matches in f and g
-/// Cost: linear in N.
+/// The derivative of the product tree of `compute_product_poly` (`f_evals`,
+/// over the leaves `p_evals`), in the same layout: the sum of two leaves, and
+/// the product rule `f0 * f1' + f0' * f1` above them. The last entry is 0.
+/// Linear in the number of evaluations.
 pub(super) fn compute_derivative_poly<F: PrimeField>(
     p_evals: &[F],
     f_evals: &[F],
     num_vars: usize,
 ) -> SnarkResult<MLE<F>> {
     // TODO: Check the sizes
-    // ===================================
-    // prod(x)
-    // ===================================
-    //
-    // `prod(x)` can be computed via recursing the following formula for 2^n-1
-    // times
-    //
-    // `prod(x_1, ..., x_n) :=
-    //      [(1-x1)*p(x2, ..., xn, 0) + x1*prod(x2, ..., xn, 0)] *
-    //      [(1-x1)*p(x2, ..., xn, 1) + x1*prod(x2, ..., xn, 1)]`
-    //
-    // At any given step, the right hand side of the equation
-    // is available via either p_x or the current view of prod_x
     let mut f_prime_evals = vec![];
     for x in 0..(1 << num_vars) - 1 {
-        // sign will decide if the evaluation should be looked up from p_x or
-        // prod_x; x_zero_index is the index for the evaluation (x_2, ..., x_n,
-        // 0); x_one_index is the index for the evaluation (x_2, ..., x_n, 1);
         let (x_zero_index, x_one_index, sign) = index(x, num_vars);
         if !sign {
             f_prime_evals.push(p_evals[x_zero_index] + p_evals[x_one_index]);
         } else {
-            // sanity check: if we are trying to look up from the prod_x_evals table,
-            // then the target index must already exist
+            // An entry of `f'` must exist before it is looked up.
             if x_zero_index >= f_prime_evals.len() || x_one_index >= f_prime_evals.len() {
                 return Err(SnarkError::Artifact(format!(
                     "compute_derivative_poly: index out of bounds at x={x} (x_zero={x_zero_index}, x_one={x_one_index}, len={})",
@@ -424,13 +374,12 @@ pub(super) fn compute_derivative_poly<F: PrimeField>(
         }
     }
 
-    // prod(1, 1, ..., 1) := 0
     f_prime_evals.push(F::zero());
 
     Ok(MLE::from_evaluations_vec(num_vars, f_prime_evals))
 }
 
-// This can be improved
+/// The polynomial `prod (x - root)` over `roots`.
 pub fn build_root_products<F: FftField>(roots: &[F]) -> LDE<F> {
     let l = roots.len();
 
@@ -448,53 +397,24 @@ pub fn build_root_products<F: FftField>(roots: &[F]) -> LDE<F> {
     }
 
     #[cfg(feature = "parallel")]
-    // Parallelize the recursive calls using Rayon
-    let (left_poly, right_poly) = rayon::join(
-        || build_root_products(left),  // Run in parallel
-        || build_root_products(right), // Run in parallel
-    );
+    let (left_poly, right_poly) =
+        rayon::join(|| build_root_products(left), || build_root_products(right));
 
     left_poly * right_poly
 }
 
 pub fn d_dx<F: PrimeField>(poly: &LDE<F>) -> LDE<F> {
-    // Skip the constant term and parallelize the computation of the derivative
     let coeffs: Vec<F> = cfg_iter!(poly.coeffs)
-        .enumerate() // Get the index for each coefficient
-        .skip(1) // Skip the constant term since its derivative is 0
-        .map(|(i, coeff)| F::from(i as u64) * coeff) // Derivative: i * coeff[i]
+        .enumerate()
+        .skip(1) // the derivative of the constant term is 0
+        .map(|(i, coeff)| F::from(i as u64) * coeff)
         .collect();
 
     LDE { coeffs }
 }
-// -----------------------------------------------------------------------------
-// A small helper trait to unify parallel + / - / * on LDE.
-// You can also just call `poly_add_par`, etc. directly.
-// -----------------------------------------------------------------------------
-// trait PolyParOps<F: FftField> {
-//     fn par_add(&self, rhs: &Self) -> Self;
-//     fn par_sub(&self, rhs: &Self) -> Self;
-//     fn par_mul(&self, rhs: &Self) -> Self;
-// }
 
-// impl<F: FftField> PolyParOps<F> for LDE<F> {
-//     fn par_add(&self, rhs: &Self) -> Self {
-//         poly_add_par(self, rhs)
-//     }
-//     fn par_sub(&self, rhs: &Self) -> Self {
-//         poly_sub_par(self, rhs)
-//     }
-//     fn par_mul(&self, rhs: &Self) -> Self {
-//         poly_mul_par(self, rhs)
-//     }
-// }
-
-// -----------------------------------------------------------------------------
-// 4) A "classical" extended GCD for small-degree polynomials, using parallel
-//    polynomial ops. (You could do it purely sequentially if you prefer.)
-// -----------------------------------------------------------------------------
+/// Classical extended GCD, used for small-degree polynomials.
 fn classical_xgcd_polynomials_par<F: FftField>(a: &LDE<F>, b: &LDE<F>) -> (LDE<F>, LDE<F>) {
-    // Base case
     if b.is_zero() {
         let gcd_val = a.coeffs[0];
         let gcd_inv = gcd_val.inverse().unwrap();
@@ -507,15 +427,11 @@ fn classical_xgcd_polynomials_par<F: FftField>(a: &LDE<F>, b: &LDE<F>) -> (LDE<F
 
     let (f_sub, g_sub) = classical_xgcd_polynomials_par(b, &r);
 
-    // Combine
     let qg = q * (&g_sub);
     let next_g = f_sub - (&qg);
     (g_sub, next_g)
 }
 
-// -----------------------------------------------------------------------------
-// 5) 2×2 "matrix" of polynomials, with parallel multiply
-// -----------------------------------------------------------------------------
 #[derive(Clone, Debug)]
 struct PolyMatrix2x2<F: FftField> {
     a11: LDE<F>,
@@ -534,19 +450,14 @@ impl<F: FftField> PolyMatrix2x2<F> {
         }
     }
 
-    // Multiply this 2x2 matrix by another 2x2, all in parallel
     fn par_multiply(&self, rhs: &Self) -> Self {
-        // We'll compute (a11, a12) in one `rayon::join`, and (a21, a22) in parallel.
-        // That spawns two parallel tasks, *each* possibly doing more parallel steps
-        // in polynomial multiplication.
+        // One task per row; each polynomial product may itself run in parallel.
         let (res_top, res_bot) = rayon::join(
-            // top row: (a11, a12)
             || {
                 let a11 = (&self.a11) * (&rhs.a11) + (&self.a12 * (&rhs.a21));
                 let a12 = (&self.a11) * (&rhs.a12) + (&self.a12 * (&rhs.a22));
                 (a11, a12)
             },
-            // bottom row: (a21, a22)
             || {
                 let a21 = (&self.a21) * (&rhs.a11) + (&self.a22 * (&rhs.a21));
                 let a22 = (&self.a21) * (&rhs.a12) + (&self.a22 * (&rhs.a22));
@@ -559,9 +470,8 @@ impl<F: FftField> PolyMatrix2x2<F> {
         Self { a11, a12, a21, a22 }
     }
 
-    // Apply to a vector (f, g) in parallel => (a11*f + a12*g, a21*f + a22*g)
+    /// The matrix applied to the column vector `(f, g)`.
     fn par_apply(&self, f: &LDE<F>, g: &LDE<F>) -> (LDE<F>, LDE<F>) {
-        // Each output can be computed in parallel
         let (out1, out2) = rayon::join(
             || (&self.a11) * (f) + (&self.a12 * (g)),
             || (&self.a21) * (f) + (&self.a22 * (g)),
@@ -570,11 +480,8 @@ impl<F: FftField> PolyMatrix2x2<F> {
     }
 }
 
-// -----------------------------------------------------------------------------
-// 6) partial_gcd_step: repeated Euclidean divisions until deg(r1) ~ half of
-//    deg(a), collecting transformations in a 2x2 matrix, but with parallel
-//    polynomial ops.
-// -----------------------------------------------------------------------------
+/// Euclidean divisions until `deg(r1)` is at most half of `deg(a)`. Returns
+/// the product of the step matrices and the last two remainders.
 fn partial_gcd_step_par<F: FftField>(a: &LDE<F>, b: &LDE<F>) -> (PolyMatrix2x2<F>, LDE<F>, LDE<F>) {
     let mut r0 = a.clone();
     let mut r1 = b.clone();
@@ -602,7 +509,6 @@ fn partial_gcd_step_par<F: FftField>(a: &LDE<F>, b: &LDE<F>) -> (PolyMatrix2x2<F
             a22: minus_q,
         };
 
-        // Parallel matrix multiplication
         m = m.par_multiply(&step_mat);
 
         r0 = r1;
@@ -612,11 +518,7 @@ fn partial_gcd_step_par<F: FftField>(a: &LDE<F>, b: &LDE<F>) -> (PolyMatrix2x2<F
     (m, r0, r1)
 }
 
-// -----------------------------------------------------------------------------
-// 7) The half-gcd recursion itself, parallel version
-// -----------------------------------------------------------------------------
 fn half_gcd_polynomials_par<F: FftField>(a: &LDE<F>, b: &LDE<F>) -> (LDE<F>, LDE<F>) {
-    // Base case
     if b.is_zero() {
         let gcd_val = a.coeffs[0];
         let gcd_inv = gcd_val.inverse().unwrap();
@@ -626,31 +528,25 @@ fn half_gcd_polynomials_par<F: FftField>(a: &LDE<F>, b: &LDE<F>) -> (LDE<F>, LDE
     // Ensure deg(a) >= deg(b)
     if b.degree() > a.degree() {
         let (f_sub, g_sub) = half_gcd_polynomials_par(b, a);
-        // Swap result
         return (g_sub, f_sub);
     }
 
-    // Fallback to classical if degrees are small
-    let threshold = 16; // tune
+    // Fall back to the classical algorithm on small degrees.
+    let threshold = 16;
     if a.degree() <= threshold || b.degree() <= threshold {
         return classical_xgcd_polynomials_par(a, b);
     }
 
-    // partial step
     let (m, r0, r1) = partial_gcd_step_par(a, b);
-
-    // recurse on smaller pair
     let (f_sub, g_sub) = half_gcd_polynomials_par(&r0, &r1);
 
-    // "lift" back up
+    // Lift the coefficients of the smaller pair back through the step matrix.
     let (f_res, g_res) = m.par_apply(&f_sub, &g_sub);
     (f_res, g_res)
 }
 
-// -----------------------------------------------------------------------------
-// 8) Finally, `bez_polys` with the *same signature* as requested, but
-//    internally uses our parallel half-GCD approach.
-// -----------------------------------------------------------------------------
+/// Bezout coefficients `(f, g)` with `f * a + g * b = 1`, for coprime `a`
+/// and `b`.
 pub fn bez_polys<F: FftField>(a: &LDE<F>, b: &LDE<F>) -> (LDE<F>, LDE<F>) {
     half_gcd_polynomials_par(a, b)
 }

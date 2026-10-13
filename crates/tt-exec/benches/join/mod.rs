@@ -9,7 +9,6 @@ use crate::support::{
 };
 
 fn join_cases() -> &'static [BenchCase] {
-    // Static list of simple inner-join queries to benchmark.
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let cases = vec![
@@ -35,17 +34,6 @@ fn join_cases() -> &'static [BenchCase] {
                 tables: &["partsupp"],
                 benchmark_suite: None,
             },
-            // BenchCase {
-            //     name: "join_lineitem_self_large_many_to_many",
-            //     query: r#"
-            //         SELECT l1.l_orderkey, l1.l_linenumber, l2.l_linenumber
-            //         FROM lineitem l1
-            //         INNER JOIN lineitem l2
-            //             ON l1.l_orderkey = l2.l_orderkey
-            //     "#,
-            //     tables: &["lineitem"],
-            //     benchmark_suite: None,
-            // },
             BenchCase {
                 name: "join_supplier_nation_small_one_to_many",
                 query: r#"

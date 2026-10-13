@@ -1,5 +1,3 @@
-//! Tests for `BroadcastCheck` gadget node.
-
 use std::sync::Arc;
 
 use ark_piop::{DefaultSnarkBackend, SnarkBackend};

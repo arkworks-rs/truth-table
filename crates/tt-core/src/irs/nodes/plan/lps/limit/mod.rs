@@ -24,7 +24,6 @@ use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-/// The implementation of a filter node in the prover proof tree.
 pub struct LpNode<B>
 where
     B: SnarkBackend,
@@ -131,8 +130,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             }
         };
 
-        // Compute the contiguous mask size `s` and set output activator to
-        // input_activator * contig_one(log_size, s).
+        // Output activator = input_activator * contig_one(log_size, s), where
+        // `s` is the length of the prefix holding the first `fetch` active rows.
         if let Some(input_act) = input_table.activator_tracked_poly() {
             let fetch = fetch_limit_literal(&self.limit);
             let s = contig_s_from_fetch(&input_act.evaluations(), fetch, input_table.size());
@@ -152,7 +151,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             tracker_rc
                 .borrow_mut()
                 .insert_miscellaneous_field(key, B::F::from(s as u64));
-            // Store the actual sum of the output activator for the sumcheck claim.
+            // The gadget's sumcheck claims this sum of the output activator.
             let sum_key = format!("{LIMIT_CONTIG_SUM_PREFIX}_{}", limit_key(&self.limit));
             let output_sum = output_act.evaluations().iter().copied().sum::<B::F>();
             tracker_rc
@@ -165,8 +164,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         Ok(())
     }
 
-    /// The gadget for the filter node only takes in 1. the input activator column, 2. the output activator column and 3. the binary output of the predicate column.
-    /// Then the gadget proves to you that the output activator column is correctly computed from the input activator column and the predicate column.
+    /// The gadget takes only the input and the output activator columns.
     fn initialize_gadgets(
         &self,
         _id: NodeId,
@@ -287,7 +285,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             }
         };
 
-        // Mirror the prover: read `s` and apply contiguous mask to activator.
+        // Same mask as the prover, with `s` read from the proof.
         if let Some(input_act) = input_table.activator_tracked_poly() {
             let tracker_rc = input_act.tracker();
             let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
@@ -511,8 +509,6 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             _ => panic!("Expected LogicalPlan::Limit"),
         };
 
-        // Recurse into the input subtree and fetch the logical plan that feeds this
-        // limit.
         let input = Tree::<B>::from_logical_plan(&limit.input).root().clone();
 
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(gadget::GadgetNode::new(

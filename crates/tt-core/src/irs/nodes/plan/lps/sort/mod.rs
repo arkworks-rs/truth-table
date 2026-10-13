@@ -20,18 +20,13 @@ use crate::{
 pub mod gadget;
 pub(crate) mod output;
 use datafusion::logical_expr::Sort;
-/// The implementation of a filter node in the prover proof tree.
 pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
-    // The sort information from DataFusion
     sort: Sort,
-    // The prover plan child node that is the input to this Sort
     input: Arc<Node<B>>,
-    // The prover plan children nodes for the Sort expressions
     sort_exprs: Vec<Arc<Node<B>>>,
-    // The gadget node for proving the sort operation
     gadget: Arc<Node<B>>,
 }
 
@@ -88,37 +83,28 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         Ok(())
     }
 
-    /// The gadget for the filter node only takes in 1. the input activator column, 2. the output activator column and 3. the binary output of the predicate column.
-    /// Then the gadget proves to you that the output activator column is correctly computed from the input activator column and the predicate column.
+    /// The gadget takes the input table, the output table and the sort-key
+    /// table, all without the row-id column.
     fn initialize_gadgets(
         &self,
         _id: NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // 1) Gather the input/output tables for this sort node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => {
-                // Drop row-id from gadget payloads while keeping it for ordering in plans.
-                Some(strip_row_id_tracked_table(table))
-            }
+            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id_tracked_table(table)),
             _ => None,
         };
         let output_table =
             virtualized_ir
                 .payload_for_node(&_id)
                 .and_then(|payload| match payload {
-                    PayloadStructure::PlanPayload(table) => {
-                        // Drop row-id from gadget payloads while keeping it for ordering in plans.
-                        Some(strip_row_id_tracked_table(table))
-                    }
+                    PayloadStructure::PlanPayload(table) => Some(strip_row_id_tracked_table(table)),
                     _ => None,
                 });
 
-        // 2) Build a table that holds one column per sort expression plus a shared activator.
         let sort_exprs_table = build_sort_exprs_table_prover(&self.sort_exprs, virtualized_ir);
 
-        // 3) Populate the gadget payload for the sort gadget node.
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
@@ -205,28 +191,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // 1) Gather the input/output table oracles for this sort node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => {
-                // Drop row-id from gadget payloads while keeping it for ordering in plans.
-                Some(strip_row_id_tracked_oracle(table))
-            }
+            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id_tracked_oracle(table)),
             _ => None,
         };
         let output_table = virtualized_ir
             .payload_for_node(&id)
             .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => {
-                    // Drop row-id from gadget payloads while keeping it for ordering in plans.
-                    Some(strip_row_id_tracked_oracle(table))
-                }
+                PayloadStructure::PlanPayload(table) => Some(strip_row_id_tracked_oracle(table)),
                 _ => None,
             });
 
-        // 2) Build a table oracle that holds one column per sort expression plus a shared activator.
         let sort_exprs_table = build_sort_exprs_table_verifier(&self.sort_exprs, virtualized_ir);
 
-        // 3) Populate the gadget payload for the sort gadget node.
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
@@ -275,6 +252,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     }
 }
 
+/// One table holding the data columns of every sort expression plus their
+/// shared activator.
 fn build_sort_exprs_table_prover<B: SnarkBackend>(
     sort_exprs: &[Arc<Node<B>>],
     virtualized_ir: &ProverVirtualizedIr<B>,
@@ -319,10 +298,9 @@ fn build_sort_exprs_table_prover<B: SnarkBackend>(
                 .expect("activator field missing from sort expr table");
             activator = Some((activator_field, activator_poly));
         }
-        // A sort expression can produce multiple data columns when its column
-        // is encoded as multiple segments (e.g. strings: hash + __length).
-        // Forward every data segment so the downstream sort gadget sees the
-        // same shape as the table it sorts.
+        // A sort expression yields several data columns when its column is
+        // encoded as several segments (strings: hash + __length). Forward all
+        // of them so the sort gadget sees the shape of the table it sorts.
         let data_indices = expr_table.data_tracked_polys_indices();
         let expr_tracked = expr_table.tracked_polys();
         for idx in &data_indices {
@@ -336,7 +314,7 @@ fn build_sort_exprs_table_prover<B: SnarkBackend>(
     if let Some((field, poly)) = activator {
         output_cols.entry(field).or_insert(poly);
     }
-    // Do not include row-id in gadget payloads; it is only used for ordering in plans.
+    // Row-id is left out: it only orders rows in plans.
 
     let fields: Vec<Field> = output_cols
         .keys()
@@ -397,9 +375,7 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
                 .expect("activator field missing from sort expr table");
             activator = Some((activator_field, activator_oracle));
         }
-        // Multi-segment columns (e.g. strings) contribute several data oracles
-        // per sort expression. Forward all of them so verifier mirrors the
-        // prover's sort-key table shape.
+        // Every data segment, so the table has the prover's shape.
         let data_indices = expr_table.data_tracked_oracles_indices();
         let expr_tracked = expr_table.tracked_oracles();
         for idx in &data_indices {
@@ -413,7 +389,6 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
     if let Some((field, oracle)) = activator {
         output_cols.entry(field).or_insert(oracle);
     }
-    // Do not include row-id in gadget payloads; it is only used for ordering in plans.
 
     let fields: Vec<Field> = output_cols
         .keys()
@@ -595,12 +570,8 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             _ => panic!("Expected LogicalPlan::Sort"),
         };
 
-        // Recurse into the input subtree and fetch the logical plan that feeds this
-        // sort.
         let input = Tree::<B>::from_logical_plan(&sort.input).root().clone();
 
-        // Recurse into the input subtree and fetch the expr that feeds this
-        // sort.
         let mut sort_exprs = vec![];
         for expr in &sort.expr {
             let expr_lp = Tree::<B>::from_expr(

@@ -10,18 +10,13 @@ use anyhow::{Context, Result, anyhow};
 use ark_piop::setup::KeyGenerator;
 use ark_serialize::CanonicalSerialize;
 
-// Test SRS size. Sized to fit the largest char-domain side polynomial for
-// test-scale TPC-H tables:
-// lineitem.l_comment at 2^19 rows × ~15 avg active chars → 7.9M active
-// chars → next_pow2 = 2^23. (Row-domain-only needs just 19; an undersized
-// value fails with `TooLargePolynomial`.) If you enlarge the test parquet
-// files or add columns with longer strings, bump again and regenerate the
-// test keys (they auto-regenerate on the next test run via
-// `resolve_key_paths`).
+// Test SRS size: fits the largest char-domain side polynomial of the
+// test-scale TPC-H tables (lineitem.l_comment, 2^19 rows of about 15 chars).
+// A smaller value fails with `TooLargePolynomial`.
 pub const DEFAULT_TEST_LOG_SIZE: usize = 23;
-// Bench SRS size. Row-domain polynomials alone need 21 at bench scale;
-// the char-domain side polys require ~25 (lineitem.l_comment). Changing it
-// means regenerating the bench setup keys via `tt setup --size bench`.
+// Bench SRS size: the row domain needs 21, the char-domain side polys of
+// lineitem.l_comment about 25. After a change, regenerate the keys with
+// `tt setup --size bench`.
 pub const DEFAULT_BENCH_LOG_SIZE: usize = 25;
 pub const DEFAULT_LOG_SIZE: usize = DEFAULT_TEST_LOG_SIZE;
 const DEFAULT_PK_FILE: &str = "tt_pk";
@@ -116,12 +111,9 @@ impl SetupRunner {
     }
 
     pub fn run(&self) -> Result<()> {
-        // KeyGenerator's default srs_path is `../artifacts/srs`, which is
-        // shared across curves. The SRS file format is curve-specific (group
-        // elements of the active pairing), so two backends writing to
-        // `mv_<log>.srs` will silently clobber each other and the second
-        // run will panic at deserialize time. Push it into a per-curve
-        // subdir so BN254 and BLS12-381 keep separate caches.
+        // KeyGenerator's default `../artifacts/srs` is shared across curves,
+        // but an SRS file is curve-specific: two backends would overwrite each
+        // other's `mv_<log>.srs`. Each curve gets its own subdirectory.
         let srs_path = std::env::current_dir()
             .map_err(|e| anyhow!("could not read cwd: {e}"))?
             .join("..")

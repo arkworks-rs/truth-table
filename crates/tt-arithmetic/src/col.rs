@@ -29,19 +29,12 @@ pub fn is_system_column(name: &str) -> bool {
     name == ACTIVATOR_COL_NAME || name == ROW_ID_COL_NAME
 }
 
-/// An auxiliary polynomial belonging to a tracked column: its own data
-/// poly plus the activator paired with that data.
+/// One polynomial of a tracked column with the activator paired with it.
 ///
-/// - Row-domain aux (e.g. `__length` for strings): activator mirrors the
-///   primary's activator (Some if the primary has one, None otherwise —
-///   base tables without a filter have neither).
-/// - Side-domain aux (e.g. `__chars`, `__orig_ind`): activator is a
-///   contiguous-one polynomial over the smaller side domain — always
-///   `Some`.
-///
-/// The row-vs-side distinction is not stored — it's derived by comparing
-/// `data.log_size()` against the owning column's primary log_size. See
-/// [`TrackedCol::side_segments_iter`].
+/// - A row-domain aux segment (`__length`) has the primary's activator,
+///   which is `None` on a base table without a filter.
+/// - A side-domain segment (`__chars`, `__orig_ind`) always has its own
+///   contiguous-one activator over the side domain.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
 pub struct PolyBundle<B: SnarkBackend> {
@@ -50,12 +43,10 @@ pub struct PolyBundle<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> PolyBundle<B> {
-    /// Constructs an aux polynomial from its data and (optional) activator.
     pub fn new(data: TrackedPoly<B>, activator: Option<TrackedPoly<B>>) -> Self {
         Self { data, activator }
     }
 
-    /// Multilinear domain size of this aux polynomial.
     pub fn log_size(&self) -> usize {
         self.data.log_size()
     }
@@ -63,47 +54,28 @@ impl<B: SnarkBackend> PolyBundle<B> {
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
-/// An abstraction of a tracked arithmetized column in dbSNARK.
+/// A tracked arithmetized column.
 ///
-/// Most columns are `SingleSegment` (one data polynomial + an optional
-/// activator). Multi-aspect encodings (like strings) expand into
-/// `MultiSegment`, which carries a primary polynomial plus a map of
-/// auxiliary polynomials. Row-domain aux and side-domain aux live in
-/// the same map; the set `side_aux_suffixes` marks which suffixes
-/// belong to the side domain.
+/// Most columns are `SingleSegment`: one data polynomial and an optional
+/// activator. A multi-segment encoding (a string) is `MultiSegment`: a
+/// primary polynomial plus auxiliary ones, keyed by segment suffix.
 ///
-/// **Previous heuristic** (removed): row-vs-side was derived by
-/// comparing `aux.data.log_size()` against the primary's. That
-/// heuristic silently misclassified side segments whose domain
-/// happened to match the primary — e.g. lineitem's `l_returnflag`
-/// (values 'A'/'R'/'N'/'F', one char each → chars-side log_size ==
-/// row log_size), which then leaked into `segments_iter` and made
-/// the `Eq` gadget see 6 data cols on one side vs 2 on the other.
-/// Storing the row/side split explicitly avoids the ambiguity.
+/// Which auxiliary segments are side-domain is stored in
+/// `side_aux_suffixes`, not derived from `log_size`: a side domain can be
+/// padded to the same size as the row domain (the characters of a column
+/// of one-character strings), and a side segment taken for a row segment
+/// would show up in `segments_iter`.
 pub enum TrackedCol<B: SnarkBackend> {
     SingleSegment {
-        /// The column's data polynomial + its (optional) activator.
         poly_bundle: PolyBundle<B>,
         field_ref: Option<FieldRef>,
     },
     MultiSegment {
-        /// The primary (canonical) data polynomial + its activator.
         primary_poly_bundle: PolyBundle<B>,
-        /// All auxiliary polynomial bundles belonging to this column,
-        /// keyed by segment suffix (e.g. `__length`, `__chars`,
-        /// `__orig_ind`, `__bnd`). Row-domain aux (e.g. `__length`)
-        /// and side-domain aux (e.g. `__chars`) share this map;
-        /// `side_aux_suffixes` marks which entries are side.
+        /// Row-domain and side-domain auxiliary segments, keyed by suffix
+        /// (`__length`, `__chars`, `__orig_ind`, `__bnd`).
         aux_poly_bundles: IndexMap<String, PolyBundle<B>>,
-        /// Subset of `aux_poly_bundles` keys that are side-domain.
-        /// Populated at construction time from the row/side split
-        /// carried by upstream `arith_table.polynomials()` vs
-        /// `arith_table.side_cols()`. `segments_iter` /
-        /// `side_segments_iter` consult this set instead of comparing
-        /// `log_size`, which is unreliable when the side domain
-        /// happens to be pow2-padded to the same size as the row
-        /// domain (see enum-level docstring for the concrete
-        /// misclassification that prompted this field).
+        /// The keys of `aux_poly_bundles` that are side-domain.
         side_aux_suffixes: IndexSet<String>,
         field_ref: Option<FieldRef>,
     },
@@ -250,7 +222,7 @@ impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
 }
 
 impl<B: SnarkBackend> TrackedCol<B> {
-    /// Constructs a single-segment tracked column.
+    /// A single-segment column.
     pub fn new(
         data_tracked_poly: TrackedPoly<B>,
         activator_tracked_poly: Option<TrackedPoly<B>>,
@@ -266,18 +238,11 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Constructs a multi-segment tracked column: one required primary
-    /// poly bundle plus zero or more named aux poly bundles. Aux ids must
-    /// be non-empty (the primary owns the empty id by convention).
-    ///
-    /// **Domain classification**: prefer [`Self::new_multi_split`] over
-    /// this constructor when you have the row-vs-side split at hand.
-    /// This one auto-classifies each aux by log_size against the primary
-    /// — a HEURISTIC that misclassifies side segments whose domain
-    /// happens to match the primary (see the enum docstring for the
-    /// concrete failure). Kept as a compatibility shim for callers that
-    /// still hand in a merged list; `regroup_flat_into_tracked_cols`
-    /// switched to `new_multi_split` to avoid the misclassification.
+    /// [`Self::new_multi_split`] for a merged aux list: an aux segment is
+    /// taken as side-domain iff its `log_size` differs from the primary's.
+    /// That misclassifies a side segment whose domain has the primary's
+    /// size (see the enum doc), so use `new_multi_split` when the split is
+    /// known.
     pub fn new_multi(
         primary_poly_bundle: PolyBundle<B>,
         aux_poly_bundles_input: Vec<(String, PolyBundle<B>)>,
@@ -296,11 +261,9 @@ impl<B: SnarkBackend> TrackedCol<B> {
         Self::new_multi_split(primary_poly_bundle, row_aux, side_aux, field_ref)
     }
 
-    /// Constructs a multi-segment tracked column with explicit row-vs-side
-    /// classification. Preferred over [`Self::new_multi`] whenever the
-    /// caller already knows the split — typically because it built the
-    /// column from an upstream `arith_table.polynomials()` (row) vs
-    /// `arith_table.side_cols()` (side) pair.
+    /// A multi-segment column from its primary bundle and its row-domain
+    /// and side-domain aux bundles. Aux ids must be non-empty (the primary
+    /// owns the empty id) and distinct.
     pub fn new_multi_split(
         primary_poly_bundle: PolyBundle<B>,
         row_aux_input: Vec<(String, PolyBundle<B>)>,
@@ -350,8 +313,8 @@ impl<B: SnarkBackend> TrackedCol<B> {
         if activator_tracked_poly.is_some() {
             let activator = activator_tracked_poly.as_ref().unwrap();
             // A folded-constant poly evaluates identically on any hypercube,
-            // so its stored log_size is unconstrained. Only enforce the size
-            // match when both sides are non-constant.
+            // so its stored log_size is unconstrained: the sizes must match
+            // only when both sides are non-constant.
             if !data_tracked_poly.is_constant() && !activator.is_constant() {
                 debug_assert_eq!(data_tracked_poly.log_size(), activator.log_size());
             }
@@ -359,9 +322,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Returns the log size of the tracked polynomials. All row-domain
-    /// segments in a multi-segment column share the same log size by
-    /// construction.
+    /// The log size of the row domain, which all row-domain segments share.
     pub fn log_size(&self) -> usize {
         match self {
             Self::SingleSegment { poly_bundle, .. } => poly_bundle.log_size(),
@@ -372,8 +333,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Returns the primary data polynomial — the unique poly for a single-
-    /// segment column, or the primary of a multi-segment column.
+    /// The primary data polynomial.
     pub fn data_tracked_poly(&self) -> TrackedPoly<B> {
         match self {
             Self::SingleSegment { poly_bundle, .. } => poly_bundle.data.clone(),
@@ -384,7 +344,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Returns the activator polynomial paired with the primary data segment.
+    /// The activator of the primary data polynomial.
     pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
         match self {
             Self::SingleSegment { poly_bundle, .. } => poly_bundle.activator.clone(),
@@ -395,7 +355,6 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Returns the field reference of the column, if any.
     pub fn field_ref(&self) -> Option<FieldRef> {
         match self {
             Self::SingleSegment { field_ref, .. } | Self::MultiSegment { field_ref, .. } => {
@@ -404,8 +363,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Total number of polynomials in this column (primary + all aux
-    /// segments, row-domain AND side-domain). Always >= 1.
+    /// The primary plus every aux segment, row-domain and side-domain.
     pub fn num_segments(&self) -> usize {
         match self {
             Self::SingleSegment { .. } => 1,
@@ -415,11 +373,8 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Iterate `(id, data, activator)` over ROW-domain segments only:
-    /// primary yields `id = None`, row-aux yields `id = Some(sid)`.
-    /// Side-domain aux are excluded via the explicit
-    /// `side_aux_suffixes` marker set (see the enum docstring for why
-    /// the historical `log_size` heuristic was insufficient).
+    /// `(id, data, activator)` of the row-domain segments only: the primary
+    /// with `id = None`, then each row-domain aux with `id = Some(suffix)`.
     #[allow(clippy::type_complexity)]
     pub fn segments_iter(
         &self,
@@ -451,9 +406,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Look up ANY aux segment (row-domain or side-domain) by id.
-    /// Returns `None` if the id is not registered (including for
-    /// `SingleSegment` columns, which have no aux).
+    /// The aux segment `aux_id`, row-domain or side-domain.
     pub fn aux_segment(&self, aux_id: &str) -> Option<&PolyBundle<B>> {
         match self {
             Self::SingleSegment { .. } => None,
@@ -463,9 +416,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Look up a side-domain segment specifically (returns `None` if the
-    /// id resolves to a row-domain aux). Convenience over `aux_segment`
-    /// for callers that assert side-ness.
+    /// The side-domain segment `side_id`; `None` for a row-domain aux.
     pub fn side_segment(&self, side_id: &str) -> Option<&PolyBundle<B>> {
         match self {
             Self::SingleSegment { .. } => None,
@@ -483,8 +434,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Iterate `(suffix, aux)` over every side-domain segment in this
-    /// column, in insertion order. Empty for `SingleSegment` columns.
+    /// `(suffix, aux)` of every side-domain segment, in insertion order.
     pub fn side_segments_iter(&self) -> Box<dyn Iterator<Item = (&str, &PolyBundle<B>)> + '_> {
         match self {
             Self::SingleSegment { .. } => Box::new(std::iter::empty()),
@@ -501,7 +451,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Returns a reference to the tracker shared by all polys in this column.
+    /// The tracker shared by all polynomials of this column.
     pub fn tracker_ref(&self) -> ArgProver<B> {
         let poly = match self {
             Self::SingleSegment { poly_bundle, .. } => &poly_bundle.data,
@@ -513,8 +463,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         ArgProver::new_from_tracker_rc(poly.tracker())
     }
 
-    /// Returns the effective primary tracked polynomial: data * activator
-    /// (when an activator exists), otherwise just the data poly.
+    /// The primary data polynomial times its activator, when it has one.
     pub fn activated_data_tracked_poly(&self) -> TrackedPoly<B> {
         match self.activator_tracked_poly() {
             Some(activator) => &self.data_tracked_poly() * &activator,
@@ -522,7 +471,7 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Returns a vec of the active-row primary data values.
+    /// The primary data values of the active rows.
     pub fn effective_iter(&self) -> impl IntoIterator<Item = B::F> + use<B> {
         let data = self.data_tracked_poly();
         match self.activator_tracked_poly() {
@@ -537,14 +486,14 @@ impl<B: SnarkBackend> TrackedCol<B> {
         }
     }
 
-    /// Returns a hashset of the activated primary data elements (for tests).
+    /// The distinct primary data values of the active rows.
     pub fn effective_hashset(&self) -> IndexSet<B::F> {
         self.effective_iter()
             .into_iter()
             .collect::<IndexSet<B::F>>()
     }
 
-    /// Pretty-print the tracked column (primary segment only, for brevity).
+    /// A text table of the primary segment and its activator.
     pub fn pretty_string(&self) -> String {
         let base_name = self
             .field_ref()

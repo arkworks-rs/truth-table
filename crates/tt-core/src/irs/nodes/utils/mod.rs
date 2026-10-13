@@ -8,7 +8,6 @@ pub mod data_preserving_update_check;
 pub mod domain_preserving_update_check;
 pub mod eq;
 pub mod factor_placement;
-pub mod gen_sort;
 pub mod geq;
 pub mod keyed_sumcheck;
 pub mod length_filtering_check;

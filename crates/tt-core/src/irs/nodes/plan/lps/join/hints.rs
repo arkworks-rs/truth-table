@@ -7,7 +7,6 @@ use datafusion_expr::expr::Sort as SortExpr;
 use datafusion_expr::{Expr, ExprFunctionExt, Join, JoinType, Operator, binary_expr, col, lit};
 
 pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Join) -> DataFrame {
-    // 1) Build the join predicates from the logical plan.
     let mut join_exprs: Vec<Expr> = join
         .on
         .iter()
@@ -17,9 +16,8 @@ pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Jo
         join_exprs.push(filter.clone());
     }
 
-    // 2) Filter out padding rows (activator = false), then strip system columns
-    //    (activator/row_id) from inputs, but keep row_id
-    //    under a unique name so we can build the new output row_id later.
+    // Drop inactive rows and the activator; keep the row id under a
+    // side-specific name, to order the output rows by.
     let prepare_input = |df: DataFrame, row_id_label: &str| {
         let df = df
             .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
@@ -45,16 +43,12 @@ pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Jo
     let left_df = prepare_input(left_df, "__left_row_id__");
     let right_df = prepare_input(right_df, "__right_row_id__");
 
-    // 3) Execute the join over data columns (system columns removed).
     let joined = left_df
         .join_on(right_df, join.join_type, join_exprs)
         .expect("join output should succeed");
 
-    // 4) Build the output projection:
-    //    - keep all joined data columns
-    //    - sort by left/right row_id when present
-    //    - assign a fresh 0-based __row_id__ in that sorted order
-    //    - add a new __activator__ set to true for all real rows
+    // Output: the joined data columns, an all-true `__activator__`, and a
+    // fresh 0-based `__row_id__` in (left row id, right row id) order.
     let mut data_exprs = Vec::new();
     let mut left_row_id = None;
     let mut right_row_id = None;
@@ -73,7 +67,6 @@ pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Jo
         data_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
     }
 
-    // Sort by left/right row_id columns to make row_id assignment deterministic.
     let mut row_id_sort_exprs: Vec<SortExpr> = Vec::new();
     if let Some(left) = left_row_id {
         row_id_sort_exprs.push(left.sort(true, true));
@@ -89,7 +82,6 @@ pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Jo
             .expect("join output sort should succeed")
     };
 
-    // New activator is 1 for all real rows (no padding is applied here).
     let mut projection_exprs = data_exprs;
     projection_exprs.push(lit(true).alias(ACTIVATOR_COL_NAME));
     let row_number_expr = row_number()
@@ -125,8 +117,9 @@ pub fn build_partial_output_dataframe(
     join: &Join,
     mode: JoinMode,
 ) -> DataFrame {
-    // In partial mode, keep FK-side rows (including inactive ones) and attach PK-side
-    // columns via LEFT JOIN. This guarantees PK materialized columns share FK log-size.
+    // Every FK-side row is kept, inactive ones included, and the PK-side
+    // columns are attached by a LEFT JOIN, so the materialized PK columns have
+    // the FK side's log size.
     let fk_is_left = matches!(mode, JoinMode::MANY_TO_ONE);
 
     let (fk_df_raw, pk_df_raw) = if fk_is_left {
@@ -195,13 +188,10 @@ pub fn build_partial_output_dataframe(
         .join_on(pk_df, JoinType::Left, join_exprs)
         .expect("partial join should succeed");
 
-    // HasOne modes guarantee at most one PK match per FK row, so we keep the
-    // raw LEFT JOIN output and avoid an expensive per-row-id window ranking.
-    let joined = joined;
-
-    // Keep partial-join output in FK row-id order so materialized PK columns and
-    // FK-side virtual columns stay index-aligned when virtual witness columns are
-    // copied from the FK input payload.
+    // A specialized mode has at most one PK match per FK row, so the LEFT JOIN
+    // output needs no deduplication. FK row-id order keeps the materialized PK
+    // columns index-aligned with the virtual columns copied from the FK input
+    // payload.
     let joined = joined
         .sort(vec![col("__fk_row_id__").sort(true, true)])
         .expect("partial join fk row-id sort should succeed");

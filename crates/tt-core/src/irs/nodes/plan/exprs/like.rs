@@ -1,33 +1,27 @@
-//! `Expr::Like` — SQL `LIKE` lowering into the Multi-Character Pattern
-//! Matching (MCPM) gadget (paper §6.1 PIOP 6).
+//! `Expr::Like`: SQL `LIKE` lowered onto the Multi-Character Pattern
+//! Matching (MCPM) gadget (paper §6.1, PIOP 6).
 //!
-//! Pipeline:
-//! 1. Parse the LIKE pattern via `sweep_factors::parse_like_pattern`
-//!    into an ordered `Vec<(literal, Mode)>` factor list.
-//! 2. Pull the string column's char-level side segments (`__chars`,
-//!    `__orig_ind`, `__int_ind`, `__bnd`) from the scope's tracked
-//!    table. These are emitted at the TableScan encoding site.
-//! 3. Read plaintext evaluations back on the prover, compute every
-//!    MCPM/SweepFactors witness column via
-//!    `sweep_factors::witness::compute_mcpm_witness`, commit each as a
-//!    fresh MLE, and wire them into the MCPM gadget's payload.
-//! 4. Expose `a_new` (the per-string boolean match column) as this
-//!    node's PlanPayload output.
+//! 1. `from_expr` parses the pattern into an ordered `(literal, Mode)`
+//!    factor list (`sweep_factors::parse_like_pattern`).
+//! 2. The string column's char-level side segments (`__chars`,
+//!    `__orig_ind`, `__int_ind`, `__bnd`) come from the scope's tracked
+//!    table; the TableScan encoding emits them.
+//! 3. The prover computes every MCPM witness column from their evaluations
+//!    (`sweep_factors::witness::compute_mcpm_witness`), commits each and
+//!    wires them into the MCPM gadget's payload.
+//! 4. `a_new`, the per-string boolean match column, is this node's output.
 //!
-//! Wildcard-only patterns (`""`, `"%"`, `"%%"`) short-circuit to a
-//! constant-1 output — no MCPM child is spawned.
+//! `a_new` is committed in `add_virtual_witness`, the other columns in
+//! `initialize_gadgets`: virtualization runs post-order, and a parent
+//! (e.g. `Filter`) reads this node's `PlanPayload` in its own
+//! `add_virtual_witness`, before this node's `initialize_gadgets` runs.
+//! The verifier tracks the commitments in the prover's commit order.
 //!
-//! Design note: witness commits happen inside `add_virtual_witness`
-//! (via the tracker `Rc<RefCell<...>>` reachable from any scope poly)
-//! rather than `initialize_gadgets`. This is required because the
-//! virtualization pass runs post-order — a parent operator (e.g.
-//! `Filter`) reads this node's `PlanPayload` during ITS own
-//! `add_virtual_witness`, which happens before this node's
-//! `initialize_gadgets` would run. So `a_new` must be committed before
-//! virtualization completes.
+//! A wildcard-only pattern (`""`, `"%"`, `"%%"`) has no MCPM child; the
+//! output is the scope's activator.
 //!
-//! Limitations: `NOT LIKE`, ESCAPE clauses, `_` single-char wildcards,
-//! and case-insensitive matching are not supported yet.
+//! Not supported: `NOT LIKE`, `ESCAPE`, the `_` wildcard, case-insensitive
+//! matching.
 
 use crate::session::session_context;
 use std::cell::RefCell;
@@ -115,10 +109,6 @@ impl<B: SnarkBackend> ExprNode<B> {
         field
     }
 
-    fn output_expr(&self) -> Expr {
-        Expr::Like(self.like.clone())
-    }
-
     fn output_field_name(&self) -> String {
         format!(
             "{}_LIKE_{}",
@@ -178,11 +168,9 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
         todo!()
     }
 
-    // NOTE: `like.pattern` is intentionally NOT a child. `from_expr`
-    // asserts it must be a Utf8 literal and consumes it into `factors`
-    // at construction; it produces no witness, oracle, or payload. If we
-    // ever support non-literal patterns (e.g. `col1 LIKE col2`), wrap it
-    // as a Node<B> here so it gets its own witness/oracle slot.
+    // `like.pattern` is not a child: `from_expr` requires a Utf8 literal and
+    // folds it into `factors`, so it has no witness, oracle or payload. A
+    // non-literal pattern (`col1 LIKE col2`) would need its own node here.
     fn children(&self) -> Vec<Arc<Node<B>>> {
         let mut kids = vec![self.expr.clone()];
         if let Some(mcpm) = &self.mcpm {
@@ -192,8 +180,7 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     }
 
     fn required_side_columns(&self) -> Vec<String> {
-        // Wildcard-only patterns short-circuit in add_virtual_witness
-        // without ever touching side segments.
+        // A wildcard-only pattern reads no side segments.
         if self.factors.is_empty() {
             return Vec::new();
         }
@@ -206,16 +193,9 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Commit helpers going through the tracker `Rc<RefCell<...>>` directly
-// so we can commit inside `add_virtual_witness` (which has no
-// `ArgProver` / `ArgVerifier` reference).
-// -----------------------------------------------------------------------------
-
-/// Commits an evaluation vector. Storage compression is applied inside
-/// ark-piop's `track_and_commit_mat_mv_p` (auto-classifies into the tightest
-/// `MLEStorage` variant), so callers here don't need to know the semantic
-/// type of `evals`.
+/// Commits through the tracker directly, because `add_virtual_witness` has
+/// no `ArgProver`. `track_and_commit_mat_mv_p` picks the tightest
+/// `MLEStorage` variant for `evals`.
 fn commit_prover<B: SnarkBackend>(
     tracker_rc: &Rc<RefCell<ProverTracker<B>>>,
     log_size: usize,
@@ -256,15 +236,11 @@ fn track_next_verifier<B: SnarkBackend>(
     ))
 }
 
-// -----------------------------------------------------------------------------
-// Prover path — witnesses committed inside `add_virtual_witness`.
-// -----------------------------------------------------------------------------
-
 impl<B: SnarkBackend> ExprNode<B> {
-    /// Compute the full MCPM witness set upfront so we can commit
-    /// `a_new` here (needed by parent Filter's `add_virtual_witness`)
-    /// and cache the remaining evals on the node for `initialize_gadgets`
-    /// to commit + wire onto the MCPM payload.
+    /// Commits `a_new`, which the parent Filter's `add_virtual_witness`
+    /// reads. The full witness is computed here and again in
+    /// `commit_and_wire_prover` rather than cached, to avoid holding its
+    /// evaluations on the node across passes.
     fn commit_a_new_prover(
         &self,
         id: NodeId,
@@ -286,9 +262,6 @@ impl<B: SnarkBackend> ExprNode<B> {
             .expect("Like: missing __chars side col");
         let tracker_rc = chars_side.data.tracker();
 
-        // Compute the full witness (used again in ig; we recompute
-        // there rather than cache to avoid holding a large evals blob
-        // on the node across passes).
         let witness = self.scan_and_compute_witness_prover(&scope_table, &chars_side);
         let a_new = commit_prover(&tracker_rc, str_domain, witness.a_new.clone())?;
 
@@ -428,10 +401,9 @@ impl<B: SnarkBackend> ExprNode<B> {
             .map(|(f, p)| (f.clone(), p.clone()))
             .expect("Like: missing __length row-domain segment");
 
-        // Grab the tracker Rc from a scope poly — same tracker as ArgProver's.
+        // A scope poly's tracker is the `ArgProver`'s.
         let tracker_rc = chars_side.data.tracker();
 
-        // Read plaintext evaluations back for the witness computer.
         let char_evals = chars_side.data.evaluations().to_vec();
         let orig_ind_evals = orig_ind_side.data.evaluations().to_vec();
         let int_ind_evals = int_ind_side.data.evaluations().to_vec();
@@ -470,10 +442,7 @@ impl<B: SnarkBackend> ExprNode<B> {
 
         let witness: McpmWitness<B::F> = compute_mcpm_witness(&tables, &self.factors);
 
-        // `a_new` was committed FIRST in add_virtual_witness (so parent
-        // Filter's `add_virtual_witness`, which runs later in the
-        // post-order pass, can see it in this node's PlanPayload).
-        // Recover it from our own PlanPayload here.
+        // `a_new` was committed first, in `add_virtual_witness`; recover it.
         let own_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::PlanPayload(t)) => t.clone(),
             _ => panic!("Like: expected PlanPayload set by add_virtual_witness"),
@@ -484,7 +453,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .map(|(_, p)| p.clone())
             .expect("Like: a_new must be committed by add_virtual_witness");
 
-        // Commit order for the REST = CONTRACT with the verifier.
+        // The verifier tracks the rest in exactly this commit order.
         let char_act_old_prime =
             commit_prover(&tracker_rc, char_domain, witness.char_act_old_prime.clone())?;
         let a_old_prime = commit_prover(&tracker_rc, str_domain, witness.a_old_prime.clone())?;
@@ -505,16 +474,10 @@ impl<B: SnarkBackend> ExprNode<B> {
             past: Option<TrackedPoly<B>>,
         }
 
-        // The rotations are shared by every factor (see `McpmWitness`), so
-        // they are committed once here rather than once per factor, and each
-        // factor below takes the prefix it needs. The verifier tracks them in
-        // exactly this order.
-        //
-        // This sharing buys no time: a clean A/B on a two-factor pattern
-        // (2^23 chars, no pre-filter) measured 398.7 s / 80.34 GB with one
-        // copy per factor against 403.7 s / 80.40 GB shared. What an extra
-        // factor costs is its own gadget proofs in `FactorPlacement`, not
-        // its commitments — do not re-run that experiment.
+        // The rotations are shared by every factor (see `McpmWitness`): they
+        // are committed once here and each factor takes the prefix it needs.
+        // The sharing saves no proving time: an extra factor costs its own
+        // gadget proofs in `FactorPlacement`, not its commitments.
         let mut shared_rotated_chars = Vec::with_capacity(witness.rotated_chars.len());
         for col in witness.rotated_chars.iter() {
             shared_rotated_chars.push(commit_prover(&tracker_rc, char_domain, col.clone())?);
@@ -570,7 +533,6 @@ impl<B: SnarkBackend> ExprNode<B> {
             });
         }
 
-        // MCPM payload map.
         let mut mcpm_payload: IndexMap<String, TrackedTable<B>> = IndexMap::new();
 
         {
@@ -903,9 +865,7 @@ impl<B: SnarkBackend> ExprNode<B> {
 
         let tracker_rc = chars_side.data.tracker();
 
-        // `a_new` was tracked FIRST in add_virtual_witness (mirrors the
-        // prover's a_new-first commit order). Recover it from own
-        // PlanPayload set there.
+        // `a_new` was tracked first, in `add_virtual_witness`; recover it.
         let own_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::PlanPayload(t)) => t.clone(),
             _ => panic!("Like verifier: expected PlanPayload set by add_virtual_witness"),
@@ -916,7 +876,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .map(|(_, p)| p.clone())
             .expect("Like verifier: a_new must be tracked by add_virtual_witness");
 
-        // Track the REST in the same order the prover committed them.
+        // The rest, in the prover's commit order.
         let char_act_old_prime = track_next_verifier(&tracker_rc)?;
         let a_old_prime = track_next_verifier(&tracker_rc)?;
         let char_act_new = track_next_verifier(&tracker_rc)?;
@@ -1033,9 +993,8 @@ impl<B: SnarkBackend> ExprNode<B> {
         {
             let ind_f = Arc::new(Field::new("ind", DataType::UInt64, false));
             let mut oracles = IndexMap::new();
-            // Mirror prover: if no __row_id__ oracle exists on the scope,
-            // the prover committed a fresh ind poly at (0..n_strs). Track
-            // the corresponding commitment here in the same order.
+            // Without a `__row_id__` oracle on the scope, the prover committed
+            // a fresh `ind` poly (0..n_strs) at this point; track it here.
             let ind_oracle = scope_table
                 .tracked_oracles_iter()
                 .find(|(f, _)| f.name() == ROW_ID_COL_NAME)
@@ -1238,54 +1197,8 @@ impl<B: SnarkBackend> ExprNode<B> {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Plan-time helpers: build virtual HintDFs for SortNoDup's INPUT_LABEL
-// derivation, plus a scanner that re-encodes the LIKE input string
-// column to a `ScannedTables` view for the witness computer.
-// -----------------------------------------------------------------------------
-
-/// Blocking DataFrame collect that works in both current-thread and
-/// multi-thread tokio runtimes. Mirrors the helper in `nodup/mod.rs`.
-fn collect_blocking_like(df: datafusion::prelude::DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            tokio::runtime::RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| {
-                            datafusion_common::DataFusionError::Execution(e.to_string())
-                        })?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    datafusion_common::DataFusionError::Execution(
-                        "like plan hint collection thread panicked".to_string(),
-                    )
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| datafusion_common::DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
-}
-
-/// Convert a small non-negative field element to `i64` via the low bytes
-/// of its big-int representation. Panics on overflow beyond 8 bytes with
-/// the high bit set — SortNoDup's inputs (mark/orig_ind bytes and indices)
-/// always fit comfortably.
+/// The low 8 bytes of a field element as `i64`. SortNoDup's inputs
+/// (mark/orig_ind bytes and indices) always fit.
 fn field_to_i64_like<F: PrimeField>(value: F) -> i64 {
     let big = value.into_bigint();
     let bytes = big.to_bytes_le();
@@ -1296,10 +1209,9 @@ fn field_to_i64_like<F: PrimeField>(value: F) -> i64 {
     out as i64
 }
 
-/// Build a virtual char-domain HintDF for a single column of field
-/// values. The DataFrame carries `{ name: Int64, __row_id__: Int64 }`;
-/// both fields are marked `should_materialize = false` so the tracking
-/// pass does not attempt to commit them.
+/// A virtual char-domain HintDF `{ name: Int64, __row_id__: Int64 }` for one
+/// column of field values, the input SortNoDup's plan derives from. Neither
+/// field is materialized, so the tracking pass does not commit them.
 fn build_virtual_char_domain_hint<F: PrimeField>(
     name: &str,
     values: Vec<F>,
@@ -1332,15 +1244,13 @@ fn build_virtual_char_domain_hint<F: PrimeField>(
     Ok(HintDF::new(df, should_materialize))
 }
 
-/// Build a schema-only virtual char-domain HintDF for the verifier. Data
-/// values are placeholders (empty rows are OK because verifier planning
-/// skips materialization); only the schema + should_materialize flags
-/// are consumed by the tracking pass.
+/// The verifier's version of [`build_virtual_char_domain_hint`]: no rows,
+/// because verifier planning reads only the schema and the
+/// `should_materialize` flags.
 fn build_virtual_char_domain_hint_schema_only(name: &str) -> DataFusionResult<HintDF> {
     let data_field = Field::new(name, DataType::Int64, false);
     let row_id_field = Field::new(ROW_ID_COL_NAME, DataType::Int64, false);
     let schema = Arc::new(Schema::new(vec![data_field.clone(), row_id_field.clone()]));
-    // Empty batch works fine — verifier planning must not consume data.
     let data_arr: ArrayRef = Arc::new(Int64Array::from(Vec::<i64>::new()));
     let row_arr: ArrayRef = Arc::new(Int64Array::from(Vec::<i64>::new()));
     let batch = RecordBatch::try_new(schema.clone(), vec![data_arr, row_arr])?;
@@ -1357,11 +1267,10 @@ fn build_virtual_char_domain_hint_schema_only(name: &str) -> DataFusionResult<Hi
 }
 
 impl<B: SnarkBackend> ExprNode<B> {
-    /// Re-scan the LIKE input string column at plan time to produce a
-    /// `ScannedTables` view suitable for `compute_mcpm_witness`. Returns
-    /// `None` when the child expr's PlanPayload hasn't been populated
-    /// yet (e.g. wildcard-only patterns or upstream shapes that skip the
-    /// hint pipeline).
+    /// Re-scans the LIKE input string column at plan time into the
+    /// `ScannedTables` that `compute_mcpm_witness` takes. `None` when the
+    /// child's PlanPayload is not populated (e.g. upstream shapes that skip
+    /// the hint pipeline).
     fn scan_string_side_data_plan_time_prover(
         &self,
         planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
@@ -1372,17 +1281,16 @@ impl<B: SnarkBackend> ExprNode<B> {
         };
         let df = child_hint.data_frame().clone();
         // An input with no rows (a pre-filter that kept none, the pattern
-        // matching nothing) collects to no batches; it still has a schema,
-        // and the padding below turns it into the same inactive rows the
-        // committed tables got.
+        // matching nothing) collects to no batches. It still has a schema,
+        // and the padding below gives it the inactive rows the committed
+        // tables got.
         let schema: datafusion::arrow::datatypes::SchemaRef =
             std::sync::Arc::new(df.schema().as_arrow().clone());
-        let batches = collect_blocking_like(df).ok()?;
+        let batches = crate::session::block_on(df.collect()).ok()?;
         let schema = batches.first().map_or(schema, |b| b.schema());
-        // A compacted input yields raw (non-power-of-two) row counts;
-        // pad with the same canonical inactive padding the materialization
-        // pass applied to the committed tables, so the scanned witness
-        // matches the commitments row for row. No-op when already padded.
+        // A compacted input has a non-power-of-two row count. Pad it with
+        // the inactive padding the materialization pass gave the committed
+        // tables, so the scanned witness matches the commitments row for row.
         let (batches, _row_count) =
             crate::prover::passes::materialization::pad_batches_to_power_of_two(
                 schema.as_ref(),
@@ -1391,8 +1299,6 @@ impl<B: SnarkBackend> ExprNode<B> {
             .ok()?;
         let combined = datafusion::arrow::compute::concat_batches(&schema, &batches).ok()?;
 
-        // Locate the Utf8/Utf8View column (the string column). Skip
-        // system columns. If none present, we cannot scan.
         let string_col_idx = combined.schema().fields().iter().position(|f| {
             !is_system_column(f.name())
                 && matches!(
@@ -1402,8 +1308,8 @@ impl<B: SnarkBackend> ExprNode<B> {
         })?;
         let string_column: ArrayRef = combined.column(string_col_idx).clone();
 
-        // Compute the pre-padding active byte count the same way
-        // `encode_utf8_like` does — sum of byte lengths of non-null rows.
+        // Active byte count before padding, as `encode_utf8_like` computes
+        // it: the byte lengths of the non-null rows.
         let n_rows = string_column.len();
         let active_len: usize = (0..n_rows)
             .map(|i| {
@@ -1435,17 +1341,14 @@ impl<B: SnarkBackend> ExprNode<B> {
         let segments: Vec<EncodedSegment<B::F>> =
             encoding::encode_arrow_array_to_field::<B::F>(&string_column).ok()?;
 
-        // Row-domain segment: length column. The length MLE keeps a
-        // native small-int storage but this LIKE-gadget site needs a
-        // `Vec<F>` for the field-arithmetic that follows, so we materialize
-        // once here — the tracker never sees this expanded form.
+        // The length MLE has native small-int storage; the witness
+        // computation needs `Vec<F>`. The tracker never sees this form.
         let l_evals: Vec<B::F> = segments
             .iter()
             .find(|seg| seg.suffix == STRING_LENGTH_SUFFIX)
             .and_then(|seg| seg.mle.as_ref())
             .map(|mle| mle.evaluations())?;
 
-        // Side segments: chars, orig_ind, int_ind, bnd.
         let chars_bytes: Vec<u8> = segments
             .iter()
             .find(|seg| seg.suffix == STRING_CHARS_SUFFIX)
@@ -1495,9 +1398,8 @@ impl<B: SnarkBackend> ExprNode<B> {
             }
         }
 
-        // Row-domain: `ind` from __row_id__, `a` from activator, both
-        // padded to the string-domain size (already equal to n_rows since
-        // Arrow batches are row-aligned).
+        // `ind` from `__row_id__` and `a` from the activator. Both have
+        // `n_rows` entries, the string-domain size.
         let str_domain = n_rows.max(1).trailing_zeros() as usize;
         let row_id_idx = combined
             .schema()
@@ -1553,8 +1455,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         if self.factors.is_empty() {
-            // Empty-pattern short-circuit — no MCPM child, boolean
-            // output IS the scope's activator.
+            // Wildcard-only pattern: the output is the scope's activator.
             let scope_table = match virtualized_ir.payload_for_node(&self.expr.id()) {
                 Some(PayloadStructure::PlanPayload(t)) => t.clone(),
                 _ => panic!("Like: expected PlanPayload on input column child"),
@@ -1582,9 +1483,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             );
             return Ok(());
         }
-        // Commit `a_new` upfront so parent nodes visited later in this
-        // post-order pass (e.g. Filter) see a data column on our
-        // PlanPayload.
         self.commit_a_new_prover(id, virtualized_ir)
     }
 
@@ -1597,9 +1495,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         if self.factors.is_empty() {
             return Ok(());
         }
-        // Commit remaining witnesses + wire MCPM payload. Runs before
-        // MCPM's own `initialize_gadgets` in this pre-order pass, so
-        // MCPM will find its payload populated.
+        // Runs before MCPM's own `initialize_gadgets` (pre-order pass), so
+        // MCPM finds its payload populated.
         self.commit_and_wire_prover(id, virtualized_ir)
     }
 
@@ -1642,10 +1539,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         Ok(())
     }
 }
-
-// -----------------------------------------------------------------------------
-// Verifier path — mirrors the prover's commit order via track_next_mv_com.
-// -----------------------------------------------------------------------------
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
@@ -1729,10 +1622,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Plan / IsPlanNode / IsExprNode / output()
-// -----------------------------------------------------------------------------
-
 impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         self.mcpm.as_ref().map(|g| g.as_ref().clone())
@@ -1755,7 +1644,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
         let input_df =
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("like row-id sort should succeed");
-        let mut exprs = vec![self.output_expr()];
+        let mut exprs = vec![Expr::Like(self.like.clone())];
         crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
         let projected = input_df
@@ -1790,7 +1679,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("Like scope cannot be a gadget node"),
         };
         let input_df = scope_hint_df.data_frame().clone();
-        let mut exprs = vec![self.output_expr()];
+        let mut exprs = vec![Expr::Like(self.like.clone())];
         crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
         let projected = input_df

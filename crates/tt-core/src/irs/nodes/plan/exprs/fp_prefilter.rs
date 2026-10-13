@@ -3,29 +3,24 @@
 //! The static pre-filter pass (tt-proof-planner) rewrites
 //! `Filter(col LIKE pattern)` over a table scan into
 //! `Filter(col LIKE pattern) ∘ Filter(tt_prefilter(col, pattern, bins))`, so
-//! the fingerprint subset test runs — and is proven — *before* the
-//! expensive MCPM machinery. The data-dependent pre-filter rule then picks
-//! which of the pattern's bins the pre-filter tests (the prover's greedy
-//! under the cost model), or drops the pre-filter when testing none is
-//! cheapest. When the pre-filter drops
-//! enough rows the data-dependent `CompactionRule` wraps this node's
-//! Filter in a `Compaction`, shrinking both the row and char domains
-//! MCPM sees.
+//! the fingerprint subset test is proven before MCPM runs. The
+//! data-dependent pre-filter rule picks `bins` among the pattern's bins, or
+//! drops the pre-filter. When the pre-filter drops enough rows,
+//! `CompactionRule` wraps this node's Filter in a `Compaction`, which
+//! shrinks the row and char domains MCPM sees.
 //!
-//! The predicate is the `tt_prefilter(col, pattern, bins)` scalar UDF
-//! defined here: SQL-executable (DataFusion needs to run it for row counts
-//! and hint DataFrames) with semantics *identical* to the PIOP witness:
-//! `fp(col) & φ == φ` where `fp` is [`FingerprintScheme`] applied to the
-//! column bytes and `φ` the pattern fingerprint restricted to `bins`, a
-//! subset of the pattern's bins written as a comma-separated literal.
-//! NULLs evaluate to `false`, matching SQL LIKE's null semantics.
+//! `tt_prefilter` is a scalar UDF because DataFusion has to run it for row
+//! counts and hint DataFrames. It computes what the PIOP proves:
+//! `fp(col) & φ == φ`, with `fp` the column's [`FingerprintScheme`] and `φ`
+//! the pattern fingerprint restricted to `bins`. NULL gives `false`, as in
+//! SQL LIKE.
 //!
-//! Proof side: this expr node's boolean output `a' (= a_pre)` is proven
-//! by a [`pre_filtering_check`] gadget child — one zerocheck
+//! The node's boolean output `a'` is the only witness, committed in
+//! `add_virtual_witness` so the parent Filter sees it. A
+//! [`pre_filtering_check`] gadget child proves it with one zerocheck
 //! `a' = a · ∏ fp_b` over the owner-committed boolean `__fp{b}` columns of
 //! the scanned table, for the tested bins only (both sides derive them from
-//! the public `φ`). The only witness is `a'`, committed in
-//! `add_virtual_witness` so the parent Filter sees it.
+//! the public `φ`).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -69,17 +64,12 @@ use crate::irs::{
 use crate::prover::irs::VirtualizedIr as ProverVirtualizedIr;
 use crate::verifier::irs::VirtualizedIr as VerifierVirtualizedIr;
 
-// -----------------------------------------------------------------------------
-// The `tt_prefilter` scalar UDF.
-// -----------------------------------------------------------------------------
-
 /// Name the UDF is registered (and codec-resolved) under.
 pub const TT_PREFILTER_UDF_NAME: &str = "tt_prefilter";
 
-/// Every bin the pattern sets under the column's scheme, ascending: the
-/// OR-fold of its literal factors' fingerprints over the scheme's full
-/// width. `None` when the pattern is wildcard-only or unsupported (`_`),
-/// or when it sets no bin — there is then nothing to pre-filter on.
+/// Every bin the pattern sets under the column's scheme, ascending. `None`
+/// when the pattern is wildcard-only or unsupported (`_`), or sets no bin:
+/// there is nothing to pre-filter on.
 pub fn pattern_bins(column: &str, pattern: &str) -> Option<Vec<Bin>> {
     let factors = parse_like_pattern_bytes(pattern).ok()?;
     // `column`'s own rule, as the table was committed. A column the rules do
@@ -94,8 +84,8 @@ pub fn pattern_bins(column: &str, pattern: &str) -> Option<Vec<Bin>> {
 }
 
 /// The pattern fingerprint `φ` the pre-filter tests: exactly `bins`, which
-/// must be a non-empty subset of [`pattern_bins`] — the verifier's check on
-/// a prover-chosen list. `None` otherwise.
+/// must be a non-empty subset of [`pattern_bins`] (the verifier's check on
+/// a prover-chosen list). `None` otherwise.
 pub fn pattern_fingerprint(column: &str, pattern: &str, bins: &[Bin]) -> Option<FpMask> {
     subset_mask(&pattern_bins(column, pattern)?, bins)
 }
@@ -146,7 +136,7 @@ pub fn bins_literal(bins: &[Bin]) -> String {
 }
 
 /// The subset test over a string column, fingerprinted in parallel under
-/// `scheme` — the rule that column was committed with.
+/// `scheme`, the rule that column was committed with.
 fn prefilter_strings<'a>(
     scheme: &FingerprintScheme,
     phi: &FpMask,
@@ -203,8 +193,7 @@ impl ScalarUDFImpl for TTPreFilterUdf {
                     .to_string(),
             )
         })?;
-        // The column name rides along as the fourth argument, so the rule
-        // used here is the one that column was committed under.
+        // The column name selects the rule that column was committed under.
         let column = match &args.args[3] {
             ColumnarValue::Scalar(ScalarValue::Utf8(Some(s)))
             | ColumnarValue::Scalar(ScalarValue::LargeUtf8(Some(s)))
@@ -303,10 +292,6 @@ pub fn prefilter_args(expr: &Expr) -> Option<(&Expr, String, Vec<Bin>)> {
     Some((&function.args[0], pattern, bins))
 }
 
-// -----------------------------------------------------------------------------
-// Commit helpers (same tracker-direct pattern as `like.rs`).
-// -----------------------------------------------------------------------------
-
 fn commit_prover<B: SnarkBackend>(
     tracker_rc: &Rc<RefCell<ProverTracker<B>>>,
     log_size: usize,
@@ -372,10 +357,6 @@ fn bool_table_oracle<B: SnarkBackend>(
     )
 }
 
-// -----------------------------------------------------------------------------
-// Witness computation.
-// -----------------------------------------------------------------------------
-
 /// The pre-filter's output `a'`: 1 exactly on the active rows that set
 /// every tested bin, read from the committed bin columns.
 fn compute_a_pre<F: PrimeField>(fp_bins: &[Vec<F>], a_evals: &[F]) -> Vec<F> {
@@ -386,10 +367,6 @@ fn compute_a_pre<F: PrimeField>(fp_bins: &[Vec<F>], a_evals: &[F]) -> Vec<F> {
         })
         .collect()
 }
-
-// -----------------------------------------------------------------------------
-// The expr node.
-// -----------------------------------------------------------------------------
 
 pub struct ExprNode<B: SnarkBackend> {
     pub scope: Vec<std::sync::Weak<Node<B>>>,
@@ -431,11 +408,6 @@ impl<B: SnarkBackend> ExprNode<B> {
         field
     }
 
-    fn output_expr(&self) -> Expr {
-        Expr::ScalarFunction(self.scalar_function.clone())
-    }
-
-    /// The pre-filtered column's name.
     fn column_name(&self) -> String {
         match self.scalar_function.args.first() {
             Some(Expr::Column(c)) => c.name.clone(),
@@ -516,7 +488,6 @@ impl<B: SnarkBackend> ExprNode<B> {
             .collect()
     }
 
-    /// `a'` from the committed bin columns.
     fn a_pre_prover(&self, scope_table: &TrackedTable<B>) -> Vec<B::F> {
         let fp_bins: Vec<Vec<B::F>> = self
             .fp_limb_polys(scope_table)
@@ -743,13 +714,11 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
         vec![(self.column_name(), self.needed_limbs())]
     }
 
-    /// The pre-filter reads only fingerprint limbs, but the LIKE above it
-    /// reads this column's characters. A `Compaction` over the
-    /// pre-filter compacts those characters, and decides whether to bind
-    /// them (the DPUC) from its input subtree's side columns
+    /// The LIKE above the pre-filter reads this column's characters. A
+    /// `Compaction` over the pre-filter compacts them, and decides whether
+    /// to bind them (the DPUC) from its input subtree's side columns
     /// ([`crate::irs::nodes::plan::compaction::single_side_string_base`]).
-    /// Without this declaration that compaction re-emits the characters
-    /// unbound.
+    /// Without this declaration it re-emits the characters unbound.
     fn required_side_columns(&self) -> Vec<String> {
         if self.phi.is_none() {
             return Vec::new();
@@ -765,7 +734,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         if self.phi.is_none() {
-            // Nothing to test — boolean output IS the activator.
+            // Nothing to test: the output is the activator.
             let scope_table = self.scope_table_prover(virtualized_ir);
             let mut polys: IndexMap<FieldRef, TrackedPoly<B>> = IndexMap::new();
             let activator = scope_table
@@ -891,7 +860,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
         let input_df =
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("prefilter row-id sort should succeed");
-        let mut exprs = vec![self.output_expr()];
+        let mut exprs = vec![Expr::ScalarFunction(self.scalar_function.clone())];
         crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
         let projected = input_df
@@ -926,7 +895,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("PreFilter scope cannot be a gadget node"),
         };
         let input_df = scope_hint_df.data_frame().clone();
-        let mut exprs = vec![self.output_expr()];
+        let mut exprs = vec![Expr::ScalarFunction(self.scalar_function.clone())];
         crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
         let projected = input_df

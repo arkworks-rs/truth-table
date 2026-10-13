@@ -50,9 +50,9 @@ pub struct EncodeOptions<'a> {
     /// Fingerprint limb segments (`__fp{j}`, one per bin of the column's
     /// rule), all or some of them.
     pub fingerprint: FingerprintLimbs<'a>,
-    /// The source column's name, so the string encoder can fingerprint it
-    /// under *that column's* rule. With `None`, or a column with no rule,
-    /// no limbs are emitted.
+    /// The source column's name, which selects the rule the string encoder
+    /// fingerprints it under. With `None`, or a column with no rule, no
+    /// limbs are emitted.
     pub column: Option<&'a str>,
 }
 
@@ -72,13 +72,11 @@ impl EncodeOptions<'_> {
     };
 }
 
-/// A trait for encoding types into PrimeField elements.
 pub trait Encodable<F: PrimeField>: Sized {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError>;
 
-    /// Like [`Encodable::encode`], but lets the caller suppress optional
-    /// segments so encoders never even *build* their buffers. Only string
-    /// encoders have optional segments, so the default ignores the options.
+    /// [`Encodable::encode`] that builds only the optional segments
+    /// `options` asks for. The default ignores the options.
     fn encode_with_options(
         &self,
         options: EncodeOptions<'_>,
@@ -90,9 +88,8 @@ pub trait Encodable<F: PrimeField>: Sized {
     fn decode(field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError>;
 }
 
-/// This macro implements the `Encodable` trait for Arrow array types that can
-/// be mapped directly to field elements. No decoding functionality is provided
-/// (or needed) for now.
+/// Implements `Encodable` for an Arrow array type whose values map one by
+/// one to field elements through `$map`. Nulls encode as zero.
 macro_rules! impl_col_adapter_map {
     ($array_ty:ty, $map:expr_2021) => {
         impl<F: PrimeField> Encodable<F> for $array_ty {
@@ -114,8 +111,7 @@ macro_rules! impl_col_adapter_map {
     };
 }
 
-/// This macro implements the `Encodable` trait for Arrow array types that are
-/// not supported yet
+/// Implements `Encodable` for an Arrow array type the encoder rejects.
 macro_rules! impl_col_adapter_unsupported {
     ($array_ty:ty, $name:expr_2021) => {
         impl<F: PrimeField> Encodable<F> for $array_ty {

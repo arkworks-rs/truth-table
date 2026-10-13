@@ -269,12 +269,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the payload for this gadget node.
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
-        // Extract the left, right, and output tracked tables from the payload.
         let (left_input, right_input, output) = match (
             gadget_payload.get(LEFT_INPUT_LABEL),
             gadget_payload.get(RIGHT_INPUT_LABEL),
@@ -286,7 +284,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
             _ => panic!("Expected left, right, and output tables for binary compare gadget"),
         };
 
-        // Ensure that the left and right inputs and output share the same activator polynomial.
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
             right_input.activator_tracked_poly(),
@@ -328,7 +325,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
         );
 
         let diff_data_poly = &left_data_poly - &right_data_poly;
-        // Now that we are sure that the left and right inputs share the same activator polynomial, we get this activator.
         let shared_activator = left_input.activator_tracked_poly();
 
         let output_ind = output.data_tracked_polys_indices()[0];
@@ -358,6 +354,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
                 TrackedTable::new(schema, polys, data_log_size)
             };
 
+        // The true sign of `left - right` is checked on the rows where the
+        // output is 1, the false sign on the active rows where it is 0.
         let true_activator = output_poly.clone();
         let true_input = build_table_with_activator(&diff_data_poly, &true_activator.clone());
         let true_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), true_input)]);
@@ -366,7 +364,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
             Some(PayloadStructure::GadgetPayload(true_payload)),
         );
 
-        // Compute the activator for the false branch.
         let neg_output_activator = output_poly
             .mul_scalar_poly(-B::F::one())
             .add_scalar_poly(B::F::one());
@@ -423,7 +420,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
                 map.get(OUTPUT_LABEL),
             ) {
                 (Some(left_input), Some(right_input), Some(output)) => {
-                    // Ensure that the left and right inputs and output share the same activator oracle.
                     debug_assert_eq!(
                         left_input.activator_tracked_poly(),
                         right_input.activator_tracked_poly(),
@@ -435,7 +431,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
                         "Left input and output must share the same activator oracle"
                     );
 
-                    // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
                     let shared_activator = left_input.activator_tracked_poly();
 
                     let left_data_ind = left_input.data_tracked_oracles_indices()[0];
@@ -506,7 +501,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
                     let true_activator = output_oracle.clone();
                     let true_input = build_table_with_activator(&diff_data_oracle, &true_activator);
 
-                    // Build the false-branch gadget inputs.
                     let neg_output_activator = output_oracle
                         .mul_scalar_oracle(-B::F::one())
                         .add_scalar_oracle(B::F::one());
@@ -564,12 +558,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
         gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
         id: NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the payload for this gadget node.
         let gadget_payload = match gadget_ready_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
-        // Extract the left, right, and output tracked tables from the payload.
         let (left_input, right_input, output) = match (
             gadget_payload.get(LEFT_INPUT_LABEL),
             gadget_payload.get(RIGHT_INPUT_LABEL),
@@ -579,7 +571,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
             _ => panic!("Expected left, right, and output tables for binary equality gadget"),
         };
 
-        // Ensure that the left and right inputs and output share the same activator oracle.
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
             right_input.activator_tracked_poly(),
@@ -591,7 +582,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
             "Left input and output must share the same activator oracle"
         );
 
-        // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
         let shared_activator = left_input.activator_tracked_poly();
         let output_ind = output.data_tracked_polys_indices()[0];
         let output_poly = output.tracked_col_by_ind(output_ind).data_tracked_poly();
@@ -618,12 +608,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the payload for this gadget node.
         let gadget_payload = match gadget_ready_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
-        // Extract the left, right, and output tracked tables from the payload.
         let (left_input, right_input, output) = match (
             gadget_payload.get(LEFT_INPUT_LABEL),
             gadget_payload.get(RIGHT_INPUT_LABEL),
@@ -633,7 +621,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
             _ => panic!("Expected left, right, and output tables for binary equality gadget"),
         };
 
-        // Ensure that the left and right inputs and output share the same activator oracle.
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
             right_input.activator_tracked_poly(),
@@ -645,7 +632,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
             "Left input and output must share the same activator oracle"
         );
 
-        // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
         let shared_activator = left_input.activator_tracked_poly();
         let output_ind = output.data_tracked_oracles_indices()[0];
         let output_poly = output

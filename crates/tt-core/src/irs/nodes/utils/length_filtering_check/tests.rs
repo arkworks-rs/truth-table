@@ -1,9 +1,9 @@
-//! Tests for `LengthFilteringCheck` composite gadget node.
+//! Tests for `LengthFilteringCheck`.
 //!
-//! Setup: 2 strings, 4 characters; string 0 owns chars {0,1}, string 1
-//! owns chars {2,3}. `ind = [0, 1]`, `src = [0, 0, 1, 1]`. Different
-//! tests vary the length column, the threshold `k`, the input activators
-//! `ah, ac`, and the prover-provided filtered activators `a'h, a'c`.
+//! Fixture: 2 strings, 4 characters; string 0 owns char 0, string 1 owns
+//! chars 1-3, so `ind = [0, 1]`, `src = [0, 1, 1, 1]` and the honest length
+//! column is `[1, 3]`. The tests vary the threshold `k`, the input
+//! activators `ah, ac` and the prover's filtered activators `a'h, a'c`.
 
 use std::sync::Arc;
 
@@ -26,9 +26,6 @@ fn build_gadget(k: u64) -> Arc<Node<B>> {
     Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(k))))
 }
 
-// Char layout: string 0 owns char 0, string 1 owns chars 1-3.
-// So the honest length column is [1, 3] and any test that claims
-// otherwise is provoking an activator-consistency rejection.
 fn fixed_src_evals() -> Vec<F> {
     vec![F::from(0u64), F::from(1u64), F::from(1u64), F::from(1u64)]
 }
@@ -48,9 +45,8 @@ fn bool_field(name: &str) -> Arc<Field> {
     Arc::new(Field::new(name, DataType::Boolean, false))
 }
 
-/// One-shot pipeline runner. `l_evals` are the string-level lengths
-/// (must be non-negative), `k` the threshold, and the two activator
-/// tuples are ah/ac (input) and a'h/a'c (prover-provided filtered).
+/// `l_evals` are the string lengths (non-negative), `k` the threshold;
+/// ah/ac are the input activators and a'h/a'c the prover's filtered ones.
 #[allow(clippy::too_many_arguments)]
 fn run(
     k: u64,
@@ -74,8 +70,8 @@ fn run(
     let char_filt_schema = Schema::new(vec![a_c_prime_f.as_ref().clone()]);
     let str_filt_schema = Schema::new(vec![a_h_prime_f.as_ref().clone()]);
 
-    // SRS log-size must cover the sign gadget's range polynomial (2^16
-    // for u16 chunks); everything else in the test is tiny.
+    // The SRS must cover the sign gadget's range polynomial (2^16 for u16
+    // chunks).
     let harness = GadgetHarness::<B>::builder(16)
         .with_gadget(gadget)
         .with_table(
@@ -123,28 +119,22 @@ fn run(
     run_gadget_pipeline(harness)
 }
 
-// ---- Positive cases ----
-//
-// Honest length column matching the char layout is [1, 3]:
-// string 0 owns char 0 (length 1), string 1 owns chars 1-3 (length 3).
-
 #[test]
 fn mixed_filter_keeps_only_long_strings() {
-    // k=2. String 0 length 1 → dropped. String 1 length 3 → kept.
+    // k=2: string 0 (length 1) is dropped, string 1 (length 3) is kept.
     let l = vec![F::from(1u64), F::from(3u64)];
     let ah = vec![F::from(1u64), F::from(1u64)];
     let ac = vec![F::from(1u64); 4];
     let a_h_p = vec![F::from(0u64), F::from(1u64)];
-    // src = [0, 1, 1, 1]; a_c = a_h[src[c]] on active chars
-    //   -> [a_h[0], a_h[1], a_h[1], a_h[1]] = [0, 1, 1, 1].
+    // a'c[c] = a'h[src[c]] with src = [0, 1, 1, 1].
     let a_c_p = vec![F::from(0u64), F::from(1u64), F::from(1u64), F::from(1u64)];
     run(2, l, ah, ac, a_h_p, a_c_p).expect("mixed filter should verify");
 }
 
 #[test]
 fn threshold_at_exact_length_kept() {
-    // k=3. String 1 length 3, l - k = 0, non-negative sign check
-    // treats 0 as valid (>= 0), so string 1 stays kept.
+    // k=3: string 1 has l - k = 0, which the non-negative sign check
+    // accepts.
     let l = vec![F::from(1u64), F::from(3u64)];
     let ah = vec![F::from(1u64), F::from(1u64)];
     let ac = vec![F::from(1u64); 4];
@@ -155,10 +145,8 @@ fn threshold_at_exact_length_kept() {
 
 #[test]
 fn inactive_string_ignored() {
-    // String 1 is inactive on input; a'h must not turn it back on.
-    // Chars 1-3 (belonging to string 1) are inactive too, so ac keeps
-    // only char 0 active. With k=0 string 0 passes; the (input-inactive)
-    // string 1 stays inactive.
+    // String 1 and its chars 1-3 are inactive on input. With k=0 string 0
+    // passes and string 1 stays inactive.
     let l = vec![F::from(1u64), F::from(3u64)];
     let ah = vec![F::from(1u64), F::from(0u64)];
     let ac = vec![F::from(1u64), F::from(0u64), F::from(0u64), F::from(0u64)];
@@ -167,13 +155,10 @@ fn inactive_string_ignored() {
     run(0, l, ah, ac, a_h_p, a_c_p).expect("inactive string should stay inactive");
 }
 
-// ---- Adversarial cases ----
-
 #[test]
 fn keeping_a_short_string_rejected_by_nonneg_sign() {
-    // String 0 has length 1; k=2; l - k = -1. If prover claims a'h[0]=1
-    // (kept), the non-negative sign check on (a'h, l-k) sees a negative
-    // value at an active row and rejects.
+    // String 0 has length 1 and k=2, so l - k = -1. Claiming a'h[0] = 1
+    // puts a negative value on an active row of the non-negative check.
     let l = vec![F::from(1u64), F::from(3u64)];
     let ah = vec![F::from(1u64), F::from(1u64)];
     let ac = vec![F::from(1u64); 4];
@@ -187,10 +172,9 @@ fn keeping_a_short_string_rejected_by_nonneg_sign() {
 
 #[test]
 fn dropping_a_long_string_rejected_by_neg_sign() {
-    // String 1 has length 3; k=2; l - k = 1. If prover claims a'h[1]=0
-    // (dropped) despite ah[1]=1, then ah·(1-a'h) = 1 for that row, and
-    // the negative sign check on (ah·(1-a'h), l-k) sees a non-negative
-    // value and rejects.
+    // String 1 has length 3 and k=2, so l - k = 1. Claiming a'h[1] = 0
+    // makes ah·(1-a'h) = 1 on that row, a non-negative value on an active
+    // row of the negative check.
     let l = vec![F::from(1u64), F::from(3u64)];
     let ah = vec![F::from(1u64), F::from(1u64)];
     let ac = vec![F::from(1u64); 4];
@@ -204,13 +188,12 @@ fn dropping_a_long_string_rejected_by_neg_sign() {
 
 #[test]
 fn wrong_char_activator_rejected_by_ac() {
-    // Honest a'h, but a'c doesn't match a'h[src[c]]: activator
-    // consistency should reject.
+    // Honest a'h, but a'c does not match a'h[src[c]].
     let l = vec![F::from(1u64), F::from(3u64)];
     let ah = vec![F::from(1u64), F::from(1u64)];
     let ac = vec![F::from(1u64); 4];
     let a_h_p = vec![F::from(0u64), F::from(1u64)];
-    // Correct a_c_p = [0, 1, 1, 1]; we swap chars 0 and 1.
+    // The honest a'c is [0, 1, 1, 1]; chars 0 and 1 are swapped.
     let a_c_p = vec![F::from(1u64), F::from(0u64), F::from(1u64), F::from(1u64)];
     assert!(
         run(2, l, ah, ac, a_h_p, a_c_p).is_err(),
@@ -220,7 +203,7 @@ fn wrong_char_activator_rejected_by_ac() {
 
 #[test]
 fn non_boolean_a_h_prime_rejected() {
-    // Set a'h[0] = 2 — not boolean. BoolCheck should reject.
+    // a'h[0] = 2 is not boolean.
     let l = vec![F::from(1u64), F::from(3u64)];
     let ah = vec![F::from(1u64), F::from(1u64)];
     let ac = vec![F::from(1u64); 4];
@@ -234,8 +217,8 @@ fn non_boolean_a_h_prime_rejected() {
 
 #[test]
 fn keeping_inactive_string_rejected_by_containment() {
-    // String 1 is inactive (ah[1]=0). If prover claims a'h[1]=1, the
-    // containment zerocheck on a'h · (1 - ah) sees 1 at row 1 and rejects.
+    // String 1 is inactive (ah[1] = 0). Claiming a'h[1] = 1 makes
+    // a'h · (1 - ah) = 1 at row 1.
     let l = vec![F::from(1u64), F::from(3u64)];
     let ah = vec![F::from(1u64), F::from(0u64)];
     let ac = vec![F::from(1u64), F::from(0u64), F::from(0u64), F::from(0u64)];

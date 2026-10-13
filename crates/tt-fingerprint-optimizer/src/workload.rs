@@ -5,11 +5,11 @@
 //! short patterns (up to 4 factors of 1–2 bytes, the only ones common enough
 //! for the high-selectivity regimes) and a share whose factors are taken out
 //! of order or from different rows (so some match nothing). Each candidate's
-//! selectivity — matching rows / corpus rows — is computed exactly, and
-//! candidates fill the [`REGIMES`] until each holds the requested number
-//! of distinct patterns. Within a regime, sampling is
-//! stratified over equal-width selectivity bands so a regime is not dominated
-//! by its easiest end.
+//! selectivity (matching rows / corpus rows) is computed exactly, and
+//! candidates fill the [`REGIMES`] until each holds the requested number of
+//! distinct patterns. Within a regime, sampling is stratified over
+//! equal-width selectivity bands so a regime is not dominated by its easiest
+//! end.
 
 use std::collections::HashSet;
 
@@ -27,7 +27,7 @@ pub fn regime_of(selectivity: f64) -> Option<usize> {
     REGIMES.iter().position(|&(_, hi)| selectivity < hi)
 }
 
-/// Human-readable label of regime `r`, e.g. `"1–20%"`.
+/// Human-readable label of regime `r`, e.g. `"1–25%"`.
 pub fn regime_label(r: usize) -> String {
     let (lo, hi) = REGIMES[r];
     if lo == 0.0 {
@@ -53,7 +53,6 @@ pub fn parse_pattern(pattern: &str) -> anyhow::Result<Vec<Vec<u8>>> {
     Ok(factors)
 }
 
-/// One workload query.
 #[derive(Debug, Clone)]
 pub struct Query {
     pub factors: Vec<Vec<u8>>,
@@ -130,7 +129,8 @@ fn usable(byte: u8) -> bool {
     (0x20..0x7f).contains(&byte) && !matches!(byte, b'%' | b'_' | b'\\')
 }
 
-/// One candidate pattern.
+/// One candidate pattern's factors, `None` when it has an unusable byte or
+/// no factor.
 fn candidate(corpus: &Corpus, seed: u64) -> Option<Vec<Vec<u8>>> {
     let mut rng = Rng(seed);
     let short = rng.below(10) < 3;
@@ -181,7 +181,7 @@ fn stratum(regime: usize, matches: usize, rows: usize, strata: usize) -> usize {
     (((s - lo) / (hi - lo) * strata as f64) as usize).min(strata - 1)
 }
 
-/// Generate `per_regime` distinct queries for each regime — fewer where the
+/// Generate `per_regime` distinct queries for each regime, or fewer where the
 /// corpus has too few distinct patterns of that selectivity (sampling stops
 /// once many batches in a row add nothing).
 pub fn generate(corpus: &Corpus, index: &FeatureIndex, per_regime: usize, seed: u64) -> Vec<Query> {
@@ -221,9 +221,8 @@ pub fn generate(corpus: &Corpus, index: &FeatureIndex, per_regime: usize, seed: 
                 (factors, matches)
             })
             .collect();
-        // Bands a corpus struggles to fill (e.g. few patterns land in
-        // 95–100%) hand their quota to the other bands of the regime once
-        // sampling stalls.
+        // Bands a corpus struggles to fill hand their quota to the other
+        // bands of the regime once sampling stalls.
         let band_quota = if idle < PATIENCE / 2 {
             quota
         } else {

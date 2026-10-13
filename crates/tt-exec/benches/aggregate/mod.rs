@@ -9,7 +9,6 @@ use crate::support::{
 };
 
 fn aggregate_cases() -> &'static [BenchCase] {
-    // Static list of aggregation queries to benchmark.
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let cases = vec![

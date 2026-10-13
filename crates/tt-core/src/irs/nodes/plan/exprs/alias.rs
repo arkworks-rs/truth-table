@@ -69,20 +69,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         let mut in_aliased_run = false;
 
         for (field, poly) in expr_table.tracked_polys_iter() {
-            // `tracked_polys_iter` yields each source column's primary
-            // followed by that column's own segments, contiguously, so the
-            // aliased column's segments are exactly the run right after it.
-            // Matching segments by name alone would instead re-base a
-            // same-named column's segments too — an un-aliased self-join
-            // (TPC-H Q7's two `nation`s) would give n2's `n_name__length`
-            // n1's alias.
-
-            // Apply alias to the first non-system column, preserving qualifier
-            // metadata. Re-base any auxiliary segments of that same primary
-            // (e.g. `n_name__length`) under the alias too, so the alias output
-            // keeps the multi-segment shape intact and downstream merges don't
-            // collide when two aliases reference different sources with the
-            // same original column name (e.g. self-joined `n_name`).
+            // The alias goes to the first non-system column and to its
+            // segments (e.g. `n_name__length`), keeping field metadata.
+            // `tracked_polys_iter` yields a primary followed by its own
+            // segments, so those are the run right after it. Matching
+            // segments by name alone would also re-base a same-named column's
+            // segments (an un-aliased self-join, e.g. TPC-H Q7's two `nation`s).
             let new_field = if primary_base.is_none()
                 && field.name() != ACTIVATOR_COL_NAME
                 && field.name() != ROW_ID_COL_NAME
@@ -253,9 +245,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                     let mut in_aliased_run = false;
 
                     for (field, oracle) in table.tracked_oracles_iter() {
-                        // Mirror prover: rename primary AND auxiliary segments
-                        // under the alias so multi-segment columns survive
-                        // aliasing without naming collisions.
+                        // Same renaming as the prover side.
                         let new_field = if primary_base.is_none()
                             && field.name() != ACTIVATOR_COL_NAME
                             && field.name() != ROW_ID_COL_NAME

@@ -75,8 +75,8 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
         if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
+            // PK inputs are guaranteed to have no duplicates: no gadgets and
+            // no checks, here and in every phase below.
             return vec![];
         }
         match &self.gadgets {
@@ -125,9 +125,9 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
 
-    // The child sort gadget should consume the same table as virtual data.
-    // We intentionally keep activator virtual so prover/verifier can rebuild
-    // it deterministically from active-row count.
+    // The child sort gadget consumes the same table as virtual data. The
+    // activator stays virtual so that prover and verifier rebuild it from the
+    // active-row count.
     let lex_sorted_virtual_hint = lex_sorted_hint.as_virtual_view();
     let Gadgets::SortNoDup(gadgets) = &node.gadgets else {
         return Ok(());
@@ -167,8 +167,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
             return Ok(());
         }
         let Gadgets::SortNoDup(_) = &self.gadgets else {
@@ -215,18 +213,17 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
             return Ok(());
         }
         let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
             return Ok(());
         };
-        let payload = gadget_payload_or_panic(
-            id,
-            virtualized_ir.payload_for_node(&id).cloned(),
-            "No gadget payload found for NoDup gadget",
-        );
+        let payload = match virtualized_ir.payload_for_node(&id).cloned() {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload,
+            Some(PayloadStructure::PlanPayload(_)) | None => {
+                panic!("No gadget payload found for NoDup gadget at node {:?}", id)
+            }
+        };
         let lex_sorted_hint =
             payload_value_or_panic(id, &payload, LEX_SORTED_LABEL, "No lex sorted hint found");
         let sort_id = gadgets.sort_gadget.id();
@@ -268,8 +265,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
             return Ok(());
         }
         let Gadgets::SortNoDup(_) = &self.gadgets else {
@@ -316,8 +311,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
             return Ok(());
         }
         let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
@@ -363,8 +356,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
             return Ok(());
         }
         match self.gadgets {
@@ -389,8 +380,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
             return Ok(());
         }
         match self.gadgets {
@@ -547,17 +536,6 @@ fn gadget_payload_or_empty<T>(payload: Option<PayloadStructure<T>>) -> GadgetPay
     }
 }
 
-fn gadget_payload_or_panic<T>(
-    id: crate::irs::nodes::NodeId,
-    payload: Option<PayloadStructure<T>>,
-    context: &str,
-) -> GadgetPayload<T> {
-    match payload {
-        Some(PayloadStructure::GadgetPayload(payload)) => payload,
-        Some(PayloadStructure::PlanPayload(_)) | None => panic!("{context} at node {:?}", id),
-    }
-}
-
 fn payload_value_or_panic<T: Clone>(
     id: crate::irs::nodes::NodeId,
     payload: &GadgetPayload<T>,
@@ -590,9 +568,9 @@ fn nodup_input_is_pk(input_hint: &crate::irs::nodes::hints::HintDF) -> bool {
     })
 }
 
-/// Count active rows in a hint. If no activator exists, all rows are active.
+/// Without an activator column, all rows are active.
 fn active_row_count_from_hint(hint: &crate::irs::nodes::hints::HintDF) -> usize {
-    let batches = collect_blocking(hint.data_frame().clone(), false)
+    let batches = crate::session::block_on(hint.data_frame().clone().collect())
         .expect("NoDup input-hint collection should succeed");
     let has_activator = hint
         .data_frame()
@@ -628,9 +606,9 @@ fn active_input_rows_misc_key<B: SnarkBackend>(
     target_id: crate::irs::nodes::NodeId,
     tree: &crate::irs::tree::Tree<B>,
 ) -> String {
-    // We intentionally do NOT key by raw NodeId. Prover and verifier build
-    // separate trees and pointer-derived ids may differ across runs.
-    // DFS rank among NoDup nodes stays deterministic across both trees.
+    // Not keyed by raw NodeId: prover and verifier build separate trees and
+    // pointer-derived ids may differ. The DFS rank among NoDup nodes is the
+    // same in both trees.
     fn dfs_rank<B: SnarkBackend>(
         node: &Arc<Node<B>>,
         target_id: crate::irs::nodes::NodeId,
@@ -731,48 +709,4 @@ fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkRes
         out |= (*byte as usize) << (8 * i);
     }
     Ok(out)
-}
-
-pub(crate) fn collect_blocking(
-    df: datafusion::prelude::DataFrame,
-    skip_collection: bool,
-) -> datafusion_common::Result<Vec<datafusion::arrow::record_batch::RecordBatch>> {
-    if skip_collection {
-        return Err(datafusion_common::DataFusionError::Execution(
-            "verifier planning must not collect DataFrames".to_string(),
-        ));
-    }
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            tokio::runtime::RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| {
-                            datafusion_common::DataFusionError::Execution(e.to_string())
-                        })?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    datafusion_common::DataFusionError::Execution(
-                        "dataframe collection thread panicked".to_string(),
-                    )
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| datafusion_common::DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
 }

@@ -1,6 +1,5 @@
-//! A PIOP to check if two columns are a permutation of each other.
-// More precisely, this PIOP checks if the activated elements of one column
-// are a permutation of the activated elements of another column.
+//! A PIOP to check that the activated elements of one column are a
+//! permutation of the activated elements of another column.
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{
@@ -17,7 +16,6 @@ use crate::irs::nodes::utils::keyed_sumcheck::piop::{
     KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
 };
 
-// Convinces the verifier that
 pub struct PermPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]

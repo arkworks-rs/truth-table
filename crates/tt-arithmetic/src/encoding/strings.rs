@@ -9,37 +9,27 @@ use super::encodable::{Encodable, EncodeOptions, FingerprintLimbs};
 use super::segment::{EncodedSegment, auto_segments, auto_suffixes};
 use super::util::{encode_hashed_bytes, field_element_byte_capacity, map_indices};
 
-// --- String-specific segment suffix conventions ---------------------------
-//
-// These constants and helpers describe what a string column expands into at
-// arithmetization time. They live next to the string encoder so all
-// "what does a string turn into on the field side" state is in one file;
-// the generic dispatcher in `suffixes.rs` calls into them for the Utf8 /
-// LargeUtf8 / Utf8View data-type arms.
-
-/// Conventional segment suffix for the byte length of a string column.
+/// Row-domain segment holding each string's byte length.
 pub const STRING_LENGTH_SUFFIX: &str = "__length";
 
-/// Prefix of the fingerprint limb segment suffixes: limb `j` of a string
-/// column `c` is the row-domain segment `c__fp{j}`, holding bin `j` of
-/// `fp(c[i])` under the column's
+/// Limb `j` of a string column `c` is the row-domain segment `c__fp{j}`,
+/// holding bin `j` of `fp(c[i])` under the column's
 /// [`FingerprintScheme`](crate::fingerprint::FingerprintScheme) as 0 or 1
-/// (a limb is [`LIMB_BITS`](crate::fingerprint::LIMB_BITS) = 1 bin).
-/// Computed once at ingestion, like `__length`, so the Pre-Filtering Check
-/// can trust it at query time and read only the bins a query tests.
+/// (a limb is [`LIMB_BITS`](crate::fingerprint::LIMB_BITS) = 1 bin). The
+/// data owner commits it, like `__length`, so the Pre-Filtering Check can
+/// trust it and read only the bins a query tests.
 pub const STRING_FINGERPRINT_LIMB_PREFIX: &str = "__fp";
 
-/// The suffix of fingerprint limb `j`.
 pub fn fingerprint_limb_suffix(j: usize) -> String {
     format!("{STRING_FINGERPRINT_LIMB_PREFIX}{j}")
 }
 
 /// The fingerprint limb suffixes a string column emits, in encoder order:
 /// the `limbs` selected among the column's own
-/// ([`FingerprintScheme::num_limbs`] under the rule that fingerprints it).
-/// A column no rule fingerprints emits none. Prover, verifier and encoder
-/// all resolve it from the same installed rules and the same selection, so
-/// they agree by construction.
+/// ([`FingerprintScheme::num_limbs`](crate::fingerprint::FingerprintScheme::num_limbs)),
+/// none for a column no rule fingerprints. Prover, verifier and encoder
+/// resolve it from the same installed rules and the same selection, so
+/// they agree.
 pub fn fingerprint_segment_suffixes(column: Option<&str>, limbs: FingerprintLimbs) -> Vec<String> {
     let num_limbs = scheme_for_column(column).map_or(0, |s| s.num_limbs());
     limbs
@@ -49,36 +39,28 @@ pub fn fingerprint_segment_suffixes(column: Option<&str>, limbs: FingerprintLimb
         .collect()
 }
 
-/// Conventional segment suffix for the concatenated-characters side polynomial
-/// of a string column. Each entry is the byte value (`F::from(byte as u64)`)
-/// of one character. Bytes of active strings are laid out contiguously in
-/// row order at the start of the polynomial, then zero-padded to the next
-/// power of two. The accompanying side activator is a contiguous-one poly
-/// with `active_len = sum of active string byte lengths`.
+/// Side segment of the column's characters (paper §3.2), one byte per
+/// entry: the strings' bytes concatenated in row order, then zeros up to a
+/// power of two. Its activator covers the total byte count; the other side
+/// segments share this domain.
 pub const STRING_CHARS_SUFFIX: &str = "__chars";
 
-/// Suffix for the per-string-column **origin index** side polynomial (paper
-/// §3.2): `orig-ind[c]` is the row index of the source string that character
-/// slot `c` belongs to. Lives on the same character-level domain as
-/// `__chars`.
+/// Origin index (paper §3.2): `orig-ind[c]` is the row of the string that
+/// character slot `c` belongs to.
 pub const STRING_ORIG_IND_SUFFIX: &str = "__orig_ind";
 
-/// Suffix for the per-string-column **internal index** side polynomial
-/// (paper §3.2): `int-ind[c]` is the within-string position of character
-/// slot `c`, resetting to 0 at each string boundary. Same domain as
-/// `__chars`.
+/// Internal index (paper §3.2): `int-ind[c]` is the position of character
+/// slot `c` within its string.
 pub const STRING_INT_IND_SUFFIX: &str = "__int_ind";
 
-/// Suffix for the per-string-column **boundary marker** side polynomial
-/// (paper §3.2): `bnd[c]` is 1 iff character slot `c` is the first
-/// character of a string, else 0. Same domain as `__chars`.
+/// Boundary marker (paper §3.2): `bnd[c]` is 1 iff character slot `c` is
+/// the first character of a string.
 pub const STRING_BND_SUFFIX: &str = "__bnd";
 
-/// Row-domain value segment suffixes emitted by the string encoder, in the
-/// exact order `encode_utf8_like` produces them: `hash_slots` many
-/// auto-numbered entries followed by `STRING_LENGTH_SUFFIX`. The optional
-/// fingerprint limbs ([`fingerprint_segment_suffixes`]) follow them when
-/// requested.
+/// Row-domain value segment suffixes of a string column, in the order
+/// `encode_utf8_like` produces them: `hash_slots` auto-numbered entries,
+/// then `STRING_LENGTH_SUFFIX`. The fingerprint limbs
+/// ([`fingerprint_segment_suffixes`]) follow them when requested.
 pub(super) fn string_row_segment_suffixes<F: PrimeField>() -> Vec<String> {
     let hash_slots = 32usize.div_ceil(field_element_byte_capacity::<F>());
     let mut s = auto_suffixes(hash_slots);
@@ -86,9 +68,9 @@ pub(super) fn string_row_segment_suffixes<F: PrimeField>() -> Vec<String> {
     s
 }
 
-/// Side-domain segment suffixes emitted by the string encoder, in the exact
-/// order `encode_utf8_like` produces them. Do not reorder — prover and
-/// verifier tracking passes walk this sequence.
+/// Side-domain segment suffixes of a string column, in the order
+/// `encode_utf8_like` produces them. The prover's and the verifier's
+/// tracking passes walk this sequence, so the order is fixed.
 pub(super) fn string_side_segment_suffixes() -> Vec<String> {
     vec![
         STRING_CHARS_SUFFIX.to_string(),
@@ -107,9 +89,7 @@ pub fn fingerprint_limb_of(field_name: &str) -> Option<(&str, usize)> {
     (j < NUM_LIMBS && digits == j.to_string()).then(|| (&field_name[..at], j))
 }
 
-/// Recognizes the string-family segment suffixes and returns the source
-/// column base name if matched, else `None`. Called from
-/// `segment_base_name` in `suffixes.rs`.
+/// The source column of a name that ends in a string segment suffix.
 pub(super) fn string_segment_base(field_name: &str) -> Option<&str> {
     for suffix in [
         STRING_LENGTH_SUFFIX,
@@ -151,9 +131,9 @@ where
     let max_len = values.iter().map(|v| v.len()).max().unwrap_or(0);
 
     let inline_short = max_len <= short_string_threshold && max_len <= 1;
-    // Fixed shape per column so all-null arrays still produce both segments
-    // (hash slots + length). Hash slot count is constant for a given field:
-    // hash_to_32_bytes always emits 32 bytes, chunked by field byte capacity.
+    // An all-null array still produces every segment. The hash is 32 bytes
+    // chunked by field byte capacity, or one slot holding the byte itself
+    // when no string is longer than one byte.
     let hash_slots = if inline_short {
         1
     } else {
@@ -189,9 +169,8 @@ where
     let mut segments = auto_segments(hash_cols);
     segments.push(EncodedSegment::named(STRING_LENGTH_SUFFIX, length_col));
 
-    // Fingerprint limb columns (paper §6.2), computed at ingestion under this
-    // column's own rule — a column the table's rules do not fingerprint emits
-    // no limbs at all, so it costs nothing to commit.
+    // Fingerprint limbs (paper §6.2) under this column's own rule; a column
+    // the table's rules do not fingerprint emits none.
     let selected = scheme_for_column(options.column)
         .map(|scheme| (options.fingerprint.select(scheme.num_limbs()), scheme))
         .filter(|(selected, _)| !selected.is_empty());
@@ -211,13 +190,9 @@ where
         }
     }
 
-    // Character-level side polynomials (paper §3.2) — skipped unless the
-    // caller asked for them.
+    // Character-level side segments (paper §3.2). All four share one domain
+    // and one `active_len`, the total byte count.
     if options.side {
-        // All four share the same character-level domain and the same
-        // `active_len` = total active byte count. Native storage is kept
-        // small: chars/bnd → Vec<u8>, orig_ind/int_ind → Vec<u32>. Commit
-        // and track passes lift these to `MLE<F>` transiently.
         let total_chars: usize = values.iter().map(|v| v.len()).sum();
         let mut chars_bytes: Vec<u8> = Vec::with_capacity(total_chars);
         let mut orig_ind: Vec<u32> = Vec::with_capacity(total_chars);
@@ -230,10 +205,9 @@ where
             bnd.extend((0..bytes.len()).map(|j| u8::from(j == 0)));
         }
 
-        // Pad every char-level segment to the SAME power-of-two length so
-        // they share a common multilinear domain. An empty column still
-        // produces a 1-slot, all-zero side poly so downstream tracking
-        // sees a consistent shape.
+        // Pad all four to the same power of two. A column with no
+        // characters still gets a one-entry zero segment, so tracking sees
+        // the same shape.
         let chars_active_len = chars_bytes.len();
         let target_len = chars_active_len.max(1).next_power_of_two();
         chars_bytes.resize(target_len, 0u8);
@@ -241,8 +215,7 @@ where
         int_ind.resize(target_len, 0u32);
         bnd.resize(target_len, 0u8);
 
-        // ORDER matches `side_segment_suffixes_for_type` and the prover /
-        // verifier tracking passes — do not reorder.
+        // Same order as `string_side_segment_suffixes`.
         segments.push(EncodedSegment::side_bytes(
             STRING_CHARS_SUFFIX,
             chars_bytes,

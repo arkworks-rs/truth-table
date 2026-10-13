@@ -1,38 +1,23 @@
-//! Composite gadget node for paper §6.2 Pre-Filtering Check (PIOP 8).
+//! Pre-Filtering Check (paper §6.2, PIOP 8).
 //!
-//! Given the string-level fingerprint columns `fp_b` of the tested bins
-//! `b ∈ Q` (with activator `a`) and, in full mode, the char-level
-//! `orig-ind` (with activator `char-act`) and string-level `ind` / `l`
-//! columns, the gadget proves that the prover-provided filtered activator
-//! pair `(a', char-act')` keeps exactly the active strings that set every
-//! tested bin:
+//! Proves that the prover's filtered activator `a'` keeps exactly the active
+//! strings that set every tested bin,
 //!
 //!   a'[i] = a[i] · ∏_{b ∈ Q} fp_b[i]
 //!
-//! and `char-act'` is the matching char-level activator.
+//! where `fp_b` is the fingerprint column of bin `b` and `Q` the tested bins,
+//! and, in full mode, that `char-act'` is the matching char-level activator.
 //!
-//! The fingerprint is committed by the data owner as one boolean column per
-//! bin (see [`arithmetic::fingerprint`]), trusted like the rest of the
-//! table, so the product is 1 exactly when the row is active and sets every
-//! tested bin, and 0 otherwise. One zerocheck on
-//! `a' - a · ∏_{b ∈ Q} fp_b` therefore pins `a'` completely: it is boolean,
-//! contained in `a`, keeps every passing row (no false negatives) and only
-//! passing rows (no false positives). Both sides derive `Q` from the public
-//! `φ`, the subset of the pattern's bins the query tests.
+//! The data owner commits the fingerprint as one boolean column per bin (see
+//! [`arithmetic::fingerprint`]), trusted like the rest of the table. The
+//! product is therefore 1 exactly on the active rows that set every tested
+//! bin, and one zerocheck pins `a'` completely: it is boolean, contained in
+//! `a`, with no false negatives and no false positives. Both sides derive `Q`
+//! from the public `φ`, the subset of the pattern's bins the query tests.
 //!
-//! Payload structure:
-//! - `STR_INPUT_LABEL` — `{ fp_b for b ∈ Q }` with activator `a`.
-//! - `STR_FILTERED_LABEL` — `{ a' }`, no activator.
-//! - full mode only: `CHAR_INPUT_LABEL` — `{ orig-ind }` with activator
-//!   `char-act`; `STR_INDEX_LABEL` — `{ ind, l }`; `CHAR_FILTERED_LABEL` —
-//!   `{ char-act' }`, no activator.
-//!
-//! Decomposition:
-//! 1. (Activator Update Validity) Data-Preserving Update Check on
-//!    `(char-act', a', orig-ind, ind, l)` — one child, **full mode
-//!    only** (see [`GadgetNode::new_row_only`]).
-//! 2. (Subset test) Zerocheck on `a' - a · ∏_{b ∈ Q} fp_b` — inline, of
-//!    degree `|Q| + 1`.
+//! 1. Full mode only (see [`GadgetNode::new_row_only`]): Data-Preserving
+//!    Update Check on `(char-act', a', orig-ind, ind, l)`.
+//! 2. Zerocheck on `a' - a · ∏_{b ∈ Q} fp_b`, of degree `|Q| + 1`.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -68,56 +53,53 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
+/// Full mode only: `{ orig-ind }` under `char-act`.
 pub const CHAR_INPUT_LABEL: &str = "__char_input__";
+/// `{ fp_b for b ∈ Q }` under `a`.
 pub const STR_INPUT_LABEL: &str = "__str_input__";
+/// Full mode only: `{ ind, l }`.
 pub const STR_INDEX_LABEL: &str = "__str_index__";
+/// Full mode only: `{ char-act' }`.
 pub const CHAR_FILTERED_LABEL: &str = "__char_filtered__";
+/// `{ a' }`.
 pub const STR_FILTERED_LABEL: &str = "__str_filtered__";
 
-/// Rebuild a `TrackedPoly` with the specified `log_size` (see the
-/// identical helper in `length_filtering_check` for rationale).
+/// See `length_filtering_check::resize_poly`.
 fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
     TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
 }
 
-/// Verifier-side counterpart of [`resize_poly`].
 fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
     TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
 }
 
-/// Composite gadget node for the Pre-Filtering relation.
 pub struct GadgetNode<B: SnarkBackend> {
     /// The public `φ`: the bins the query tests.
     pattern_fingerprint: FpMask,
     /// The tested bins `Q`, ascending; one fp column each.
     needed: Vec<usize>,
-    /// The DPUC child pinning `char-act'` to `a'`. `None` in **row-only
-    /// mode**: when no downstream gadget consumes the narrowed
-    /// char-level activator (the plan-level composition — MCPM re-derives
-    /// its own consistent pair via its internal LengthFilteringCheck, and
-    /// the compaction path reads the compacted table's fresh side
-    /// activator), `char-act'` has no consumer, so committing and
-    /// DPUC-checking it proves a statement nothing relies on while
-    /// costing char-domain-scale work. Row-only keeps the complete
-    /// string-level relation `a' = a · ∏ fp_b`. Use the full mode
-    /// whenever a composition consumes the narrowed char activator
-    /// directly (the paper's same-tables composition).
+    /// The DPUC child that ties `char-act'` to `a'`. `None` in row-only
+    /// mode, which is for plans where nothing consumes `char-act'`: MCPM
+    /// derives its own consistent pair in its LengthFilteringCheck, and the
+    /// compaction path reads the compacted table's activator. Committing
+    /// and checking `char-act'` there would cost char-domain work for a
+    /// statement nothing relies on. A composition that consumes the
+    /// narrowed char activator directly (the paper's same-tables
+    /// composition) needs full mode.
     data_preserving: Option<Arc<Node<B>>>,
     _phantom: PhantomData<B>,
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    /// `pattern_fingerprint` is the public `φ` — the verifier derives it
-    /// from the pattern with the shared scheme. This is the paper-complete
-    /// mode (includes the char-level DPUC); see [`Self::new_row_only`].
+    /// Full mode, as in the paper. `pattern_fingerprint` is the public `φ`,
+    /// which the verifier derives from the pattern with the shared scheme.
     pub fn new(pattern_fingerprint: FpMask) -> Self {
         Self::build(pattern_fingerprint, true)
     }
 
-    /// Row-only mode: proves the string-level relation only, skipping
-    /// the `char-act'` DPUC (see the field docs on `data_preserving`
-    /// for when this is sound). `CHAR_INPUT_LABEL`, `STR_INDEX_LABEL` and
-    /// `CHAR_FILTERED_LABEL` payload slots are not required in this mode.
+    /// Row-only mode: proves the string-level relation `a' = a · ∏ fp_b`
+    /// and skips the `char-act'` DPUC (see the `data_preserving` field for
+    /// when that is sound).
     pub fn new_row_only(pattern_fingerprint: FpMask) -> Self {
         Self::build(pattern_fingerprint, false)
     }
@@ -200,8 +182,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .tracked_col_by_ind(inputs.str_filtered.data_tracked_polys_indices()[0])
             .data_tracked_poly();
 
-        // Char-side (full mode only): collect the DPUC inputs as owned
-        // values before any IR mutation.
+        // Full mode: take the DPUC inputs out of the payload before the IR
+        // is mutated.
         let dpuc_inputs = self.data_preserving.as_ref().map(|dpuc_node| {
             let char_input = inputs
                 .char_input
@@ -222,8 +204,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             (dpuc_node.clone(), orig_ind_col, ind_col, l_col, a_c_prime)
         });
 
-        // 1. Data-Preserving Update Check on (char-act', a', orig-ind,
-        //    ind, l) — full mode only.
         if let Some((dpuc_node, orig_ind_col, ind_col, l_col, a_c_prime)) = dpuc_inputs {
             set_dpuc_payload_prover(
                 &dpuc_node,
@@ -274,7 +254,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .tracked_col_oracle_by_ind(inputs.str_filtered.data_tracked_oracles_indices()[0])
             .data_tracked_oracle();
 
-        // Char-side (full mode only), collected owned before mutation.
         let dpuc_inputs = self.data_preserving.as_ref().map(|dpuc_node| {
             let char_input = inputs
                 .char_input
@@ -345,9 +324,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .map(|ind| str_input.tracked_col_by_ind(ind).data_tracked_poly())
             .collect();
 
-        // 2. a' - a · ∏ fp_b = 0: `a'` is exactly the active rows setting
-        //    every tested bin (a' on the left for log_size metadata; see
-        //    length_filtering_check).
+        // Step 2: a' - a · ∏ fp_b = 0. `a'` is on the left for the log_size
+        // (see length_filtering_check).
         let kept = fp_bins.iter().fold(a, |acc, fp_b| &acc * fp_b);
         let subset_test = &a_prime - &kept;
         prover.add_mv_zerocheck_claim(resize_poly(&subset_test, str_domain).id())?;
@@ -391,7 +369,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             })
             .collect();
 
-        // Mirror the prover (see prove()).
         let kept = fp_bins.iter().fold(a, |acc, fp_b| &acc * fp_b);
         let subset_test = &a_prime - &kept;
         verifier.add_mv_zerocheck_claim(resize_oracle(&subset_test, str_domain).id());

@@ -63,10 +63,7 @@ fn deep_clone_gadget_ready_ir<B: SnarkBackend>(
     GadgetReadyIr::new(ir.tree().clone(), payloads)
 }
 
-/// A proving pass that runs honest prover checks for each gadget.
-///
-/// This pass mirrors `ProvingPass`, but dispatches to `honest_prover_check`
-/// instead of `prove`.
+/// Mirrors `ProvingPass`, calling `honest_prover_check` instead of `prove`.
 pub struct HonestProverPass<B: SnarkBackend> {
     arg_prover: RefCell<ArgProver<B>>,
     gadget_ready_ir: RefCell<GadgetReadyIr<B>>,

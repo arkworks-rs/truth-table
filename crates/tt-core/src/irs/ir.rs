@@ -1,14 +1,9 @@
-//! [`Ir`] — tree + per-node payload map — and the [`LocalPass`] trait every
+//! [`Ir`], a tree plus a payload per node, and the [`LocalPass`] trait every
 //! pass implements.
 //!
-//! The pipeline is a chain of [`LocalPass`]es: each takes an `Ir<B, PIn>`,
-//! visits every node in [`PassOrder::PreOrder`] or [`PassOrder::PostOrder`],
-//! and returns an `Ir<B, POut>`. The tree is shared across stages; only the
-//! payload type changes. Passes come in two flavors depending on whether they
-//! need global state per node:
-//!
-//! - [`Ir::apply_local_pass_sequential`] — visit nodes in order, on one thread.
-//! - [`Ir::apply_local_pass_parallel`] — fan out via rayon; post-order only.
+//! The pipeline is a chain of passes: each takes an `Ir<B, PIn>`, visits
+//! every node and returns an `Ir<B, POut>`. The tree is shared across stages;
+//! only the payload type changes.
 
 use ark_piop::SnarkBackend;
 use datafusion_expr::LogicalPlan;
@@ -22,13 +17,8 @@ use crate::irs::{
 };
 use std::sync::Arc;
 
-/// The intermediate representation: a shared [`Tree`] paired with one payload
-/// per node for the current pipeline stage.
-///
-/// `B` is the SNARK backend; `Pd` is the pass-specific payload type.
-/// `payloads[id]` is `None` while the node hasn't been touched yet (e.g. in
-/// the starting [`EmptyPayload`] stage) or when a pass chose to produce no
-/// output for that node.
+/// A node's payload is `None` when no pass has filled it, or when the pass
+/// that built this stage produced none for it.
 pub struct Ir<B: SnarkBackend, Pd: Payload> {
     tree: Tree<B>,
     payloads: IndexMap<NodeId, Option<Pd>>,
@@ -44,12 +34,11 @@ impl<Pd: Payload + Clone, B: SnarkBackend> Clone for Ir<B, Pd> {
 }
 
 impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
-    /// Construct an IR from an existing tree and fully populated payload map.
     pub fn new(tree: Tree<B>, payloads: IndexMap<NodeId, Option<Pd>>) -> Self {
         Self { tree, payloads }
     }
 
-    /// Construct an IR from `tree` with every node mapped to `None`.
+    /// Maps every node of `tree` to `None`.
     pub fn new_empty(tree: Tree<B>) -> Self {
         let payloads = tree
             .arena()
@@ -59,37 +48,28 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
         Self { tree, payloads }
     }
 
-    /// Borrow the node tree.
     pub fn tree(&self) -> &Tree<B> {
         &self.tree
     }
 
-    /// Borrow the per-node payload map.
     pub fn payloads(&self) -> &IndexMap<NodeId, Option<Pd>> {
         &self.payloads
     }
 
-    /// Get the payload for a specific node, or `None` if the node is missing
-    /// or has no payload in this stage.
     pub fn payload_for_node(&self, node_id: &NodeId) -> Option<&Pd> {
         self.payloads.get(node_id).and_then(|opt| opt.as_ref())
     }
 
-    /// Overwrite the payload for a specific node.
     pub fn set_payload_for_node(&mut self, node_id: NodeId, payload: Option<Pd>) {
         self.payloads.insert(node_id, payload);
     }
 
-    /// Mutable borrow of the per-node payload map.
     pub fn payloads_mut(&mut self) -> &mut IndexMap<NodeId, Option<Pd>> {
         &mut self.payloads
     }
 
-    /// Render the IR as a Graphviz DOT string.
-    ///
-    /// When `show_payload` is `true`, each node label includes the debug
-    /// representation of its payload below the node name. Otherwise, only the
-    /// node name is shown.
+    /// Renders the IR as Graphviz DOT. `show_payload` adds each payload's
+    /// `Display` below its node.
     pub fn display_graphviz(&self, show_payload: bool) -> String {
         fn escape_html(input: &str) -> String {
             input
@@ -160,9 +140,7 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
 }
 
 impl<B: SnarkBackend> Ir<B, EmptyPayload> {
-    /// Build the starting-point IR from a DataFusion logical plan.
-    ///
-    /// All payloads are `None`; the first pass in the pipeline fills them in.
+    /// The starting IR of a pipeline: every payload is `None`.
     pub fn from_logical_plan(lp: &LogicalPlan) -> Self {
         Self::new_empty(Tree::from_logical_plan(lp))
     }
@@ -198,13 +176,9 @@ where
         }
     }
 
-    /// Run a [`LocalPass`] over every node on one thread, in the pass's
-    /// preferred [`PassOrder`], and return a new IR carrying the pass's output
-    /// payload type.
-    ///
-    /// Used for passes that need sequential state (e.g. accumulating into a
-    /// single `ArgProver`) or pre-order traversal, which the parallel version
-    /// doesn't support.
+    /// Runs `pass` over every node on one thread, in the pass's order. For
+    /// passes that keep sequential state (e.g. one `ArgProver`) or need
+    /// pre-order.
     pub fn apply_local_pass_sequential<POut, P>(&self, pass: &P) -> Ir<B, POut>
     where
         POut: Payload,
@@ -244,11 +218,8 @@ where
         }
     }
 
-    /// Run a [`LocalPass`] over every node in parallel via rayon.
-    ///
-    /// Only post-order traversal is supported; passing a [`PassOrder::PreOrder`]
-    /// pass panics, because the parent-before-child dependency cannot be
-    /// preserved under fan-out.
+    /// Runs `pass` over every node in parallel. Panics on a pre-order pass:
+    /// fan-out cannot keep a parent before its children.
     pub fn apply_local_pass_parallel<POut, P>(&self, pass: &P) -> Ir<B, POut>
     where
         PIn: Payload + Send + Sync,
@@ -277,9 +248,8 @@ where
                     has_payload = input_payload.is_some()
                 );
                 let _span_guard = span.enter();
-                // Some optimizer passes can temporarily hide subtrees (e.g. mode switches).
-                // Those detached nodes may still exist in arena but have no payload entry.
-                // Skip transforming them in parallel traversal.
+                // A node detached by an optimizer mode switch stays in the
+                // arena without a payload entry; skip it.
                 let maybe = if self.payloads.contains_key(id) {
                     crate::irs::nodes::hints::with_schema_only_ctx_scope(schema_ctx.clone(), || {
                         pass.transform(node, *id, input_payload)
@@ -303,52 +273,39 @@ where
         }
     }
 }
-/// Traversal order for a [`LocalPass`].
-///
-/// Post-order visits children before their parent — the default for most IR
-/// passes, and the only order the parallel traversal supports. Pre-order is
-/// used by a few passes (gadget planning and gadget initialization) that must
-/// emit parent state before descending.
+/// Post-order is the default and the only order the parallel traversal
+/// supports. Pre-order is for the passes (gadget planning, gadget
+/// initialization) where a parent must act before its children.
 #[derive(Copy, Clone)]
 pub enum PassOrder {
-    /// Visit each node before its children.
     PreOrder,
-    /// Visit each node after its children.
     PostOrder,
 }
 
 /// One stage of the prover or verifier pipeline.
-///
-/// A pass reads a node plus its input payload and produces the next stage's
-/// payload — `None` means "skip this node". Each pass declares its preferred
-/// [`PassOrder`] and whether it has per-pass setup / teardown work via
-/// [`LocalPass::begin_pass`] / [`LocalPass::end_pass`].
 pub trait LocalPass<B, PIn, POut>
 where
     B: SnarkBackend,
     PIn: Payload,
     POut: Payload,
 {
-    /// Produce the output payload for `node`.
-    ///
-    /// `payload` is the input stage's payload for this node, or `None` either
-    /// because no earlier pass filled it in (and [`Self::fallback_payload`]
-    /// didn't supply one) or because the node was detached by an optimizer
-    /// mode switch.
+    /// The next stage's payload for `node`, or `None` for no payload.
+    /// `payload` is `None` when no earlier pass filled it and
+    /// [`Self::fallback_payload`] gave none, or when the node was detached by
+    /// an optimizer mode switch.
     fn transform(&self, node: &Node<B>, id: NodeId, payload: Option<&PIn>) -> Option<POut>;
 
-    /// Declare the traversal order this pass needs.
     fn order(&self) -> PassOrder;
 
-    /// Optional fallback payload to use when the input payload is missing. By default,
-    /// no fallback is provided and nodes without an input payload are skipped.
+    /// The payload the sequential traversal passes to `transform` for a node
+    /// that has none.
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<PIn> {
         None
     }
-    /// Optional setup hook called once before pass traversal.
+    /// Called once before the traversal.
     fn begin_pass(&self, _ir: &Ir<B, PIn>) {}
-    /// Optional teardown hook called once after pass traversal.
+    /// Called once after the traversal.
     fn end_pass(&self) {}
-    /// Static name for tracing and bench-stats logging.
+    /// Used in tracing spans and the bench stats.
     fn name(&self) -> &'static str;
 }

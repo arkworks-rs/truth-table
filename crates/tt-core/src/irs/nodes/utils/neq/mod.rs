@@ -1,11 +1,9 @@
-//! Inequality gadget for table-shaped inputs.
+//! Inequality gadget: proves that two tables differ on every activated row.
 //!
-//! This module enforces inequality between two input tables on activated rows by:
-//! 1. Folding all data columns on each side with random challenges.
-//! 2. Subtracting folded right from folded left.
-//! 3. Shifting non-activated rows with a verifier challenge so only activated
-//!    rows are constrained to be non-zero.
-//! 4. Emitting a non-zero-check claim in both prover and verifier flows.
+//! Both sides fold their data columns with the same challenges, and `d` is
+//! the difference of the two folds. With a further challenge `c`, the
+//! polynomial `d + c·(1 - activator)` is nonzero-checked, so only activated
+//! rows are constrained to have `d ≠ 0`.
 
 use crate::{
     irs::{
@@ -21,12 +19,9 @@ use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use std::marker::PhantomData;
-/// Label for the left input to the neq gadget
 pub const LEFT_LABEL: &str = "left";
-/// Label for the right input to the neq gadget
 pub const RIGHT_LABEL: &str = "right";
 
-/// A gadget node that enforces that two tables are not equal on all activated rows.
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -121,7 +116,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected left and right inputs for neq gadget");
         };
 
-        // Check that every activated row differs between left/right inputs.
         let left_data_inds = left_input.data_tracked_polys_indices();
         let right_data_inds = right_input.data_tracked_polys_indices();
         debug_assert_eq!(
@@ -196,7 +190,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 continue;
             }
             if left_val == right_val {
-                // Activated rows must differ on the checked column.
                 return Err(ark_piop::errors::SnarkError::ProverError(
                     ark_piop::prover::errors::ProverError::HonestProverError(
                         ark_piop::prover::errors::HonestProverError::FalseClaim,

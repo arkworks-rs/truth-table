@@ -18,13 +18,10 @@ pub(crate) fn sort_df(input: &DataFrame, sort: &Sort) -> DataFrame {
         })
         .collect();
 
-    // Prefix sort with activator so active rows come first.
     let mut sort_exprs: Vec<SortExpr> = Vec::with_capacity(sort.expr.len() + 2);
     sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
-    // Apply the sort expressions requested by the query.
     sort_exprs.extend(resolve_sort_exprs(input.schema(), &sort.expr));
     if !row_id_sort_exprs.is_empty() {
-        // Stabilize ordering for identical sort keys.
         sort_exprs.extend(row_id_sort_exprs);
     }
 
@@ -35,8 +32,8 @@ pub(crate) fn sort_df(input: &DataFrame, sort: &Sort) -> DataFrame {
 
     match sort.fetch {
         Some(fetch) => sorted
-            // DataFusion encodes top-k as `Sort(fetch = k)`. Respect that here
-            // so the proof-side plan output matches the compact query result.
+            // DataFusion encodes top-k as `Sort(fetch = k)`; apply it so the
+            // proof-side plan output matches the compact query result.
             .limit(0, Some(fetch))
             .expect("top-k after sorting should succeed"),
         None => sorted,

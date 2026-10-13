@@ -1,69 +1,42 @@
-//! Composite gadget for paper §4.2.2 Domain-Preserving Update (the
-//! "Full String Validity Check"), **B1 variant**.
+//! Domain-Preserving Update Check (paper §4.2.2, the "Full String Validity
+//! Check"), B1 variant, for compaction.
 //!
-//! Compaction repacks a filtered table's active rows into
-//! a smaller hypercube, freshly re-emitting every column — including a
-//! string column's char-domain side segments (`__chars`, `__orig_ind`,
-//! `__int_ind`) that the LIKE gadget reads directly. The base compaction
-//! obligation is a row-domain **Permutation** (see
-//! [`crate::irs::nodes::utils::compaction`]): it folds *every* row-domain data
-//! column by name, so it already binds each new string's hash slots,
-//! `__length`, and `__fingerprint` to a genuine source row as a
-//! bijection. What it does NOT see are the char-domain side segments —
-//! those crossed the boundary as unconstrained fresh witnesses, which is
-//! the soundness gap this gadget closes.
+//! Compaction repacks a filtered table's active rows into a smaller hypercube
+//! and re-emits every column, including a string column's char-domain side
+//! segments (`__chars`, `__orig_ind`, `__int_ind`) that the LIKE gadget
+//! reads. Its row-domain Permutation (see
+//! [`crate::irs::nodes::utils::compaction`]) folds every row-domain data
+//! column, so it already binds each new string's hash slots, `__length` and
+//! `__fingerprint` to a source row, as a bijection. It does not see the
+//! char-domain segments, which would otherwise be unconstrained witnesses.
+//! This gadget binds them, keyed by the perm-bound hash; there is no `src`
+//! provenance witness. Each character carries a tag `HASHP`, its string's
+//! hash slots broadcast to the char level.
 //!
-//! This gadget adds only the missing CHAR-domain binding, keyed by the
-//! **perm-bound hash** — there is no `src` provenance witness. Each
-//! character carries an owning-hash tag `HASHP` (the string's hash slots
-//! broadcast down to the char level); a lookup then pins every new
-//! character to a character of the old string carrying the same hash, at
-//! the same within-word position.
+//! 1. Data-Preserving Update Check on the new activators and length:
+//!    `#{ c : orig-ind_new[c] = i, active } = a_new[i] · l_new[i]`, so no
+//!    character of an active new string is dropped or invented.
+//! 2. No-Duplicate Check (sort-based) on the committed offset column
+//!    `orig-ind_new · 2^char_domain + int-ind_new` under `char-act_new`: the
+//!    `(orig-ind, int-ind)` pairs of active new chars are distinct. A
+//!    zerocheck binds the column to its formula. The offset is challenge-free
+//!    and injective, so the prover can stage it at plan time
+//!    ([`OFFSET_PLAN_HINT_LABEL`]) for the gadget's lex-sort; the verifier
+//!    needs only the schema.
+//! 3. Broadcast checks, one `LookupPIOP` per hash slot per side:
+//!    `HASHP_k[c] = HASH_SLOT_k[orig-ind[c]]`. They run inline because the
+//!    slot count is data-dependent (a short-string column inlines to one
+//!    slot).
+//! 4. Lookup `(HASHP_0.., char, int-ind)_new ⊑ (HASHP_0.., char, int-ind)_old`:
+//!    each new char, with its within-word position, is a char of the old
+//!    string with the same hash.
 //!
-//! Payload (all four tables required; every column named is a data column
-//! unless it is the table's activator):
-//! - [`OLD_STR_LABEL`] — string-level OLD table
-//!   `{ idx, HASH_SLOT_0.., length }`, activator `a`. `idx` is the old
-//!   row's natural index; the `HASH_SLOT_k` are its row-domain hash slots.
-//! - [`NEW_STR_LABEL`] — string-level NEW table
-//!   `{ ind, HASH_SLOT_0.., length }`, activator `a`.
-//! - [`OLD_CHAR_LABEL`] — char-level OLD table
-//!   `{ orig-ind, int-ind, char, HASHP_0.. }`, activator `char-act`.
-//!   `HASHP_k` is `HASH_SLOT_k` broadcast to the char level.
-//! - [`NEW_CHAR_LABEL`] — char-level NEW table
-//!   `{ orig-ind, int-ind, char, HASHP_0.. }`, activator `char-act`.
-//!
-//! Decomposition — three child gadgets plus inline broadcast reductions:
-//! 1. **Data-Preserving Update Check** (child) on the NEW activators /
-//!    length: forces `#{ c : orig-ind_new[c]=i, active } = a_new[i]·l_new[i]`
-//!    — no character of an active new string is dropped or invented.
-//! 2. **No-Duplicate Check** (child, `SortBased`) on the committed
-//!    char-level offset column `orig-ind_new·2^char_domain + int-ind_new`
-//!    (activator `char-act_new`): the `(orig-ind, int-ind)` pairs of
-//!    active new chars are pairwise distinct — no position collisions.
-//!    The offset is challenge-free and injective, so the prover can stage
-//!    it as a concrete plan-time input hint ([`OFFSET_PLAN_HINT_LABEL`],
-//!    built by the compaction node from its compacted output) for the
-//!    sort-based gadget's lex-sort; the verifier needs only the schema.
-//! 3. **Broadcast checks** (inline, one `LookupPIOP` per hash slot per
-//!    side): `HASHP_k_new[c] = HASH_SLOT_k_new[orig-ind_new[c]]` and the
-//!    OLD mirror. Ties each character's owning-hash tag to the hash of the
-//!    string it belongs to. The slot count is data-dependent (short-string
-//!    columns inline to one slot), so these run inline over whatever slots
-//!    the payload carries rather than as a fixed set of child nodes.
-//! 4. **Lookup** (child, multi-column) `(HASHP_0.., char, int-ind)_new ⊑
-//!    (HASHP_0.., char, int-ind)_old`: pins each new character (and its
-//!    within-word position) to a character of the old string with the same
-//!    hash.
-//!
-//! Soundness sketch: the perm makes every active new row's hash equal some
-//! old row's hash (a bijection). Steps 3+4 make each active new character
-//! a character of the old string carrying that hash, at the same position;
-//! step 2 forbids position collisions; step 1 forces exactly `length` of
-//! them. Collision-resistance of the hash makes "same hash" ⇒ "same
-//! content", so the new character sequence is exactly the old one. No
-//! inline claims — every obligation is discharged by a child or a named
-//! `LookupPIOP`.
+//! Soundness: the perm makes every active new row's hash equal some old row's
+//! hash. Steps 3 and 4 make each active new char a char of the old string
+//! with that hash, at the same position; step 2 forbids position collisions;
+//! step 1 forces exactly `length` of them. The hash is collision-resistant,
+//! so the same hash means the same content, and the new character sequence
+//! is the old one.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -93,47 +66,51 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
+/// Old string-level table `{ idx, HASH_SLOT_0.., length }` under `a`. `idx`
+/// is the old row's natural index.
 pub const OLD_STR_LABEL: &str = "__old_str__";
+/// Old char-level table `{ orig-ind, int-ind, char, HASHP_0.. }` under
+/// `char-act`.
 pub const OLD_CHAR_LABEL: &str = "__old_char__";
+/// New string-level table `{ ind, HASH_SLOT_0.., length }` under `a`.
 pub const NEW_STR_LABEL: &str = "__new_str__";
+/// New char-level table `{ orig-ind, int-ind, char, HASHP_0.., offset }`
+/// under `char-act`.
 pub const NEW_CHAR_LABEL: &str = "__new_char__";
 
-/// Column names inside the payload tables (data columns).
+// Names of the data columns of the payload tables.
 pub const IDX_COL: &str = "__dpuc_idx__";
 pub const IND_COL: &str = "__dpuc_ind__";
 pub const ORIG_IND_COL: &str = "__dpuc_orig_ind__";
 pub const INT_IND_COL: &str = "__dpuc_int_ind__";
 pub const CHAR_COL: &str = "__dpuc_char__";
 pub const LENGTH_COL: &str = "__dpuc_length__";
-/// Prefix for the row-domain hash-slot columns (the string's
-/// collision-resistant id, bound by the perm). Appended with the slot
-/// index `0..nslots`. Present in OLD_STR / NEW_STR.
+/// Prefix of the row-domain hash-slot columns (the string's
+/// collision-resistant id, bound by the perm); the slot index follows.
 pub const HASH_SLOT_PREFIX: &str = "__dpuc_hash__";
-/// Prefix for the char-domain broadcast hash-slot columns (`HASHP_k`).
-/// Appended with the slot index `0..nslots`. Present in OLD_CHAR /
-/// NEW_CHAR. These are the fresh witnesses this gadget constrains.
+/// Prefix of the char-domain broadcast hash-slot columns `HASHP_k`; the slot
+/// index follows. These are the witnesses this gadget constrains.
 pub const HASHP_SLOT_PREFIX: &str = "__dpuc_hashp__";
 
-/// Char-domain column holding the committed offset `orig-ind·STRIDE +
-/// int-ind` (`STRIDE = 2^char_domain`), fed to the no-dup and bound to its
-/// formula by a zerocheck. Present in NEW_CHAR only.
+/// The committed offset `orig-ind·STRIDE + int-ind` with
+/// `STRIDE = 2^char_domain`, fed to the no-dup and bound to its formula by a
+/// zerocheck.
 pub const OFFSET_COL: &str = "__dpuc_offset__";
-/// Plan-time payload slot on the composite where the compaction parent
-/// stages the concrete offset column (prover only) for the sort-based
-/// no-dup child's planner; see `initialize_gadget_plans`.
+/// Plan-time payload slot of this node where the compaction parent stages
+/// the concrete offset column (prover only) for the sort-based no-dup
+/// child's planner; see `initialize_gadget_plans`.
 pub const OFFSET_PLAN_HINT_LABEL: &str = "__dpuc_offset_plan_hint__";
 
 fn u64_field(name: &str) -> FieldRef {
     Arc::new(Field::new(name, DataType::UInt64, false))
 }
 
-/// Composite gadget node for the Domain-Preserving Update relation (B1).
 pub struct GadgetNode<B: SnarkBackend> {
-    /// Step 1: activator/length consistency on the NEW columns.
+    /// Step 1.
     dpuc: Arc<Node<B>>,
-    /// Step 2: offset-enumeration no-duplicate check (sort-based).
+    /// Step 2.
     offset_nodup: Arc<Node<B>>,
-    /// Step 4: char-level provenance lookup (multi-column).
+    /// Step 4.
     char_lookup: Arc<Node<B>>,
     _phantom: PhantomData<B>,
 }
@@ -150,8 +127,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             dpuc: Arc::new(Node::<B>::Gadget(Arc::new(
                 data_preserving_update_check::GadgetNode::new(),
             ))),
-            // Sort-based no-dup (the query-level default): the offset column
-            // is challenge-free (`orig·2^char_domain + int`), so it can be
+            // Sort-based: the offset column is challenge-free, so it can be
             // lex-sorted at plan time from the staged offset hint.
             offset_nodup: Arc::new(Node::<B>::Gadget(Arc::new(nodup::GadgetNode::new(
                 nodup::Mode::SortBased,
@@ -230,7 +206,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .activator_tracked_poly()
             .expect("OLD_CHAR activator");
 
-        // --- Step 1: DPUC on NEW (char-act, a, orig-ind, ind, l) --------
+        // Step 1.
         set_dpuc_prover(
             &self.dpuc,
             &poly(&new_char, ORIG_IND_COL),
@@ -243,10 +219,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             virtualized_ir,
         );
 
-        // --- Step 2: offset no-dup on the committed injective offset -----
-        // (`orig-ind·STRIDE + int-ind`, bound to its formula by the
-        // zerocheck in `prove`/`verify`). Committed (not a virtual combo)
-        // so the no-dup gadget can open its input.
+        // Step 2. The offset is committed, not a virtual combination, so
+        // that the no-dup gadget can open its input.
         set_nodup_prover(
             &self.offset_nodup,
             poly(&new_char, OFFSET_COL),
@@ -255,7 +229,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             virtualized_ir,
         );
 
-        // --- Step 4: char lookup (HASHP.., char, int-ind)_new ⊑ old -----
+        // Step 4.
         let mut inc_cols: Vec<(FieldRef, TrackedPoly<B>)> = hashp_polys(&new_char);
         inc_cols.push((u64_field(CHAR_COL), poly(&new_char, CHAR_COL)));
         inc_cols.push((u64_field(INT_IND_COL), poly(&new_char, INT_IND_COL)));
@@ -280,11 +254,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        // The sort-based no-dup lex-sorts its input at plan time, so the
-        // compaction parent (visited just before us in this PreOrder
-        // pass) rebuilds the offset column from the compacted output and
-        // leaves it under `OFFSET_PLAN_HINT_LABEL`. Fall back to the
-        // schema-only hint when it is absent.
+        // The sort-based no-dup lex-sorts its input at plan time. The
+        // compaction parent, visited just before this node in the pre-order
+        // pass, rebuilds the offset column from the compacted output and
+        // leaves it under `OFFSET_PLAN_HINT_LABEL`. Without it, fall back to
+        // the schema-only hint.
         let concrete = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.get(OFFSET_PLAN_HINT_LABEL).cloned(),
             _ => None,
@@ -411,32 +385,30 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             broadcast_slot_prover(
                 prover,
                 &poly(new_str, IND_COL),
-                &poly(new_str, &slot_name(HASH_SLOT_PREFIX, k)),
-                // Super spans ALL rows (no activator): the identity `ind`
-                // keys stay distinct, and an active char may reference a
-                // row the row-activator excludes (post-filter tables need
-                // not keep char- and row-activators in sync). Soundness is
-                // unaffected — a bigger super only makes the subset easier
-                // to satisfy while still pinning each char to hash[ind].
+                &poly(new_str, &format!("{HASH_SLOT_PREFIX}{k}")),
+                // The super side spans all rows (no activator): the `ind`
+                // keys stay distinct, and an active char may reference a row
+                // that the row activator excludes (after a filter the char
+                // and row activators need not agree). A larger super side
+                // still pins each char to hash[ind].
                 None,
                 &poly(new_char, ORIG_IND_COL),
-                &poly(new_char, &slot_name(HASHP_SLOT_PREFIX, k)),
+                &poly(new_char, &format!("{HASHP_SLOT_PREFIX}{k}")),
                 new_char.activator_tracked_poly(),
             )?;
             broadcast_slot_prover(
                 prover,
                 &poly(old_str, IDX_COL),
-                &poly(old_str, &slot_name(HASH_SLOT_PREFIX, k)),
+                &poly(old_str, &format!("{HASH_SLOT_PREFIX}{k}")),
                 None,
                 &poly(old_char, ORIG_IND_COL),
-                &poly(old_char, &slot_name(HASHP_SLOT_PREFIX, k)),
+                &poly(old_char, &format!("{HASHP_SLOT_PREFIX}{k}")),
                 old_char.activator_tracked_poly(),
             )?;
         }
 
-        // Bind the committed offset to its formula: offset − orig·STRIDE −
-        // int-ind = 0. Holds on active rows by construction and on padding
-        // rows (all three are 0), so no activator mask is needed.
+        // offset − orig-ind·STRIDE − int-ind = 0. It holds on padding rows
+        // too (all three are 0), so no activator mask is needed.
         let stride = offset_stride::<B>(new_char.log_size());
         let diff = offset_binding_poly(new_char, stride);
         prover.add_mv_zerocheck_claim(diff.id())?;
@@ -473,19 +445,19 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             broadcast_slot_verifier(
                 verifier,
                 &oracle(new_str, IND_COL),
-                &oracle(new_str, &slot_name(HASH_SLOT_PREFIX, k)),
+                &oracle(new_str, &format!("{HASH_SLOT_PREFIX}{k}")),
                 None,
                 &oracle(new_char, ORIG_IND_COL),
-                &oracle(new_char, &slot_name(HASHP_SLOT_PREFIX, k)),
+                &oracle(new_char, &format!("{HASHP_SLOT_PREFIX}{k}")),
                 new_char.activator_tracked_poly(),
             )?;
             broadcast_slot_verifier(
                 verifier,
                 &oracle(old_str, IDX_COL),
-                &oracle(old_str, &slot_name(HASH_SLOT_PREFIX, k)),
+                &oracle(old_str, &format!("{HASH_SLOT_PREFIX}{k}")),
                 None,
                 &oracle(old_char, ORIG_IND_COL),
-                &oracle(old_char, &slot_name(HASHP_SLOT_PREFIX, k)),
+                &oracle(old_char, &format!("{HASHP_SLOT_PREFIX}{k}")),
                 old_char.activator_tracked_poly(),
             )?;
         }
@@ -505,20 +477,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
-// --- helpers ------------------------------------------------------------
-
-fn slot_name(prefix: &str, k: usize) -> String {
-    format!("{prefix}{k}")
-}
-
-/// `STRIDE = 2^char_domain` for the injective offset encoding
+/// `STRIDE = 2^char_domain` of the injective offset encoding
 /// (`char_domain` is a log-size, always < 64).
 fn offset_stride<B: SnarkBackend>(char_domain: usize) -> B::F {
     B::F::from(1u64 << char_domain)
 }
 
-/// Virtual poly `offset − orig-ind·STRIDE − int-ind` (must be zero
-/// everywhere — active rows by construction, padding rows are all zero).
+/// `offset − orig-ind·STRIDE − int-ind`, which must be zero everywhere.
 fn offset_binding_poly<B: SnarkBackend>(
     new_char: &TrackedTable<B>,
     stride: B::F,
@@ -592,10 +557,9 @@ fn hashp_oracles<B: SnarkBackend>(t: &TrackedTableOracle<B>) -> Vec<(FieldRef, T
     out.into_iter().map(|(_, f, o)| (f, o)).collect()
 }
 
-/// One broadcast check `x'[c] = x[src[c]]` reduced to a subset lookup
-/// `(src + r·x') ⊑ (ind + r·x)` at a fresh challenge `r`. Mirrors
-/// [`crate::irs::nodes::utils::broadcast_check`], run inline because the
-/// number of hash slots is data-dependent.
+/// The broadcast check `x'[c] = x[src[c]]` as a lookup
+/// `(src + r·x') ⊑ (ind + r·x)` with a fresh challenge `r`, as in
+/// [`crate::irs::nodes::utils::broadcast_check`].
 #[allow(clippy::too_many_arguments)]
 fn broadcast_slot_prover<B: SnarkBackend>(
     prover: &mut ark_piop::prover::ArgProver<B>,
@@ -647,10 +611,9 @@ fn broadcast_slot_verifier<B: SnarkBackend>(
     Ok(())
 }
 
-/// Schema-only `INPUT_LABEL` hint for the offset no-dup child: enough for
-/// the verifier's planner (schema + materialization flags only) and the
-/// prover's fallback when no concrete column was staged. The concrete
-/// offset column is supplied at runtime in `initialize_gadgets`.
+/// Schema-only `INPUT_LABEL` hint for the offset no-dup child. The verifier's
+/// planner needs no more (schema and materialization flags); for the prover
+/// it is the fallback when no concrete column was staged.
 fn set_offset_nodup_plan_hint<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
@@ -661,16 +624,15 @@ fn set_offset_nodup_plan_hint<B: SnarkBackend>(
         offset_f.as_ref().clone(),
         act_f.as_ref().clone(),
     ]);
-    // Virtual on both fields, matching the prover's concrete hint
-    // (`compaction_dpuc::build_offset_plan_hint`): the offset is
-    // committed at runtime, not by the tracking pass.
+    // Both fields virtual, as in the prover's concrete hint
+    // (`compaction_dpuc::build_offset_plan_hint`): the offset is committed
+    // at runtime, not by the tracking pass.
     let mut should_materialize = IndexMap::new();
     should_materialize.insert(offset_f, false);
     should_materialize.insert(act_f, false);
     set_offset_nodup_input_hint(node, planned_ir, HintDF::new(df, should_materialize));
 }
 
-/// Install `hint` as the offset no-dup child's `INPUT_LABEL` plan hint.
 fn set_offset_nodup_input_hint<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,

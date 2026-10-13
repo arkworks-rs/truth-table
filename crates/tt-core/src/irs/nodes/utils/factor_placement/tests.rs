@@ -1,13 +1,8 @@
-//! Tests for `FactorPlacement` (paper PIOP 8, prefix mode).
+//! Tests for `FactorPlacement` (paper PIOP 8).
 //!
-//! Standard fixture:
-//! - n_str = 2, n_char = 4.
-//! - Two strings, both length 2, laid out contiguously:
-//!   * String 0: `"ab"`, chars 0..=1, ind = 0.
-//!   * String 1: `"ab"`, chars 2..=3, ind = 1.
-//! - Pattern factor: `"ab"` (ℓ = 2), Mode::Prefix.
-//! - Both strings match, so we get two marks — comfortably above the
-//!   Bezout NoDup size-1 compaction degeneracy.
+//! Prefix fixture: two strings `"ab"` laid out contiguously (chars 0..=1 and
+//! 2..=3, n_char = 4), factor `"ab"` (ℓ = 2). Both match, which gives two
+//! marks: Bezout NoDup degenerates on a single active row.
 
 use std::sync::Arc;
 
@@ -39,16 +34,13 @@ fn bool_field(name: &str) -> Arc<Field> {
     Arc::new(Field::new(name, DataType::Boolean, false))
 }
 
-/// Shift LEFT by δ: result[i] = xs[(i + δ) mod n]. (This is what
-/// `char^(δ)[c] = char[c + δ]` means at the char level.)
+/// `result[i] = xs[(i + shift) mod n]`, i.e. `char^(δ)[c] = char[c + δ]`.
 fn shift_left(xs: &[F], shift: usize) -> Vec<F> {
     let n = xs.len();
     (0..n).map(|i| xs[(i + (shift % n)) % n]).collect()
 }
 
-/// Convert a field element that we know encodes a small integer back to a
-/// `u64`. Used by the honest-witness helpers so tests can compute the
-/// char-level broadcast/mask columns directly from the fixture data.
+/// For field elements that encode a small integer.
 fn as_u64(x: F) -> u64 {
     use ark_ff::{BigInteger, PrimeField};
     let bi = x.into_bigint();
@@ -68,7 +60,7 @@ fn leftmost_start_broadcast(orig_ind: &[F], start: &[F]) -> Vec<F> {
         .collect()
 }
 
-/// Honest `mask[c] = 1 iff int_ind[c] < start_broadcast[c] else 0`.
+/// Honest `mask[c] = 1 iff int_ind[c] < start_broadcast[c]`.
 fn leftmost_mask(int_ind: &[F], start_broadcast: &[F]) -> Vec<F> {
     int_ind
         .iter()
@@ -109,8 +101,6 @@ fn pattern_ab() -> Vec<F> {
     u(&[b'a' as u64, b'b' as u64])
 }
 
-/// Build the honest witness columns: rotated_chars, occurs, match,
-/// match_broadcast, mark, start.
 struct Witness {
     rotated: Vec<Vec<F>>,
     occurs: Vec<F>,
@@ -122,15 +112,11 @@ struct Witness {
 
 fn honest_witness() -> Witness {
     let char = fixture_char();
-    // char^(0) = char, char^(1) = shift_left(char, 1).
     let rotated = vec![char.clone(), shift_left(&char, 1)];
-    // Occurrences of "ab" at char positions 0 and 2.
+    // "ab" occurs at char positions 0 and 2, once per string.
     let occurs = u(&[1, 0, 1, 0]);
-    // Both real strings match; padding strings are inactive.
     let match_str = u(&[1, 1, 0, 0]);
-    // Broadcast to char level: match_broadcast[c] = match[orig_ind[c]].
     let match_broadcast = u(&[1, 1, 1, 1]);
-    // Only the (leftmost — trivially, only) occurrence of each string is marked.
     let mark = u(&[1, 0, 1, 0]);
     let start = u(&[0, 0, 0, 0]);
     Witness {
@@ -144,10 +130,8 @@ fn honest_witness() -> Witness {
 }
 
 fn run(witness: Witness) -> Result<(), ark_piop::errors::SnarkError> {
-    // BezoutBased nodup_mark: the test harness bypasses
-    // `initialize_gadget_plans`, so the plan-time LEX_SORTED_LABEL
-    // hint that `SortBased` requires is never produced. `BezoutBased`
-    // is self-contained at `initialize_gadgets` time.
+    // BezoutBased: the harness skips `initialize_gadget_plans`, so the
+    // LEX_SORTED_LABEL hint that `SortBased` needs is never produced.
     let gadget = Arc::new(Node::Gadget(Arc::new(
         GadgetNode::<B>::new_with_nodup_mode(pattern_ab(), Mode::Prefix, nodup::Mode::BezoutBased),
     )));
@@ -310,17 +294,9 @@ fn honest_prefix_match_verifies() {
     run(honest_witness()).expect("honest prefix Factor Placement should verify");
 }
 
-/// Honest suffix Factor Placement.
-///
-/// Fixture chosen so that prefix and suffix att_mask differ (unlike the
-/// prefix fixture where both would coincide):
-/// - n_str = 8, n_char = 8 (matched log sizes = 3).
-/// - Two real strings, both `"abab"` of length 4, packed contiguously in
-///   char positions 0..=7; six inactive padding strings.
-/// - Pattern factor: `"ab"` (ℓ = 2), Mode::Suffix.
-/// - Both strings' suffix `"ab"` matches; the valid suffix windows sit at
-///   char positions 2 (for string 0) and 6 (for string 1) — different from
-///   the prefix windows at 0 and 4.
+/// Two strings `"abab"` in chars 0..=7 and six inactive padding strings,
+/// factor `"ab"`. The suffix windows are at chars 2 and 6, unlike the prefix
+/// windows at 0 and 4, so the two modes' `att_mask` differ.
 #[test]
 fn honest_suffix_match_verifies() {
     const STR_NV: usize = 3; // n_str = 8
@@ -331,7 +307,6 @@ fn honest_suffix_match_verifies() {
     )));
     let gadget_id = gadget.id();
 
-    // char = "abab" + "abab", both strings packed contiguously.
     let char_col = u(&[
         b'a' as u64,
         b'b' as u64,
@@ -349,7 +324,6 @@ fn honest_suffix_match_verifies() {
     let ind = u(&[0, 1, 2, 3, 4, 5, 6, 7]);
     let a = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
 
-    // char^(0) = char, char^(1) = shift_left(char, 1).
     let rotated = vec![char_col.clone(), shift_left(&char_col, 1)];
 
     // Suffix windows: no boundary inside (bnd(1) = ρ_{-1}(bnd)) and the
@@ -360,15 +334,12 @@ fn honest_suffix_match_verifies() {
     let rotated_int_ind = shift_left(&int_ind, 2);
     let end = u(&[0, 0, 1, 1, 0, 0, 1, 1]);
 
-    // Only the two valid suffix windows have both att_mask=1 AND matching
-    // fingerprint; that's exactly where occurs is 1.
     let occurs = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
     let match_str = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
     let match_broadcast = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let mark = u(&[0, 0, 1, 0, 0, 0, 1, 0]);
-    // start[i] is the *internal index* within string i (per paper Step 4:
-    // start[i] := min O_i where O_i ⊂ int-ind). Both strings' suffix
-    // window sits at int-ind = 2.
+    // start[i] is an internal index within string i: both suffix windows
+    // sit at int-ind = 2.
     let start = u(&[2, 2, 0, 0, 0, 0, 0, 0]);
 
     let char_f = u64_field("char");
@@ -555,23 +526,11 @@ fn honest_suffix_match_verifies() {
     run_gadget_pipeline(harness).expect("honest suffix Factor Placement should verify");
 }
 
-/// Honest infix Factor Placement.
-///
-/// Fixture:
-/// - n_str = 8, n_char = 8 (matched log sizes = 3).
-/// - Two real strings: `"cab"` (chars 0..=2) and `"abc"` (chars 3..=5);
-///   char slots 6..=7 are padding (char-act = 0), string slots 2..=7 are
-///   padding (a = 0).
-/// - Pattern factor: `"ab"` (ℓ = 2), Mode::Infix.
-/// - Both strings contain `"ab"` as a factor: string 0 at char pos 1,
-///   string 1 at char pos 3. Two marks (≥ 2, avoiding the size-1 Bezout
-///   NoDup degeneracy).
-///
-/// Sanity-checks the infix-specific machinery: the `ROTATED_BND_LABEL`
-/// payload (bnd(1)), the single RotationCheck child on `(bnd, bnd(1), -1)`,
-/// and the `att_mask := char-act · (1 - bnd(1))` derivation. The prefix
-/// mode would have produced att_mask `[1,0,0,1,0,0,0,0]` — very different
-/// from the infix `[1,1,0,1,1,0,0,0]` used here.
+/// Strings `"cab"` (chars 0..=2) and `"abc"` (chars 3..=5), char slots 6..=7
+/// and string slots 2..=7 padding, factor `"ab"`: it occurs at char 1 and at
+/// char 3. Covers the `bnd(1)` rotation check and the infix
+/// `att_mask = char-act · (1 − bnd(1)) = [1,1,0,1,1,0,0,0]`, where the prefix
+/// mask would be `[1,0,0,1,0,0,0,0]`.
 #[test]
 fn honest_infix_match_verifies() {
     const STR_NV: usize = 3; // n_str = 8
@@ -582,7 +541,6 @@ fn honest_infix_match_verifies() {
     )));
     let gadget_id = gadget.id();
 
-    // "cab" + "abc" + padding.
     let char_col = u(&[
         b'c' as u64,
         b'a' as u64,
@@ -595,30 +553,24 @@ fn honest_infix_match_verifies() {
     ]);
     let orig_ind = u(&[0, 0, 0, 1, 1, 1, 0, 0]);
     let int_ind = u(&[0, 1, 2, 0, 1, 2, 0, 0]);
-    // Sentinel bit at position 6 marks "start after string 1 ends", so the
-    // last-char position of string 1 (char 5) is correctly disallowed as an
-    // infix-window start.
+    // The sentinel bit at position 6 (the slot after string 1 ends) keeps
+    // char 5, the last char of string 1, from being an infix-window start.
     let bnd = u(&[1, 0, 0, 1, 0, 0, 1, 0]);
     let char_act = u(&[1, 1, 1, 1, 1, 1, 0, 0]);
     let ind = u(&[0, 1, 2, 3, 4, 5, 6, 7]);
     let a = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
 
-    // char(0) = char, char(1) = shift_left(char, 1).
     let rotated_chars = vec![char_col.clone(), shift_left(&char_col, 1)];
-    // bnd(1)[c] = bnd[(c+1) mod 8].
     let bnd_1 = shift_left(&bnd, 1);
-    // Ensure the fixture matches what the RotationCheck will verify.
     assert_eq!(bnd_1, u(&[0, 0, 1, 0, 0, 1, 0, 1]));
 
-    // Occurs and mark: valid infix window at c=1 (chars 1..2 = "ab") and
-    // c=3 (chars 3..4 = "ab"); at c=2 and c=5 att_mask=0 blocks; at c=4
-    // fingerprint mismatches ("bc" ≠ "ab").
+    // Valid infix windows at c=1 and c=3; at c=2 and c=5 att_mask is 0; at
+    // c=4 the fingerprint differs ("bc" ≠ "ab").
     let occurs = u(&[0, 1, 0, 1, 0, 0, 0, 0]);
     let match_str = u(&[1, 1, 0, 0, 0, 0, 0, 0]);
     let match_broadcast = u(&[1, 1, 1, 1, 1, 1, 1, 1]);
     let mark = u(&[0, 1, 0, 1, 0, 0, 0, 0]);
-    // start[i] is the internal index within string i (per paper Step 4).
-    // String 0's "ab" sits at int-ind = 1; string 1's "ab" at int-ind = 0.
+    // String 0's "ab" sits at int-ind = 1, string 1's at int-ind = 0.
     let start = u(&[1, 0, 0, 0, 0, 0, 0, 0]);
 
     let char_f = u64_field("char");

@@ -17,7 +17,6 @@ use datafusion::{
         record_batch::{RecordBatch, RecordBatchOptions},
     },
     datasource::MemTable,
-    prelude::DataFrame,
 };
 use datafusion_common::{Column, DFSchema, DataFusionError, ScalarValue};
 use datafusion_expr::Expr;
@@ -30,7 +29,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, OnceLock, RwLock},
 };
-use tokio::runtime::RuntimeFlavor;
 
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
@@ -73,9 +71,7 @@ struct ForeignKeyColConstraint {
     ref_columns: Vec<String>,
 }
 
-/// A materialization pass that materializes the prover's hint DataFrames
-///
-/// This pass converts an IR with Hint DataFrame payloads into an IR with materialized in-memory tables.
+/// Executes each hint dataframe into an in-memory table.
 pub struct MaterializationPass<B>(std::marker::PhantomData<B>);
 impl<B> MaterializationPass<B> {
     pub fn new() -> Self {
@@ -89,11 +85,9 @@ impl<B> Default for MaterializationPass<B> {
     }
 }
 
-/// Loads constraint manifests from directories that contain input parquet files.
-///
-/// Each `<parquet_dir>/constraints.json` is parsed when present; missing files
-/// are ignored. The merged map is used by materialization to stamp `tt.pk` and
-/// `tt.fk.*` metadata onto output schema fields.
+/// Loads `<parquet_dir>/constraints.json`, where present, for each input
+/// parquet file. Materialization stamps `tt.pk` and `tt.fk.*` metadata onto
+/// output schema fields from the merged map.
 pub fn configure_constraint_metadata_from_parquet_paths(parquet_paths: &[PathBuf]) {
     crate::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths(parquet_paths);
     let mut merged = BTreeMap::new();
@@ -165,34 +159,32 @@ where
 fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<MaterializedTable> {
     let df = hint_df.data_frame().clone();
     let df_schema = df.schema();
-    // Build projection of columns marked for materialization, preserving qualifiers
-    // to avoid `FieldNotFound` errors when the schema uses table-qualified columns.
+    // Qualifiers are kept: a bare name is `FieldNotFound` in a schema of
+    // table-qualified columns.
     let projection: Vec<Expr> = hint_df
         .field_materialization_iter()
         .filter(|&(_field, should_mat)| *should_mat)
         .map(|(field, _should_mat)| projection_expr_for_field(df_schema, field))
         .collect();
 
-    // Virtual-only payloads are reconstructed later by the virtualization pass.
-    // Materializing them here only adds expensive DataFusion execution.
+    // The virtualization pass rebuilds a virtual-only payload; executing it
+    // here would be wasted work.
     if projection.is_empty() {
         return None;
     }
 
-    // Sort BEFORE projection so __row_id__ is still in the schema for the sort.
-    // Otherwise the projection drops __row_id__ first and the sort becomes a no-op,
-    // leaving the materialized batches in whatever order DataFusion's executor
-    // happens to produce. Downstream nodes (e.g., partial-join merge) assume that
-    // row i of the materialized table corresponds to row i of the FK input's
-    // TrackedTable; that assumption depends on the materialized rows being in
-    // __row_id__ order.
+    // Sort before projecting, while `__row_id__` is still in the schema.
+    // Later nodes (e.g. the partial-join merge) take row i of the
+    // materialized table to be row i of the FK input's `TrackedTable`, which
+    // holds only in `__row_id__` order.
     let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
         .expect("materialization row-id sort should succeed");
     let df = df
         .select(projection)
         .expect("materialization projection should succeed");
 
-    let batches = collect_blocking(df.clone()).expect("dataframe collection should succeed");
+    let batches = crate::session::block_on(df.clone().collect())
+        .expect("dataframe collection should succeed");
 
     let df_schema_ref = df.schema();
     let arrow_schema = arrow_schema_with_qualifiers(df_schema_ref);
@@ -328,7 +320,7 @@ fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
                 return updated;
             }
             if let Some(qualifier) = qualifier {
-                // Preserve qualifiers so downstream lookups can disambiguate same-name columns.
+                // The qualifier lets later lookups tell same-name columns apart.
                 let mut metadata = updated.metadata().clone();
                 let qualifier_str = qualifier.to_string();
                 metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier_str.clone());
@@ -369,8 +361,8 @@ fn merge_constraints_from_dir(dir: &Path, out: &mut BTreeMap<String, TableConstr
             if fk.columns.is_empty() {
                 continue;
             }
-            // Store FK metadata per source column, pairing source and target columns
-            // positionally for composite keys.
+            // FK metadata is kept per source column; a composite key pairs
+            // source and target columns by position.
             for (idx, src_col) in fk.columns.iter().enumerate() {
                 let ref_col = fk
                     .ref_columns
@@ -430,46 +422,11 @@ fn apply_constraint_metadata(
     }
 }
 
-fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            RuntimeFlavor::CurrentThread => {
-                // Spawn a dedicated thread with its own runtime to avoid blocking a single-thread runtime.
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
-}
-
-/// Pad collected batches up to the next power-of-two row count with the
-/// materialization pass's canonical inactive padding: `false` activator,
-/// `false` boolean payloads, NULL string payloads, repeat-last for other
-/// columns. Public
-/// because plan-time witness scans (e.g. the LIKE gadget re-scanning a
-/// compacted input) must pad EXACTLY like the committed tables were
-/// padded, or the scanned witness diverges from the commitments.
+/// Pads collected batches to the next power-of-two row count with the
+/// inactive padding of materialization: `false` activator, `false` booleans,
+/// null strings, repeat-last for other columns. Plan-time witness scans
+/// (e.g. the LIKE gadget re-scanning a compacted input) must pad exactly
+/// like this, or their witness diverges from the commitments.
 pub fn pad_batches_to_power_of_two(
     schema: &Schema,
     batches: Vec<RecordBatch>,
@@ -525,7 +482,6 @@ pub fn pad_batches_to_power_of_two(
     let mut output_arrays = Vec::with_capacity(schema_ref.fields().len());
     for (idx, field) in schema_ref.fields().iter().enumerate() {
         let padded = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
-            // Padded rows are always inactive.
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
@@ -533,15 +489,13 @@ pub fn pad_batches_to_power_of_two(
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if is_string_type(field.data_type()) {
-            // Padded rows of a STRING column must be null, never a repeat of
-            // the last real row. A string column encodes char-domain side
-            // segments, and the encoder marks every character of every
-            // non-null row active; a repeated string would therefore put
-            // active characters under an INACTIVE row slot, breaking the
-            // compaction DPUC's activator/length relation
-            // (`Σ_{orig-ind = i} char-act = a[i]·l[i]`, which is `0` for a
-            // padding slot). Null pads encode to length 0 with no
-            // characters, exactly as a source table's own padding rows do.
+            // A string column's padding must be null, not a repeat of the
+            // last row. The encoder marks every character of a non-null row
+            // active, so a repeated string would put active characters under
+            // an inactive row and break the compaction DPUC's
+            // activator/length relation (`Σ_{orig-ind = i} char-act =
+            // a[i]·l[i]`, which is 0 for a padding row). A null encodes to
+            // length 0 with no characters.
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
@@ -550,8 +504,8 @@ pub fn pad_batches_to_power_of_two(
             let pad_arr = null.to_array_of_size(pad)?;
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if field.data_type() == &datafusion::arrow::datatypes::DataType::Boolean {
-            // Keep boolean payload columns false on padded rows to avoid introducing
-            // accidental truth constraints.
+            // False on padded rows, so that padding adds no accidental truth
+            // constraint.
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())

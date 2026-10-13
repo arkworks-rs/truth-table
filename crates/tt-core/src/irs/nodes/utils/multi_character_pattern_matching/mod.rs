@@ -1,58 +1,23 @@
-//! Top-level composite gadget for paper §6.1 PIOP 6 Multi-Character
-//! Pattern Matching.
+//! Multi-Character Pattern Matching (paper §6.1, PIOP 6).
 //!
-//! Supports arbitrary `t ≥ 1` factor lists via the Sweep Factors
-//! orchestration (paper PIOP 7). For `t = 1` this reduces to a single
-//! FactorPlacement wrapped in the usual DPUC + LFC + verdict frame; for
-//! `t ≥ 2` Sweep Factors additionally threads a `past_j`-gated alive
-//! activator through the round-by-round placements.
+//! Given the tuple `(a^old, char-act^old, char, orig-ind, int-ind, ind, bnd,
+//! l)`, the factors `(str_1, mode_1), …, (str_t, mode_t)` and the prover's new
+//! activators `(a^new, char-act^new)`, proves that `a^new[i] = 1` iff string
+//! `i` was active, has length at least `Σ_j |str_j|` and matches the pattern.
 //!
-//! # Relation
-//!
-//! Given the original tuple `(a^old, char-act^old, char, orig-ind,
-//! int-ind, ind, bnd, l)`, a factor `p_1 = (str_1, mode_1)` with
-//! `k = |str_1|`, and prover-claimed new activators `(a^new, char-act^new)`
-//! plus a length-filter output `(a^{old'}, char-act^{old'})`, the gadget
-//! proves `a^new[i] = 1` iff string `i` was originally active, has
-//! length ≥ k, and satisfies pattern `p_1`.
-//!
-//! # Decomposition (Steps 1–5 of PIOP 6)
-//!
-//! 1. **Activator validity** — `DataPreservingUpdateCheck` on
+//! 1. Activator validity: `DataPreservingUpdateCheck` on
 //!    `(char-act^new, a^new, orig-ind, ind, l)`.
-//! 2. **Length filtering** — `LengthFilteringCheck` with threshold
-//!    `Σ_j |str_j|` on `(a^old, char-act^old, a^{old'}, char-act^{old'})`.
-//! 3. **Containment** — inline `Zerocheck` on `a^new · (1 − a^{old'})`.
-//! 4. **Sweep factors** — `SweepFactors([(str_1, mode_1), …, (str_t,
-//!    mode_t)])` with `(char-act^{old'}, a^{old'})` as the initial
-//!    alive activators. For `t = 1` this reduces to a single Factor
-//!    Placement; for `t ≥ 2` past_j indicators gate subsequent
-//!    factors' char domains.
-//! 5. **Verdict** — inline `Zerocheck` on `a^new − alive_h` where
-//!    `alive_h = match_{t-1}`.
+//! 2. Length filtering: `LengthFilteringCheck` with threshold `Σ_j |str_j|`
+//!    on `(a^old, char-act^old, a^{old'}, char-act^{old'})`.
+//! 3. Containment: `a^new · (1 − a^{old'}) = 0`.
+//! 4. Sweep Factors (PIOP 7) with `(char-act^{old'}, a^{old'})` as the
+//!    initial alive activators.
+//! 5. Verdict: `a^new − match_{t-1} = 0`.
 //!
-//! # Payload structure
-//!
-//! Shared slots:
-//! - [`CHAR_INPUT_LABEL`] — `{ char, orig-ind, int-ind, bnd }` with
-//!   activator `char-act^old`.
-//! - [`STR_INPUT_LABEL`] — `{ ind, l }` with activator `a^old`.
-//! - [`LENGTH_FILTERED_CHAR_LABEL`] — `{ char-act^{old'} }`, no activator.
-//! - [`LENGTH_FILTERED_STR_LABEL`] — `{ a^{old'} }`, no activator.
-//! - [`NEW_CHAR_LABEL`] — `{ char-act^new }`, no activator.
-//! - [`NEW_STR_LABEL`] — `{ a^new }`, no activator.
-//!
-//! Per factor `j` (0-indexed), via [`factor_label`]`(j, …)` (re-exported
-//! from [`sweep_factors::factor_label`]):
-//! - `"rotated_char"` — `k_j` char-level columns `char^{(0)}_j..char^{(k_j−1)}_j`
-//!   for factor `j` (each verified against `char` by SweepFactors's
-//!   internal rotation chain).
-//! - `"occurs"`, `"match"`, `"mark"`, `"start"`, `"match_broadcast"`,
-//!   `"start_broadcast"`, `"leftmost_mask"` — FactorPlacement witnesses.
-//! - `"rotated_bnd"` — infix and suffix modes with `k_j ≥ 2` only.
-//! - `"rotated_int_ind"`, `"end"` — suffix mode only.
-//! - `"past"` — only for `j < t − 1` (past_j indicator for the
-//!   inter-factor alive chain).
+//! The char input is `{ char, orig-ind, int-ind, bnd }` under `char-act^old`
+//! and the string input `{ ind, l }` under `a^old`. Besides the tables
+//! labelled below, the payload holds the per-factor slots of
+//! [`factor_label`], which go to SweepFactors unchanged.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -100,7 +65,6 @@ fn u64_field(name: &str) -> FieldRef {
     Arc::new(Field::new(name, DataType::UInt64, false))
 }
 
-/// Multi-Character Pattern Matching gadget, arbitrary factor count.
 pub struct GadgetNode<B: SnarkBackend> {
     factors: Vec<(Vec<B::F>, Mode)>,
     data_preserving: Arc<Node<B>>,
@@ -110,15 +74,12 @@ pub struct GadgetNode<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    /// Construct with an explicit factor list.
     pub fn new(factors: Vec<(Vec<B::F>, Mode)>) -> Self {
         Self::new_with_nodup_mode(factors, crate::irs::nodes::utils::nodup::Mode::SortBased)
     }
 
-    /// Test-facing constructor exposing the nodup_mark mode of each
-    /// nested FactorPlacement. Production callers should use
-    /// [`Self::new`]; test harnesses that bypass
-    /// `initialize_gadget_plans` should pass `BezoutBased`.
+    /// For tests: a harness that skips `initialize_gadget_plans` passes
+    /// `BezoutBased` for the NoDup of each nested FactorPlacement.
     pub fn new_with_nodup_mode(
         factors: Vec<(Vec<B::F>, Mode)>,
         nodup_mode: crate::irs::nodes::utils::nodup::Mode,
@@ -130,10 +91,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 "MCPM: each factor pattern must be non-empty"
             );
         }
-        // Length-filter threshold is the total pattern content (Σ_j |str_j|):
-        // a string can satisfy the pattern only if it has at least that
-        // many chars in total (the wildcards demand zero or more chars
-        // between factors, so their contribution is 0).
+        // The length-filter threshold is Σ_j |str_j|: a wildcard may match
+        // nothing, so a matching string has at least that many chars.
         let total_len: usize = factors.iter().map(|(pat, _)| pat.len()).sum();
         let data_preserving = Arc::new(Node::<B>::Gadget(Arc::new(
             data_preserving_update_check::GadgetNode::new(),
@@ -153,7 +112,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
         }
     }
 
-    /// Convenience constructor for the common `t = 1` case.
     pub fn new_single(pattern: Vec<B::F>, mode: Mode) -> Self {
         Self::new(vec![(pattern, mode)])
     }
@@ -185,8 +143,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         ]
     }
 }
-
-// --- Payload extraction ---
 
 struct PayloadProver<B: SnarkBackend> {
     char_input: TrackedTable<B>,
@@ -224,8 +180,7 @@ fn extract_prover<B: SnarkBackend>(
         .get(LENGTH_FILTERED_STR_LABEL)
         .expect("missing LENGTH_FILTERED_STR");
     let new_str = payload.get(NEW_STR_LABEL).expect("missing NEW_STR");
-    // The verdict reads alive_h = match_{t-1}, i.e. the last factor's
-    // match column.
+    // The verdict reads the last factor's match column, `match_{t-1}`.
     let match_key = factor_label(last_factor_idx, "match");
     let match_t = payload
         .get(&match_key)
@@ -292,14 +247,11 @@ fn extract_verifier<B: SnarkBackend>(
     }
 }
 
-// --- Child payload wiring ---
-
 fn set_dpuc_payload_prover<B: SnarkBackend>(
     node: &Arc<Node<B>>,
     ir: &mut GadgetReadyIr<B>,
     id: NodeId,
 ) {
-    // Reuse extraction to pull the child inputs.
     let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
         panic!("MCPM: missing gadget payload");
     };
@@ -625,9 +577,8 @@ fn set_lfc_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(child)));
 }
 
-/// Labels the MCPM-level payload owns; everything else in the parent
-/// payload is assumed to belong to a per-factor slot and gets forwarded
-/// to SweepFactors unchanged.
+/// MCPM's own payload labels. Every other entry of the payload is taken to
+/// be a per-factor slot and is forwarded to SweepFactors unchanged.
 const MCPM_OWNED_LABELS: &[&str] = &[
     CHAR_INPUT_LABEL,
     STR_INPUT_LABEL,
@@ -642,8 +593,8 @@ fn set_sweep_factors_payload_prover<B: SnarkBackend>(
     ir: &mut GadgetReadyIr<B>,
     id: NodeId,
 ) {
-    // SweepFactors takes over from the LFC-filtered activator pair:
-    // `(char-act^{old'}, a^{old'})` become alive_c_0 / alive_h_0.
+    // The length-filtered `(char-act^{old'}, a^{old'})` become SweepFactors'
+    // initial activators `(alive_c_0, alive_h_0)`.
     let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
         panic!("MCPM: missing gadget payload");
     };
@@ -701,7 +652,6 @@ fn set_sweep_factors_payload_prover<B: SnarkBackend>(
     let mut child = IndexMap::new();
     child.insert(sweep_factors::CHAR_INPUT_LABEL.to_string(), child_char);
     child.insert(sweep_factors::STR_INPUT_LABEL.to_string(), child_str);
-    // Forward all per-factor tables (anything not owned by MCPM).
     for (key, table) in payload.iter() {
         if !MCPM_OWNED_LABELS.contains(&key.as_str()) {
             child.insert(key.clone(), table.clone());
@@ -780,8 +730,6 @@ fn set_sweep_factors_payload_verifier<B: SnarkBackend>(
     ir.set_payload_for_node(node.id(), Some(PayloadStructure::GadgetPayload(child)));
 }
 
-// --- Prover / Verifier impls ---
-
 impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
@@ -806,10 +754,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        // Forward the LIKE-injected plan-time hints down to the
-        // SweepFactors child so it can further route them to each
-        // per-factor FactorPlacement. If no hints are present (e.g.
-        // isolated MCPM test harness), skip silently.
+        // Forward LIKE's plan-time hints to the SweepFactors child, which
+        // routes them to the FactorPlacements. A test harness has none.
         let own = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
@@ -863,10 +809,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        // Forward the LIKE-injected plan-time hints down to the
-        // SweepFactors child so it can further route them to each
-        // per-factor FactorPlacement. If no hints are present (e.g.
-        // isolated MCPM test harness), skip silently.
+        // Same as the prover's `initialize_gadget_plans`.
         let own = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
@@ -911,7 +854,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let str_domain = inputs.str_input.log_size();
         let _ = &inputs.char_input;
 
-        // Step 3 (Containment): a^new · (1 − a^{old'}) = 0.
+        // Step 3: a^new · (1 − a^{old'}) = 0.
         {
             let one_minus = inputs
                 .a_h_old_prime
@@ -920,7 +863,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let claim = &inputs.a_h_new * &one_minus;
             prover.add_mv_zerocheck_claim(resize_poly(&claim, str_domain).id())?;
         }
-        // Step 5 (Verdict): a^new − alive_h = a^new − match_{t-1} = 0.
+        // Step 5: a^new − match_{t-1} = 0.
         {
             let claim = &inputs.a_h_new - &inputs.match_str;
             prover.add_mv_zerocheck_claim(resize_poly(&claim, str_domain).id())?;

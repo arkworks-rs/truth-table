@@ -24,18 +24,13 @@ use crate::{
 pub mod gadget;
 mod hints;
 
-/// The implementation of a filter node in the prover proof tree.
 pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
-    // The filter information from DataFusion
     filter: Filter,
-    // The prover plan children nodes for the Filter expressions
     input: Arc<Node<B>>,
-    // The prover predicate expression node for the filter condition
     predicate: Arc<Node<B>>,
-    // The gadget node for proving the filter operation
     gadget: Arc<Node<B>>,
 }
 
@@ -71,13 +66,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         id: NodeId,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Pull the tracked table that is the input to this filter node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
         };
 
-        // Pull the predicate output table.
         let predicate_table = match virtualized_ir.payload_for_node(&self.predicate.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
@@ -85,41 +78,34 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
         let mut merged_polys = input_table.tracked_polys();
 
-        // Replace the activator column with input_activator AND predicate output.
+        // The output activator is the predicate column itself; the gadget
+        // checks that it equals input_activator * predicate.
         let predicate_data_indices = predicate_table.data_tracked_polys_indices();
         let predicate_data_idx = *predicate_data_indices
             .first()
             .expect("Filter predicate output should include a data column");
         let predicate_col = predicate_table.tracked_col_by_ind(predicate_data_idx);
         let predicate_poly = predicate_col.data_tracked_poly();
-        // let output_activator = match input_table.activator_tracked_poly() {
-        //     Some(input_activator) => &predicate_poly * &input_activator,
-        //     None => predicate_poly,
-        // };
         let output_activator = predicate_poly.clone();
         merged_polys.insert(ACTIVATOR_FIELD.clone(), output_activator);
 
-        // Prefer existing schema metadata, otherwise inherit from the input table.
         let metadata = input_table
             .schema_ref()
             .map(|s| s.metadata().clone())
             .unwrap_or_default();
 
-        // Get the fields from the merged polys for the new schema.
         let fields = merged_polys
             .keys()
             .map(|field| field.as_ref().clone())
             .collect::<Vec<_>>();
-        // Create the new schema with the merged fields and metadata.
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-        // Keep the existing log size when set; otherwise inherit from the input.
         let log_size = input_table.log_size();
 
-        // Propagate side (char-domain) segments by reference so string
-        // gadgets above this filter (LIKE / pre-filter) can still bind
-        // to them. The side activator is left untouched; consumers
-        // narrow it against the row activator themselves.
+        // Side (char-domain) segments pass through by reference so string
+        // gadgets above this filter (LIKE, pre-filter) can still bind to them.
+        // The side activator is untouched: consumers narrow it against the row
+        // activator themselves.
         let side_cols = input_table.side_cols();
         let updated_table = TrackedTable::new_with_side_cols(
             schema.clone(),
@@ -131,15 +117,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         Ok(())
     }
 
-    /// The gadget for the filter node only takes in 1. the input activator column, 2. the output activator column and 3. the binary output of the predicate column.
-    /// Then the gadget proves to you that the output activator column is correctly computed from the input activator column and the predicate column.
+    /// The gadget takes the input activator, the output activator and the
+    /// binary predicate column, and proves that the output activator is
+    /// computed correctly from the other two.
     fn initialize_gadgets(
         &self,
         _id: NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Helper to extract a table containing only the activator column.
         let activator_only = |table: &TrackedTable<B>, col_name: &str| {
             let idx = table
                 .tracked_polys()
@@ -151,12 +137,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             output
         };
 
-        // Fetch the input table to this filter node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
             _ => None,
         };
-        // Fetch the output table of this filter node.
         let output_table =
             virtualized_ir
                 .payload_for_node(&_id)
@@ -164,38 +148,31 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                     PayloadStructure::PlanPayload(table) => Some(table.clone()),
                     _ => None,
                 });
-        // Fetch the predicate table for this filter node.
         let predicate_table = virtualized_ir
             .payload_for_node(&self.predicate.id())
             .and_then(|payload| match payload {
                 PayloadStructure::PlanPayload(table) => Some(table.clone()),
                 _ => None,
             });
-        // Get a mutable reference to the gadget payload for this filter node.
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        // Now we start adding the necessary tables to the gadget payload.
-        // 1. Input activator table, we rename the activator column to "input_activator"
         if let Some(input) = input_table.as_ref() {
             gadget_payload.insert(
                 gadget::INPUT_ACTIVATOR_LABEL.to_string(),
                 activator_only(input, "input_activator"),
             );
         }
-        // 2. Output activator table, we rename the activator column to "output_activator"
         if let Some(output) = output_table.as_ref() {
             gadget_payload.insert(
                 gadget::OUTPUT_ACTIVATOR_LABEL.to_string(),
                 activator_only(output, "output_activator"),
             );
         }
-        // 3. Predicate table, as is.
         if let Some(pred_table) = predicate_table {
             gadget_payload.insert(gadget::FILTER_PREDICATE_LABEL.to_string(), pred_table);
         }
-        // Adding the gadget payload to the virtualized IR if not empty.
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
                 self.gadget.id(),
@@ -220,13 +197,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: NodeId,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Pull the tracked table from the filter's input.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
         };
 
-        // Pull the predicate output table.
         let predicate_table = match virtualized_ir.payload_for_node(&self.predicate.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
@@ -234,7 +209,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
         let mut merged_polys = input_table.tracked_oracles();
 
-        // Replace the activator column with input_activator AND predicate output.
         let predicate_data_indices = predicate_table.data_tracked_oracles_indices();
         let predicate_data_idx = *predicate_data_indices
             .first()
@@ -242,14 +216,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let predicate_oracle = predicate_table
             .tracked_col_oracle_by_ind(predicate_data_idx)
             .data_tracked_oracle();
-        // let output_activator = match input_table.activator_tracked_poly() {
-        //     Some(input_activator) => predicate_oracle * &input_activator,
-        //     None => predicate_oracle.clone(),
-        // };
         let output_activator = predicate_oracle.clone();
         merged_polys.insert(ACTIVATOR_FIELD.clone(), output_activator);
 
-        // Prefer existing schema metadata, otherwise inherit from the input table.
         let metadata = input_table
             .schema_ref()
             .map(|s| s.metadata().clone())
@@ -261,10 +230,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             .collect::<Vec<_>>();
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-        // Keep the existing log size when set; otherwise inherit from the input.
         let log_size = input_table.log_size();
 
-        // Mirror the prover: propagate side (char-domain) oracles.
         let side_cols = input_table.side_cols();
         let updated_table =
             TrackedTableOracle::new_with_side_cols(schema, merged_polys, log_size, side_cols);
@@ -277,7 +244,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Helper to extract a table containing only the activator column.
         let activator_only = |table: &TrackedTableOracle<B>, col_name: &str| {
             let (field_ref, activator_oracle) = table
                 .tracked_oracles_iter()
@@ -366,7 +332,6 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
-        // Derive the output by updating the activator column instead of dropping rows.
         let input_hint_df = match self.input.as_ref() {
             Node::Plan(plan_node) => {
                 <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
@@ -417,12 +382,8 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             _ => panic!("Expected LogicalPlan::Filter"),
         };
 
-        // Recurse into the input subtree and fetch the logical plan that feeds this
-        // filter.
         let input = Tree::<B>::from_logical_plan(&filter.input).root().clone();
 
-        // Recurse into the input subtree and fetch the expr that feeds this
-        // filter.
         let predicate = Tree::<B>::from_expr(
             &filter.predicate,
             Some(self_ref),

@@ -2,13 +2,11 @@ use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::DataFrame;
-use datafusion_common::{Result as DataFusionResult, ScalarValue, Statistics};
+use datafusion_common::{ScalarValue, Statistics};
 use datafusion_expr::expr::{InList, InSubquery};
 use datafusion_expr::{Expr, lit};
 use indexmap::IndexMap;
-use tokio::runtime::RuntimeFlavor;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -155,34 +153,13 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("in-subquery row-id sort should succeed");
 
-        fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
-            match tokio::runtime::Handle::try_current() {
-                Ok(handle) => match handle.runtime_flavor() {
-                    RuntimeFlavor::MultiThread => {
-                        tokio::task::block_in_place(|| handle.block_on(df.collect()))
-                    }
-                    RuntimeFlavor::CurrentThread => {
-                        let handle = handle.clone();
-                        std::thread::spawn(move || handle.block_on(df.collect()))
-                            .join()
-                            .unwrap()
-                    }
-                    _ => handle.block_on(df.collect()),
-                },
-                Err(_) => tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap()
-                    .block_on(df.collect()),
-            }
-        }
-
         let in_expr = if self.in_subquery.subquery.outer_ref_columns.is_empty() {
             let (session_state, _) = input_df.clone().into_parts();
             let subquery_plan = self.in_subquery.subquery.subquery.as_ref().clone();
             let subquery_df = DataFrame::new(session_state, subquery_plan);
             let batches: Vec<datafusion::arrow::record_batch::RecordBatch> =
-                collect_blocking(subquery_df).expect("in-subquery should collect subquery");
+                crate::session::block_on(subquery_df.collect())
+                    .expect("in-subquery should collect subquery");
             let mut values = Vec::new();
             for batch in batches.iter() {
                 let batch: &datafusion::arrow::record_batch::RecordBatch = batch;

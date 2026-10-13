@@ -27,9 +27,7 @@ def _thread_config() -> dict:
     return {}
 
 
-# ── sxt_proof_of_sql ────────────────────────────────────────────────
-#
-# Emits, per query:
+# sxt_proof_of_sql emits, per query:
 #   parquet_dir: artifact/size_<pow>
 #   parquet: <path>                                        (1 or more lines)
 #   <scheme>,<query>,<table_size>,<prove_ms>,<verify_ms>,<proof_bytes>,<iter>
@@ -63,13 +61,12 @@ def parse_sxt_proof_of_sql(text: str) -> dict:
     # Split the text into chunks per query using the separator line.
     chunks = re.split(r"^-{5,}\s*$", text, flags=re.M)
 
-    # Track (pow → table_size) as we scan — each `table_size:` or
-    # `parquet_dir:` line establishes the current pow context.
+    # Each `table_size:` or `parquet_dir:` line sets the pow context of the
+    # chunks from there on.
     results = []
     current_pow = None
     current_size = None
     for chunk in chunks:
-        # Update context from any header lines inside the chunk.
         for line in chunk.splitlines():
             m = re.match(r"\s*parquet_dir:\s*artifact/size_(\d+)", line)
             if m:
@@ -101,9 +98,7 @@ def parse_sxt_proof_of_sql(text: str) -> dict:
     return {"bench": "sxt_proof_of_sql", "config": config, "results": results}
 
 
-# ── qedb ─────────────────────────────────────────────────────────────
-#
-# Emits, per (pow, query):
+# qedb emits, per (pow, query):
 #   pow: <pow> query: <name>
 #   prove_ms: <..>
 #   verify_ms: <..>
@@ -135,9 +130,7 @@ def parse_qedb(text: str) -> dict:
     return {"bench": "qedb", "config": config, "results": results}
 
 
-# ── truth_table ──────────────────────────────────────────────────────
-#
-# Emits, per (pow, query):
+# truth_table emits, per (pow, query):
 #   pow: <pow> query: <name> parquet_rows: <R> log_size: <L>
 #   setup_ms: <..>           (only on cache miss)
 #   preprocess_ms: <..>      (0, 1, or 2 — one per preprocessed parquet)
@@ -152,9 +145,8 @@ def parse_truth_table(text: str) -> dict:
     m = re.search(r"^table_sizes:\s*\[([^\]]*)\]", text, re.M)
     if m:
         config["table_pows"] = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
-    # `curve: <name>` is emitted once at the top of the bench by the
-    # `tt-exec::backend::BACKEND_NAME` constant. Default to "bn254" if the
-    # bench predates the tag (older logs).
+    # The bench prints `curve: <name>` once at the top
+    # (`tt-exec::backend::BACKEND_NAME`). A log without it is bn254.
     m = re.search(r"^curve:\s*(\S+)\s*$", text, re.M)
     curve = m.group(1) if m else "bn254"
     config["curve"] = curve
@@ -178,7 +170,6 @@ def parse_truth_table(text: str) -> dict:
             "curve": curve,
         }
 
-        # Single-value fields: setup, prove, proof size, verify.
         for field in ("setup_ms", "prove_ms", "verify_ms", "proof_bytes"):
             m = re.search(rf"^{field}:\s*(\d+)\s*$", chunk, re.M)
             if m:
@@ -197,7 +188,6 @@ def parse_truth_table(text: str) -> dict:
     return {"bench": "truth_table", "config": config, "results": results}
 
 
-# ── main ─────────────────────────────────────────────────────────────
 PARSERS = {
     "sxt_proof_of_sql": parse_sxt_proof_of_sql,
     "qedb": parse_qedb,

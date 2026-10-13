@@ -25,9 +25,7 @@ fn parent_name_for<B: SnarkBackend>(
     None
 }
 
-/// A verify pass that runs the verifier gadget in each plan node.
-///
-/// This pass iterates the verifier plan nodes and runs the associated verifier gadget.
+/// Runs `verify` on every gadget node and stops at the first error.
 pub struct VerifyPass<B: SnarkBackend> {
     arg_verifier: RefCell<ArgVerifier<B>>,
     gadget_ready_ir: RefCell<GadgetReadyIr<B>>,

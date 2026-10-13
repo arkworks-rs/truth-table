@@ -1,17 +1,7 @@
-//! CLI runners and end-to-end helpers for the truth-table protocol.
-//!
-//! `tt-exec` builds the `tt` binary (see `main.rs`) and exposes the same
-//! subcommands as a library:
-//!
-//! - [`setup`] — generate a proving / verifying key pair
-//! - [`commit`] — commit a Parquet table into a `.oracle` artifact
-//! - [`prove`] — run a SQL query and produce a [`front_end::structs::TTProof`]
-//! - [`verify`] — check a proof against the committed oracle and claimed result
-//!
-//! Each subcommand follows a builder-then-`run` convention, and
-//! [`test_utils::prove_and_verify_query`] is a one-call helper that chains all
-//! four stages together — used by the crate's integration tests and by the
-//! `quickstart` example.
+//! The `tt` binary (`src/bin/tt.rs`) and its subcommands as a library:
+//! [`setup`], [`commit`], [`prove`] and [`verify`], each a builder and a
+//! runner. [`test_utils::prove_and_verify_query`] chains the four stages for
+//! the integration tests.
 
 pub mod backend;
 pub mod cmd;

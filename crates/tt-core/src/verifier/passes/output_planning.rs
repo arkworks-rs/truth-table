@@ -9,7 +9,7 @@ use crate::irs::{
 };
 use ark_piop::SnarkBackend;
 
-/// Verifier-side planning pass that initializes hint DataFrames.
+/// Attaches the verifier's hint dataframe to every plan node.
 pub struct OutputPlanningPass<B>(std::marker::PhantomData<B>);
 
 impl<B> OutputPlanningPass<B> {

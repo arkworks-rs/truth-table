@@ -61,10 +61,6 @@ const TPCH_TABLES: &[CommitCase] = &[
     },
 ];
 
-fn commit_cases() -> &'static [CommitCase] {
-    TPCH_TABLES
-}
-
 fn commit_pk_path() -> &'static PathBuf {
     static PK_PATH: OnceLock<PathBuf> = OnceLock::new();
     PK_PATH.get_or_init(|| {
@@ -117,7 +113,7 @@ fn commit_content_len(case: CommitCase) -> usize {
     oracle_bytes.len()
 }
 
-#[divan::bench(args = commit_cases(), max_time = 2)]
+#[divan::bench(args = TPCH_TABLES, max_time = 2)]
 fn bench_tpch_commit_content(bencher: Bencher, case: CommitCase) {
     bencher.bench_local(|| {
         divan::black_box(commit_content_len(case));

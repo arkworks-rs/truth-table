@@ -70,10 +70,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
 
         let mut columns = IndexMap::new();
         for segment in literal_segments {
-            // Literals encode to exactly one value per segment (guaranteed by
-            // `scalar_to_fields`). Read it through the segment's field
-            // accessor so we work regardless of whether the encoder chose
-            // Field storage or a native small-int MLE (e.g. bool → Bit).
+            // `scalar_to_fields` gives one value per segment. `value_as_field`
+            // reads it whether the encoder chose field storage or a native
+            // small-int MLE (e.g. bool → Bit).
             assert!(segment.len() == 1, "literal segment should carry one value");
             let value = segment.value_as_field(0);
             let segment_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
@@ -136,7 +135,6 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Produce a virtual DataFrame with the literal and activator columns from the scope.
         let scope = self.scope[0]
             .upgrade()
             .expect("Literal scope should be available during output");
@@ -168,7 +166,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Produce a virtual DataFrame shape for the literal and system columns from the scope.
         let scope = self.scope[0]
             .upgrade()
             .expect("Literal scope should be available during output");
@@ -241,10 +238,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
 
         let mut columns = IndexMap::new();
         for segment in literal_segments {
-            // Literals encode to exactly one value per segment (guaranteed by
-            // `scalar_to_fields`). Read it through the segment's field
-            // accessor so we work regardless of whether the encoder chose
-            // Field storage or a native small-int MLE (e.g. bool → Bit).
+            // `scalar_to_fields` gives one value per segment. `value_as_field`
+            // reads it whether the encoder chose field storage or a native
+            // small-int MLE (e.g. bool → Bit).
             assert!(segment.len() == 1, "literal segment should carry one value");
             let value = segment.value_as_field(0);
             let segment_oracle = ark_piop::verifier::structs::oracle::TrackedOracle::new(

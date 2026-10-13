@@ -1,8 +1,6 @@
-/// Initialize tracing for CLI or test use.
-///
-/// Delegates to ark-piop's canonical subscriber which sets up tree, span
-/// timing, and event layers. When `emit_jsonl_stats` is true, the JSONL
-/// statistics layer is added on top.
+/// Initializes tracing with tree, span-timing and event layers. With
+/// `emit_jsonl_stats` the JSONL statistics layer is added and the
+/// `bench_stats` target is kept out of the other three.
 pub fn init_cli_tracing(emit_jsonl_stats: bool) {
     if emit_jsonl_stats {
         ark_piop::test_utils::init_subscriber_with(|| {
@@ -57,7 +55,6 @@ pub fn init_cli_tracing(emit_jsonl_stats: bool) {
     }
 }
 
-/// Initialize tracing for tests. Same as CLI tracing.
 pub fn init_test_tracing(emit_jsonl_stats: bool) {
     init_cli_tracing(emit_jsonl_stats);
 }

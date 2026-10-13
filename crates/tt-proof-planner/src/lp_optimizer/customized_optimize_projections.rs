@@ -15,7 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! [`OptimizeProjections`] identifies and eliminates unused columns
+//! [`OptimizeProjections`] identifies and eliminates unused columns.
+//!
+//! A copy of DataFusion 46.0.1's `optimize_projections` rule, kept close to
+//! upstream so the two can be diffed. Our change: every node keeps the system
+//! columns (`__activator__`, `__row_id__`) of its own output schema, see
+//! `RequiredIndices::with_system_columns`.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -37,21 +42,12 @@ use datafusion_common::tree_node::{Transformed, TreeNode, TreeNodeContainer, Tre
 
 use crate::lp_optimizer::customized_optimize_projections::required_indices::RequiredIndices;
 
-/// Optimizer rule to prune unnecessary columns from intermediate schemas
-/// inside the [`LogicalPlan`]. This rule:
-/// - Removes unnecessary columns that do not appear at the output and/or are
-///   not used during any computation step.
-/// - Adds projections to decrease table column size before operators that
-///   benefit from a smaller memory footprint at its input.
-/// - Removes unnecessary [`LogicalPlan::Projection`]s from the [`LogicalPlan`].
-///
-/// `OptimizeProjections` is an optimizer rule that identifies and eliminates
-/// columns from a logical plan that are not used by downstream operations.
-/// This can improve query performance and reduce unnecessary data processing.
-///
-/// The rule analyzes the input logical plan, determines the necessary column
-/// indices, and then removes any unnecessary columns. It also removes any
-/// unnecessary projections from the plan tree.
+/// Prunes unnecessary columns from intermediate schemas of the
+/// [`LogicalPlan`]:
+/// - removes columns that neither appear at the output nor are used by any
+///   computation step;
+/// - adds projections before operators that benefit from a narrower input;
+/// - removes unnecessary [`LogicalPlan::Projection`]s.
 #[derive(Default, Debug)]
 pub struct OptimizeProjections {}
 
@@ -86,25 +82,8 @@ impl OptimizerRule for OptimizeProjections {
     }
 }
 
-/// Removes unnecessary columns (e.g. columns that do not appear in the output
-/// schema and/or are not used during any computation step such as expression
-/// evaluation) from the logical plan and its inputs.
-///
-/// # Parameters
-///
-/// - `plan`: A reference to the input `LogicalPlan` to optimize.
-/// - `config`: A reference to the optimizer configuration.
-/// - `indices`: A slice of column indices that represent the necessary column
-///   indices for downstream (parent) plan nodes.
-///
-/// # Returns
-///
-/// A `Result` object with the following semantics:
-///
-/// - `Ok(Some(LogicalPlan))`: An optimized `LogicalPlan` without unnecessary
-///   columns.
-/// - `Ok(None)`: Signal that the given logical plan did not require any change.
-/// - `Err(error)`: An error occurred during the optimization process.
+/// Removes unnecessary columns from `plan` and its inputs. `indices` are the
+/// columns of `plan`'s output that its parent requires.
 fn optimize_projections(
     plan: LogicalPlan,
     config: &dyn OptimizerConfig,
@@ -122,8 +101,6 @@ fn optimize_projections(
         LogicalPlan::Aggregate(aggregate) => {
             // Split parent requirements to GROUP BY and aggregate sections:
             let n_group_exprs = aggregate.group_expr_len()?;
-            // Offset aggregate indices so that they point to valid indices at
-            // `aggregate.aggr_expr`:
             let (group_by_reqs, aggregate_reqs) = indices.split_off(n_group_exprs);
 
             // Get absolutely necessary GROUP BY fields:
@@ -148,23 +125,15 @@ fn optimize_projections(
                 aggregate.group_expr
             };
 
-            // Only use the absolutely necessary aggregate expressions required
-            // by the parent:
             let mut new_aggr_expr = aggregate_reqs.get_at_indices(&aggregate.aggr_expr);
 
-            // Aggregations always need at least one aggregate expression.
-            // With a nested count, we don't require any column as input, but
-            // still need to create a correct aggregate, which may be optimized
-            // out later. As an example, consider the following query:
-            //
-            // SELECT count(*) FROM (SELECT count(*) FROM [...])
-            //
-            // which always returns 1.
+            // An aggregation needs at least one aggregate expression. A nested
+            // count such as `SELECT count(*) FROM (SELECT count(*) FROM [...])`
+            // requires no input column, so keep the first expression.
             if new_aggr_expr.is_empty()
                 && new_group_bys.is_empty()
                 && !aggregate.aggr_expr.is_empty()
             {
-                // take the old, first aggregate expression
                 new_aggr_expr = aggregate.aggr_expr;
                 new_aggr_expr.resize_with(1, || unreachable!());
             }
@@ -180,15 +149,10 @@ fn optimize_projections(
                 necessary_indices,
             )?
             .transform_data(|aggregate_input| {
-                // Simplify the input of the aggregation by adding a projection so
-                // that its input only contains absolutely necessary columns for
-                // the aggregate expressions. Note that necessary_indices refer to
-                // fields in `aggregate.input.schema()`.
+                // `necessary_exprs` refer to fields in `aggregate.input.schema()`.
                 add_projection_on_top_if_helpful(aggregate_input, necessary_exprs)
             })?
             .map_data(|aggregate_input| {
-                // Create a new aggregate plan with the updated input and only the
-                // absolutely necessary fields:
                 Aggregate::try_new(Arc::new(aggregate_input), new_group_bys, new_aggr_expr)
                     .map(LogicalPlan::Aggregate)
             });
@@ -197,16 +161,11 @@ fn optimize_projections(
             let input_schema = Arc::clone(window.input.schema());
             // Split parent requirements to child and window expression sections:
             let n_input_fields = input_schema.fields().len();
-            // Offset window expression indices so that they point to valid
-            // indices at `window.window_expr`:
             let (child_reqs, window_reqs) = indices.split_off(n_input_fields);
 
-            // Only use window expressions that are absolutely necessary according
-            // to parent requirements:
             let new_window_expr = window_reqs.get_at_indices(&window.window_expr);
 
-            // Get all the required column indices at the input, either by the
-            // parent or window expression requirements.
+            // Input columns required by the parent or by the window expressions.
             let required_indices = child_reqs.with_exprs(&input_schema, &new_window_expr);
 
             return optimize_projections(
@@ -219,9 +178,7 @@ fn optimize_projections(
                     // When no window expression is necessary, use the input directly:
                     Ok(Transformed::no(window_child))
                 } else {
-                    // Calculate required expressions at the input of the window.
-                    // Please note that we use `input_schema`, because `required_indices`
-                    // refers to that schema
+                    // `required_indices` refers to `input_schema`.
                     let required_exprs = required_indices.get_required_exprs(&input_schema);
                     let window_child =
                         add_projection_on_top_if_helpful(window_child, required_exprs)?.data;
@@ -241,8 +198,7 @@ fn optimize_projections(
                 projected_schema: _,
             } = table_scan;
 
-            // Get indices referred to in the original (schema with all fields)
-            // given projected indices.
+            // Map the projected indices back to the schema with all fields.
             let projection = match &projection {
                 Some(projection) => indices.into_mapped_indices(|idx| projection[idx]),
                 None => indices.into_inner(),
@@ -264,10 +220,9 @@ fn optimize_projections(
         | LogicalPlan::Union(_)
         | LogicalPlan::SubqueryAlias(_)
         | LogicalPlan::Distinct(Distinct::On(_)) => {
-            // Pass index requirements from the parent as well as column indices
-            // that appear in this plan's expressions to its child. All these
-            // operators benefit from "small" inputs, so the projection_beneficial
-            // flag is `true`.
+            // The child gets the parent's requirements plus the columns in this
+            // plan's expressions. These operators benefit from "small" inputs,
+            // so the projection_beneficial flag is `true`.
             plan.inputs()
                 .into_iter()
                 .map(|input| {
@@ -279,10 +234,8 @@ fn optimize_projections(
                 .collect::<Result<_>>()?
         }
         LogicalPlan::Limit(_) => {
-            // Pass index requirements from the parent as well as column indices
-            // that appear in this plan's expressions to its child. These operators
-            // do not benefit from "small" inputs, so the projection_beneficial
-            // flag is `false`.
+            // As above, but Limit does not benefit from "small" inputs, so the
+            // projection_beneficial flag stays `false`.
             plan.inputs()
                 .into_iter()
                 .map(|input| indices.clone().with_plan_exprs(&plan, input.schema()))
@@ -296,9 +249,8 @@ fn optimize_projections(
         | LogicalPlan::Subquery(_)
         | LogicalPlan::Statement(_)
         | LogicalPlan::Distinct(Distinct::All(_)) => {
-            // These plans require all their fields, and their children should
-            // be treated as final plans -- otherwise, we may have schema a
-            // mismatch.
+            // These plans require all their fields, and their children are
+            // treated as final plans; otherwise the schemas may mismatch.
             // TODO: For some subquery variants (e.g. a subquery arising from an
             //       EXISTS expression), we may not need to require all indices.
             plan.inputs()
@@ -343,8 +295,8 @@ fn optimize_projections(
                 split_join_requirements(left_len, indices, &join.join_type);
             let left_indices = left_req_indices.with_plan_exprs(&plan, join.left.schema())?;
             let right_indices = right_req_indices.with_plan_exprs(&plan, join.right.schema())?;
-            // Joins benefit from "small" input tables (lower memory usage).
-            // Therefore, each child benefits from projection:
+            // Joins benefit from "small" input tables, so each child benefits
+            // from projection:
             vec![
                 left_indices.with_projection_beneficial(),
                 right_indices.with_projection_beneficial(),
@@ -377,7 +329,6 @@ fn optimize_projections(
         );
     }
 
-    // Rewrite children of the plan
     let transformed_plan = plan.map_children(|child| {
         let required_indices = child_required_indices.pop().ok_or_else(|| {
             internal_datafusion_err!(
@@ -405,26 +356,8 @@ fn optimize_projections(
     }
 }
 
-/// Merges consecutive projections.
-///
-/// Given a projection `proj`, this function attempts to merge it with a previous
-/// projection if it exists and if merging is beneficial. Merging is considered
-/// beneficial when expressions in the current projection are non-trivial and
-/// appear more than once in its input fields. This can act as a caching mechanism
-/// for non-trivial computations.
-///
-/// # Parameters
-///
-/// * `proj` - A reference to the `Projection` to be merged.
-///
-/// # Returns
-///
-/// A `Result` object with the following semantics:
-///
-/// - `Ok(Some(Projection))`: Merge was beneficial and successful. Contains the
-///   merged projection.
-/// - `Ok(None)`: Signals that merge is not beneficial (and has not taken place).
-/// - `Err(error)`: An error occurred during the function call.
+/// Merges `proj` into the projection below it, when there is one and merging
+/// does not duplicate a non-trivial computation.
 fn merge_consecutive_projections(proj: Projection) -> Result<Transformed<Projection>> {
     let Projection {
         expr,
@@ -450,7 +383,6 @@ fn merge_consecutive_projections(proj: Projection) -> Result<Transformed<Project
                 &prev_projection.expr[prev_projection.schema.index_of_column(col).unwrap()],
             )
     }) {
-        // no change
         return Projection::try_new_with_schema(expr, input, schema).map(Transformed::no);
     }
 
@@ -479,8 +411,6 @@ fn merge_consecutive_projections(proj: Projection) -> Result<Transformed<Project
         }
     })?;
 
-    // if the expressions could be rewritten, create a new projection with the
-    // new expressions
     if new_exprs.transformed {
         // Add any needed aliases back to the expressions
         let new_exprs = new_exprs
@@ -502,65 +432,18 @@ fn is_expr_trivial(expr: &Expr) -> bool {
     matches!(expr, Expr::Column(_) | Expr::Literal(_))
 }
 
-/// Rewrites a projection expression using the projection before it (i.e. its input)
-/// This is a subroutine to the `merge_consecutive_projections` function.
-///
-/// # Parameters
-///
-/// * `expr` - A reference to the expression to rewrite.
-/// * `input` - A reference to the input of the projection expression (itself
-///   a projection).
-///
-/// # Returns
-///
-/// A `Result` object with the following semantics:
-///
-/// - `Ok(Some(Expr))`: Rewrite was successful. Contains the rewritten result.
-/// - `Ok(None)`: Signals that `expr` can not be rewritten.
-/// - `Err(error)`: An error occurred during the function call.
-///
-/// # Notes
-/// This rewrite also removes any unnecessary layers of aliasing.
-///
-/// Without trimming, we can end up with unnecessary indirections inside expressions
-/// during projection merges.
-///
-/// Consider:
-///
-/// ```text
-/// Projection(a1 + b1 as sum1)
-/// --Projection(a as a1, b as b1)
-/// ----Source(a, b)
-/// ```
-///
-/// After merge, we want to produce:
-///
-/// ```text
-/// Projection(a + b as sum1)
-/// --Source(a, b)
-/// ```
-///
-/// Without trimming, we would end up with:
-///
-/// ```text
-/// Projection((a as a1 + b as b1) as sum1)
-/// --Source(a, b)
-/// ```
+/// Rewrites a projection expression in terms of `input`, the projection below
+/// it, and removes the intermediate aliases: `Projection(a1 + b1 as sum1)`
+/// over `Projection(a as a1, b as b1)` becomes `Projection(a + b as sum1)`,
+/// not `Projection((a as a1 + b as b1) as sum1)`.
 fn rewrite_expr(expr: Expr, input: &Projection) -> Result<Transformed<Expr>> {
     expr.transform_up(|expr| {
         match expr {
-            //  remove any intermediate aliases
             Expr::Alias(alias) => Ok(Transformed::yes(*alias.expr)),
             Expr::Column(col) => {
-                // Find index of column:
                 let idx = input.schema.index_of_column(&col)?;
-                // get the corresponding unaliased input expression
-                //
-                // For example:
-                // * the input projection is [`a + b` as c, `d + e` as f]
-                // * the current column is an expression "f"
-                //
-                // return the expression `d + e` (not `d + e` as f)
+                // The unaliased input expression: for the input projection
+                // [`a + b` as c, `d + e` as f] and the column "f", `d + e`.
                 let input_expr = input.expr[idx].clone().unalias_nested().data;
                 Ok(Transformed::yes(input_expr))
             }
@@ -570,14 +453,7 @@ fn rewrite_expr(expr: Expr, input: &Projection) -> Result<Transformed<Expr>> {
     })
 }
 
-/// Accumulates outer-referenced columns by the
-/// given expression, `expr`.
-///
-/// # Parameters
-///
-/// * `expr` - The expression to analyze for outer-referenced columns.
-/// * `columns` - A mutable reference to a `BTreeSet<Column>` where detected
-///   columns are collected.
+/// Adds the columns that `expr` references from an outer query to `columns`.
 fn outer_columns<'a>(expr: &'a Expr, columns: &mut BTreeSet<&'a Column>) {
     // inspect_expr_pre doesn't handle subquery references, so find them explicitly
     expr.apply(|expr| {
@@ -602,14 +478,7 @@ fn outer_columns<'a>(expr: &'a Expr, columns: &mut BTreeSet<&'a Column>) {
     .unwrap();
 }
 
-/// A recursive subroutine that accumulates outer-referenced columns by the
-/// given expressions (`exprs`).
-///
-/// # Parameters
-///
-/// * `exprs` - The expressions to analyze for outer-referenced columns.
-/// * `columns` - A mutable reference to a `BTreeSet<Column>` where detected
-///   columns are collected.
+/// [`outer_columns`] over several expressions.
 fn outer_columns_helper_multi<'a, 'b>(
     exprs: impl IntoIterator<Item = &'a Expr>,
     columns: &'b mut BTreeSet<&'a Column>,
@@ -617,35 +486,8 @@ fn outer_columns_helper_multi<'a, 'b>(
     exprs.into_iter().for_each(|e| outer_columns(e, columns));
 }
 
-/// Splits requirement indices for a join into left and right children based on
-/// the join type.
-///
-/// This function takes the length of the left child, a slice of requirement
-/// indices, and the type of join (e.g. `INNER`, `LEFT`, `RIGHT`) as arguments.
-/// Depending on the join type, it divides the requirement indices into those
-/// that apply to the left child and those that apply to the right child.
-///
-/// - For `INNER`, `LEFT`, `RIGHT` and `FULL` joins, the requirements are split
-///   between left and right children. The right child indices are adjusted to
-///   point to valid positions within the right child by subtracting the length
-///   of the left child.
-///
-/// - For `LEFT ANTI`, `LEFT SEMI`, `RIGHT SEMI` and `RIGHT ANTI` joins, all
-///   requirements are re-routed to either the left child or the right child
-///   directly, depending on the join type.
-///
-/// # Parameters
-///
-/// * `left_len` - The length of the left child.
-/// * `indices` - A slice of requirement indices.
-/// * `join_type` - The type of join (e.g. `INNER`, `LEFT`, `RIGHT`).
-///
-/// # Returns
-///
-/// A tuple containing two vectors of `usize` indices: The first vector represents
-/// the requirements for the left child, and the second vector represents the
-/// requirements for the right child. The indices are appropriately split and
-/// adjusted based on the join type.
+/// Splits the requirement `indices` of a join into those of its left and
+/// right children. `left_len` is the number of fields of the left child.
 fn split_join_requirements(
     left_len: usize,
     indices: RequiredIndices,
@@ -670,28 +512,12 @@ fn split_join_requirements(
     }
 }
 
-/// Adds a projection on top of a logical plan if doing so reduces the number
-/// of columns for the parent operator.
-///
-/// This function takes a `LogicalPlan` and a list of projection expressions.
-/// If the projection is beneficial (it reduces the number of columns in the
-/// plan) a new `LogicalPlan` with the projection is created and returned, along
-/// with a `true` flag. If the projection doesn't reduce the number of columns,
-/// the original plan is returned with a `false` flag.
-///
-/// # Parameters
-///
-/// * `plan` - The input `LogicalPlan` to potentially add a projection to.
-/// * `project_exprs` - A list of expressions for the projection.
-///
-/// # Returns
-///
-/// A `Transformed` indicating if a projection was added
+/// Adds a projection on top of `plan` if doing so reduces the number of
+/// columns for the parent operator.
 fn add_projection_on_top_if_helpful(
     plan: LogicalPlan,
     project_exprs: Vec<Expr>,
 ) -> Result<Transformed<LogicalPlan>> {
-    // Make sure projection decreases the number of columns, otherwise it is unnecessary.
     if project_exprs.len() >= plan.schema().fields().len() {
         Ok(Transformed::no(plan))
     } else {
@@ -701,23 +527,7 @@ fn add_projection_on_top_if_helpful(
     }
 }
 
-/// Rewrite the given projection according to the fields required by its
-/// ancestors.
-///
-/// # Parameters
-///
-/// * `proj` - A reference to the original projection to rewrite.
-/// * `config` - A reference to the optimizer configuration.
-/// * `indices` - A slice of indices representing the columns required by the
-///   ancestors of the given projection.
-///
-/// # Returns
-///
-/// A `Result` object with the following semantics:
-///
-/// - `Ok(Some(LogicalPlan))`: Contains the rewritten projection
-/// - `Ok(None)`: No rewrite necessary.
-/// - `Err(error)`: An error occurred during the function call.
+/// Rewrites `proj` according to `indices`, the fields its ancestors require.
 fn rewrite_projection_given_requirements(
     proj: Projection,
     config: &dyn OptimizerConfig,
@@ -780,34 +590,23 @@ mod required_indices {
     const ACTIVATOR_COL_NAME: &str = "__activator__";
     const ROW_ID_COL_NAME: &str = "__row_id__";
 
-    /// Represents columns in a schema which are required (used) by a plan node
+    /// The columns of a schema that a plan node requires, and a flag saying
+    /// whether a projection above the child is beneficial for the parent (true
+    /// for the child of a `LogicalPlan::Filter`, for example; false by default).
     ///
-    /// Also carries a flag indicating if putting a projection above children is
-    /// beneficial for the parent. For example `LogicalPlan::Filter` benefits from
-    /// small tables. Hence for filter child this flag would be `true`. Defaults to
-    /// `false`
-    ///
-    /// # Invariant
-    ///
-    /// Indices are always in order and without duplicates. For example, if these
-    /// indices were added `[3, 2, 4, 3, 6, 1]`,  the instance would be represented
-    /// by  `[1, 2, 3, 4, 6]`.
+    /// Invariant: indices are in order and without duplicates.
     #[derive(Debug, Clone, Default)]
     pub(super) struct RequiredIndices {
-        /// The indices of the required columns in the
         indices: Vec<usize>,
-        /// If putting a projection above children is beneficial for the parent.
-        /// Defaults to false.
         projection_beneficial: bool,
     }
 
     impl RequiredIndices {
-        /// Create a new, empty instance
         pub fn new() -> Self {
             Self::default()
         }
 
-        /// Create a new instance that requires all columns from the specified plan
+        /// Requires all columns of `plan`'s schema.
         pub fn new_for_all_exprs(plan: &LogicalPlan) -> Self {
             Self {
                 indices: (0..plan.schema().fields().len()).collect(),
@@ -815,7 +614,6 @@ mod required_indices {
             }
         }
 
-        /// Create a new instance with the specified indices as required
         pub fn new_from_indices(indices: Vec<usize>) -> Self {
             Self {
                 indices,
@@ -824,56 +622,43 @@ mod required_indices {
             .compact()
         }
 
-        /// Convert the instance to its inner indices
         pub fn into_inner(self) -> Vec<usize> {
             self.indices
         }
 
-        /// Set the projection beneficial flag
         pub fn with_projection_beneficial(mut self) -> Self {
             self.projection_beneficial = true;
             self
         }
 
-        /// Return the value of projection beneficial flag
         pub fn projection_beneficial(&self) -> bool {
             self.projection_beneficial
         }
 
-        /// Return a reference to the underlying indices
         pub fn indices(&self) -> &[usize] {
             &self.indices
         }
 
-        /// Add required indices for all `exprs` used in plan
+        /// Adds the fields of `schema` (a child of `plan`) that `plan`'s
+        /// expressions refer to.
         pub fn with_plan_exprs(mut self, plan: &LogicalPlan, schema: &DFSchemaRef) -> Result<Self> {
-            // Add indices of the child fields referred to by the expressions in the
-            // parent
             plan.apply_expressions(|e| {
                 self.add_expr(schema, e);
                 Ok(TreeNodeRecursion::Continue)
             })?;
-            // Do not force child system columns here: this method computes
-            // *expression-derived* child requirements. Injecting row/activator
-            // columns at every edge can add unintended payload columns and break
-            // downstream gadget assumptions.
+            // System columns are not added here: these are expression-derived
+            // child requirements, and forcing row/activator columns at every
+            // edge can add unintended payload columns and break downstream
+            // gadget assumptions.
             Ok(self.compact())
         }
 
-        /// Adds the indices of the fields referred to by the given expression
-        /// `expr` within the given schema (`input_schema`).
-        ///
-        /// Self is NOT compacted (and thus this method is not pub)
-        ///
-        /// # Parameters
-        ///
-        /// * `input_schema`: The input schema to analyze for index requirements.
-        /// * `expr`: An expression for which we want to find necessary field indices.
+        /// Adds the indices of the fields of `input_schema` that `expr` refers
+        /// to. Does not compact, and thus is not `pub`.
         fn add_expr(&mut self, input_schema: &DFSchemaRef, expr: &Expr) {
             // TODO could remove these clones (and visit the expression directly)
             let mut cols: std::collections::BTreeSet<&Column> =
                 expr.column_refs().into_iter().collect();
-            // Get outer-referenced (subquery) columns:
             outer_columns(expr, &mut cols);
             self.indices.reserve(cols.len());
             for col in cols {
@@ -883,13 +668,7 @@ mod required_indices {
             }
         }
 
-        /// Adds the indices of the fields referred to by the given expressions
-        /// `within the given schema.
-        ///
-        /// # Parameters
-        ///
-        /// * `input_schema`: The input schema to analyze for index requirements.
-        /// * `exprs`: the expressions for which we want to find field indices.
+        /// Adds the indices of the fields of `schema` that `exprs` refer to.
         pub fn with_exprs<'a>(
             self,
             schema: &DFSchemaRef,
@@ -901,24 +680,22 @@ mod required_indices {
                     acc.add_expr(schema, expr);
                     acc
                 })
-                // Keep this as a pure expression-to-index mapping.
-                // System columns are injected only when preserving the current
-                // node output schema (via `with_system_columns`).
+                // A pure expression-to-index mapping: system columns are added
+                // only for a node's own output schema (`with_system_columns`).
                 .compact()
         }
 
-        /// Adds all `indices` into this instance.
         pub fn append(mut self, indices: &[usize]) -> Self {
             self.indices.extend_from_slice(indices);
             self.compact()
         }
 
-        /// Ensure system columns are always retained when present in the schema.
+        /// Not in upstream: requires the system columns of `schema` when
+        /// present, so that no node drops them from its output.
         pub fn with_system_columns(self, schema: &DFSchemaRef) -> Self {
             self.add_system_columns(schema).compact()
         }
 
-        /// Ensure system columns are always retained when present in the schema.
         fn add_system_columns(mut self, schema: &DFSchemaRef) -> Self {
             for (idx, field) in schema.fields().iter().enumerate() {
                 let name = field.name();
@@ -937,8 +714,6 @@ mod required_indices {
             (l, r.map_indices(|idx| idx - n))
         }
 
-        /// Partitions the indices in this instance into two groups based on the
-        /// given predicate function `f`.
         fn partition<F>(&self, f: F) -> (Self, Self)
         where
             F: Fn(usize) -> bool,
@@ -958,9 +733,6 @@ mod required_indices {
             )
         }
 
-        /// Map the indices in this instance to a new set of indices based on the
-        /// given function `f`, returning the mapped indices
-        ///
         /// Not `pub` as it might not preserve the invariant of compacted indices
         fn map_indices<F>(mut self, f: F) -> Self
         where
@@ -970,8 +742,6 @@ mod required_indices {
             self
         }
 
-        /// Apply the given function `f` to each index in this instance, returning
-        /// the mapped indices
         pub fn into_mapped_indices<F>(self, f: F) -> Vec<usize>
         where
             F: Fn(usize) -> usize,
@@ -979,13 +749,11 @@ mod required_indices {
             self.map_indices(f).into_inner()
         }
 
-        /// Returns the `Expr`s from `exprs` that are at the indices in this instance
         pub fn get_at_indices(&self, exprs: &[Expr]) -> Vec<Expr> {
             self.indices.iter().map(|&idx| exprs[idx].clone()).collect()
         }
 
-        /// Generates the required expressions (columns) that reside at `indices` of
-        /// the given `input_schema`.
+        /// The columns of `input_schema` at these indices, as expressions.
         pub fn get_required_exprs(&self, input_schema: &DFSchemaRef) -> Vec<Expr> {
             self.indices
                 .iter()
@@ -993,8 +761,7 @@ mod required_indices {
                 .collect()
         }
 
-        /// Compacts the indices of this instance so they are sorted
-        /// (ascending) and deduplicated.
+        /// Restores the invariant: sorts (ascending) and deduplicates.
         fn compact(mut self) -> Self {
             self.indices.sort_unstable();
             self.indices.dedup();

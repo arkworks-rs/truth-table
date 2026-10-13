@@ -28,26 +28,11 @@ mod merge_limits;
 mod normalize_sort_fetch;
 mod normalize_table_scan;
 
-// pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
-//     let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![
-//         Arc::new(ExtractEquijoinPredicate),
-//         Arc::new(EliminateCrossJoin),
-//     ];
-
-//     let optimizer = Optimizer::with_rules(rules);
-
-//     let config = OptimizerContext::new().with_max_passes(16);
-
-//     optimizer.optimize(plan.clone(), &config, observer).unwrap()
-// }
-// fn observer(_plan: &LogicalPlan, _rule: &dyn OptimizerRule) {}
-
 pub fn rules(_session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send + Sync>> {
     vec![
         Arc::new(EliminateNestedUnion::new()),
         Arc::new(SimplifyExpressions::new()),
         Arc::new(EliminateJoin::new()),
-        // Arc::new(DecorrelatePredicateSubquery::new()),
         Arc::new(ScalarSubqueryToJoin::new()),
         Arc::new(ExtractEquijoinPredicate::new()),
         Arc::new(EliminateDuplicatedExpr::new()),
@@ -71,7 +56,8 @@ pub fn rules(_session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send 
         Arc::new(merge_filters::MergeConsecutiveFilters::new()),
         Arc::new(lift_join_filter::LiftJoinFilter::new()),
         Arc::new(customized_optimize_projections::OptimizeProjections::new()),
-        // Compaction is data-dependent, so prover emits hints and verifier replays them.
+        // Compaction is not in this list: it is data-dependent, so the prover
+        // emits hints and the verifier replays them.
         Arc::new(AddResultCheck::new()),
     ]
 }

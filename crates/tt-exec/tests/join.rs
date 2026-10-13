@@ -1,10 +1,6 @@
 #![cfg(feature = "test-utils")]
 
 mod support;
-// use tt_core::test_display::{
-//     display_prover_arithmetized_tree, display_prover_hint_tree,
-// display_prover_piop_tree,     display_prover_proof_tree,
-// display_prover_tracked_tree, };
 
 end_to_end_tests!(&["supplier", "nation"] => [
     simple_join_1 => r#"SELECT
@@ -60,7 +56,4 @@ JOIN
 ON
     l1.l_orderkey = l2.l_orderkey
 "#,
-
-// WHERE
-//     l1.l_linenumber < 5;
 ]);

@@ -25,9 +25,7 @@ fn parent_name_for<B: SnarkBackend>(
     None
 }
 
-/// A proving pass that run the prover gadget in each plan node
-///
-/// This pass iterates the prover plan nodes and runs the associated prover gadget
+/// Runs `prove` on every gadget node and stops at the first error.
 pub struct ProvingPass<B: SnarkBackend> {
     arg_prover: RefCell<ArgProver<B>>,
     gadget_ready_ir: RefCell<GadgetReadyIr<B>>,

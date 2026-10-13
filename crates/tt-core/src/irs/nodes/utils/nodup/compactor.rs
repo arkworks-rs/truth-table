@@ -1,4 +1,3 @@
-//! A tool to compact a column by removing the non-activated elements
 use std::marker::PhantomData;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
@@ -14,10 +13,9 @@ use ark_ff::Zero;
 use crate::irs::nodes::utils::nodup::compaction_check::CompactionCheck;
 use crate::irs::nodes::utils::nodup::compaction_check::CompactionCheckProverInput;
 use crate::irs::nodes::utils::nodup::compaction_check::CompactionCheckVerifierInput;
-/// A tool to compact a column by removing the non-activated rows and
-/// reducing the size of the underlying polynomial (as much as possible). It
-/// internally invokes the permutation-check to ensure that the compacted
-/// column is still consistent with the original column.
+/// Compacts a column: removes the non-activated rows and shrinks the
+/// underlying polynomial as much as possible. A `CompactionCheck` ties the
+/// compacted column to the original one.
 pub struct Compactor<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 impl<B: SnarkBackend> Compactor<B> {
@@ -42,9 +40,6 @@ impl<B: SnarkBackend> Compactor<B> {
         } else {
             log2(new_col_size) as usize
         };
-        // if new_nv == old_nv {
-        //     return Ok(col.clone());
-        // }
 
         let mut new_activator_evals: Vec<B::F> = Vec::with_capacity(1 << new_nv);
         let mut new_inner_evals: Vec<B::F> = Vec::with_capacity(1 << new_nv);

@@ -15,9 +15,9 @@
 //!
 //! Prints `pattern,prove_s,verify_s,proof_bytes,result_rows`, `verify_s`
 //! the median of `--verify-runs`. Only `prove` and `verify` themselves are
-//! timed, not loading keys or oracles.
-//! The query is `SELECT l_returnflag FROM <table> WHERE l_comment LIKE
-//! 'pattern'`, the table named after the parquet file.
+//! timed, not loading keys or oracles. The query is `SELECT l_returnflag
+//! FROM <table> WHERE l_comment LIKE 'pattern'`, the table named after the
+//! parquet file.
 
 use std::path::PathBuf;
 
