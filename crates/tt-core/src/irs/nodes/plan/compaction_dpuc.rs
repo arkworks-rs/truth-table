@@ -19,6 +19,7 @@
 //! (see [`single_string_base`]). Any other table has the base compaction
 //! gadget alone.
 
+use crate::irs::nodes::utils::u64_field;
 use crate::session::session_context;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -157,10 +158,6 @@ fn field_to_u64<F: PrimeField>(v: F) -> u64 {
         out |= (*b as u64) << (8 * i);
     }
     out
-}
-
-fn u64_field(name: &str) -> FieldRef {
-    Arc::new(Field::new(name, DataType::UInt64, false))
 }
 
 fn commit<B: SnarkBackend>(

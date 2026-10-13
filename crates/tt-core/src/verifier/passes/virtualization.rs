@@ -14,18 +14,6 @@ use crate::verifier::irs::{TrackedIr, VirtualizedIr};
 use crate::verifier::payloads::{TrackedPayload, VirtualizedPayload};
 use arithmetic::table_oracle::TrackedTableOracle;
 
-fn parent_name_for<B: SnarkBackend>(
-    tree: &crate::irs::tree::Tree<B>,
-    id: NodeId,
-) -> Option<String> {
-    for (_parent_id, node) in tree.arena().iter() {
-        if node.children().iter().any(|child| child.id() == id) {
-            return Some(node.name());
-        }
-    }
-    None
-}
-
 /// Lets each node add its virtual witnesses to a shared IR.
 pub struct VirtualizationPass<B: SnarkBackend> {
     virtualized_ir: RefCell<VirtualizedIr<B>>,
@@ -63,7 +51,10 @@ where
         let updated = {
             let mut ir = self.virtualized_ir.borrow_mut();
             if let Err(err) = node.add_virtual_witness(id, &mut ir) {
-                let parent = parent_name_for(ir.tree(), id).unwrap_or_else(|| "<none>".to_string());
+                let parent = ir
+                    .tree()
+                    .parent_name(id)
+                    .unwrap_or_else(|| "<none>".to_string());
                 panic!(
                     "virtual witness insertion should succeed for node {} under parent {}: {:?}",
                     node.name(),

@@ -29,6 +29,7 @@
 //! The result is `match_{t-1}`, which the caller reads from the payload at
 //! [`factor_label`]`(t − 1, "match")`.
 
+use crate::irs::nodes::utils::{bool_field, resize_oracle, resize_poly, u64_field};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -157,21 +158,8 @@ pub fn factor_label(j: usize, name: &str) -> String {
     format!("__f{j}_{name}__")
 }
 
-fn u64_field(name: &str) -> FieldRef {
-    Arc::new(Field::new(name, DataType::UInt64, false))
-}
-fn bool_field() -> FieldRef {
-    Arc::new(Field::new("data", DataType::Boolean, false))
-}
 fn sign_input_field() -> FieldRef {
     Arc::new(Field::new("__past_sign_input__", DataType::Int64, false))
-}
-
-fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
-    TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
-}
-fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
-    TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
 }
 
 pub struct GadgetNode<B: SnarkBackend> {

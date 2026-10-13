@@ -69,6 +69,14 @@ where
         &self.arena
     }
 
+    /// The name of the node that has `id` among its children.
+    pub fn parent_name(&self, id: NodeId) -> Option<String> {
+        self.arena
+            .values()
+            .find(|node| node.children().iter().any(|child| child.id() == id))
+            .map(|node| node.name())
+    }
+
     pub fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Node<B>>> {
         self.arena.get(node_id)
     }

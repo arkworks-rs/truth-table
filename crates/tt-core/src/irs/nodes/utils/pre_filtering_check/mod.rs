@@ -19,6 +19,7 @@
 //!    Update Check on `(char-act', a', orig-ind, ind, l)`.
 //! 2. Zerocheck on `a' - a · ∏_{b ∈ Q} fp_b`, of degree `|Q| + 1`.
 
+use crate::irs::nodes::utils::{resize_oracle, resize_poly};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -63,15 +64,6 @@ pub const STR_INDEX_LABEL: &str = "__str_index__";
 pub const CHAR_FILTERED_LABEL: &str = "__char_filtered__";
 /// `{ a' }`.
 pub const STR_FILTERED_LABEL: &str = "__str_filtered__";
-
-/// See `length_filtering_check::resize_poly`.
-fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
-    TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
-}
-
-fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
-    TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
-}
 
 pub struct GadgetNode<B: SnarkBackend> {
     /// The public `φ`: the bins the query tests.

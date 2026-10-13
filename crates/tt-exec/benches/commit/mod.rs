@@ -15,7 +15,7 @@ use front_end::{
     structs::{Artifact, TTPk},
 };
 use tokio::runtime::Runtime;
-use tt_core::prover::passes::materialization::configure_constraint_metadata_from_parquet_paths;
+use tt_core::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths;
 use tt_exec::{setup::DEFAULT_BENCH_LOG_SIZE, test_utils::resolve_key_paths};
 
 use crate::support::{B, emit_benchmark_stats_row};

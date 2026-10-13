@@ -38,6 +38,7 @@
 //!   `char-act` pins `mask` to `[int-ind < start']`. Then
 //!   `occurs · mask · match' = 0` rejects any occurrence left of the mark.
 
+use crate::irs::nodes::utils::{bool_field, resize_oracle, resize_poly, u64_field};
 use crate::session::session_context;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -103,13 +104,6 @@ pub enum Mode {
     Suffix,
     /// Match may occur at any position.
     Infix,
-}
-
-fn bool_field() -> FieldRef {
-    Arc::new(Field::new("data", DataType::Boolean, false))
-}
-fn u64_field(name: &str) -> FieldRef {
-    Arc::new(Field::new(name, DataType::UInt64, false))
 }
 
 pub struct GadgetNode<B: SnarkBackend> {
@@ -244,13 +238,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         out.push(self.sign_leftmost.clone());
         out
     }
-}
-
-fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
-    TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
-}
-fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
-    TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
 }
 
 #[allow(dead_code)]

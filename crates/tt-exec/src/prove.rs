@@ -34,8 +34,7 @@ use std::{
 use tracing::instrument;
 use tt_core::session::session_context;
 use tt_core::{
-    ctx_oracles::CtxOracles,
-    prover::passes::materialization::configure_constraint_metadata_from_parquet_paths,
+    ctx_oracles::CtxOracles, irs::nodes::hints::configure_constraint_metadata_from_parquet_paths,
 };
 
 type B = BenchBackend;

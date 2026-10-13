@@ -19,6 +19,7 @@
 //! labelled below, the payload holds the per-factor slots of
 //! [`factor_label`], which go to SweepFactors unchanged.
 
+use crate::irs::nodes::utils::{bool_field, resize_oracle, resize_poly, u64_field};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -27,7 +28,7 @@ use ark_piop::{
     SnarkBackend, errors::SnarkResult, prover::structs::polynomial::TrackedPoly,
     verifier::structs::oracle::TrackedOracle,
 };
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use indexmap::IndexMap;
 
 use crate::{
@@ -50,20 +51,6 @@ pub const LENGTH_FILTERED_CHAR_LABEL: &str = "__length_filtered_char__";
 pub const LENGTH_FILTERED_STR_LABEL: &str = "__length_filtered_str__";
 pub const NEW_CHAR_LABEL: &str = "__new_char__";
 pub const NEW_STR_LABEL: &str = "__new_str__";
-
-fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
-    TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
-}
-fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
-    TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
-}
-
-fn bool_field() -> FieldRef {
-    Arc::new(Field::new("data", DataType::Boolean, false))
-}
-fn u64_field(name: &str) -> FieldRef {
-    Arc::new(Field::new(name, DataType::UInt64, false))
-}
 
 pub struct GadgetNode<B: SnarkBackend> {
     factors: Vec<(Vec<B::F>, Mode)>,

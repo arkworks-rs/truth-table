@@ -1,4 +1,5 @@
 use crate::irs::nodes::plan::compaction_dpuc;
+use crate::irs::nodes::utils::field_to_usize;
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
     utils::compaction as compaction_gadget,
@@ -9,7 +10,6 @@ use arithmetic::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
-use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use ark_std::One;
 
@@ -359,7 +359,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let tracker_rc = input_act.tracker();
         let key = compaction_contig_key(virtualized_ir.tree(), id);
         let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
-        let s = field_to_usize::<B::F>(s_field)?;
+        let s = field_to_usize(s_field, "compaction contig s")?;
 
         let contig = tracker_rc
             .borrow_mut()
@@ -734,27 +734,6 @@ fn structural_path_to_node<B: SnarkBackend>(
     } else {
         None
     }
-}
-
-fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
-    let big = value.into_bigint();
-    let bytes = big.to_bytes_le();
-    let mut out: usize = 0;
-    let max = std::mem::size_of::<usize>();
-    for (i, byte) in bytes.iter().enumerate() {
-        if i >= max {
-            if *byte != 0u8 {
-                return Err(ark_piop::errors::SnarkError::VerifierError(
-                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
-                        "compaction contig s does not fit into usize".to_string(),
-                    ),
-                ));
-            }
-            continue;
-        }
-        out |= (*byte as usize) << (8 * i);
-    }
-    Ok(out)
 }
 
 #[cfg(test)]

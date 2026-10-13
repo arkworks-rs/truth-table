@@ -10,12 +10,13 @@
 //! Every constraint is in a child: two `BoolCheck`s, and an
 //! `ActivatorConsistencyCheck` on `(orig-ind, char-act, l, a)`, whose keyed
 //! sumcheck ties the two activators together through the length column.
+use crate::irs::nodes::utils::bool_field;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::{SnarkBackend, errors::SnarkResult};
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
 
 use crate::{
@@ -34,10 +35,6 @@ use crate::{
 pub const LHS_LABEL: &str = "__lhs__";
 /// String-level table `{ ind, l }`, in that order, under `a`.
 pub const RHS_LABEL: &str = "__rhs__";
-
-fn bool_field() -> FieldRef {
-    Arc::new(Field::new("data", DataType::Boolean, false))
-}
 
 pub struct GadgetNode<B: SnarkBackend> {
     bool_char_act: Arc<Node<B>>,

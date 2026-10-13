@@ -38,6 +38,7 @@
 //! so the same hash means the same content, and the new character sequence
 //! is the old one.
 
+use crate::irs::nodes::utils::{resize_oracle, resize_poly, u64_field};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -50,7 +51,7 @@ use ark_piop::{
     SnarkBackend, errors::SnarkResult, piop::PIOP, prover::structs::polynomial::TrackedPoly,
     verifier::structs::oracle::TrackedOracle,
 };
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::{FieldRef, Schema};
 use indexmap::IndexMap;
 
 use crate::{
@@ -100,10 +101,6 @@ pub const OFFSET_COL: &str = "__dpuc_offset__";
 /// the concrete offset column (prover only) for the sort-based no-dup
 /// child's planner; see `initialize_gadget_plans`.
 pub const OFFSET_PLAN_HINT_LABEL: &str = "__dpuc_offset_plan_hint__";
-
-fn u64_field(name: &str) -> FieldRef {
-    Arc::new(Field::new(name, DataType::UInt64, false))
-}
 
 pub struct GadgetNode<B: SnarkBackend> {
     /// Step 1.
@@ -504,14 +501,6 @@ fn offset_binding_oracle<B: SnarkBackend>(
     let orig = oracle(new_char, ORIG_IND_COL).mul_scalar_oracle(neg_stride);
     let int = oracle(new_char, INT_IND_COL).mul_scalar_oracle(neg_one);
     &(&oracle(new_char, OFFSET_COL) + &orig) + &int
-}
-
-fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
-    TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
-}
-
-fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
-    TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
 }
 
 fn poly<B: SnarkBackend>(t: &TrackedTable<B>, name: &str) -> TrackedPoly<B> {

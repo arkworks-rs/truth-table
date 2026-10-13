@@ -1,7 +1,7 @@
 use crate::{
     irs::{
         ir::LocalPass,
-        nodes::{IsNode, Node, NodeId},
+        nodes::{Node, NodeId},
         payloads::EmptyPayload,
     },
     verifier::{irs::GadgetReadyIr, payloads::GadgetReadyPayload},
@@ -12,18 +12,6 @@ use ark_piop::{
     verifier::{ArgVerifier, errors::VerifierError},
 };
 use std::cell::RefCell;
-
-fn parent_name_for<B: SnarkBackend>(
-    tree: &crate::irs::tree::Tree<B>,
-    id: NodeId,
-) -> Option<String> {
-    for (_parent_id, node) in tree.arena().iter() {
-        if node.children().iter().any(|child| child.id() == id) {
-            return Some(node.name());
-        }
-    }
-    None
-}
 
 /// Runs `verify` on every gadget node and stops at the first error.
 pub struct VerifyPass<B: SnarkBackend> {
@@ -71,7 +59,9 @@ where
                     || tracing::level_enabled!(tracing::Level::INFO);
                 let parent_name = if should_log_parent {
                     let gadget_ready_ir = self.gadget_ready_ir.borrow();
-                    parent_name_for(gadget_ready_ir.tree(), id)
+                    gadget_ready_ir
+                        .tree()
+                        .parent_name(id)
                         .unwrap_or_else(|| "<none>".to_string())
                 } else {
                     String::new()

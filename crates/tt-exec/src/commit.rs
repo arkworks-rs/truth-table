@@ -23,7 +23,7 @@ use front_end::{
     shared::TTSharedConfig,
 };
 use tracing::info;
-use tt_core::prover::passes::materialization::configure_constraint_metadata_from_parquet_paths;
+use tt_core::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths;
 
 use front_end::structs::{Artifact, TTPk};
 

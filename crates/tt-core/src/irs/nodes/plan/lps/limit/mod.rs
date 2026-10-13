@@ -1,8 +1,9 @@
+use crate::irs::nodes::utils::field_to_usize;
 use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
-use ark_piop::{SnarkBackend, errors::SnarkError};
+use ark_piop::SnarkBackend;
 pub mod gadget;
 mod hints;
 use crate::{
@@ -17,7 +18,6 @@ use crate::{
     prover::irs::VirtualizedIr as ProverVirtualizedIr,
     verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
 };
-use ark_ff::BigInteger;
 use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::Limit;
 use datafusion_expr::LogicalPlan;
@@ -290,7 +290,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             let tracker_rc = input_act.tracker();
             let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
             let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
-            let s = field_to_usize::<B::F>(s_field)?;
+            let s = field_to_usize(s_field, "limit contig s")?;
             let contig = tracker_rc
                 .borrow_mut()
                 .get_or_build_contig_one_poly(log_size, s)?;
@@ -447,27 +447,6 @@ fn contig_s_from_fetch<F: PrimeField>(
             table_size
         }
     }
-}
-
-fn field_to_usize<F: PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
-    let big = value.into_bigint();
-    let bytes = big.to_bytes_le();
-    let mut out: usize = 0;
-    let max = std::mem::size_of::<usize>();
-    for (i, byte) in bytes.iter().enumerate() {
-        if i >= max {
-            if *byte != 0 {
-                return Err(SnarkError::VerifierError(
-                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
-                        "limit contig s does not fit into usize".to_string(),
-                    ),
-                ));
-            }
-            continue;
-        }
-        out |= (*byte as usize) << (8 * i);
-    }
-    Ok(out)
 }
 
 fn limit_key(limit: &Limit) -> u64 {

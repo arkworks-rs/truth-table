@@ -12,6 +12,7 @@
 //! 2. Containment: zerocheck on `a'h · (1 - ah)`.
 //! 3. False negatives: Negative Sign Check on `l - k` under `ah · (1 - a'h)`.
 //! 4. False positives: Non-Negative Sign Check on `l - k` under `a'h`.
+use crate::irs::nodes::utils::{resize_oracle, resize_poly};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -47,17 +48,6 @@ pub const STR_INPUT_LABEL: &str = "__str_input__";
 pub const CHAR_FILTERED_LABEL: &str = "__char_filtered__";
 /// `{ a'h }`.
 pub const STR_FILTERED_LABEL: &str = "__str_filtered__";
-
-/// `p` with the given `log_size`. A derived poly such as `l - k` or
-/// `ah · (1 - a'h)` has `log_size` 0 when its inputs fold to constants. It
-/// still evaluates correctly, but tables assert on the size.
-fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {
-    TrackedPoly::new(p.id_or_const(), log_size, p.tracker())
-}
-
-fn resize_oracle<B: SnarkBackend>(o: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
-    TrackedOracle::new(o.id_or_const(), o.tracker(), log_size)
-}
 
 /// The `l - k` column of the two sign checks. Int32 covers realistic string
 /// lengths.
