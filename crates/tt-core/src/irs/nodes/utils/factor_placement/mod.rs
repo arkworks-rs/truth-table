@@ -4,9 +4,9 @@
 //! prover-sent `(occurs, match, mark, start)` identify the leftmost occurrence
 //! of `str` in each string's admissible window (prefix, suffix or infix).
 //! The char-level input is `{ char, orig-ind, int-ind, bnd }` under `char-act`,
-//! the string-level input is `{ ind }` under `a`. The rotations `char^(δ)` are
-//! trusted here; Sweep Factors verifies them. `occurs`, `match`, `mark` and
-//! `mask` are boolean-checked.
+//! the string-level input is `{ ind }` under `a`. `char^(0)` is checked to be
+//! `char`; the rotations `char^(δ)`, `δ ≥ 1`, are trusted here and verified by
+//! Sweep Factors. `occurs`, `match`, `mark` and `mask` are boolean-checked.
 //!
 //! - Step 3, candidates. With fingerprint challenges `r_0, ..., r_{ℓ-1}` and
 //!   `diff := Σ r_δ · char^(δ) − Σ r_δ · str[δ]`: `occurs · (1 − att_mask) = 0`,
@@ -1511,6 +1511,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     ) -> SnarkResult<()> {
         let inputs = extract_prover_inputs(gadget_ready_ir, id, self.mode, self.pattern.len());
         let char_domain = inputs.char_input.log_size();
+        // The gadget reads the strings only through `char^(0)` and its
+        // rotations, so `char^(0)` has to be the input's `char` column.
+        let char_binding = &inputs.rotated_chars[0] - &inputs.char_col;
+        prover.add_mv_zerocheck_claim(resize_poly(&char_binding, char_domain).id())?;
 
         // Fingerprint coefficients. The same tag yields a fresh challenge on
         // each call because the transcript absorbs every challenge it gives.
@@ -1659,6 +1663,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     ) -> SnarkResult<()> {
         let inputs = extract_verifier_inputs(gadget_ready_ir, id, self.mode, self.pattern.len());
         let char_domain = inputs.char_input.log_size();
+        let char_binding = &inputs.rotated_chars[0] - &inputs.char_col;
+        verifier.add_mv_zerocheck_claim(resize_oracle(&char_binding, char_domain).id());
 
         let mut coeffs = Vec::with_capacity(self.pattern.len());
         for _ in 0..self.pattern.len() {

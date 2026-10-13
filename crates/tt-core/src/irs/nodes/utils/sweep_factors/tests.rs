@@ -36,6 +36,22 @@ fn pattern(bytes: &[u8]) -> Vec<F> {
 /// The single-factor case, on the fixture of FactorPlacement's prefix test.
 #[test]
 fn honest_t1_prefix_verifies() {
+    run_gadget_pipeline(t1_prefix_harness(b"abab")).expect("SweepFactors t=1 prefix should verify");
+}
+
+/// The input strings are `"xy"`, but the committed `char^(0)` and everything
+/// derived from it are those of `"ab"`.
+#[test]
+fn rotated_chars_of_other_strings_rejected() {
+    assert!(
+        run_gadget_pipeline(t1_prefix_harness(b"xyxy")).is_err(),
+        "`ab%` must not match strings that do not start with `ab`"
+    );
+}
+
+/// The harness of `ab%` with the witness of two strings `"ab"`, over an input
+/// whose char column is `input_chars`.
+fn t1_prefix_harness(input_chars: &[u8; 4]) -> GadgetHarness<B> {
     const STR_NV: usize = 2;
     const CHAR_NV: usize = 2;
 
@@ -100,7 +116,7 @@ fn honest_t1_prefix_verifies() {
     let mask_f = u64_field("leftmost_mask");
     let start_f = u64_field("start");
 
-    let harness = GadgetHarness::<B>::builder(16)
+    GadgetHarness::<B>::builder(16)
         .with_gadget(gadget)
         .with_table(
             gadget_id,
@@ -109,7 +125,7 @@ fn honest_t1_prefix_verifies() {
                 schema: char_input_schema,
                 log_size: CHAR_NV,
                 cols: vec![
-                    (char_f, char_col),
+                    (char_f, pattern(input_chars)),
                     (orig_ind_f, orig_ind),
                     (int_ind_f, int_ind),
                     (bnd_f, bnd),
@@ -207,9 +223,7 @@ fn honest_t1_prefix_verifies() {
                 activator: None,
             },
         )
-        .build();
-
-    run_gadget_pipeline(harness).expect("SweepFactors t=1 prefix should verify");
+        .build()
 }
 
 /// `%ab%cd%` against two strings `"abcd"`: covers the `past` check, the

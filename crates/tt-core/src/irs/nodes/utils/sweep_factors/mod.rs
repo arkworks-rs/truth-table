@@ -552,8 +552,7 @@ fn set_rotation_chain_payload_prover<B: SnarkBackend>(
     ir: &mut GadgetReadyIr<B>,
 ) {
     // The chain proves `char^{(δ)} = ρ_{-1}(char^{(δ-1)})` for δ = 1..k-1.
-    // `char^{(0)}` is not checked here: the caller is trusted to pass the
-    // `char` column of the char input.
+    // `char^{(0)}` is bound to the input's `char` column by Factor Placement.
     assert_eq!(
         checks.len() + 1,
         rotated_chars.len(),
