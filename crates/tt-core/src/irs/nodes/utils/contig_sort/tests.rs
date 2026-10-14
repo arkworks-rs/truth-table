@@ -101,10 +101,24 @@ fn run(
     run_gadget_pipeline(builder.build())
 }
 
+/// With `honest-prover` the prover refuses the false claim before the
+/// verifier sees it.
 fn assert_rejected(result: Result<(), ark_piop::errors::SnarkError>) {
+    use ark_piop::errors::SnarkError;
+    use ark_piop::prover::errors::{HonestProverError, ProverError};
+    let rejected = if cfg!(feature = "honest-prover") {
+        matches!(
+            result,
+            Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim
+            )))
+        )
+    } else {
+        matches!(result, Err(SnarkError::VerifierError(_)))
+    };
     assert!(
-        matches!(result, Err(ark_piop::errors::SnarkError::VerifierError(_))),
-        "expected the verifier to reject, got {result:?}"
+        rejected,
+        "expected the proof to be rejected, got {result:?}"
     );
 }
 
