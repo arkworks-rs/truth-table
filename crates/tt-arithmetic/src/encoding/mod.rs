@@ -43,6 +43,20 @@ mod tests {
     use datafusion_common::ScalarValue;
 
     #[test]
+    fn negative_decimals_encode_as_field_negations() {
+        use datafusion::arrow::array::Decimal128Array;
+        let array = Decimal128Array::from(vec![Some(-1234), Some(5), None, Some(0)])
+            .with_precision_and_scale(15, 2)
+            .unwrap();
+        let encoded = <Decimal128Array as Encodable<Fr>>::encode(&array).unwrap();
+        let values: Vec<Fr> = encoded[0].iter_values().collect();
+        assert_eq!(
+            values,
+            vec![-Fr::from(1234u64), Fr::from(5u64), Fr::zero(), Fr::zero()]
+        );
+    }
+
+    #[test]
     fn single_character_strings_are_inlined() {
         let array = StringArray::from(vec![Some("a"), Some(""), None, Some("Z")]);
         let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();

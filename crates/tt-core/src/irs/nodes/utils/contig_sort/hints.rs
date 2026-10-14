@@ -1,30 +1,21 @@
 use crate::irs::nodes::utils::contig_sort::{
-    DIFF_INPUT_LABEL, ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL, diff_output_type,
+    DIFF_INPUT_LABEL, ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL, difference_sign_type,
+    ordered_data_fields_for_hint,
 };
 use crate::session::session_context;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::arrow::{
-    array::{
-        Array, ArrayRef, ArrowPrimitiveType, BooleanArray, Date32Array, Float32Array, Float64Array,
-        Int8Array, Int16Array, Int32Array, Int64Array, PrimitiveArray, new_null_array,
-    },
+    array::{Array, ArrayRef, BooleanArray, Int64Array, new_null_array},
     compute::{concat, concat_batches},
-    datatypes::{
-        ArrowNativeTypeOp, DataType, Field, Schema, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
-    },
+    datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
 use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::col;
-use datafusion::logical_expr::lit;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
-use datafusion_expr::ExprFunctionExt;
 use datafusion_expr::SortExpr;
-use datafusion_expr::when;
-use datafusion_expr::{Cast, Operator, expr::BinaryExpr};
 
-use datafusion::functions_window::expr_fn::{first_value, lead};
 use indexmap::IndexMap;
 pub(crate) fn populate_rotated(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
@@ -57,27 +48,35 @@ pub(crate) fn populate_tie_and_diff(
         .sort(order_by.clone())
         .expect("sort ordering for tie/diff planning should succeed");
 
-    let tie_df = tie_indicator_on_ordered(ordered.clone(), order_by.clone(), sort_specs)
-        .expect("sort tie indicator planning should succeed");
-    let tie_should_materialize = tie_df
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
-        .collect();
-    let tie_hint = crate::irs::nodes::hints::HintDF::new(tie_df, tie_should_materialize);
-    gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
+    if let Some(tie_df) = tie_indicator_on_ordered(ordered.clone(), order_by, sort_specs)
+        .expect("sort tie indicator planning should succeed")
+    {
+        let tie_should_materialize = tie_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), true))
+            .collect();
+        let tie_hint = crate::irs::nodes::hints::HintDF::new(tie_df, tie_should_materialize);
+        gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
+    }
 
-    let diff_df = diff_input_on_ordered(ordered, order_by, sort_specs)
-        .expect("sort diff planning should succeed");
-    let diff_should_materialize = diff_df
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
+    let sign_only_fields: Vec<Field> = ordered_data_fields_for_hint(input_hint, sort_specs)
+        .into_iter()
+        .filter(|field| difference_sign_type(field.data_type()).is_none())
         .collect();
-    let diff_hint = crate::irs::nodes::hints::HintDF::new(diff_df, diff_should_materialize);
-    gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
+    if !sign_only_fields.is_empty() {
+        let diff_df = sign_only_diff_on_ordered(ordered, &sign_only_fields, sort_specs)
+            .expect("sort diff planning should succeed");
+        let diff_should_materialize = diff_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), true))
+            .collect();
+        let diff_hint = crate::irs::nodes::hints::HintDF::new(diff_df, diff_should_materialize);
+        gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
+    }
 }
 
 pub(crate) fn sort_input_for_contig_sort(
@@ -255,150 +254,41 @@ fn zero_array(data_type: &DataType, len: usize) -> DataFusionResult<ArrayRef> {
     }
 }
 
-fn diff_input_on_ordered(
+/// The shifted sign `{0, 1, 2}` of each adjacent pair, for the keys in
+/// `fields` (those without a `difference_sign_type`).
+fn sign_only_diff_on_ordered(
     ordered: DataFrame,
-    order_by: Vec<SortExpr>,
-    sort_specs: &[(String, bool, bool)],
-) -> DataFusionResult<DataFrame> {
-    if has_only_explicit_diff_types(&ordered)? {
-        return diff_input_on_ordered_explicit(ordered, sort_specs);
-    }
-
-    diff_input_on_ordered_via_windows(ordered, order_by, sort_specs)
-}
-
-fn diff_input_on_ordered_via_windows(
-    ordered: DataFrame,
-    order_by: Vec<SortExpr>,
-    sort_specs: &[(String, bool, bool)],
-) -> DataFusionResult<DataFrame> {
-    let mut diff_cols = Vec::new();
-
-    for field in ordered.schema().fields() {
-        let name = field.name();
-        if is_system_column(name) {
-            continue;
-        }
-        let lead_expr = lead(col(name), Some(1), None)
-            .order_by(order_by.clone())
-            .build()?;
-        let first_expr = first_value(col(name)).order_by(order_by.clone()).build()?;
-        let rotated_expr = when(lead_expr.clone().is_null(), first_expr).otherwise(lead_expr)?;
-        let is_asc = sort_is_asc(sort_specs, name);
-        // Date32 subtraction yields a duration, so cast to Int32 before subtracting.
-        let diff_expr = if field.data_type() == &datafusion::arrow::datatypes::DataType::Date32 {
-            let lhs = Expr::Cast(Cast {
-                expr: Box::new(if is_asc {
-                    rotated_expr.clone()
-                } else {
-                    col(name)
-                }),
-                data_type: datafusion::arrow::datatypes::DataType::Int32,
-            });
-            let rhs = Expr::Cast(Cast {
-                expr: Box::new(if is_asc {
-                    col(name)
-                } else {
-                    rotated_expr.clone()
-                }),
-                data_type: datafusion::arrow::datatypes::DataType::Int32,
-            });
-            Expr::BinaryExpr(BinaryExpr {
-                left: Box::new(lhs),
-                op: Operator::Minus,
-                right: Box::new(rhs),
-            })
-            .alias(name.to_string())
-        } else if is_numeric_type(field.data_type()) {
-            let raw_diff = if is_asc {
-                Expr::BinaryExpr(BinaryExpr {
-                    left: Box::new(rotated_expr.clone()),
-                    op: Operator::Minus,
-                    right: Box::new(col(name)),
-                })
-            } else {
-                Expr::BinaryExpr(BinaryExpr {
-                    left: Box::new(col(name)),
-                    op: Operator::Minus,
-                    right: Box::new(rotated_expr.clone()),
-                })
-            };
-            Expr::Cast(Cast {
-                expr: Box::new(raw_diff),
-                data_type: field.data_type().clone(),
-            })
-            .alias(name.to_string())
-        } else {
-            // Non-numeric types get a sign-only diff, shifted by +1 to a
-            // non-negative `u8` (see `diff_output_type`): gt → 2, eq → 1,
-            // lt → 0. The consumer subtracts 1 (see `is_sign_only_diff`).
-            let (left, right) = if is_asc {
-                (rotated_expr.clone(), col(name))
-            } else {
-                (col(name), rotated_expr.clone())
-            };
-            when(
-                left.clone().gt(right.clone()),
-                lit(ScalarValue::UInt8(Some(2))),
-            )
-            .when(left.lt(right), lit(ScalarValue::UInt8(Some(0))))
-            .otherwise(lit(ScalarValue::UInt8(Some(1))))?
-            .alias(name.to_string())
-        };
-        diff_cols.push(diff_expr);
-    }
-
-    ordered.select(diff_cols)
-}
-
-fn diff_input_on_ordered_explicit(
-    ordered: DataFrame,
+    fields: &[Field],
     sort_specs: &[(String, bool, bool)],
 ) -> DataFusionResult<DataFrame> {
     let batches = crate::session::block_on(ordered.collect())?;
     if batches.is_empty() {
         return Err(DataFusionError::Execution(
-            "diff_input_on_ordered produced no batches".to_string(),
+            "sign-only diff input produced no batches".to_string(),
         ));
     }
-
     let schema_ref = batches[0].schema();
     let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
     let combined = concat_batches(&schema_ref, batch_refs)?;
     let row_count = combined.num_rows();
 
-    let mut out_fields = Vec::new();
-    let mut out_cols = Vec::new();
-    for (idx, field) in combined.schema().fields().iter().enumerate() {
-        let name = field.name();
-        if is_system_column(name) {
-            continue;
-        }
-
-        let source = combined.column(idx).clone();
+    let mut out_fields = Vec::with_capacity(fields.len());
+    let mut out_cols = Vec::with_capacity(fields.len());
+    for field in fields {
+        let source = combined
+            .column(combined.schema().index_of(field.name())?)
+            .clone();
         let rotated = rotate_array(source.clone(), row_count)?;
-        let is_asc = sort_is_asc(sort_specs, name);
-        let (lhs, rhs) = if is_asc {
+        let (lhs, rhs) = if sort_is_asc(sort_specs, field.name()) {
             (rotated.as_ref(), source.as_ref())
         } else {
             (source.as_ref(), rotated.as_ref())
         };
-        let diff_col = materialize_diff_array(field.data_type(), lhs, rhs)?;
-        // A wrap-around or padding row can make an unsigned diff go
-        // negative, which is a null (see `diff_unsigned_array`) even when
-        // the input column holds none.
-        out_fields.push(Field::new(
-            name,
-            diff_output_type(field.data_type()),
-            field.is_nullable() || diff_col.null_count() > 0,
-        ));
-        out_cols.push(diff_col);
+        out_fields.push(Field::new(field.name(), DataType::UInt8, true));
+        out_cols.push(sign_only_diff_array(lhs, rhs)?);
     }
 
-    let out_schema = std::sync::Arc::new(Schema::new_with_metadata(
-        out_fields,
-        combined.schema().metadata().clone(),
-    ));
+    let out_schema = std::sync::Arc::new(Schema::new(out_fields));
     let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
     session_context().read_batch(out_batch)
 }
@@ -412,233 +302,7 @@ fn rotate_array(source: ArrayRef, row_count: usize) -> DataFusionResult<ArrayRef
     concat(&[tail.as_ref(), head.as_ref()]).map_err(Into::into)
 }
 
-fn has_only_explicit_diff_types(df: &DataFrame) -> DataFusionResult<bool> {
-    Ok(df
-        .schema()
-        .fields()
-        .iter()
-        .filter(|field| !is_system_column(field.name()))
-        .all(|field| is_explicit_diff_type(field.data_type())))
-}
-
-/// Types whose diffs are computed on collected arrays rather than through
-/// DataFusion window functions. Every integer type is here: the window
-/// path's `lead` can be null at a batch boundary, and a null diff encodes
-/// as `0`, which a strict-positivity sign check rejects.
-fn is_explicit_diff_type(data_type: &DataType) -> bool {
-    matches!(
-        data_type,
-        DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64
-            | DataType::Float32
-            | DataType::Float64
-            | DataType::Date32
-    )
-}
-
-fn materialize_diff_array(
-    data_type: &DataType,
-    lhs: &dyn Array,
-    rhs: &dyn Array,
-) -> DataFusionResult<ArrayRef> {
-    match data_type {
-        DataType::Int8 => diff_int8_array(lhs, rhs),
-        DataType::Int16 => diff_int16_array(lhs, rhs),
-        DataType::Int32 => diff_int32_array(lhs, rhs),
-        DataType::Int64 => diff_int64_array(lhs, rhs),
-        DataType::UInt8 => diff_unsigned_array::<UInt8Type>(lhs, rhs),
-        DataType::UInt16 => diff_unsigned_array::<UInt16Type>(lhs, rhs),
-        DataType::UInt32 => diff_unsigned_array::<UInt32Type>(lhs, rhs),
-        DataType::UInt64 => diff_unsigned_array::<UInt64Type>(lhs, rhs),
-        DataType::Float32 => diff_float32_array(lhs, rhs),
-        DataType::Float64 => diff_float64_array(lhs, rhs),
-        DataType::Date32 => diff_date32_array(lhs, rhs),
-        _ => sign_only_diff_array(lhs, rhs),
-    }
-}
-
-fn diff_int8_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Int8Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Int8 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Int8Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Int8 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int8Array::from(values)))
-}
-
-fn diff_int16_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Int16Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Int16 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Int16Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Int16 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int16Array::from(values)))
-}
-
-fn diff_int32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Int32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Int32 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Int32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Int32 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int32Array::from(values)))
-}
-
-fn diff_int64_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Int64 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Int64 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int64Array::from(values)))
-}
-
-fn diff_float32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Float32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Float32 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Float32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Float32 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Float32Array::from(values)))
-}
-
-fn diff_float64_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Float64Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Float64 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Float64Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Float64 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Float64Array::from(values)))
-}
-
-fn diff_date32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<Date32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs Date32 mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<Date32Array>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs Date32 mismatch".to_string()))?;
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                Some(lhs.value(idx) - rhs.value(idx))
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(std::sync::Arc::new(Int32Array::from(values)))
-}
-
-/// `lhs - rhs` for an unsigned type, null where it would go negative.
-fn diff_unsigned_array<T>(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef>
-where
-    T: ArrowPrimitiveType,
-    T::Native: ArrowNativeTypeOp,
-{
-    let lhs = lhs
-        .as_any()
-        .downcast_ref::<PrimitiveArray<T>>()
-        .ok_or_else(|| DataFusionError::Execution("diff lhs unsigned mismatch".to_string()))?;
-    let rhs = rhs
-        .as_any()
-        .downcast_ref::<PrimitiveArray<T>>()
-        .ok_or_else(|| DataFusionError::Execution("diff rhs unsigned mismatch".to_string()))?;
-    let values: PrimitiveArray<T> = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                None
-            } else {
-                lhs.value(idx).sub_checked(rhs.value(idx)).ok()
-            }
-        })
-        .collect();
-    Ok(std::sync::Arc::new(values))
-}
-
 fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    // The sign of `lhs - rhs`, shifted from `{-1, 0, 1}` to `{0, 1, 2}` as
-    // `UInt8` (see `diff_output_type`).
     let values = (0..lhs.len())
         .map(|idx| {
             if lhs.is_null(idx) || rhs.is_null(idx) {
@@ -660,34 +324,14 @@ fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<Ar
     ))
 }
 
-// Keep diff materialization on numeric types to avoid invalid arithmetic in DataFusion.
-fn is_numeric_type(data_type: &datafusion::arrow::datatypes::DataType) -> bool {
-    use datafusion::arrow::datatypes::DataType;
-    matches!(
-        data_type,
-        DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64
-            | DataType::Float16
-            | DataType::Float32
-            | DataType::Float64
-            | DataType::Decimal128(_, _)
-            | DataType::Decimal256(_, _)
-    )
-}
-
-/// Builds a boolean tie-indicator table:
-/// `tie_k` is true on row i iff rows i and i+1 match on columns [0..k-1].
+/// Builds the committed tie indicators `tie_1..tie_{k-1}`: `tie_j` is true on
+/// row i iff rows i and i+1 match on the first `j` keys. `None` for fewer
+/// than two keys, where only the public `tie_0` remains.
 fn tie_indicator_on_ordered(
     ordered: DataFrame,
     order_by: Vec<SortExpr>,
     sort_specs: &[(String, bool, bool)],
-) -> DataFusionResult<DataFrame> {
+) -> DataFusionResult<Option<DataFrame>> {
     let mut data_cols: Vec<String> = ordered
         .schema()
         .fields()
@@ -710,8 +354,8 @@ fn tie_indicator_on_ordered(
             data_cols = ordered_cols;
         }
     }
-    if data_cols.is_empty() {
-        return ordered.select(Vec::<Expr>::new());
+    if data_cols.len() < 2 {
+        return Ok(None);
     }
     // Materialize ties from the already sorted batch so the tie rows are aligned
     // with the same physical row order consumed by TABLE/ROTATED/DIFF.
@@ -742,22 +386,6 @@ fn tie_indicator_on_ordered(
         })
         .collect::<DataFusionResult<Vec<_>>>()?;
 
-    if data_cols.len() == 1 {
-        let values = (0..row_count)
-            .map(|row_idx| row_idx + 1 < row_count)
-            .collect::<Vec<_>>();
-        let out_schema = std::sync::Arc::new(Schema::new(vec![Field::new(
-            "tie_0",
-            DataType::Boolean,
-            false,
-        )]));
-        let out_batch = RecordBatch::try_new(
-            out_schema,
-            vec![std::sync::Arc::new(BooleanArray::from(values))],
-        )?;
-        return session_context().read_batch(out_batch);
-    }
-
     let mut out_fields = Vec::with_capacity(data_cols.len() - 1);
     let mut out_cols = Vec::with_capacity(data_cols.len() - 1);
     for prefix_len in 1..data_cols.len() {
@@ -787,7 +415,7 @@ fn tie_indicator_on_ordered(
 
     let out_schema = std::sync::Arc::new(Schema::new(out_fields));
     let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
-    session_context().read_batch(out_batch)
+    session_context().read_batch(out_batch).map(Some)
 }
 
 fn sort_order_from_hint(

@@ -18,7 +18,7 @@ use ark_poly::Polynomial;
 use datafusion::arrow::{
     array::{ArrayRef, BooleanArray, Int64Array},
     compute::{concat, concat_batches},
-    datatypes::{DataType, Field, Schema},
+    datatypes::{DataType, Field, IntervalUnit, Schema},
     record_batch::RecordBatch,
 };
 use datafusion::datasource::MemTable;
@@ -39,6 +39,8 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 mod hints;
+#[cfg(test)]
+mod tests;
 
 pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
@@ -224,14 +226,12 @@ fn initialize_gadget_plans<B: SnarkBackend>(
             ROTATED_INPUT_LABEL.to_string(),
             build_verifier_rotated_hint(&sorted_input_hint),
         );
-        gadget_payload.insert(
-            TIE_INDICATOR_LABEL.to_string(),
-            build_verifier_tie_hint_from_ordered(&ordered_data_fields),
-        );
-        gadget_payload.insert(
-            DIFF_INPUT_LABEL.to_string(),
-            build_verifier_diff_hint_from_ordered(&ordered_data_fields),
-        );
+        if let Some(tie_hint) = build_verifier_tie_hint_from_ordered(&ordered_data_fields) {
+            gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
+        }
+        if let Some(diff_hint) = build_verifier_diff_hint_from_ordered(&ordered_data_fields) {
+            gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
+        }
     } else {
         populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs, false);
         populate_tie_and_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
@@ -346,10 +346,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             )?;
         }
-        let mut updated_tie_table = None;
-        if let Some(tie_table) = tie_table {
-            let tie_table = prepend_first_tie_indicator_prover(tie_table);
-            updated_tie_table = Some(tie_table.clone());
+        let updated_tie_table = input_table.map(|input_table| {
+            prepend_first_tie_indicator_prover(prover, tie_table, input_table.log_size())
+        });
+        if let Some(tie_table) = updated_tie_table.as_ref() {
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
             let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -357,34 +357,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             };
             bool_payload.insert(
                 crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-                tie_table,
-            );
-            virtualized_ir.set_payload_for_node(
-                self.bool_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(bool_payload)),
-            );
-        } else if let Some(input_table) = input_table {
-            // For single-key sorts the tie table can be dropped during materialization; keep
-            // a no-op Bool payload so the Bool gadget doesn't panic.
-            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-            bool_payload.insert(
-                crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-                TrackedTable::new(None, IndexMap::new(), input_table.log_size()),
+                tie_table.clone(),
             );
             virtualized_ir.set_payload_for_node(
                 self.bool_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
         }
-        if let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
-            updated_tie_table.as_ref().or(tie_table),
-            input_table,
-            rotated_table,
-        ) {
-            // Prefer precomputed diffs so sign gadgets operate on bounded values.
+        if let (Some(tie_table), Some(input_table), Some(rotated_table)) =
+            (updated_tie_table.as_ref(), input_table, rotated_table)
+        {
             let sort_specs = sort_specs_for_table_prover(&self.sort_config, input_table);
             populate_sign_payloads_prover(
                 &self.sign_gadget,
@@ -456,18 +438,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             )?;
         }
-        let mut updated_tie_table_owned: Option<TrackedTableOracle<B>> = None;
-        let bool_table = if let Some(tie_table) = tie_table {
-            let tie_table = prepend_first_tie_indicator_verifier(tie_table);
-            updated_tie_table_owned = Some(tie_table.clone());
-            Some(tie_table)
-        } else {
-            input_table.map(|input_table| {
-                TrackedTableOracle::new(None, IndexMap::new(), input_table.log_size())
-            })
-        };
-
-        if let Some(bool_table) = bool_table.as_ref() {
+        let updated_tie_table_owned = input_table.map(|input_table| {
+            prepend_first_tie_indicator_verifier(verifier, tie_table, input_table.log_size())
+        });
+        if let Some(tie_table) = updated_tie_table_owned.as_ref() {
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
             let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -475,17 +449,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             };
             bool_payload.insert(
                 crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-                bool_table.clone(),
+                tie_table.clone(),
             );
             virtualized_ir.set_payload_for_node(
                 self.bool_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
         }
-
-        let updated_tie_table = updated_tie_table_owned.as_ref().or(tie_table);
         if let (Some(tie_table), Some(input_table), Some(rotated_table)) =
-            (updated_tie_table, input_table, rotated_table)
+            (updated_tie_table_owned.as_ref(), input_table, rotated_table)
         {
             let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input_table);
             populate_sign_payloads_verifier(
@@ -708,67 +680,53 @@ fn build_verifier_rotated_hint(
 
 fn build_verifier_tie_hint_from_ordered(
     ordered_data_fields: &[Field],
-) -> crate::irs::nodes::hints::HintDF {
-    let fields = if ordered_data_fields.is_empty() {
-        Vec::new()
-    } else if ordered_data_fields.len() == 1 {
-        vec![Field::new("tie_0", DataType::Boolean, true)]
-    } else {
-        (1..ordered_data_fields.len())
-            .map(|idx| Field::new(format!("tie_{idx}"), DataType::Boolean, true))
-            .collect()
-    };
-    build_empty_hint_df_with_fields(fields, true)
-}
-
-fn is_numeric_diff_type(data_type: &DataType) -> bool {
-    matches!(
-        data_type,
-        DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64
-            | DataType::Float16
-            | DataType::Float32
-            | DataType::Float64
-            | DataType::Decimal128(_, _)
-            | DataType::Decimal256(_, _)
-    )
-}
-
-fn diff_output_type(data_type: &DataType) -> DataType {
-    if data_type == &DataType::Date32 {
-        DataType::Int32
-    } else if is_numeric_diff_type(data_type) {
-        data_type.clone()
-    } else {
-        // Non-numeric input columns (Boolean, Utf8, Binary, …) get a
-        // sign-only diff shifted from `{-1, 0, 1}` to `{0, 1, 2}`: a
-        // non-negative `u8` is stored as `MLE::U8`, a negative value would
-        // force the column into field-element storage.
-        DataType::UInt8
+) -> Option<crate::irs::nodes::hints::HintDF> {
+    if ordered_data_fields.len() < 2 {
+        return None;
     }
+    let fields = (1..ordered_data_fields.len())
+        .map(|idx| Field::new(format!("tie_{idx}"), DataType::Boolean, true))
+        .collect();
+    Some(build_empty_hint_df_with_fields(fields, true))
 }
 
-/// True when the diff column for `data_type` uses the shifted `{0, 1, 2}`
-/// sign-only encoding (see `diff_output_type`). Callers of the sign gadget
-/// must subtract `1` from the tracked diff to recover `{-1, 0, 1}`.
-pub(crate) fn is_sign_only_diff(data_type: &DataType) -> bool {
-    data_type != &DataType::Date32 && !is_numeric_diff_type(data_type)
+/// The Sign type that range-checks the adjacent difference `rotated - input`
+/// of a sort key (paper PIOP 7, step 3f). Signed values encode as field
+/// negations, so the difference is the integer one, and a non-decreasing pair
+/// gives a value in `[0, 2^w)` for the key's unsigned width `w`.
+///
+/// `None` when the encoding does not preserve the key's order (strings,
+/// binary, `Decimal256`). Such a key is compared through a committed
+/// sign-only diff in `{0, 1, 2}`, which is not bound to the key.
+pub(crate) fn difference_sign_type(data_type: &DataType) -> Option<DataType> {
+    match data_type {
+        DataType::Boolean | DataType::Int8 | DataType::UInt8 => Some(DataType::UInt8),
+        DataType::Int16 | DataType::UInt16 => Some(DataType::UInt16),
+        DataType::Int32
+        | DataType::UInt32
+        | DataType::Date32
+        | DataType::Time32(_)
+        | DataType::Interval(IntervalUnit::YearMonth) => Some(DataType::UInt32),
+        DataType::Int64
+        | DataType::UInt64
+        | DataType::Date64
+        | DataType::Time64(_)
+        | DataType::Timestamp(..)
+        | DataType::Duration(_) => Some(DataType::UInt64),
+        DataType::Decimal128(..) => Some(data_type.clone()),
+        _ => None,
+    }
 }
 
 fn build_verifier_diff_hint_from_ordered(
     ordered_data_fields: &[Field],
-) -> crate::irs::nodes::hints::HintDF {
+) -> Option<crate::irs::nodes::hints::HintDF> {
     let fields: Vec<Field> = ordered_data_fields
         .iter()
-        .map(|field| Field::new(field.name(), diff_output_type(field.data_type()), true))
+        .filter(|field| difference_sign_type(field.data_type()).is_none())
+        .map(|field| Field::new(field.name(), DataType::UInt8, true))
         .collect();
-    build_empty_hint_df_with_fields(fields, true)
+    (!fields.is_empty()).then(|| build_empty_hint_df_with_fields(fields, true))
 }
 
 fn sort_specs_for_table_prover<B: SnarkBackend>(
@@ -946,7 +904,6 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
         rotated_indices.len(),
         "Sort sign gadget expects matching input and rotated column counts."
     );
-    let diff_indices = diff_table.map(|table| ordered_data_indices_prover(table, sort_specs));
 
     let mut data_cols = IndexMap::new();
     let input_activator = input_table.activator_tracked_poly();
@@ -983,55 +940,45 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
             }
         };
 
-        // Prefer precomputed diff columns when available; they are generated from
-        // the same sorted hint relation used by contig-sort planning.
-        let diff_from_payload = diff_table.and_then(|table| {
-            diff_indices
-                .as_ref()
-                .and_then(|inds| inds.get(pos).copied())
-                .map(|idx| table.tracked_col_by_ind(idx))
-        });
-        let input_field_type = input_col
+        let input_field = input_col
             .field_ref()
-            .expect("Expected field ref for Sort sign input")
-            .data_type()
-            .clone();
-        let (raw_diff_poly, diff_field) = if let Some(diff_col) = diff_from_payload {
-            (
-                diff_col.data_tracked_poly(),
-                diff_col
+            .expect("Expected field ref for Sort sign input");
+        let (diff_poly, diff_field) = match difference_sign_type(input_field.data_type()) {
+            Some(sign_type) => {
+                let input_poly = input_col.data_tracked_poly();
+                let rotated_poly = rotated_col.data_tracked_poly();
+                let diff_poly = if is_asc {
+                    &rotated_poly - &input_poly
+                } else {
+                    &input_poly - &rotated_poly
+                };
+                (diff_poly, Field::new(input_field.name(), sign_type, false))
+            }
+            None => {
+                let diff_col = diff_table
+                    .and_then(|table| {
+                        table
+                            .data_tracked_polys_indices()
+                            .into_iter()
+                            .map(|idx| table.tracked_col_by_ind(idx))
+                            .find(|col| {
+                                col.field_ref().is_some_and(|field| {
+                                    normalize_sort_name(field.name()) == col_name
+                                })
+                            })
+                    })
+                    .expect("Expected a sign-only diff column for Sort key");
+                let diff_field = diff_col
                     .field_ref()
                     .expect("Expected field ref for Sort diff input")
                     .as_ref()
-                    .clone(),
-            )
-        } else if is_asc {
-            (
-                &rotated_col.data_tracked_poly() - &input_col.data_tracked_poly(),
-                input_col
-                    .field_ref()
-                    .expect("Expected field ref for Sort sign input")
-                    .as_ref()
-                    .clone(),
-            )
-        } else {
-            (
-                &input_col.data_tracked_poly() - &rotated_col.data_tracked_poly(),
-                input_col
-                    .field_ref()
-                    .expect("Expected field ref for Sort sign input")
-                    .as_ref()
-                    .clone(),
-            )
-        };
-
-        // Sign-only diff columns arrive shifted to `{0, 1, 2}` (see
-        // `is_sign_only_diff`): undo the +1 shift so the sign gadget sees
-        // `{-1, 0, 1}`.
-        let diff_poly = if is_sign_only_diff(&input_field_type) {
-            raw_diff_poly.sub_scalar_poly(B::F::one())
-        } else {
-            raw_diff_poly
+                    .clone();
+                // Undo the `+1` shift of the stored `{0, 1, 2}`.
+                (
+                    diff_col.data_tracked_poly().sub_scalar_poly(B::F::one()),
+                    diff_field,
+                )
+            }
         };
 
         let tie_poly = tie_col.data_tracked_poly();
@@ -1090,7 +1037,6 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
         rotated_indices.len(),
         "Sort sign gadget expects matching input and rotated column counts."
     );
-    let diff_indices = diff_table.map(|table| ordered_data_indices_verifier(table, sort_specs));
 
     let mut data_cols = IndexMap::new();
     let input_activator = input_table.activator_tracked_poly();
@@ -1127,52 +1073,49 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
             }
         };
 
-        let diff_from_payload = diff_table.and_then(|table| {
-            diff_indices
-                .as_ref()
-                .and_then(|inds| inds.get(pos).copied())
-                .map(|idx| table.tracked_col_oracle_by_ind(idx))
-        });
-        let input_field_type = input_col
+        let input_field = input_col
             .field_ref()
-            .expect("Expected field ref for Sort sign input")
-            .data_type()
-            .clone();
-        let (raw_diff_oracle, diff_field) = if let Some(diff_col) = diff_from_payload {
-            (
-                diff_col.data_tracked_oracle(),
-                diff_col
+            .expect("Expected field ref for Sort sign input");
+        let (diff_oracle, diff_field) = match difference_sign_type(input_field.data_type()) {
+            Some(sign_type) => {
+                let input_oracle = input_col.data_tracked_oracle();
+                let rotated_oracle = rotated_col.data_tracked_oracle();
+                let diff_oracle = if is_asc {
+                    &rotated_oracle - &input_oracle
+                } else {
+                    &input_oracle - &rotated_oracle
+                };
+                (
+                    diff_oracle,
+                    Field::new(input_field.name(), sign_type, false),
+                )
+            }
+            None => {
+                let diff_col = diff_table
+                    .and_then(|table| {
+                        table
+                            .data_tracked_oracles_indices()
+                            .into_iter()
+                            .map(|idx| table.tracked_col_oracle_by_ind(idx))
+                            .find(|col| {
+                                col.field_ref().is_some_and(|field| {
+                                    normalize_sort_name(field.name()) == col_name
+                                })
+                            })
+                    })
+                    .expect("Expected a sign-only diff column for Sort key");
+                let diff_field = diff_col
                     .field_ref()
                     .expect("Expected field ref for Sort diff input")
                     .as_ref()
-                    .clone(),
-            )
-        } else if is_asc {
-            (
-                &rotated_col.data_tracked_oracle() - &input_col.data_tracked_oracle(),
-                input_col
-                    .field_ref()
-                    .expect("Expected field ref for Sort sign input")
-                    .as_ref()
-                    .clone(),
-            )
-        } else {
-            (
-                &input_col.data_tracked_oracle() - &rotated_col.data_tracked_oracle(),
-                input_col
-                    .field_ref()
-                    .expect("Expected field ref for Sort sign input")
-                    .as_ref()
-                    .clone(),
-            )
-        };
-
-        // Mirror the prover: undo the +1 shift of sign-only diff columns
-        // (see `is_sign_only_diff`).
-        let diff_oracle = if is_sign_only_diff(&input_field_type) {
-            raw_diff_oracle.sub_scalar_oracle(B::F::one())
-        } else {
-            raw_diff_oracle
+                    .clone();
+                (
+                    diff_col
+                        .data_tracked_oracle()
+                        .sub_scalar_oracle(B::F::one()),
+                    diff_field,
+                )
+            }
         };
 
         let tie_oracle = tie_col.data_tracked_oracle();
@@ -1679,27 +1622,17 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
     Ok(())
 }
 
-fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
-    if table
-        .tracked_polys_iter()
-        .any(|(field, _)| field.name() == FIRST_TIE_LABEL)
-    {
-        return table.clone();
-    }
-
-    let data_idx = match table.data_tracked_polys_indices().first().copied() {
-        Some(idx) => idx,
-        None => {
-            return table.clone();
-        }
-    };
-    let data_col = table.tracked_col_by_ind(data_idx);
-    let num_vars = data_col.data_tracked_poly().log_size();
-    let tracker = data_col.data_tracked_poly().tracker();
-    let mut prover = ArgProver::new_from_tracker_rc(tracker.clone());
-
-    // Build the special first tie column: 1 - eq_x_r(1^n).
+/// Puts the public `tie_0 = 1 - eq(x, 1^n)` in front of the committed ties
+/// `tie_1..` (paper PIOP 7, step 2: the verifier sets ties_0). A supplied
+/// `tie_0` is dropped: a committed one would let the prover switch every
+/// comparison off.
+fn prepend_first_tie_indicator_prover<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    table: Option<&TrackedTable<B>>,
+    num_vars: usize,
+) -> TrackedTable<B> {
     let one_tracked_poly = prover.track_mat_mv_cnst_poly(num_vars, B::F::one());
+    let tracker = one_tracked_poly.tracker();
     let tracked_last_eq_poly = if num_vars == 0 {
         // For nv=0, eq_x_r is the constant 1; track it as a constant poly.
         prover.track_mat_mv_cnst_poly(num_vars, B::F::one())
@@ -1716,11 +1649,13 @@ fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) 
     let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
     let mut tracked_polys = IndexMap::new();
     tracked_polys.insert(first_tie_field.clone(), first_tie_poly);
-    for (field, poly) in table.tracked_polys_iter() {
-        tracked_polys.insert(field.clone(), poly.clone());
+    for (field, poly) in table.iter().flat_map(|table| table.tracked_polys_iter()) {
+        if field.name() != FIRST_TIE_LABEL {
+            tracked_polys.insert(field.clone(), poly.clone());
+        }
     }
 
-    let schema = table.schema_ref().map(|schema| {
+    let schema = table.and_then(|table| table.schema_ref()).map(|schema| {
         let fields = tracked_polys
             .keys()
             .map(|field| field.as_ref().clone())
@@ -1735,32 +1670,16 @@ fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) 
                 .collect::<Vec<_>>(),
         ))
     });
-    TrackedTable::new(schema, tracked_polys, table.log_size())
+    TrackedTable::new(schema, tracked_polys, num_vars)
 }
 
 fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
-    table: &TrackedTableOracle<B>,
+    verifier: &mut ArgVerifier<B>,
+    table: Option<&TrackedTableOracle<B>>,
+    num_vars: usize,
 ) -> TrackedTableOracle<B> {
-    if table
-        .tracked_oracles_iter()
-        .any(|(field, _)| field.name() == FIRST_TIE_LABEL)
-    {
-        return table.clone();
-    }
-
-    let data_idx = match table.data_tracked_oracles_indices().first().copied() {
-        Some(idx) => idx,
-        None => {
-            return table.clone();
-        }
-    };
-    let data_col = table.tracked_col_oracle_by_ind(data_idx);
-    let num_vars = data_col.data_tracked_oracle().log_size();
-    let tracker = data_col.data_tracked_oracle().tracker();
-    let mut verifier = ArgVerifier::new_from_tracker_rc(tracker.clone());
-
-    // Build the special first tie column: 1 - eq_x_r(1^n).
     let one_tracked_oracle = verifier.track_mat_mv_cnst_oracle(num_vars, B::F::one());
+    let tracker = one_tracked_oracle.tracker();
     let tracked_last_eq_oracle = if num_vars == 0 {
         // For nv=0, eq_x_r is the constant 1; track it as a constant oracle.
         verifier.track_mat_mv_cnst_oracle(num_vars, B::F::one())
@@ -1778,11 +1697,13 @@ fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
     let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
     let mut tracked_oracles = IndexMap::new();
     tracked_oracles.insert(first_tie_field.clone(), first_tie_oracle);
-    for (field, oracle) in table.tracked_oracles_iter() {
-        tracked_oracles.insert(field.clone(), oracle.clone());
+    for (field, oracle) in table.iter().flat_map(|table| table.tracked_oracles_iter()) {
+        if field.name() != FIRST_TIE_LABEL {
+            tracked_oracles.insert(field.clone(), oracle.clone());
+        }
     }
 
-    let schema = table.schema_ref().map(|schema| {
+    let schema = table.and_then(|table| table.schema_ref()).map(|schema| {
         let fields = tracked_oracles
             .keys()
             .map(|field| field.as_ref().clone())
@@ -1797,7 +1718,7 @@ fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
                 .collect::<Vec<_>>(),
         ))
     });
-    TrackedTableOracle::new(schema, tracked_oracles, table.log_size())
+    TrackedTableOracle::new(schema, tracked_oracles, num_vars)
 }
 
 fn pad_df_to_power_of_two(
