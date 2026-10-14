@@ -319,7 +319,7 @@ impl_col_adapter_map!(IntervalYearMonthArray, |v| F::from(v as i128));
 
 // A non-negative `Decimal128` column is stored packed, as high and low
 // `u64` halves (16 bytes per row). A column with a negative value falls
-// back to field elements through `from_le_bytes_mod_order`.
+// back to field elements.
 impl<F: PrimeField> Encodable<F> for Decimal128Array {
     fn encode(&self) -> Result<Vec<EncodedSegment<F>>, EncodeError> {
         let all_non_negative = (0..self.len()).all(|i| self.is_null(i) || self.value(i) >= 0);
@@ -346,7 +346,7 @@ impl<F: PrimeField> Encodable<F> for Decimal128Array {
             if self.is_null(i) {
                 vec![F::zero()]
             } else {
-                vec![F::from_le_bytes_mod_order(&self.value(i).to_le_bytes())]
+                vec![F::from(self.value(i))]
             }
         });
         Ok(auto_segments(cols))
