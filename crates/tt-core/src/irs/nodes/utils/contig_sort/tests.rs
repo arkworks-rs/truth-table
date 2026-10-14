@@ -192,3 +192,69 @@ fn sign_only_key_uses_committed_diff() {
     let diffs = [("s", DataType::UInt8, ints(&[2, 2, 2, 0]))];
     run(ascending(&["s"], false), &keys, &[], &diffs).expect("a sign-only key verifies");
 }
+
+#[test]
+fn ties_follow_key_order_not_column_order() {
+    // Columns [a, b], sorted by (b, a): `tie_1` means "tied on b", so the
+    // rows where it is set must agree on b, not on a.
+    let keys = [
+        ("a", DataType::Int64, ints(&[1, 2, 0, 5])),
+        ("b", DataType::Int64, ints(&[1, 1, 3, 3])),
+    ];
+    let ties = [("tie_1", ints(&[1, 0, 1, 0]))];
+    run(ascending(&["b", "a"], false), &keys, &ties, &[])
+        .expect("a table sorted by a key order unlike its column order verifies");
+}
+
+#[test]
+fn tie_hint_covers_only_the_sort_keys() {
+    use datafusion::arrow::array::{ArrayRef, BooleanArray, Int64Array};
+    use datafusion::arrow::record_batch::RecordBatch;
+
+    // Sorted by (b, a) with a payload column p: the hint has one tie column,
+    // "tied on b", over the rows in (b, a) order.
+    let batch = RecordBatch::try_from_iter(vec![
+        (
+            "a",
+            Arc::new(Int64Array::from(vec![2, 5, 1, 0])) as ArrayRef,
+        ),
+        (
+            "b",
+            Arc::new(Int64Array::from(vec![1, 3, 1, 3])) as ArrayRef,
+        ),
+        (
+            "p",
+            Arc::new(Int64Array::from(vec![7, 7, 9, 9])) as ArrayRef,
+        ),
+    ])
+    .unwrap();
+    let df = crate::session::session_context().read_batch(batch).unwrap();
+    let should_materialize = df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| (field.clone(), true))
+        .collect();
+    let input = crate::irs::nodes::hints::HintDF::new(df, should_materialize);
+    let specs = vec![
+        ("b".to_string(), true, false),
+        ("a".to_string(), true, false),
+    ];
+
+    let mut payload = indexmap::IndexMap::new();
+    super::hints::populate_tie_and_diff(&mut payload, &input, &specs);
+
+    let tie_df = payload[TIE_INDICATOR_LABEL].data_frame().clone();
+    let batches = crate::session::block_on(tie_df.collect()).unwrap();
+    assert_eq!(batches[0].num_columns(), 1);
+    let tie_1 = batches[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<BooleanArray>()
+        .unwrap();
+    // Rows in order: (a, b) = (1, 1), (2, 1), (0, 3), (5, 3).
+    assert_eq!(
+        tie_1.iter().collect::<Vec<_>>(),
+        vec![Some(true), Some(false), Some(true), Some(false)]
+    );
+}
