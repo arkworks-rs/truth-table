@@ -1,18 +1,17 @@
 use ark_ff::PrimeField;
 use datafusion::arrow::array::{
     Array, ArrayRef, BinaryArray, BinaryViewArray, BooleanArray, Date32Array, Date64Array,
-    Decimal128Array, Decimal256Array, DurationMicrosecondArray, DurationMillisecondArray,
-    DurationNanosecondArray, DurationSecondArray, FixedSizeBinaryArray, FixedSizeListArray,
-    Float16Array, Float32Array, Float64Array, Int8Array, Int8DictionaryArray, Int16Array,
-    Int16DictionaryArray, Int16RunArray, Int32Array, Int32DictionaryArray, Int32RunArray,
-    Int64Array, Int64DictionaryArray, Int64RunArray, IntervalDayTimeArray,
-    IntervalMonthDayNanoArray, IntervalYearMonthArray, LargeBinaryArray, LargeListArray,
-    LargeListViewArray, LargeStringArray, ListArray, ListViewArray, MapArray, NullArray,
-    StringArray, StringViewArray, StructArray, Time32MillisecondArray, Time32SecondArray,
-    Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
-    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt8Array,
-    UInt8DictionaryArray, UInt16Array, UInt16DictionaryArray, UInt32Array, UInt32DictionaryArray,
-    UInt64Array, UInt64DictionaryArray, UnionArray,
+    Decimal128Array, DurationMicrosecondArray, DurationMillisecondArray, DurationNanosecondArray,
+    DurationSecondArray, FixedSizeBinaryArray, FixedSizeListArray, Float16Array, Float32Array,
+    Float64Array, Int8Array, Int8DictionaryArray, Int16Array, Int16DictionaryArray, Int16RunArray,
+    Int32Array, Int32DictionaryArray, Int32RunArray, Int64Array, Int64DictionaryArray,
+    Int64RunArray, IntervalDayTimeArray, IntervalMonthDayNanoArray, IntervalYearMonthArray,
+    LargeBinaryArray, LargeListArray, LargeListViewArray, LargeStringArray, ListArray,
+    ListViewArray, MapArray, NullArray, StringArray, StringViewArray, StructArray,
+    Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
+    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+    TimestampSecondArray, UInt8Array, UInt8DictionaryArray, UInt16Array, UInt16DictionaryArray,
+    UInt32Array, UInt32DictionaryArray, UInt64Array, UInt64DictionaryArray, UnionArray,
 };
 use datafusion::arrow::datatypes::{DataType, IntervalUnit, TimeUnit};
 use datafusion_common::ScalarValue;
@@ -377,11 +376,11 @@ pub fn encode_arrow_array_to_field_with_options<F: PrimeField>(
             options,
             "array downcast to Decimal128Array failed",
         ),
-        DataType::Decimal256(..) => downcast_and_encode::<F, Decimal256Array>(
-            array,
-            options,
-            "array downcast to Decimal256Array failed",
-        ),
+        // 256-bit values do not fit the proof field: reducing them modulo the
+        // field order would give two values the same encoding.
+        DataType::Decimal256(..) => Err(EncodeError::TypeNotSupported(
+            "Decimal256 does not fit the proof field".to_string(),
+        )),
         DataType::RunEndEncoded(run_ends, _) => match run_ends.data_type() {
             DataType::Int16 => downcast_and_encode::<F, Int16RunArray>(
                 array,

@@ -57,6 +57,23 @@ mod tests {
     }
 
     #[test]
+    fn decimal256_is_not_supported() {
+        use datafusion::arrow::array::{ArrayRef, Decimal256Array};
+        use datafusion::arrow::datatypes::i256;
+        let array: ArrayRef = std::sync::Arc::new(
+            Decimal256Array::from(vec![Some(i256::MINUS_ONE), Some(i256::ONE)])
+                .with_precision_and_scale(76, 0)
+                .unwrap(),
+        );
+        assert!(matches!(
+            encode_arrow_array_to_field::<Fr>(&array),
+            Err(crate::errors::EncodeError::TypeNotSupported(_))
+        ));
+        let scalar = ScalarValue::Decimal256(Some(i256::MINUS_ONE), 76, 0);
+        assert!(scalar_to_field::<Fr>(&scalar).is_none());
+    }
+
+    #[test]
     fn single_character_strings_are_inlined() {
         let array = StringArray::from(vec![Some("a"), Some(""), None, Some("Z")]);
         let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();
