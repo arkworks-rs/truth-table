@@ -9,7 +9,7 @@ use super::{GadgetNode, INPUT_LABEL, OUTPUT_LABEL};
 use crate::{
     irs::nodes::Node,
     test_utils::gadget_harness::{
-        GadgetHarness, TableSpec, run_gadget_pipeline, run_gadget_pipeline_with_proof_mutator,
+        GadgetHarness, TableSpec, run_gadget_pipeline, run_gadget_pipeline_to_verifier,
     },
 };
 
@@ -95,32 +95,32 @@ fn fully_active_bag_accepts_full_prefix() {
 
 #[test]
 fn tampered_prefix_count_is_rejected() {
-    let result =
-        run_gadget_pipeline_with_proof_mutator(harness([8, 3, 0, 0], [1, 1, 0, 0]), |proof| {
-            let count_id = committed_prefix_count_id(proof, F::from(2u64));
-            let constant_id = proof.mv_pcs_subproof.constant_map[&count_id];
-            let count = proof
-                .mv_pcs_subproof
-                .unique_constants
-                .get_mut(&constant_id)
-                .unwrap();
-            assert_eq!(*count, F::from(2u64));
-            *count = F::from(1u64);
-        });
+    let result = run_gadget_pipeline_to_verifier(harness([8, 3, 0, 0], [1, 1, 0, 0]), |proof| {
+        let count_id = committed_prefix_count_id(proof, F::from(2u64));
+        let constant_id = proof.mv_pcs_subproof.constant_map[&count_id];
+        let count = proof
+            .mv_pcs_subproof
+            .unique_constants
+            .get_mut(&constant_id)
+            .unwrap();
+        assert_eq!(*count, F::from(2u64));
+        *count = F::from(1u64);
+    })
+    .unwrap();
     assert!(result.is_err());
 }
 
 #[test]
 fn non_scalar_prefix_count_is_rejected() {
-    let result =
-        run_gadget_pipeline_with_proof_mutator(harness([8, 3, 0, 0], [1, 1, 0, 0]), |proof| {
-            let count_id = committed_prefix_count_id(proof, F::from(2u64));
-            let constant_id = proof.mv_pcs_subproof.constant_map[&count_id];
-            assert_eq!(
-                proof.mv_pcs_subproof.unique_constants[&constant_id],
-                F::from(2u64)
-            );
-            proof.mv_pcs_subproof.constant_num_vars.insert(count_id, 1);
-        });
+    let result = run_gadget_pipeline_to_verifier(harness([8, 3, 0, 0], [1, 1, 0, 0]), |proof| {
+        let count_id = committed_prefix_count_id(proof, F::from(2u64));
+        let constant_id = proof.mv_pcs_subproof.constant_map[&count_id];
+        assert_eq!(
+            proof.mv_pcs_subproof.unique_constants[&constant_id],
+            F::from(2u64)
+        );
+        proof.mv_pcs_subproof.constant_num_vars.insert(count_id, 1);
+    })
+    .unwrap();
     assert!(result.is_err());
 }
