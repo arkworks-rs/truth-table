@@ -12,12 +12,12 @@
 use ark_ff::PrimeField;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use datafusion::arrow::array::{
-    Array, BooleanArray, Date32Array, Date64Array, Decimal128Array, Decimal256Array,
-    DurationMicrosecondArray, DurationMillisecondArray, DurationNanosecondArray,
-    DurationSecondArray, Int8Array, Int16Array, Int32Array, Int64Array, IntervalYearMonthArray,
-    Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-    TimestampSecondArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
+    Array, BooleanArray, Date32Array, Date64Array, Decimal128Array, DurationMicrosecondArray,
+    DurationMillisecondArray, DurationNanosecondArray, DurationSecondArray, Int8Array, Int16Array,
+    Int32Array, Int64Array, IntervalYearMonthArray, Time32MillisecondArray, Time32SecondArray,
+    Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
+    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt8Array,
+    UInt16Array, UInt32Array, UInt64Array,
 };
 
 use crate::errors::EncodeError;
@@ -355,7 +355,3 @@ impl<F: PrimeField> Encodable<F> for Decimal128Array {
         todo!("Decoding Decimal128Array is not implemented yet")
     }
 }
-// `Decimal256` does not fit the packed storage.
-impl_col_adapter_map!(Decimal256Array, |v: <datafusion::arrow::datatypes::Decimal256Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
-    &v.to_le_bytes()
-));

@@ -706,7 +706,7 @@ fn build_verifier_tie_hint_from_ordered(
 /// gives a value in `[0, 2^w)` for the key's unsigned width `w`.
 ///
 /// `None` when the encoding does not preserve the key's order (strings,
-/// binary, `Decimal256`). Such a key is compared through a committed
+/// binary). Such a key is compared through a committed
 /// sign-only diff in `{0, 1, 2}`, which is not bound to the key.
 pub(crate) fn difference_sign_type(data_type: &DataType) -> Option<DataType> {
     match data_type {
