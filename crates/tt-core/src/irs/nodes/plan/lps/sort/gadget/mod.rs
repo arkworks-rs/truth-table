@@ -1,169 +1,52 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
-use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::Field;
-use datafusion_expr::{Sort, col, expr::Sort as SortExpr, lit};
+use arithmetic::{ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle};
+use ark_piop::{
+    SnarkBackend,
+    arithmetic::errors::DataTypeError,
+    errors::{SnarkError, SnarkResult},
+};
+use datafusion::arrow::datatypes::{FieldRef, Schema};
+use datafusion_expr::Sort;
 
 use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, utils::compaction},
+        nodes::{
+            IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
+            utils::{compaction, contig_sort},
+        },
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+#[cfg(test)]
+mod tests;
+
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
 pub const INPUT_SORT_EXPRS: &str = "__input_sort_exprs__";
-pub const OUTPUT_SORT_EXPRS: &str = "__output_sort_exprs__";
 pub struct GadgetNode<B: SnarkBackend> {
     sort_gadget: Arc<Node<B>>,
     compaction_gadget: Arc<Node<B>>,
-    sort_specs: Vec<(String, bool, bool)>,
-    // The logical `fetch`, so the helper sort hints apply the same top-k as the
-    // enclosing Order By node.
-    fetch: Option<usize>,
 }
 
-fn populate_output_expr(
-    gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
-    input_hint: &crate::irs::nodes::hints::HintDF,
-    sort_specs: &[(String, bool, bool)],
-    fetch: Option<usize>,
-    skip_collection: bool,
-) -> crate::irs::nodes::hints::HintDF {
-    let input_df = input_hint.data_frame().clone();
-
-    // Verifier planning needs only shape and materialization metadata, not row
-    // values, so it builds a schema-only hint and skips sort planning.
-    let output_hint = if skip_collection {
-        let has_activator = input_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ACTIVATOR_COL_NAME);
-        let mut fields: Vec<Field> = input_df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        if !has_activator {
-            fields.push(ACTIVATOR_FIELD.as_ref().clone());
-        }
-        let sort_input_df = crate::irs::nodes::hints::schema_only_df(fields);
-        let mut should_materialize = IndexMap::new();
-        for field in sort_input_df.schema().fields() {
-            should_materialize.insert(field.clone(), field.name() != ROW_ID_COL_NAME);
-        }
-        crate::irs::nodes::hints::HintDF::new_assume_normalized(sort_input_df, should_materialize)
-    } else {
-        let has_activator = input_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ACTIVATOR_COL_NAME);
-        // Downstream gadgets rely on a materialized activator, so add one when
-        // the input has none.
-        let sort_input_df = if has_activator {
-            input_df
-        } else {
-            input_df
-                .with_column(ACTIVATOR_COL_NAME, lit(true))
-                .expect("sort exprs should accept synthetic activator")
-        };
-        // Sort by activator first (actives first), then by the sort-expr columns.
-        let mut sort_exprs: Vec<SortExpr> =
-            Vec::with_capacity(1 + sort_input_df.schema().fields().len());
-        sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
-        let data_fields: Vec<_> = sort_input_df
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| !is_system_column(field.name()))
-            .collect();
-        // Sort-spec order matched by column name; schema order when the specs
-        // do not cover every data column.
-        if !sort_specs.is_empty() {
-            let mut ordered = Vec::with_capacity(sort_specs.len());
-            for (name, asc, nulls_first) in sort_specs {
-                let normalized = normalize_sort_name(name);
-                if let Some(field) = data_fields
-                    .iter()
-                    .find(|field| normalize_sort_name(field.name()) == normalized)
-                {
-                    ordered.push(col(field.name()).sort(*asc, *nulls_first));
-                }
-            }
-            if ordered.len() == data_fields.len() {
-                sort_exprs.extend(ordered);
-            } else {
-                sort_exprs.extend(
-                    data_fields
-                        .iter()
-                        .map(|field| col(field.name()).sort(true, true)),
-                );
-            }
-        } else {
-            sort_exprs.extend(
-                data_fields
-                    .iter()
-                    .map(|field| col(field.name()).sort(true, true)),
-            );
-        }
-
-        let sort = Sort {
-            expr: sort_exprs,
-            input: Arc::new(sort_input_df.logical_plan().clone()),
-            fetch,
-        };
-
-        let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
-        let projected = sorted_df
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| {
-                field.name() == ACTIVATOR_COL_NAME
-                    || field.name() == ROW_ID_COL_NAME
-                    || !is_system_column(field.name())
-            })
-            .map(|field| col(field.name()))
-            .collect();
-        let sorted_df = sorted_df
-            .select(projected)
-            .expect("sort exprs projection should succeed");
-
-        crate::irs::nodes::hints::HintDF::new_materialized(sorted_df)
-    };
-    // This payload only seeds downstream virtual tables: all its columns stay
-    // virtual so it adds no dead commitments.
-    let mut should_materialize = IndexMap::new();
-    for field in output_hint.data_frame().schema().fields() {
-        should_materialize.insert(field.clone(), false);
-    }
-    let output_sort_exprs =
-        crate::irs::nodes::hints::HintDF::new(output_hint.data_frame().clone(), should_materialize);
-    gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), output_sort_exprs);
-    output_hint
-}
-
+/// Plans the sort check from the input's key columns. Sorting them, which
+/// the sort check does to plan its rotation and tie hints, gives the
+/// output's key columns; the hint is virtual, so it commits nothing, and
+/// `initialize_gadgets` replaces it with those output columns.
 fn populate_sort_gadget_table<B: SnarkBackend>(
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     sort_gadget_node_id: crate::irs::nodes::NodeId,
-    output_sort_exprs: &crate::irs::nodes::hints::HintDF,
+    key_hint: &crate::irs::nodes::hints::HintDF,
 ) {
     let mut payload = match planned_ir.payload_for_node(&sort_gadget_node_id) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
     };
-    payload.insert(
-        crate::irs::nodes::utils::contig_sort::TABLE_LABEL.to_string(),
-        output_sort_exprs.clone(),
-    );
+    payload.insert(contig_sort::TABLE_LABEL.to_string(), key_hint.clone());
     planned_ir.set_payload_for_node(
         sort_gadget_node_id,
         Some(PayloadStructure::GadgetPayload(payload)),
@@ -208,17 +91,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let output_hint = populate_output_expr(
-            &mut gadget_payload,
-            &input_hint,
-            &self.sort_specs,
-            self.fetch,
-            false,
-        );
         // Row-id was only needed for ordering: drop it from the input payload.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
-        populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
+        populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &input_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
     }
@@ -259,6 +135,23 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(compaction_payload)),
             );
         }
+
+        if let (Some(output), Some(keys)) =
+            (payload.get(OUTPUT_LABEL), payload.get(INPUT_SORT_EXPRS))
+        {
+            let mut sort_payload = match virtualized_ir.payload_for_node(&self.sort_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            sort_payload.insert(
+                contig_sort::TABLE_LABEL.to_string(),
+                output_sort_keys_prover(output, keys)?,
+            );
+            virtualized_ir.set_payload_for_node(
+                self.sort_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(sort_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -269,7 +162,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+        let gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
@@ -278,17 +171,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let output_hint = populate_output_expr(
-            &mut gadget_payload,
-            &input_hint,
-            &self.sort_specs,
-            self.fetch,
-            true,
-        );
-        // INPUT_SORT_EXPRS is not consumed during gadget wiring, so the
-        // verifier skips the row-id strip the prover does.
-        populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+        populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &input_hint);
         Ok(())
     }
     fn add_virtual_witness(
@@ -325,6 +208,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             virtualized_ir.set_payload_for_node(
                 self.compaction_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(compaction_payload)),
+            );
+        }
+
+        if let (Some(output), Some(keys)) =
+            (payload.get(OUTPUT_LABEL), payload.get(INPUT_SORT_EXPRS))
+        {
+            let mut sort_payload = match virtualized_ir.payload_for_node(&self.sort_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            sort_payload.insert(
+                contig_sort::TABLE_LABEL.to_string(),
+                output_sort_keys_verifier(output, keys)?,
+            );
+            virtualized_ir.set_payload_for_node(
+                self.sort_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(sort_payload)),
             );
         }
         Ok(())
@@ -388,10 +288,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::contig_sort::GadgetNode::new(
                 crate::irs::nodes::utils::contig_sort::SortConfig::PerColumn(
-                    crate::irs::nodes::utils::contig_sort::PerColumnConfig {
-                        sort_specs: sort_specs.clone(),
-                        strict,
-                    },
+                    crate::irs::nodes::utils::contig_sort::PerColumnConfig { sort_specs, strict },
                 ),
             ),
         )));
@@ -401,10 +298,79 @@ impl<B: SnarkBackend> GadgetNode<B> {
         Self {
             sort_gadget,
             compaction_gadget,
-            sort_specs,
-            fetch: sort.fetch,
         }
     }
+}
+
+/// The sort check's table: the output's sort-key columns in key order plus
+/// its activator (paper PIOP 14, step 3). `keys` names the key columns,
+/// with every encoded segment of a string key; a key that is not an output
+/// column, such as a computed expression, is not supported.
+fn output_sort_keys_prover<B: SnarkBackend>(
+    output: &TrackedTable<B>,
+    keys: &TrackedTable<B>,
+) -> SnarkResult<TrackedTable<B>> {
+    let output_polys = output.tracked_polys();
+    let key_polys = keys.tracked_polys();
+    let mut polys = IndexMap::new();
+    for idx in keys.data_tracked_polys_indices() {
+        let (key_field, _) = key_polys.get_index(idx).expect("key column index");
+        let (field, poly) = output_column(&output_polys, key_field.name())?;
+        polys.insert(field.clone(), poly.clone());
+    }
+    if let Some(activator) = output.activator_tracked_poly() {
+        polys.insert(ACTIVATOR_FIELD.clone(), activator);
+    }
+    Ok(TrackedTable::new(
+        Some(schema_of(polys.keys())),
+        polys,
+        output.log_size(),
+    ))
+}
+
+fn output_sort_keys_verifier<B: SnarkBackend>(
+    output: &TrackedTableOracle<B>,
+    keys: &TrackedTableOracle<B>,
+) -> SnarkResult<TrackedTableOracle<B>> {
+    let output_oracles = output.tracked_oracles();
+    let key_oracles = keys.tracked_oracles();
+    let mut oracles = IndexMap::new();
+    for idx in keys.data_tracked_oracles_indices() {
+        let (key_field, _) = key_oracles.get_index(idx).expect("key column index");
+        let (field, oracle) = output_column(&output_oracles, key_field.name())?;
+        oracles.insert(field.clone(), oracle.clone());
+    }
+    if let Some(activator) = output.activator_tracked_poly() {
+        oracles.insert(ACTIVATOR_FIELD.clone(), activator);
+    }
+    Ok(TrackedTableOracle::new(
+        Some(schema_of(oracles.keys())),
+        oracles,
+        output.log_size(),
+    ))
+}
+
+fn output_column<'a, T>(
+    columns: &'a IndexMap<FieldRef, T>,
+    key_name: &str,
+) -> SnarkResult<(&'a FieldRef, &'a T)> {
+    let key = normalize_sort_name(key_name);
+    columns
+        .iter()
+        .find(|(field, _)| normalize_sort_name(field.name()) == key)
+        .ok_or_else(|| {
+            SnarkError::DataTypeError(DataTypeError::NotSupported(format!(
+                "ORDER BY key `{key_name}` is not an output column"
+            )))
+        })
+}
+
+fn schema_of<'a>(fields: impl Iterator<Item = &'a FieldRef>) -> Schema {
+    Schema::new(
+        fields
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn normalize_sort_name(name: &str) -> String {
