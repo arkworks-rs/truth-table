@@ -40,7 +40,7 @@ fn verify_ungrouped_extremum(maximum: bool, activator: Vec<F>) -> Result<(), Sna
         .with_gadget(gadget)
         .with_table(id, OUTPUT_LABEL, output)
         .build();
-    run_gadget_pipeline_to_verifier(harness, |_| {})
+    run_gadget_pipeline_to_verifier(harness)
         .expect("aggregate proof generation must succeed before checking verifier rejection")
 }
 

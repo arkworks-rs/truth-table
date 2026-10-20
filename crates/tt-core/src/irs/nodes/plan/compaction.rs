@@ -468,10 +468,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
 impl<B: SnarkBackend> LpNode<B> {
     pub fn new(input: Arc<Node<B>>, dpuc_base: Option<String>) -> Self {
-        // `contigous: true`: the output activator is the contig-one poly of
-        // weight s, so it needs no separate contiguity check.
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            compaction_gadget::GadgetNode::new(true),
+            compaction_gadget::GadgetNode::new(),
         )));
         let dpuc_gadget = dpuc_base.as_ref().map(|_| {
             Arc::new(Node::<B>::Gadget(Arc::new(

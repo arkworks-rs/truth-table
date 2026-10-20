@@ -22,8 +22,6 @@
 //! the scanned table, for the tested bins only (both sides derive them from
 //! the public `φ`).
 
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use arithmetic::{
@@ -35,11 +33,8 @@ use arithmetic::{
 };
 use ark_ff::PrimeField;
 use ark_piop::{
-    SnarkBackend,
-    arithmetic::mat_poly::mle::MLE,
-    errors::SnarkResult,
-    prover::{structs::polynomial::TrackedPoly, tracker::ProverTracker},
-    verifier::{structs::oracle::TrackedOracle, tracker::VerifierTracker},
+    SnarkBackend, errors::SnarkResult, prover::structs::polynomial::TrackedPoly,
+    verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::arrow::array::{
     Array, ArrayRef, BooleanArray, LargeStringArray, StringArray, StringViewArray,
@@ -50,9 +45,9 @@ use datafusion_expr::{
     ColumnarValue, Expr, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
     expr::ScalarFunction, lit,
 };
-use either::Either;
 use indexmap::IndexMap;
 
+use crate::irs::nodes::utils::{commit_with_tracker, track_next_committed};
 use crate::irs::{
     nodes::{
         IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -292,46 +287,6 @@ pub fn prefilter_args(expr: &Expr) -> Option<(&Expr, String, Vec<Bin>)> {
     Some((&function.args[0], pattern, bins))
 }
 
-fn commit_prover<B: SnarkBackend>(
-    tracker_rc: &Rc<RefCell<ProverTracker<B>>>,
-    log_size: usize,
-    evals: Vec<B::F>,
-) -> SnarkResult<TrackedPoly<B>> {
-    let mle = MLE::from_evaluations_vec(log_size, evals);
-    let num_vars = mle.num_vars();
-    let result = tracker_rc
-        .borrow_mut()
-        .track_and_commit_mat_mv_p(&mle, false)?;
-    Ok(match result {
-        Either::Left(id) => TrackedPoly::new(Either::Left(id), num_vars, tracker_rc.clone()),
-        Either::Right((id, cnst)) => {
-            TrackedPoly::new_committed_constant(cnst, id, num_vars, tracker_rc.clone())
-        }
-    })
-}
-
-fn track_next_verifier<B: SnarkBackend>(
-    tracker_rc: &Rc<RefCell<VerifierTracker<B>>>,
-) -> SnarkResult<TrackedOracle<B>> {
-    let id = tracker_rc.borrow_mut().peek_next_id();
-    let maybe_cnst = tracker_rc.borrow().proof_mv_constant(id);
-    if let Some(cnst) = maybe_cnst {
-        let (nv, tid) = tracker_rc.borrow_mut().track_mv_com_by_id(id)?;
-        return Ok(TrackedOracle::new_committed_constant(
-            cnst,
-            tid,
-            tracker_rc.clone(),
-            nv,
-        ));
-    }
-    let (nv, tid) = tracker_rc.borrow_mut().track_mv_com_by_id(id)?;
-    Ok(TrackedOracle::new(
-        Either::Left(tid),
-        tracker_rc.clone(),
-        nv,
-    ))
-}
-
 fn bool_table<B: SnarkBackend>(poly: TrackedPoly<B>, log_size: usize) -> TrackedTable<B> {
     let field = Arc::new(Field::new("data", DataType::Boolean, false));
     let mut polys = IndexMap::new();
@@ -513,7 +468,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .expect("PreFilter: scope must carry a string-level activator");
         let tracker_rc = activator.tracker();
 
-        let a_pre = commit_prover(&tracker_rc, str_domain, self.a_pre_prover(&scope_table))?;
+        let a_pre = commit_with_tracker(&tracker_rc, str_domain, self.a_pre_prover(&scope_table))?;
 
         // Own PlanPayload = a' + activator + row_id (so Filter sees it).
         let mut merged: IndexMap<FieldRef, TrackedPoly<B>> = IndexMap::new();
@@ -601,7 +556,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .expect("PreFilter verifier: scope must carry a string-level activator");
         let tracker_rc = activator.tracker();
 
-        let a_pre = track_next_verifier(&tracker_rc)?;
+        let a_pre = track_next_committed(&tracker_rc)?;
 
         let mut merged: IndexMap<FieldRef, TrackedOracle<B>> = IndexMap::new();
         merged.insert(self.output_field(), a_pre);

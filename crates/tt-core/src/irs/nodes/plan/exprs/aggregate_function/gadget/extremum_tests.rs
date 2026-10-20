@@ -52,7 +52,7 @@ fn verify_extremum(
         .with_shared_activator(id, INPUT_RLC_LABEL, id, &input)
         .with_shared_activator(id, OUTPUT_RLC_LABEL, id, OUTPUT_LABEL)
         .build();
-    run_gadget_pipeline_to_verifier(harness, |_| {})
+    run_gadget_pipeline_to_verifier(harness)
         .expect("extremum proof generation must succeed before checking verifier rejection")
 }
 

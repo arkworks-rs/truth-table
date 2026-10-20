@@ -396,7 +396,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             ),
         )));
         let compaction_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::compaction::GadgetNode::new(true),
+            crate::irs::nodes::utils::compaction::GadgetNode::new(),
         )));
         Self {
             sort_gadget,
