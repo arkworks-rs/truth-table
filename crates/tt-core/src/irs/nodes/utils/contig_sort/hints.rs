@@ -350,7 +350,7 @@ fn tie_indicator_on_ordered(
                 ordered_cols.push(col_name.clone());
             }
         }
-        if ordered_cols.len() == data_cols.len() {
+        if ordered_cols.len() == sort_specs.len() {
             data_cols = ordered_cols;
         }
     }
@@ -452,7 +452,7 @@ fn sort_order_from_hint(
                 ordered.push(col(field.name()).sort(*asc, false));
             }
         }
-        if ordered.len() == data_fields.len() {
+        if ordered.len() == sort_specs.len() {
             order_by.extend(ordered);
         } else {
             order_by.extend(

@@ -15,10 +15,8 @@ use tt_core::irs::nodes::plan::compaction::CompactionLogicalNode;
 
 mod compaction;
 mod prefilter_bins;
-mod truncate_empty_payload;
 pub use compaction::CompactionRule;
 pub use prefilter_bins::PrefilterBinsRule;
-pub use truncate_empty_payload::TruncateEmptyPayloadRule;
 
 /// A data-dependent decision the verifier replays. Each rule emits one
 /// variant.
@@ -33,9 +31,6 @@ pub enum OptimizationHint {
     },
     /// Wrap the LP subtree at `target_path` in a `CompactionLogicalNode`.
     Compaction { target_path: Vec<usize> },
-    /// Replace the LP subtree at `target_path`, whose output is empty, with
-    /// an `EmptyRelation` of the same schema.
-    Truncate { target_path: Vec<usize> },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,8 +100,7 @@ impl DataDependentOptimizer {
 /// The default rules of the prover and data owner. Benchmarks build a
 /// `DataDependentOptimizer` from a subset to disable specific rules.
 pub fn rules() -> Vec<Arc<dyn DataDependentOptimizationRule>> {
-    // `TruncateEmptyPayloadRule` is not in the default list. The pre-filter
-    // rule comes first: compaction decisions depend on how much the
+    // The pre-filter rule comes first: compaction decisions depend on how much the
     // pre-filters drop.
     vec![
         Arc::new(PrefilterBinsRule::new()),
@@ -122,11 +116,9 @@ pub fn collect_data_dependent_hints(
     DataDependentOptimizer::with_rules(rules()).collect_hints(session_ctx, plan)
 }
 
-/// Applies the hints by variant, in this order:
-/// 1. pre-filter bins: removing a pre-filter shifts the paths below it, and
-///    compaction hints were collected on the plan after these;
-/// 2. truncation: it can remove subtrees that hold compaction targets;
-/// 3. compaction, on the subtrees that remain.
+/// Applies the pre-filter bin hints, then the compaction hints: removing a
+/// pre-filter shifts the paths below it, and compaction hints were collected
+/// on the plan after the bins were chosen.
 pub fn apply_optimization_hints(
     plan: LogicalPlan,
     hints: &OptimizationHints,
@@ -138,7 +130,6 @@ pub fn apply_optimization_hints(
     }
 
     let mut compaction_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
-    let mut truncate_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
     let mut prefilter_bins: BTreeMap<Vec<usize>, Vec<Bin>> = BTreeMap::new();
     for hint in &hints.hints {
         match hint {
@@ -147,9 +138,6 @@ pub fn apply_optimization_hints(
             }
             OptimizationHint::Compaction { target_path } => {
                 compaction_paths.insert(target_path.clone());
-            }
-            OptimizationHint::Truncate { target_path } => {
-                truncate_paths.insert(target_path.clone());
             }
         }
     }
@@ -164,21 +152,6 @@ pub fn apply_optimization_hints(
             return Err(DataFusionError::Plan(format!(
                 "Unapplied pre-filter bin hints at paths: {:?}",
                 prefilter_bins.keys().collect::<Vec<_>>()
-            )));
-        }
-        rewritten
-    };
-
-    let plan = if truncate_paths.is_empty() {
-        plan
-    } else {
-        let mut path = Vec::new();
-        let rewritten =
-            truncate_empty_payload::apply_truncate_hints(plan, &mut path, &mut truncate_paths)?;
-        if !truncate_paths.is_empty() {
-            return Err(DataFusionError::Plan(format!(
-                "Unapplied truncate hints at paths: {:?}",
-                truncate_paths
             )));
         }
         rewritten
