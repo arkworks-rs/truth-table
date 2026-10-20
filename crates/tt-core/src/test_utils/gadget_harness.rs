@@ -205,9 +205,20 @@ fn materialize_verifier_table<B: SnarkBackend>(
 /// As in the production pipeline, `initialize_gadgets` runs in pre-order (a
 /// parent fills its children's payloads) and `prove` / `verify` in
 /// post-order, so composite gadgets work.
-pub fn run_gadget_pipeline<B: SnarkBackend>(
+pub fn run_gadget_pipeline<B: SnarkBackend>(harness: GadgetHarness<B>) -> Result<(), SnarkError> {
+    run_gadget_pipeline_with_proof_mutator(harness, |_| {})
+}
+
+/// [`run_gadget_pipeline`], with `mutate_proof` applied to the proof before
+/// the verifier sees it, for tests that forge a proof.
+pub fn run_gadget_pipeline_with_proof_mutator<B, M>(
     mut harness: GadgetHarness<B>,
-) -> Result<(), SnarkError> {
+    mutate_proof: M,
+) -> Result<(), SnarkError>
+where
+    B: SnarkBackend,
+    M: FnOnce(&mut ark_piop::prover::structs::proof::SNARKProof<B>),
+{
     let tree = harness.prover_ir.tree().clone();
     let pre_order: Vec<_> = collect_pre_order(&tree);
 
@@ -233,7 +244,8 @@ pub fn run_gadget_pipeline<B: SnarkBackend>(
         }
     }
 
-    let proof = harness.prover.build_proof()?;
+    let mut proof = harness.prover.build_proof()?;
+    mutate_proof(&mut proof);
     harness.verifier.set_proof(proof);
 
     // `track_mv_com_by_id` resolves ids in the proof, so the verifier's

@@ -1,7 +1,13 @@
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_piop::SnarkBackend;
+use ark_ff::{One, Zero};
+use ark_piop::{
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
+    errors::{SnarkError, SnarkResult},
+    verifier::errors::VerifierError,
+};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use indexmap::IndexMap;
 
@@ -9,18 +15,24 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-            utils::{bool, perm},
+            utils::{bool, field_to_usize, perm},
         },
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+
+#[cfg(test)]
+mod tests;
+
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
-#[allow(unused)]
 pub struct GadgetNode<B: SnarkBackend> {
-    contigous: bool,
+    /// Also prove that the output activator is `C_{µ,s}` for the output's
+    /// active-row count `s` (paper PIOP 14, step 1). The sort check compares
+    /// only adjacent active rows, so a gap in the activator hides a pair.
+    contiguous: bool,
     bool_check_gadget: Arc<Node<B>>,
     perm_check_gadget: Arc<Node<B>>,
 }
@@ -141,28 +153,97 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> SnarkResult<()> {
+        if !self.contiguous {
+            return Ok(());
+        }
+        let output = output_table(gadget_ready_ir.payload_for_node(&id))?;
+        let activator = output
+            .activator_tracked_poly()
+            .ok_or_else(|| check_failed("the output has no activator"))?;
+        let active_count = activator
+            .evaluations()
+            .iter()
+            .filter(|value| value.is_one())
+            .count();
+        // `s` picks the public prefix the zerocheck compares against, so it
+        // is committed (and so in the transcript) before any challenge; a
+        // miscellaneous proof field is not.
+        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+            0,
+            vec![B::F::from(active_count as u64)],
+        ))?;
+        let prefix = activator
+            .tracker()
+            .borrow_mut()
+            .get_or_build_contig_one_poly(output.log_size(), active_count)?;
+        prover.add_mv_zerocheck_claim((&activator - &prefix).id())?;
         Ok(())
     }
 
     fn honest_prover_check(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> SnarkResult<()> {
+        if !self.contiguous {
+            return Ok(());
+        }
+        let output = output_table(gadget_ready_ir.payload_for_node(&id))?;
+        let activator = output
+            .activator_tracked_poly()
+            .ok_or_else(|| check_failed("the output has no activator"))?;
+        let evaluations = activator.evaluations();
+        let active_count = evaluations
+            .iter()
+            .take_while(|value| value.is_one())
+            .count();
+        if !evaluations[active_count..]
+            .iter()
+            .all(|value| value.is_zero())
+        {
+            return Err(SnarkError::ProverError(
+                ark_piop::prover::errors::ProverError::HonestProverError(
+                    ark_piop::prover::errors::HonestProverError::FalseClaim,
+                ),
+            ));
+        }
         Ok(())
     }
 
     fn verify(
         &self,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> SnarkResult<()> {
+        if !self.contiguous {
+            return Ok(());
+        }
+        let output = output_table(gadget_ready_ir.payload_for_node(&id))?;
+        let activator = output
+            .activator_tracked_poly()
+            .ok_or_else(|| check_failed("the output has no activator"))?;
+        let count = verifier.track_next_mv_com()?;
+        let active_count = match count.as_constant() {
+            Some(value) if count.log_size() == 0 => {
+                field_to_usize(value, "the compaction output's active-row count")?
+            }
+            _ => {
+                return Err(check_failed(
+                    "the active-row count is not a committed scalar",
+                ));
+            }
+        };
+        let prefix = activator
+            .tracker()
+            .borrow_mut()
+            .get_or_build_contig_one_poly(output.log_size(), active_count)?;
+        verifier.add_mv_zerocheck_claim((&activator - &prefix).id());
         Ok(())
     }
 
@@ -176,7 +257,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(contigous: bool) -> Self
+    pub fn new(contiguous: bool) -> Self
     where
         Self: Sized,
     {
@@ -188,11 +269,27 @@ impl<B: SnarkBackend> GadgetNode<B> {
             crate::irs::nodes::utils::perm::GadgetNode::new(),
         )));
         Self {
-            contigous,
+            contiguous,
             bool_check_gadget,
             perm_check_gadget,
         }
     }
+}
+
+fn output_table<T: Clone>(payload: Option<&PayloadStructure<T>>) -> SnarkResult<T> {
+    match payload {
+        Some(PayloadStructure::GadgetPayload(payload)) => payload
+            .get(OUTPUT_LABEL)
+            .cloned()
+            .ok_or_else(|| check_failed("the payload has no output table")),
+        _ => Err(check_failed("the gadget has no payload")),
+    }
+}
+
+fn check_failed(msg: &str) -> SnarkError {
+    SnarkError::VerifierError(VerifierError::VerifierCheckFailed(format!(
+        "CompactionCheck: {msg}"
+    )))
 }
 
 fn bool_table_from_output_prover<B: SnarkBackend>(output: &TrackedTable<B>) -> TrackedTable<B> {
