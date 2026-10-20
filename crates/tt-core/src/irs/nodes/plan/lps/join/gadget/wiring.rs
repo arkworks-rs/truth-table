@@ -164,9 +164,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        nodup_payload
-            .entry(nodup::INPUT_LABEL.to_string())
-            .or_insert(nodup_table);
+        // The source pairs the provenance lookups use (paper PIOP 18, step 5),
+        // replacing the planning hint, which only seeds the sort hints.
+        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
         virtualized_ir.set_payload_for_node(
             gadgets.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
@@ -249,6 +249,12 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 }
             };
             selected.insert(field.clone(), poly.clone());
+            for (segment, poly) in cols
+                .iter()
+                .filter(|(segment, _)| is_value_segment_of(segment.name(), field.name()))
+            {
+                selected.insert(segment.clone(), poly.clone());
+            }
         }
         let schema = table.schema_ref().map(|schema| {
             let fields: Vec<Field> = selected
@@ -299,6 +305,12 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 }
             };
             selected.insert(field.clone(), oracle.clone());
+            for (segment, oracle) in cols
+                .iter()
+                .filter(|(segment, _)| is_value_segment_of(segment.name(), field.name()))
+            {
+                selected.insert(segment.clone(), oracle.clone());
+            }
         }
         let schema = table.schema_ref().map(|schema| {
             let fields: Vec<Field> = selected
@@ -502,9 +514,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        nodup_payload
-            .entry(nodup::INPUT_LABEL.to_string())
-            .or_insert(nodup_table);
+        // The source pairs the provenance lookups use (paper PIOP 18, step 5),
+        // replacing the planning hint, which only seeds the sort hints.
+        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
         virtualized_ir.set_payload_for_node(
             gadgets.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
@@ -538,4 +550,13 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(match_payload)),
         );
     }
+}
+
+/// Whether `name` is a non-primary row-domain value segment of `base`, such
+/// as a string's further hash slots and `__length`, which the key union
+/// encodes too. Fingerprint limbs are left out: the union has none.
+fn is_value_segment_of(name: &str, base: &str) -> bool {
+    name != base
+        && arithmetic::encoding::is_segment_of(name, base)
+        && !name[base.len()..].starts_with(arithmetic::encoding::STRING_FINGERPRINT_LIMB_PREFIX)
 }

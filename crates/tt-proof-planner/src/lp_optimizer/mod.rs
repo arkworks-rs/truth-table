@@ -43,6 +43,10 @@ pub fn rules(_session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send 
         Arc::new(PropagateEmptyRelation::new()),
         // Must be after PropagateEmptyRelation
         Arc::new(EliminateOneUnion::new()),
+        // A LEFT join under a filter that rejects NULLs from its right side
+        // (decorrelated scalar subqueries, TPC-H Q2 and Q17) is an INNER join;
+        // the join protocols prove inner joins only.
+        Arc::new(datafusion::optimizer::eliminate_outer_join::EliminateOuterJoin::new()),
         // Filters can't be pushed down past Limits, we should do PushDownFilter after PushDownLimit
         Arc::new(PushDownLimit::new()),
         Arc::new(PushDownFilter::new()),

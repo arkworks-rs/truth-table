@@ -1,4 +1,4 @@
-use crate::irs::nodes::utils::field_to_usize;
+use crate::irs::nodes::utils::{commit_with_tracker, field_to_usize, track_next_committed};
 use std::{
     any::Any,
     collections::BTreeSet,
@@ -570,11 +570,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             else {
                 return Ok(());
             };
+            // The output activator is the public C_{µ,s} (paper PIOP 18, step 1);
+            // `s` is committed, so it is in the transcript.
             let active_rows = self.cached_full_materialized_active_rows();
-            let key = full_materialized_active_rows_misc_key(id, virtualized_ir.tree());
-            tracker_rc
-                .borrow_mut()
-                .insert_miscellaneous_field(key, B::F::from(active_rows as u64));
+            commit_with_tracker(&tracker_rc, 0, vec![B::F::from(active_rows as u64)])?;
             let contig_activator = tracker_rc
                 .borrow_mut()
                 .get_or_build_contig_one_poly(current_table.log_size(), active_rows)?;
@@ -1060,9 +1059,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             else {
                 return Ok(());
             };
-            let key = full_materialized_active_rows_misc_key(id, virtualized_ir.tree());
-            let active_rows_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
-            let active_rows = field_to_usize(active_rows_field, "join contig n")?;
+            let count = track_next_committed(&tracker_rc)?;
+            let active_rows = match count.as_constant() {
+                Some(value) if count.log_size() == 0 => {
+                    field_to_usize(value, "the join's output row count")?
+                }
+                _ => {
+                    return Err(ark_piop::errors::SnarkError::VerifierError(
+                        ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
+                            "the join's output row count is not a committed scalar".to_string(),
+                        ),
+                    ));
+                }
+            };
             let contig_activator = tracker_rc
                 .borrow_mut()
                 .get_or_build_contig_one_poly(current_table.log_size(), active_rows)?;
@@ -1164,6 +1173,20 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         } else {
             panic!("Expected Join LogicalPlan");
         };
+        // Both join protocols prove inner equijoins without a residual filter.
+        assert!(
+            join.join_type == datafusion_expr::JoinType::Inner
+                && !join.on.is_empty()
+                && join.filter.is_none(),
+            "only inner equijoins without a join filter are supported, got {} join with {} keys{}",
+            join.join_type,
+            join.on.len(),
+            if join.filter.is_some() {
+                " and a filter"
+            } else {
+                ""
+            },
+        );
         // Every join starts as MANY_TO_MANY. The `PkFkSpecialization`
         // pp_optimizer rule upgrades the ones whose PK/FK metadata supports a
         // specialized protocol; without the rule they all stay MANY_TO_MANY.
@@ -1228,49 +1251,6 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     fn lp(&self) -> LogicalPlan {
         LogicalPlan::Join(self.join.clone())
     }
-}
-
-const JOIN_FULL_MATERIALIZED_ACTIVE_ROWS_PREFIX: &str = "join_full_materialized_active_rows";
-
-fn full_materialized_active_rows_misc_key<B: SnarkBackend>(
-    target_id: crate::irs::nodes::NodeId,
-    tree: &Tree<B>,
-) -> String {
-    fn dfs_rank<B: SnarkBackend>(
-        node: &Arc<Node<B>>,
-        target_id: crate::irs::nodes::NodeId,
-        rank: &mut usize,
-        found: &mut Option<usize>,
-    ) {
-        if found.is_some() {
-            return;
-        }
-        let is_join_plan = matches!(node.as_ref(), Node::Plan(_)) && node.name() == "Join";
-        if is_join_plan {
-            if node.id() == target_id {
-                *found = Some(*rank);
-                return;
-            }
-            *rank += 1;
-        }
-        for child in node.children() {
-            dfs_rank(&child, target_id, rank, found);
-            if found.is_some() {
-                return;
-            }
-        }
-    }
-
-    let mut rank = 0usize;
-    let mut found = None;
-    dfs_rank(tree.root(), target_id, &mut rank, &mut found);
-    let join_rank = found.unwrap_or_else(|| {
-        panic!(
-            "Join node id {:?} was not found while computing misc key",
-            target_id
-        )
-    });
-    format!("{JOIN_FULL_MATERIALIZED_ACTIVE_ROWS_PREFIX}_{join_rank}")
 }
 
 fn append_activator_prover<B: SnarkBackend>(

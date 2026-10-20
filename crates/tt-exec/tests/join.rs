@@ -57,3 +57,22 @@ ON
     l1.l_orderkey = l2.l_orderkey
 "#,
 ]);
+
+// Many-to-many joins: no side is joined on its primary key.
+end_to_end_tests!(&["nation"] => [
+    many_to_many_int_key => r#"SELECT n1.n_name, n2.n_name FROM nation n1 JOIN nation n2 ON n1.n_regionkey = n2.n_regionkey"#,
+    many_to_many_string_key => r#"SELECT n1.n_nationkey, n2.n_regionkey FROM nation n1 JOIN nation n2 ON n1.n_name = n2.n_name"#,
+    many_to_many_two_keys => r#"SELECT n1.n_nationkey, n2.n_nationkey FROM nation n1 JOIN nation n2 ON n1.n_regionkey = n2.n_regionkey AND n1.n_name = n2.n_name"#,
+    many_to_many_filtered_side => r#"SELECT n1.n_name, n2.n_name FROM nation n1 JOIN nation n2 ON n1.n_regionkey = n2.n_regionkey WHERE n1.n_nationkey < 7"#,
+]);
+
+#[tokio::test]
+#[should_panic(expected = "only inner equijoins")]
+async fn left_join_is_not_supported() {
+    let _ = tt_exec::test_utils::prove_and_verify_query(
+        r#"SELECT n.n_name, r.r_name FROM nation n LEFT JOIN region r ON n.n_regionkey = r.r_regionkey"#,
+        &["nation", "region"],
+        None,
+    )
+    .await;
+}
