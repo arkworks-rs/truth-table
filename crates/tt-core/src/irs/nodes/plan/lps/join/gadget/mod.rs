@@ -17,7 +17,7 @@ use ark_piop::verifier::structs::oracle::TrackedOracle;
 use ark_piop::{SnarkBackend, piop::PIOP};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion::prelude::lit;
-use datafusion_expr::Join;
+use datafusion_expr::{Expr, Join};
 use either::Either;
 use indexmap::IndexMap;
 use std::cell::RefCell;
@@ -671,14 +671,9 @@ fn build_prover_source_hint(
     crate::irs::nodes::hints::HintDF::new(df, should_materialize)
 }
 
+/// Virtual: the gadget replaces it with the committed source columns.
 fn build_nodup_input_hint(df: datafusion::prelude::DataFrame) -> crate::irs::nodes::hints::HintDF {
-    let should_materialize = df
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| (field.clone(), field.name() != arithmetic::ROW_ID_COL_NAME))
-        .collect();
-    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
+    crate::irs::nodes::hints::HintDF::new_virtual(df)
 }
 
 fn build_verifier_nodup_input_hint() -> crate::irs::nodes::hints::HintDF {
@@ -688,6 +683,53 @@ fn build_verifier_nodup_input_hint() -> crate::irs::nodes::hints::HintDF {
         arithmetic::ACTIVATOR_FIELD.as_ref().clone(),
         arithmetic::ROW_ID_FIELD.as_ref().clone(),
     ]))
+}
+
+/// The output columns that must agree on every active output row: each
+/// encoded segment of a left join key with the right key's segment of the
+/// same suffix. Paper PIOP 18 shares one key column `Ô.k` between the two
+/// provenance lookups; the output carries both sides' keys, so they are
+/// zerochecked equal. Fingerprint limbs are left out: their bins depend on
+/// the column, and equal hashes already mean equal strings.
+fn key_segment_pairs<T>(
+    join: &datafusion_expr::Join,
+    left_cols: &IndexMap<FieldRef, T>,
+    right_cols: &IndexMap<FieldRef, T>,
+) -> ark_piop::errors::SnarkResult<Vec<(FieldRef, FieldRef)>> {
+    let key_error = |msg: String| {
+        ark_piop::errors::SnarkError::VerifierError(
+            ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(msg),
+        )
+    };
+    let mut pairs = Vec::new();
+    for (left_key, right_key) in &join.on {
+        let (Expr::Column(left_key), Expr::Column(right_key)) = (left_key, right_key) else {
+            return Err(key_error("join keys must be columns".to_string()));
+        };
+        let segments_before = pairs.len();
+        for left in left_cols.keys() {
+            if !arithmetic::encoding::is_segment_of(left.name(), &left_key.name) {
+                continue;
+            }
+            let suffix = &left.name()[left_key.name.len()..];
+            if suffix.starts_with(arithmetic::encoding::STRING_FINGERPRINT_LIMB_PREFIX) {
+                continue;
+            }
+            let right_name = format!("{}{suffix}", right_key.name);
+            let right = right_cols
+                .keys()
+                .find(|field| field.name() == &right_name)
+                .ok_or_else(|| key_error(format!("join output has no column {right_name}")))?;
+            pairs.push((left.clone(), right.clone()));
+        }
+        if pairs.len() == segments_before {
+            return Err(key_error(format!(
+                "join output has no column {}",
+                left_key.name
+            )));
+        }
+    }
+    Ok(pairs)
 }
 
 fn lookup_fold_challenges_prover<B: SnarkBackend>(
@@ -1178,6 +1220,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 output_lookup_base_from_output(&output, &left_table, &right_table, true);
             let output_right_base =
                 output_lookup_base_from_output(&output, &left_table, &right_table, false);
+            let activator = output
+                .activator_tracked_poly()
+                .expect("Join output should carry an activator column");
+            let left_cols = output_left_base.tracked_polys();
+            let right_cols = output_right_base.tracked_polys();
+            for (left, right) in key_segment_pairs(&self.join, &left_cols, &right_cols)? {
+                prover.add_mv_zerocheck_claim(
+                    (&(&left_cols[&left] - &right_cols[&right]) * &activator).id(),
+                )?;
+            }
             // The left-side columns of every output row come from one row of
             // the left input: look up
             //   [output activator | left-side output columns, src_left] in
@@ -1388,6 +1440,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true);
             let output_right_base =
                 output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false);
+            let activator = output
+                .activator_tracked_poly()
+                .expect("Join output should carry an activator column");
+            let left_cols = output_left_base.tracked_oracles();
+            let right_cols = output_right_base.tracked_oracles();
+            for (left, right) in key_segment_pairs(&self.join, &left_cols, &right_cols)? {
+                verifier.add_mv_zerocheck_claim(
+                    (&(&left_cols[&left] - &right_cols[&right]) * &activator).id(),
+                );
+            }
             let output_left = append_tracked_oracle(
                 &output_left_base,
                 Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
