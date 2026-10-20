@@ -24,8 +24,6 @@
 //! matching.
 
 use crate::session::session_context;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use arithmetic::{
@@ -41,10 +39,9 @@ use arithmetic::{
 use ark_ff::{BigInteger, PrimeField};
 use ark_piop::{
     SnarkBackend,
-    arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
-    prover::{structs::polynomial::TrackedPoly, tracker::ProverTracker},
-    verifier::{structs::oracle::TrackedOracle, tracker::VerifierTracker},
+    prover::structs::polynomial::TrackedPoly,
+    verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::arrow::{
     array::{Array, ArrayRef, Int64Array},
@@ -54,9 +51,9 @@ use datafusion::arrow::{
 use datafusion::datasource::MemTable;
 use datafusion_common::{Result as DataFusionResult, ScalarValue, Statistics};
 use datafusion_expr::{Expr, Like};
-use either::Either;
 use indexmap::IndexMap;
 
+use crate::irs::nodes::utils::{commit_with_tracker, track_next_committed};
 use crate::irs::{
     nodes::{
         IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -193,49 +190,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     }
 }
 
-/// Commits through the tracker directly, because `add_virtual_witness` has
-/// no `ArgProver`. `track_and_commit_mat_mv_p` picks the tightest
-/// `MLEStorage` variant for `evals`.
-fn commit_prover<B: SnarkBackend>(
-    tracker_rc: &Rc<RefCell<ProverTracker<B>>>,
-    log_size: usize,
-    evals: Vec<B::F>,
-) -> SnarkResult<TrackedPoly<B>> {
-    let mle = MLE::from_evaluations_vec(log_size, evals);
-    let num_vars = mle.num_vars();
-    let result = tracker_rc
-        .borrow_mut()
-        .track_and_commit_mat_mv_p(&mle, false)?;
-    Ok(match result {
-        Either::Left(id) => TrackedPoly::new(Either::Left(id), num_vars, tracker_rc.clone()),
-        Either::Right((id, cnst)) => {
-            TrackedPoly::new_committed_constant(cnst, id, num_vars, tracker_rc.clone())
-        }
-    })
-}
-
-fn track_next_verifier<B: SnarkBackend>(
-    tracker_rc: &Rc<RefCell<VerifierTracker<B>>>,
-) -> SnarkResult<TrackedOracle<B>> {
-    let id = tracker_rc.borrow_mut().peek_next_id();
-    let maybe_cnst = tracker_rc.borrow().proof_mv_constant(id);
-    if let Some(cnst) = maybe_cnst {
-        let (nv, tid) = tracker_rc.borrow_mut().track_mv_com_by_id(id)?;
-        return Ok(TrackedOracle::new_committed_constant(
-            cnst,
-            tid,
-            tracker_rc.clone(),
-            nv,
-        ));
-    }
-    let (nv, tid) = tracker_rc.borrow_mut().track_mv_com_by_id(id)?;
-    Ok(TrackedOracle::new(
-        Either::Left(tid),
-        tracker_rc.clone(),
-        nv,
-    ))
-}
-
 impl<B: SnarkBackend> ExprNode<B> {
     /// Commits `a_new`, which the parent Filter's `add_virtual_witness`
     /// reads. The full witness is computed here and again in
@@ -263,7 +217,7 @@ impl<B: SnarkBackend> ExprNode<B> {
         let tracker_rc = chars_side.data.tracker();
 
         let witness = self.scan_and_compute_witness_prover(&scope_table, &chars_side);
-        let a_new = commit_prover(&tracker_rc, str_domain, witness.a_new.clone())?;
+        let a_new = commit_with_tracker(&tracker_rc, str_domain, witness.a_new.clone())?;
 
         // Own PlanPayload = a_new + activator + row_id (so Filter sees it).
         let mut merged: IndexMap<FieldRef, TrackedPoly<B>> = IndexMap::new();
@@ -455,9 +409,11 @@ impl<B: SnarkBackend> ExprNode<B> {
 
         // The verifier tracks the rest in exactly this commit order.
         let char_act_old_prime =
-            commit_prover(&tracker_rc, char_domain, witness.char_act_old_prime.clone())?;
-        let a_old_prime = commit_prover(&tracker_rc, str_domain, witness.a_old_prime.clone())?;
-        let char_act_new = commit_prover(&tracker_rc, char_domain, witness.char_act_new.clone())?;
+            commit_with_tracker(&tracker_rc, char_domain, witness.char_act_old_prime.clone())?;
+        let a_old_prime =
+            commit_with_tracker(&tracker_rc, str_domain, witness.a_old_prime.clone())?;
+        let char_act_new =
+            commit_with_tracker(&tracker_rc, char_domain, witness.char_act_new.clone())?;
 
         struct FactorPolys<B: SnarkBackend> {
             rotated_chars: Vec<TrackedPoly<B>>,
@@ -480,40 +436,41 @@ impl<B: SnarkBackend> ExprNode<B> {
         // gadget proofs in `FactorPlacement`, not its commitments.
         let mut shared_rotated_chars = Vec::with_capacity(witness.rotated_chars.len());
         for col in witness.rotated_chars.iter() {
-            shared_rotated_chars.push(commit_prover(&tracker_rc, char_domain, col.clone())?);
+            shared_rotated_chars.push(commit_with_tracker(&tracker_rc, char_domain, col.clone())?);
         }
         let mut shared_rotated_bnd = Vec::with_capacity(witness.rotated_bnd.len());
         for col in witness.rotated_bnd.iter() {
-            shared_rotated_bnd.push(commit_prover(&tracker_rc, char_domain, col.clone())?);
+            shared_rotated_bnd.push(commit_with_tracker(&tracker_rc, char_domain, col.clone())?);
         }
 
         let mut per_factor_polys: Vec<FactorPolys<B>> = Vec::with_capacity(self.factors.len());
         for ((pat, mode), fw) in self.factors.iter().zip(witness.per_factor.iter()) {
             let k = pat.len();
             let rotated_chars = shared_rotated_chars[..k].to_vec();
-            let occurs = commit_prover(&tracker_rc, char_domain, fw.occurs.clone())?;
-            let match_str = commit_prover(&tracker_rc, str_domain, fw.match_str.clone())?;
-            let mark = commit_prover(&tracker_rc, char_domain, fw.mark.clone())?;
-            let start = commit_prover(&tracker_rc, str_domain, fw.start.clone())?;
+            let occurs = commit_with_tracker(&tracker_rc, char_domain, fw.occurs.clone())?;
+            let match_str = commit_with_tracker(&tracker_rc, str_domain, fw.match_str.clone())?;
+            let mark = commit_with_tracker(&tracker_rc, char_domain, fw.mark.clone())?;
+            let start = commit_with_tracker(&tracker_rc, str_domain, fw.start.clone())?;
             let match_broadcast =
-                commit_prover(&tracker_rc, char_domain, fw.match_broadcast.clone())?;
+                commit_with_tracker(&tracker_rc, char_domain, fw.match_broadcast.clone())?;
             let start_broadcast =
-                commit_prover(&tracker_rc, char_domain, fw.start_broadcast.clone())?;
-            let leftmost_mask = commit_prover(&tracker_rc, char_domain, fw.leftmost_mask.clone())?;
+                commit_with_tracker(&tracker_rc, char_domain, fw.start_broadcast.clone())?;
+            let leftmost_mask =
+                commit_with_tracker(&tracker_rc, char_domain, fw.leftmost_mask.clone())?;
             let rotated_bnd = match mode {
                 Mode::Infix | Mode::Suffix if k >= 2 => Some(shared_rotated_bnd[..k - 1].to_vec()),
                 _ => None,
             };
             let rotated_int_ind = match &fw.rotated_int_ind {
-                Some(col) => Some(commit_prover(&tracker_rc, char_domain, col.clone())?),
+                Some(col) => Some(commit_with_tracker(&tracker_rc, char_domain, col.clone())?),
                 None => None,
             };
             let end = match &fw.end {
-                Some(col) => Some(commit_prover(&tracker_rc, char_domain, col.clone())?),
+                Some(col) => Some(commit_with_tracker(&tracker_rc, char_domain, col.clone())?),
                 None => None,
             };
             let past = if let Some(p) = &fw.past {
-                Some(commit_prover(&tracker_rc, char_domain, p.clone())?)
+                Some(commit_with_tracker(&tracker_rc, char_domain, p.clone())?)
             } else {
                 None
             };
@@ -575,7 +532,8 @@ impl<B: SnarkBackend> ExprNode<B> {
                     let evals: Vec<B::F> = (0..(1usize << str_domain))
                         .map(|i| B::F::from(i as u64))
                         .collect();
-                    commit_prover(&tracker_rc, str_domain, evals).expect("commit ind fallback")
+                    commit_with_tracker(&tracker_rc, str_domain, evals)
+                        .expect("commit ind fallback")
                 });
             polys.insert(ind_f.clone(), ind_poly);
             polys.insert(l_f.clone(), length_poly.clone());
@@ -793,7 +751,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .expect("Like verifier: no __chars side oracle in scope");
         let tracker_rc = chars_side.data.tracker();
 
-        let a_new = track_next_verifier(&tracker_rc)?;
+        let a_new = track_next_committed(&tracker_rc)?;
 
         let mut merged: IndexMap<FieldRef, TrackedOracle<B>> = IndexMap::new();
         merged.insert(self.output_field(), a_new);
@@ -877,9 +835,9 @@ impl<B: SnarkBackend> ExprNode<B> {
             .expect("Like verifier: a_new must be tracked by add_virtual_witness");
 
         // The rest, in the prover's commit order.
-        let char_act_old_prime = track_next_verifier(&tracker_rc)?;
-        let a_old_prime = track_next_verifier(&tracker_rc)?;
-        let char_act_new = track_next_verifier(&tracker_rc)?;
+        let char_act_old_prime = track_next_committed(&tracker_rc)?;
+        let a_old_prime = track_next_committed(&tracker_rc)?;
+        let char_act_new = track_next_committed(&tracker_rc)?;
 
         struct FactorOracles<B: SnarkBackend> {
             rotated_chars: Vec<TrackedOracle<B>>,
@@ -901,7 +859,7 @@ impl<B: SnarkBackend> ExprNode<B> {
         let max_k = self.factors.iter().map(|(p, _)| p.len()).max().unwrap_or(0);
         let mut shared_rotated_chars = Vec::with_capacity(max_k);
         for _ in 0..max_k {
-            shared_rotated_chars.push(track_next_verifier(&tracker_rc)?);
+            shared_rotated_chars.push(track_next_committed(&tracker_rc)?);
         }
         let max_bnd_k = self
             .factors
@@ -912,20 +870,20 @@ impl<B: SnarkBackend> ExprNode<B> {
             .unwrap_or(0);
         let mut shared_rotated_bnd = Vec::with_capacity(max_bnd_k.saturating_sub(1));
         for _ in 1..max_bnd_k {
-            shared_rotated_bnd.push(track_next_verifier(&tracker_rc)?);
+            shared_rotated_bnd.push(track_next_committed(&tracker_rc)?);
         }
 
         let mut per_factor_oracles: Vec<FactorOracles<B>> = Vec::with_capacity(self.factors.len());
         for (j, (pat, mode)) in self.factors.iter().enumerate() {
             let k = pat.len();
             let rotated_chars = shared_rotated_chars[..k].to_vec();
-            let occurs = track_next_verifier(&tracker_rc)?;
-            let match_str = track_next_verifier(&tracker_rc)?;
-            let mark = track_next_verifier(&tracker_rc)?;
-            let start = track_next_verifier(&tracker_rc)?;
-            let match_broadcast = track_next_verifier(&tracker_rc)?;
-            let start_broadcast = track_next_verifier(&tracker_rc)?;
-            let leftmost_mask = track_next_verifier(&tracker_rc)?;
+            let occurs = track_next_committed(&tracker_rc)?;
+            let match_str = track_next_committed(&tracker_rc)?;
+            let mark = track_next_committed(&tracker_rc)?;
+            let start = track_next_committed(&tracker_rc)?;
+            let match_broadcast = track_next_committed(&tracker_rc)?;
+            let start_broadcast = track_next_committed(&tracker_rc)?;
+            let leftmost_mask = track_next_committed(&tracker_rc)?;
             let rotated_bnd = if matches!(mode, Mode::Infix | Mode::Suffix) && k >= 2 {
                 Some(shared_rotated_bnd[..k - 1].to_vec())
             } else {
@@ -933,14 +891,14 @@ impl<B: SnarkBackend> ExprNode<B> {
             };
             let (rotated_int_ind, end) = if matches!(mode, Mode::Suffix) {
                 (
-                    Some(track_next_verifier(&tracker_rc)?),
-                    Some(track_next_verifier(&tracker_rc)?),
+                    Some(track_next_committed(&tracker_rc)?),
+                    Some(track_next_committed(&tracker_rc)?),
                 )
             } else {
                 (None, None)
             };
             let past = if j + 1 < self.factors.len() {
-                Some(track_next_verifier(&tracker_rc)?)
+                Some(track_next_committed(&tracker_rc)?)
             } else {
                 None
             };
@@ -999,7 +957,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 .tracked_oracles_iter()
                 .find(|(f, _)| f.name() == ROW_ID_COL_NAME)
                 .map(|(_, p)| p.clone())
-                .unwrap_or_else(|| track_next_verifier(&tracker_rc).expect("track ind fallback"));
+                .unwrap_or_else(|| track_next_committed(&tracker_rc).expect("track ind fallback"));
             oracles.insert(ind_f.clone(), ind_oracle);
             oracles.insert(length_field.clone(), length_oracle.clone());
             oracles.insert(

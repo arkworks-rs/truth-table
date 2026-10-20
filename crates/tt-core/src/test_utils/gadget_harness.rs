@@ -282,21 +282,16 @@ fn materialize_verifier_table<B: SnarkBackend>(
 /// parent fills its children's payloads) and `prove` / `verify` in
 /// post-order, so composite gadgets work.
 pub fn run_gadget_pipeline<B: SnarkBackend>(harness: GadgetHarness<B>) -> Result<(), SnarkError> {
-    run_gadget_pipeline_to_verifier(harness, |_| {})?
+    run_gadget_pipeline_to_verifier(harness)?
 }
 
-/// [`run_gadget_pipeline`], with `mutate_proof` applied to the proof before
-/// the verifier sees it. The outer result is every step up to verification,
-/// the inner one the verifier's verdict: a rejection test unwraps the outer
-/// one, so a prover-side failure cannot pass for a rejection.
-pub fn run_gadget_pipeline_to_verifier<B, M>(
+/// [`run_gadget_pipeline`], with every step up to verification in the outer
+/// result and the verifier's verdict in the inner one: a rejection test
+/// unwraps the outer one, so a prover-side failure cannot pass for a
+/// rejection.
+pub fn run_gadget_pipeline_to_verifier<B: SnarkBackend>(
     mut harness: GadgetHarness<B>,
-    mutate_proof: M,
-) -> Result<Result<(), SnarkError>, SnarkError>
-where
-    B: SnarkBackend,
-    M: FnOnce(&mut ark_piop::prover::structs::proof::SNARKProof<B>),
-{
+) -> Result<Result<(), SnarkError>, SnarkError> {
     let tree = harness.prover_ir.tree().clone();
     let pre_order: Vec<_> = collect_pre_order(&tree);
 
@@ -322,8 +317,7 @@ where
         }
     }
 
-    let mut proof = harness.prover.build_proof()?;
-    mutate_proof(&mut proof);
+    let proof = harness.prover.build_proof()?;
     harness.verifier.set_proof(proof);
 
     // `track_mv_com_by_id` resolves ids in the proof, so the verifier's

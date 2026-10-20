@@ -28,14 +28,51 @@ pub mod sweep_factors;
 
 use std::sync::Arc;
 
+use std::{cell::RefCell, rc::Rc};
+
 use ark_ff::{BigInteger, PrimeField};
 use ark_piop::{
     SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
-    prover::structs::polynomial::TrackedPoly,
-    verifier::{errors::VerifierError, structs::oracle::TrackedOracle},
+    prover::{structs::polynomial::TrackedPoly, tracker::ProverTracker},
+    verifier::{errors::VerifierError, structs::oracle::TrackedOracle, tracker::VerifierTracker},
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef};
+use either::Either;
+
+/// Commits `evals` through the tracker, for `add_virtual_witness`, which has
+/// no `ArgProver`. The verifier reads it back with [`track_next_committed`]
+/// at the same point of its own pass.
+pub(crate) fn commit_with_tracker<B: SnarkBackend>(
+    tracker_rc: &Rc<RefCell<ProverTracker<B>>>,
+    log_size: usize,
+    evals: Vec<B::F>,
+) -> SnarkResult<TrackedPoly<B>> {
+    let mle = MLE::from_evaluations_vec(log_size, evals);
+    let num_vars = mle.num_vars();
+    let result = tracker_rc
+        .borrow_mut()
+        .track_and_commit_mat_mv_p(&mle, false)?;
+    Ok(match result {
+        Either::Left(id) => TrackedPoly::new(Either::Left(id), num_vars, tracker_rc.clone()),
+        Either::Right((id, cnst)) => {
+            TrackedPoly::new_committed_constant(cnst, id, num_vars, tracker_rc.clone())
+        }
+    })
+}
+
+pub(crate) fn track_next_committed<B: SnarkBackend>(
+    tracker_rc: &Rc<RefCell<VerifierTracker<B>>>,
+) -> SnarkResult<TrackedOracle<B>> {
+    let id = tracker_rc.borrow_mut().peek_next_id();
+    let maybe_cnst = tracker_rc.borrow().proof_mv_constant(id);
+    let (nv, tid) = tracker_rc.borrow_mut().track_mv_com_by_id(id)?;
+    Ok(match maybe_cnst {
+        Some(cnst) => TrackedOracle::new_committed_constant(cnst, tid, tracker_rc.clone(), nv),
+        None => TrackedOracle::new(Either::Left(tid), tracker_rc.clone(), nv),
+    })
+}
 
 /// `p` as a polynomial of `log_size` variables.
 pub(crate) fn resize_poly<B: SnarkBackend>(p: &TrackedPoly<B>, log_size: usize) -> TrackedPoly<B> {

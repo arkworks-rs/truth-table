@@ -1,7 +1,8 @@
 use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::ROW_ID_COL_NAME;
-use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_piop::SnarkBackend;
+use arithmetic::{ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle};
+use ark_ff::One;
+use ark_piop::{SnarkBackend, errors::SnarkError, verifier::errors::VerifierError};
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
@@ -10,7 +11,10 @@ use std::sync::Arc;
 use crate::irs::nodes::hints::HintDF;
 use crate::{
     irs::{
-        nodes::{IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
+        nodes::{
+            IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
+            utils::{commit_with_tracker, field_to_usize, track_next_committed},
+        },
         payloads::PayloadStructure,
         tree::Tree,
     },
@@ -75,11 +79,47 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
+    /// The output activator is the public `C_{µ,s}` for the input's active
+    /// count `s` (paper PIOP 14, step 1), so it is never committed. `s` is,
+    /// which puts it in the transcript before any challenge.
     fn add_virtual_witness(
         &self,
-        _id: NodeId,
-        _virtualized_ir: &mut ProverVirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::PlanPayload(input)) =
+            virtualized_ir.payload_for_node(&self.input.id())
+        else {
+            return Ok(());
+        };
+        let Some(input_act) = input.activator_tracked_poly() else {
+            return Ok(());
+        };
+        let Some(PayloadStructure::PlanPayload(output)) = virtualized_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let output = output.clone();
+        let s = input_act
+            .evaluations()
+            .iter()
+            .filter(|value| value.is_one())
+            .count();
+        let tracker_rc = input_act.tracker();
+        commit_with_tracker(&tracker_rc, 0, vec![B::F::from(s as u64)])?;
+        let activator = tracker_rc
+            .borrow_mut()
+            .get_or_build_contig_one_poly(output.log_size(), s)?;
+
+        let mut polys = output.tracked_polys();
+        polys.insert(ACTIVATOR_FIELD.clone(), activator);
+        let updated = TrackedTable::new_with_side_cols(
+            with_activator_field(output.schema_ref()),
+            polys,
+            output.log_size(),
+            output.side_cols(),
+        );
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated)));
         Ok(())
     }
 
@@ -180,9 +220,49 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
-        _id: NodeId,
-        _virtualized_ir: &mut VerifierVirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::PlanPayload(input)) =
+            virtualized_ir.payload_for_node(&self.input.id())
+        else {
+            return Ok(());
+        };
+        let Some(input_act) = input.activator_tracked_poly() else {
+            return Ok(());
+        };
+        let Some(PayloadStructure::PlanPayload(output)) = virtualized_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let output = output.clone();
+        let tracker_rc = input_act.tracker();
+        let count = track_next_committed(&tracker_rc)?;
+        let s = match count.as_constant() {
+            Some(value) if count.log_size() == 0 => {
+                field_to_usize(value, "the sort output's active-row count")?
+            }
+            _ => {
+                return Err(SnarkError::VerifierError(
+                    VerifierError::VerifierCheckFailed(
+                        "the sort output's active-row count is not a committed scalar".to_string(),
+                    ),
+                ));
+            }
+        };
+        let activator = tracker_rc
+            .borrow_mut()
+            .get_or_build_contig_one_poly(output.log_size(), s)?;
+
+        let mut oracles = output.tracked_oracles();
+        oracles.insert(ACTIVATOR_FIELD.clone(), activator);
+        let updated = TrackedTableOracle::new_with_side_cols(
+            with_activator_field(output.schema_ref()),
+            oracles,
+            output.log_size(),
+            output.side_cols(),
+        );
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated)));
         Ok(())
     }
     fn initialize_gadgets(
@@ -532,7 +612,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
         } else {
             output_df
         };
-        HintDF::new_materialized(output_df)
+        hint_with_virtual_activator(output_df)
     }
 }
 
@@ -556,8 +636,28 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .map(|field| field.as_ref().clone())
             .collect();
         let output_df = crate::irs::nodes::hints::schema_only_df(output_fields);
-        HintDF::new_materialized(output_df)
+        hint_with_virtual_activator(output_df)
     }
+}
+
+/// The output's columns, all committed except the activator, which
+/// `add_virtual_witness` installs.
+fn hint_with_virtual_activator(output_df: datafusion::prelude::DataFrame) -> HintDF {
+    let should_materialize = output_df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| (field.clone(), field.name() != ACTIVATOR_COL_NAME))
+        .collect();
+    HintDF::new(output_df, should_materialize)
+}
+
+fn with_activator_field(schema: Option<&Schema>) -> Option<Schema> {
+    schema.map(|schema| {
+        let mut fields: Vec<_> = schema.fields().iter().cloned().collect();
+        fields.push(ACTIVATOR_FIELD.as_ref().clone().into());
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    })
 }
 
 impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {

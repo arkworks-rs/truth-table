@@ -54,6 +54,7 @@ use indexmap::IndexMap;
 use crate::irs::nodes::hints::HintDF;
 use crate::irs::nodes::utils::domain_preserving_update_check as dpuc;
 use crate::irs::nodes::utils::prescr_perm;
+use crate::irs::nodes::utils::{commit_with_tracker, track_next_committed};
 
 /// The prover's plan-time copy of the committed `OFFSET_COL`, which the
 /// composite's sort-based no-dup child sorts during gadget planning. It
@@ -160,40 +161,6 @@ fn field_to_u64<F: PrimeField>(v: F) -> u64 {
     out
 }
 
-fn commit<B: SnarkBackend>(
-    tracker: &Rc<RefCell<ProverTracker<B>>>,
-    log_size: usize,
-    evals: Vec<B::F>,
-) -> SnarkResult<TrackedPoly<B>> {
-    let mle = MLE::from_evaluations_vec(log_size, evals);
-    let nv = mle.num_vars();
-    let result = tracker
-        .borrow_mut()
-        .track_and_commit_mat_mv_p(&mle, false)?;
-    Ok(match result {
-        Either::Left(id) => TrackedPoly::new(Either::Left(id), nv, tracker.clone()),
-        Either::Right((id, c)) => TrackedPoly::new_committed_constant(c, id, nv, tracker.clone()),
-    })
-}
-
-fn track_next<B: SnarkBackend>(
-    tracker: &Rc<RefCell<VerifierTracker<B>>>,
-) -> SnarkResult<TrackedOracle<B>> {
-    let id = tracker.borrow_mut().peek_next_id();
-    let maybe_cnst = tracker.borrow().proof_mv_constant(id);
-    if let Some(cnst) = maybe_cnst {
-        let (nv, tid) = tracker.borrow_mut().track_mv_com_by_id(id)?;
-        return Ok(TrackedOracle::new_committed_constant(
-            cnst,
-            tid,
-            tracker.clone(),
-            nv,
-        ));
-    }
-    let (nv, tid) = tracker.borrow_mut().track_mv_com_by_id(id)?;
-    Ok(TrackedOracle::new(Either::Left(tid), tracker.clone(), nv))
-}
-
 /// The row-domain hash-slot column names of a string column, in slot order
 /// (`base` = slot 0, `base__enc1` = slot 1, …). They are the
 /// collision-resistant string id the permutation binds, which is all the
@@ -298,7 +265,7 @@ fn commit_offset_new<B: SnarkBackend>(
     let offset: Vec<B::F> = (0..orig_ev.len())
         .map(|c| orig_ev[c] * stride + int_ev[c])
         .collect();
-    commit(tracker, char_domain, offset)
+    commit_with_tracker(tracker, char_domain, offset)
 }
 
 /// Broadcast each hash slot to the char level: `hashp[c] =
@@ -331,7 +298,7 @@ fn broadcast_slots<B: SnarkBackend>(
                 hp[c] = hash_ev.get(owner).copied().unwrap_or(B::F::from(0u64));
             }
         }
-        out.push(commit(tracker, char_domain, hp)?);
+        out.push(commit_with_tracker(tracker, char_domain, hp)?);
     }
     Ok(out)
 }
@@ -379,13 +346,13 @@ pub fn track_witnesses_verifier<B: SnarkBackend>(
 
     let mut hashp_new = Vec::with_capacity(nslots);
     for _ in 0..nslots {
-        hashp_new.push(track_next(tracker)?);
+        hashp_new.push(track_next_committed(tracker)?);
     }
     let mut hashp_old = Vec::with_capacity(nslots);
     for _ in 0..nslots {
-        hashp_old.push(track_next(tracker)?);
+        hashp_old.push(track_next_committed(tracker)?);
     }
-    let offset_new = track_next(tracker)?;
+    let offset_new = track_next_committed(tracker)?;
     let idx_old = index_oracle_verifier(tracker, input.log_size());
     let ind_new = index_oracle_verifier(tracker, output.log_size());
 
