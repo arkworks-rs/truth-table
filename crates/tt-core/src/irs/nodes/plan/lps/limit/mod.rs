@@ -1,10 +1,13 @@
-use crate::irs::nodes::utils::field_to_usize;
+use crate::irs::nodes::utils::{commit_with_tracker, field_to_usize, track_next_committed};
 use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
-use ark_piop::SnarkBackend;
-pub mod gadget;
+use ark_piop::{
+    SnarkBackend,
+    errors::{SnarkError, SnarkResult},
+    verifier::{errors::VerifierError, structs::oracle::TrackedOracle},
+};
 mod hints;
 use crate::{
     irs::{
@@ -21,20 +24,13 @@ use crate::{
 use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::Limit;
 use datafusion_expr::LogicalPlan;
-use indexmap::IndexMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
     input: Arc<Node<B>>,
-    gadget: Arc<Node<B>>,
     limit: Limit,
 }
-
-const LIMIT_CONTIG_S_PREFIX: &str = "limit_contig_s";
-const LIMIT_CONTIG_SUM_PREFIX: &str = "limit_contig_sum";
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
@@ -70,7 +66,7 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.input.clone(), self.gadget.clone()]
+        vec![self.input.clone()]
     }
 }
 
@@ -130,33 +126,33 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             }
         };
 
-        // Output activator = input_activator * contig_one(log_size, s), where
-        // `s` is the length of the prefix holding the first `fetch` active rows.
+        // Paper PIOP 15: the output activator is the virtual `Î.a · C_{µ,j}`,
+        // where the prefix `j` holds the first `fetch` active rows, and a
+        // sumcheck proves it has `c` ones. `j` and `c` are committed, so they
+        // are in the transcript, and the verifier checks `c` against `fetch`.
         if let Some(input_act) = input_table.activator_tracked_poly() {
             let fetch = fetch_limit_literal(&self.limit);
-            let s = contig_s_from_fetch(&input_act.evaluations(), fetch, input_table.size());
+            let input_evals = input_act.evaluations();
+            let j = contig_s_from_fetch(&input_evals, fetch, input_table.size());
+            let c = input_evals[..j].iter().copied().sum::<B::F>();
+            // Committed before anything else is tracked, in the order the
+            // verifier reads them.
             let tracker_rc = input_act.tracker();
+            commit_with_tracker(&tracker_rc, 0, vec![B::F::from(j as u64)])?;
+            commit_with_tracker(&tracker_rc, 0, vec![c])?;
             let contig = tracker_rc
                 .borrow_mut()
-                .get_or_build_contig_one_poly(log_size, s)?;
+                .get_or_build_contig_one_poly(log_size, j)?;
             let output_act = &input_act * &contig;
+            tracker_rc
+                .borrow_mut()
+                .add_mv_sumcheck_claim(output_act.id(), c)?;
             let activator_field = merged_polys
                 .keys()
                 .find(|field| field.name() == ACTIVATOR_COL_NAME)
                 .cloned()
                 .unwrap_or_else(|| arithmetic::ACTIVATOR_FIELD.clone());
-            merged_polys.insert(activator_field, output_act.clone());
-
-            let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
-            tracker_rc
-                .borrow_mut()
-                .insert_miscellaneous_field(key, B::F::from(s as u64));
-            // The gadget's sumcheck claims this sum of the output activator.
-            let sum_key = format!("{LIMIT_CONTIG_SUM_PREFIX}_{}", limit_key(&self.limit));
-            let output_sum = output_act.evaluations().iter().copied().sum::<B::F>();
-            tracker_rc
-                .borrow_mut()
-                .insert_miscellaneous_field(sum_key, output_sum);
+            merged_polys.insert(activator_field, output_act);
         }
 
         let updated_table = TrackedTable::new(schema, merged_polys, log_size);
@@ -164,59 +160,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         Ok(())
     }
 
-    /// The gadget takes only the input and the output activator columns.
     fn initialize_gadgets(
         &self,
         _id: NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        virtualized_ir: &mut ProverVirtualizedIr<B>,
+        _virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-            _ => None,
-        };
-        let output_table =
-            virtualized_ir
-                .payload_for_node(&_id)
-                .and_then(|payload| match payload {
-                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                    _ => None,
-                });
-
-        let activator_only = |table: &TrackedTable<B>, col_name: &str| {
-            let idx = table
-                .tracked_polys()
-                .keys()
-                .position(|field| field.name() == ACTIVATOR_COL_NAME)
-                .expect("table should include activator column");
-            let mut output = table.tracked_subtable_by_indices(&[idx]);
-            output.rename_col(0, col_name);
-            output
-        };
-
-        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        if let Some(input) = input_table.as_ref() {
-            gadget_payload.insert(
-                gadget::INPUT_ACTIVATOR_LABEL.to_string(),
-                activator_only(input, "input_activator"),
-            );
-        }
-        if let Some(output) = output_table.as_ref() {
-            gadget_payload.insert(
-                gadget::OUTPUT_ACTIVATOR_LABEL.to_string(),
-                activator_only(output, "output_activator"),
-            );
-        }
-
-        if !gadget_payload.is_empty() {
-            virtualized_ir.set_payload_for_node(
-                self.gadget.id(),
-                Some(PayloadStructure::GadgetPayload(gadget_payload)),
-            );
-        }
         Ok(())
     }
 
@@ -285,16 +234,31 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             }
         };
 
-        // Same mask as the prover, with `s` read from the proof.
         if let Some(input_act) = input_table.activator_tracked_poly() {
             let tracker_rc = input_act.tracker();
-            let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
-            let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
-            let s = field_to_usize(s_field, "limit contig s")?;
+            let j = committed_count(track_next_committed(&tracker_rc)?, "prefix length")?;
+            let c = committed_count(track_next_committed(&tracker_rc)?, "row count")?;
+            // Exactly `fetch` rows, or every active row when there are fewer:
+            // then the prefix is the whole table.
+            let whole_table = j == 1 << log_size;
+            let count_ok = match fetch_limit_literal(&self.limit) {
+                Some(fetch) => c == fetch || (whole_table && c < fetch),
+                None => whole_table,
+            };
+            if !count_ok {
+                return Err(SnarkError::VerifierError(
+                    VerifierError::VerifierCheckFailed(format!(
+                        "LIMIT output has {c} rows over a prefix of {j}"
+                    )),
+                ));
+            }
             let contig = tracker_rc
                 .borrow_mut()
-                .get_or_build_contig_one_poly(log_size, s)?;
+                .get_or_build_contig_one_poly(log_size, j)?;
             let output_act = &input_act * &contig;
+            tracker_rc
+                .borrow_mut()
+                .add_mv_sumcheck_claim(output_act.id(), B::F::from(c as u64));
             let activator_field = merged_polys
                 .keys()
                 .find(|field| field.name() == ACTIVATOR_COL_NAME)
@@ -309,65 +273,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     }
     fn initialize_gadgets(
         &self,
-        id: NodeId,
+        _id: NodeId,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        virtualized_ir: &mut VerifierVirtualizedIr<B>,
+        _virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-            _ => None,
-        };
-        let output_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            });
-
-        let activator_only = |table: &TrackedTableOracle<B>, col_name: &str| {
-            let (field_ref, activator_oracle) = table
-                .tracked_oracles_iter()
-                .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-                .expect("table should include activator column");
-            let renamed_field = Arc::new(datafusion::arrow::datatypes::Field::new(
-                col_name,
-                field_ref.data_type().clone(),
-                field_ref.is_nullable(),
-            ));
-            let mut oracles = IndexMap::new();
-            oracles.insert(renamed_field.clone(), activator_oracle.clone());
-            let schema = table.schema_ref().map(|schema| {
-                Schema::new_with_metadata(
-                    vec![renamed_field.as_ref().clone()],
-                    schema.metadata().clone(),
-                )
-            });
-            TrackedTableOracle::new(schema, oracles, table.log_size())
-        };
-
-        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        if let Some(input) = input_table.as_ref() {
-            gadget_payload.insert(
-                gadget::INPUT_ACTIVATOR_LABEL.to_string(),
-                activator_only(input, "input_activator"),
-            );
-        }
-        if let Some(output) = output_table.as_ref() {
-            gadget_payload.insert(
-                gadget::OUTPUT_ACTIVATOR_LABEL.to_string(),
-                activator_only(output, "output_activator"),
-            );
-        }
-
-        if !gadget_payload.is_empty() {
-            virtualized_ir.set_payload_for_node(
-                self.gadget.id(),
-                Some(PayloadStructure::GadgetPayload(gadget_payload)),
-            );
-        }
         Ok(())
     }
 
@@ -382,7 +291,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
 impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
-        Some(self.gadget.as_ref().clone())
+        None
     }
 }
 
@@ -419,6 +328,17 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     }
 }
 
+fn committed_count<B: SnarkBackend>(count: TrackedOracle<B>, what: &str) -> SnarkResult<usize> {
+    match count.as_constant() {
+        Some(value) if count.log_size() == 0 => field_to_usize(value, what),
+        _ => Err(SnarkError::VerifierError(
+            VerifierError::VerifierCheckFailed(format!(
+                "the LIMIT {what} is not a committed scalar"
+            )),
+        )),
+    }
+}
+
 fn fetch_limit_literal(limit: &Limit) -> Option<usize> {
     match limit.get_fetch_type() {
         Ok(datafusion_expr::FetchType::Literal(Some(val))) => Some(val),
@@ -449,20 +369,6 @@ fn contig_s_from_fetch<F: PrimeField>(
     }
 }
 
-fn limit_key(limit: &Limit) -> u64 {
-    let skip = match limit.get_skip_type() {
-        Ok(datafusion_expr::SkipType::Literal(val)) => Some(val),
-        _ => None,
-    };
-    let fetch = match limit.get_fetch_type() {
-        Ok(datafusion_expr::FetchType::Literal(val)) => val,
-        _ => None,
-    };
-    let mut hasher = DefaultHasher::new();
-    (skip, fetch).hash(&mut hasher);
-    hasher.finish()
-}
-
 fn assert_no_skip(limit: &Limit) {
     match limit.get_skip_type() {
         Ok(datafusion_expr::SkipType::Literal(0)) => {}
@@ -490,15 +396,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
 
         let input = Tree::<B>::from_logical_plan(&limit.input).root().clone();
 
-        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(gadget::GadgetNode::new(
-            limit.clone(),
-        ))));
-
-        Self {
-            input,
-            limit,
-            gadget,
-        }
+        Self { input, limit }
     }
 
     fn lp(&self) -> LogicalPlan {
