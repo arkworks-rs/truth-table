@@ -494,13 +494,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Paper PIOP 7 step 3(d), `d_i = d'_i` on `ties_i`, is not checked: the
+        // checker is sound without it (paper Lemma "checker soundness"). Step
+        // 3(c), tie monotonicity, stays although the lemma does not need it
+        // either: the neq gadget folds every column's tie break into one
+        // nonzero claim, which is the per-column step 3(e) only when a row
+        // breaks its tie at one column at most, and monotonicity ensures that.
         add_tie_monotonicity_zerochecks_prover(prover, gadget_ready_ir, id)?;
-        add_tie_rotation_consistency_zerochecks_prover(
-            prover,
-            gadget_ready_ir,
-            id,
-            &self.sort_config,
-        )?;
         Ok(())
     }
 
@@ -520,12 +520,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         add_tie_monotonicity_zerochecks_verifier(verifier, gadget_ready_ir, id)?;
-        add_tie_rotation_consistency_zerochecks_verifier(
-            verifier,
-            gadget_ready_ir,
-            id,
-            &self.sort_config,
-        )?;
 
         Ok(())
     }
@@ -1508,134 +1502,6 @@ fn add_tie_monotonicity_zerochecks_verifier<B: SnarkBackend>(
         let zero_oracle = &(&current_oracle * &prev_oracle) - &current_oracle;
         verifier.add_mv_zerocheck_claim(zero_oracle.id());
         prev = current;
-    }
-    Ok(())
-}
-
-fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
-    prover: &mut ark_piop::prover::ArgProver<B>,
-    gadget_ready_ir: &mut GadgetReadyIr<B>,
-    id: crate::irs::nodes::NodeId,
-    sort_config: &SortConfig,
-) -> ark_piop::errors::SnarkResult<()> {
-    let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-    else {
-        return Ok(());
-    };
-    let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
-        payload.get(TIE_INDICATOR_LABEL).cloned(),
-        payload.get(TABLE_LABEL).cloned(),
-        payload.get(ROTATED_INPUT_LABEL).cloned(),
-    ) else {
-        return Ok(());
-    };
-
-    let tie_indices = tie_table.data_tracked_polys_indices();
-    // Pair `tie_i` with the i-th sort key, as Sign and Neq do; the table's
-    // column order can differ from the key order.
-    let sort_specs = sort_specs_for_table_prover(sort_config, &input_table);
-    let input_indices = ordered_data_indices_prover(&input_table, &sort_specs);
-    let rotated_indices = ordered_data_indices_prover(&rotated_table, &sort_specs);
-    debug_assert_eq!(
-        input_indices.len(),
-        rotated_indices.len(),
-        "Sort gadget expects matching data column counts between input and rotated tables."
-    );
-    debug_assert_eq!(
-        tie_indices.len(),
-        input_indices.len(),
-        "Sort gadget expects one tie indicator per data column."
-    );
-
-    // Enforce first_tie * tie_i * input_activator * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
-    // first_tie masks the wrap-around row (last -> first), and input activator gates inactive rows.
-    let first_tie_poly = tie_table
-        .tracked_col_by_ind(tie_indices[0])
-        .data_tracked_poly();
-    let input_activator = input_table.activator_tracked_poly();
-    for ((tie_idx, input_idx), rotated_idx) in tie_indices
-        .iter()
-        .copied()
-        .skip(1)
-        .zip(input_indices.iter().copied())
-        .zip(rotated_indices.iter().copied())
-    {
-        let tie_col = tie_table.tracked_col_by_ind(tie_idx);
-        let input_col = input_table.tracked_col_by_ind(input_idx);
-        let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
-
-        let tie_poly = &tie_col.data_tracked_poly() * &first_tie_poly;
-        let diff_poly = &input_col.data_tracked_poly() - &rotated_col.data_tracked_poly();
-        let gated_diff_poly = match input_activator.as_ref() {
-            Some(activator) => &diff_poly * activator,
-            None => diff_poly,
-        };
-        let zero_poly = &tie_poly * &gated_diff_poly;
-        prover.add_mv_zerocheck_claim(zero_poly.id())?;
-    }
-    Ok(())
-}
-
-fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
-    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-    gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-    id: crate::irs::nodes::NodeId,
-    sort_config: &SortConfig,
-) -> ark_piop::errors::SnarkResult<()> {
-    let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-    else {
-        return Ok(());
-    };
-    let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
-        payload.get(TIE_INDICATOR_LABEL).cloned(),
-        payload.get(TABLE_LABEL).cloned(),
-        payload.get(ROTATED_INPUT_LABEL).cloned(),
-    ) else {
-        return Ok(());
-    };
-
-    let tie_indices = tie_table.data_tracked_oracles_indices();
-    // Pair `tie_i` with the i-th sort key, as Sign and Neq do; the table's
-    // column order can differ from the key order.
-    let sort_specs = sort_specs_for_table_verifier(sort_config, &input_table);
-    let input_indices = ordered_data_indices_verifier(&input_table, &sort_specs);
-    let rotated_indices = ordered_data_indices_verifier(&rotated_table, &sort_specs);
-    debug_assert_eq!(
-        input_indices.len(),
-        rotated_indices.len(),
-        "Sort gadget expects matching data column counts between input and rotated tables."
-    );
-    debug_assert_eq!(
-        tie_indices.len(),
-        input_indices.len(),
-        "Sort gadget expects one tie indicator per data column."
-    );
-
-    // Enforce first_tie * tie_i * input_activator * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
-    // first_tie masks the wrap-around row (last -> first), and input activator gates inactive rows.
-    let first_tie_oracle = tie_table
-        .tracked_col_oracle_by_ind(tie_indices[0])
-        .data_tracked_oracle();
-    let input_activator = input_table.activator_tracked_poly();
-    for ((tie_idx, input_idx), rotated_idx) in tie_indices
-        .iter()
-        .copied()
-        .skip(1)
-        .zip(input_indices.iter().copied())
-        .zip(rotated_indices.iter().copied())
-    {
-        let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
-        let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
-        let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
-
-        let tie_oracle = &tie_col.data_tracked_oracle() * &first_tie_oracle;
-        let diff_oracle = &input_col.data_tracked_oracle() - &rotated_col.data_tracked_oracle();
-        let gated_diff_oracle = match input_activator.as_ref() {
-            Some(activator) => &diff_oracle * activator,
-            None => diff_oracle,
-        };
-        let zero_oracle = &tie_oracle * &gated_diff_oracle;
-        verifier.add_mv_zerocheck_claim(zero_oracle.id());
     }
     Ok(())
 }

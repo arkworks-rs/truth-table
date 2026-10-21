@@ -258,3 +258,29 @@ fn tie_hint_covers_only_the_sort_keys() {
         vec![Some(true), Some(false), Some(true), Some(false)]
     );
 }
+
+#[test]
+fn non_monotone_ties_are_rejected() {
+    // Row 0 claims ties [1, 0, 1, 0]: two tie breaks, at `a` and at `c`. The
+    // neq check folds every column's break into one claim, so it only proves
+    // that `a` or `c` differs there (`c` does), while `b`, out of order
+    // (9 > 1), is never range-checked. Tie monotonicity is what rules out two
+    // breaks in one row and so makes the folded check per-column.
+    let keys = [
+        ("a", DataType::Int64, ints(&[5, 5, 6, 7])),
+        ("b", DataType::Int64, ints(&[9, 1, 0, 0])),
+        ("c", DataType::Int64, ints(&[0, 1, 0, 0])),
+        ("d", DataType::Int64, ints(&[0, 0, 0, 0])),
+    ];
+    let ties = [
+        ("tie_1", ints(&[0, 0, 0, 0])),
+        ("tie_2", ints(&[1, 0, 0, 0])),
+        ("tie_3", ints(&[0, 0, 0, 0])),
+    ];
+    assert_rejected(run(
+        ascending(&["a", "b", "c", "d"], false),
+        &keys,
+        &ties,
+        &[],
+    ));
+}
