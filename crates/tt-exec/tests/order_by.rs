@@ -9,4 +9,7 @@ end_to_end_tests!(&["nation"] => [
     // Five nations share each region: the result must keep the proof's
     // order among tied rows.
     order_by_with_ties => r#"SELECT n_regionkey, n_nationkey FROM nation ORDER BY n_regionkey"#,
+    // The LIMIT keeps two of region 3's five tied nations (#137).
+    order_by_with_ties_and_limit => r#"SELECT n_regionkey, n_name FROM nation ORDER BY n_regionkey DESC LIMIT 7"#,
+    order_by_filtered_with_ties_and_limit => r#"SELECT n_regionkey, n_name FROM nation WHERE n_nationkey > 2 ORDER BY n_regionkey LIMIT 6"#,
 ]);

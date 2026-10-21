@@ -2,8 +2,9 @@ use std::{cell::RefCell, sync::Arc};
 
 use ark_piop::{SnarkBackend, pcs::PCS, prover::ArgProver};
 use datafusion::{dataframe::DataFrame, datasource::MemTable};
+use datafusion_common::Column;
 use datafusion_common::tree_node::Transformed;
-use datafusion_expr::LogicalPlan;
+use datafusion_expr::{Expr, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan};
 use indexmap::IndexMap;
 use proof_planner::data_dependent_lp_optimizer::{OptimizationHints, apply_optimization_hints};
 use tracing::{Instrument, Span, debug, info, info_span};
@@ -31,7 +32,7 @@ use tt_core::{
 };
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
-use arithmetic::ACTIVATOR_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion_expr::{col, logical_plan::Filter};
 use std::future::Future;
 
@@ -395,12 +396,106 @@ impl<B: SnarkBackend> TTProver<B> {
         let analyzed_lp = self.shared_config.analyze_lp(lp).await;
         let optimized_lp = self.shared_config.optimize_lp(analyzed_lp).await;
         let optimized_lp = filter_inactive_rows_for_execution(optimized_lp)?;
+        let optimized_lp = break_sort_ties_by_row_id(optimized_lp)?;
         let df = DataFrame::new(self.shared_config.session_ctx().state(), optimized_lp);
         let logical_schema = df.schema().as_arrow().clone();
         let batches = df.collect().await?;
         let mem_table = MemTable::try_new(Arc::new(logical_schema), vec![batches])?;
         Ok(Arc::new(mem_table))
     }
+}
+
+/// Orders rows tied on every sort key by `__row_id__`, as the proof's Sort does
+/// (`sort_df`), so that a LIMIT cutting through tied rows keeps the rows the
+/// proof keeps. The result is still computed here, apart from the proof.
+///
+/// Projection pushdown drops `__row_id__` from the scan, so it is threaded up
+/// to the Sort and projected away above it. Only a Sort over scans, filters,
+/// projections and aliases is changed: there the proof's row order is the
+/// table's, while a join or an aggregate renumbers rows in the proof.
+fn break_sort_ties_by_row_id(plan: LogicalPlan) -> TTResult<LogicalPlan> {
+    Ok(plan
+        .transform_up_with_subqueries(|node| {
+            let LogicalPlan::Sort(sort) = node else {
+                return Ok(Transformed::no(node));
+            };
+            let Some((input, row_id)) = with_row_id(sort.input.as_ref())? else {
+                return Ok(Transformed::no(LogicalPlan::Sort(sort)));
+            };
+            let output: Vec<Expr> = sort
+                .input
+                .schema()
+                .columns()
+                .into_iter()
+                .map(Expr::Column)
+                .collect();
+            let mut expr = sort.expr.clone();
+            expr.push(Expr::Column(row_id).sort(true, true));
+            let sorted = LogicalPlan::Sort(Sort {
+                expr,
+                input: Arc::new(input),
+                fetch: sort.fetch,
+            });
+            Ok(Transformed::yes(LogicalPlan::Projection(
+                Projection::try_new(output, Arc::new(sorted))?,
+            )))
+        })?
+        .data)
+}
+
+/// `plan` with its table's `__row_id__` as a further output column, and that
+/// column; `None` unless `plan` reads a single table through filters,
+/// projections and aliases.
+fn with_row_id(plan: &LogicalPlan) -> datafusion_common::Result<Option<(LogicalPlan, Column)>> {
+    let rebuilt = match plan {
+        LogicalPlan::TableScan(scan) => {
+            let Ok(index) = scan.source.schema().index_of(ROW_ID_COL_NAME) else {
+                return Ok(None);
+            };
+            let mut projection = scan
+                .projection
+                .clone()
+                .unwrap_or_else(|| (0..scan.source.schema().fields().len()).collect());
+            if !projection.contains(&index) {
+                projection.push(index);
+            }
+            let scan = TableScan::try_new(
+                scan.table_name.clone(),
+                Arc::clone(&scan.source),
+                Some(projection),
+                scan.filters.clone(),
+                scan.fetch,
+            )?;
+            let row_id = Column::new(Some(scan.table_name.clone()), ROW_ID_COL_NAME);
+            (LogicalPlan::TableScan(scan), row_id)
+        }
+        LogicalPlan::Filter(filter) => {
+            let Some((input, row_id)) = with_row_id(&filter.input)? else {
+                return Ok(None);
+            };
+            let filter = Filter::try_new(filter.predicate.clone(), Arc::new(input))?;
+            (LogicalPlan::Filter(filter), row_id)
+        }
+        LogicalPlan::Projection(projection) => {
+            let Some((input, row_id)) = with_row_id(&projection.input)? else {
+                return Ok(None);
+            };
+            let mut expr = projection.expr.clone();
+            expr.push(Expr::Column(row_id.clone()));
+            let projection = Projection::try_new(expr, Arc::new(input))?;
+            (LogicalPlan::Projection(projection), row_id)
+        }
+        LogicalPlan::SubqueryAlias(alias) => {
+            let Some((input, _)) = with_row_id(&alias.input)? else {
+                return Ok(None);
+            };
+            let alias = SubqueryAlias::try_new(Arc::new(input), alias.alias.clone())?;
+            let row_id = Column::new(Some(alias.alias.clone()), ROW_ID_COL_NAME);
+            (LogicalPlan::SubqueryAlias(alias), row_id)
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(rebuilt))
 }
 
 fn filter_inactive_rows_for_execution(plan: LogicalPlan) -> TTResult<LogicalPlan> {
