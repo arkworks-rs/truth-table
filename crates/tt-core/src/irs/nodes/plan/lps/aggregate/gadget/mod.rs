@@ -258,6 +258,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.has_groups() {
+            let Some(PayloadStructure::GadgetPayload(payload)) =
+                gadget_ready_ir.payload_for_node(&id)
+            else {
+                panic!("Expected gadget payload for grouped aggregate");
+            };
+            let activator = |label: &str| {
+                payload
+                    .get(label)
+                    .and_then(|table| table.activator_tracked_poly())
+                    .unwrap_or_else(|| panic!("Grouped aggregate {label} must carry an activator"))
+            };
+            let (input_act, output_act) = (activator(INPUT_LABEL), activator(OUTPUT_LABEL));
+            let outside_input = &output_act
+                * &input_act
+                    .mul_scalar_poly(-B::F::one())
+                    .add_scalar_poly(B::F::one());
+            prover.add_mv_zerocheck_claim(outside_input.id())?;
+        }
         if !self.needs_ungrouped_extremum_check() {
             return Ok(());
         }
@@ -290,6 +309,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.has_groups() {
+            let Some(PayloadStructure::GadgetPayload(payload)) =
+                gadget_ready_ir.payload_for_node(&id)
+            else {
+                panic!("Expected gadget payload for grouped aggregate");
+            };
+            let activator = |label: &str| {
+                payload
+                    .get(label)
+                    .and_then(|table| table.activator_tracked_poly())
+                    .unwrap_or_else(|| panic!("Grouped aggregate {label} must carry an activator"))
+            };
+            let (input_act, output_act) = (activator(INPUT_LABEL), activator(OUTPUT_LABEL));
+            let outside_input = &output_act
+                * &input_act
+                    .mul_scalar_oracle(-B::F::one())
+                    .add_scalar_oracle(B::F::one());
+            verifier.add_mv_zerocheck_claim(outside_input.id());
+        }
         if !self.needs_ungrouped_extremum_check() {
             return Ok(());
         }

@@ -5,7 +5,10 @@ use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 use indexmap::IndexMap;
 
 use crate::{
-    irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
+    irs::{
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, utils::lookup},
+        payloads::PayloadStructure,
+    },
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
@@ -131,21 +134,49 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
+    /// Paper Suppcheck, step 3: no active row of the super table has
+    /// multiplicity 0, so it holds no row the original table lacks. The
+    /// challenge `c` lifts inactive rows off zero: `m + c·(1 − a)`.
     fn prove(
         &self,
-        _prover: &mut ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        prover: &mut ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        let activator = payload_table(gadget_ready_ir.payload_for_node(&id), SUPER_LABEL)
+            .activator_tracked_poly()
+            .expect("Support super table must carry an activator");
+        let multiplicities = payload_table(
+            gadget_ready_ir.payload_for_node(&self.lookup.id()),
+            lookup::SUPER_MULTIPLICITIES_LABEL,
+        );
+        let m = multiplicities
+            .tracked_col_by_ind(multiplicities.data_tracked_polys_indices()[0])
+            .data_tracked_poly();
+        let c = prover.get_and_append_challenge(b"supp_nonzero")?;
+        let lifted = &m + &activator.mul_scalar_poly(-c).add_scalar_poly(c);
+        prover.add_mv_nozerocheck_claim(lifted.id())
     }
 
     fn verify(
         &self,
-        _verifier: &mut ArgVerifier<B>,
-        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        verifier: &mut ArgVerifier<B>,
+        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let activator = payload_table(gadget_ready_ir.payload_for_node(&id), SUPER_LABEL)
+            .activator_tracked_poly()
+            .expect("Support super table must carry an activator");
+        let multiplicities = payload_table(
+            gadget_ready_ir.payload_for_node(&self.lookup.id()),
+            lookup::SUPER_MULTIPLICITIES_LABEL,
+        );
+        let m = multiplicities
+            .tracked_col_oracle_by_ind(multiplicities.data_tracked_oracles_indices()[0])
+            .data_tracked_oracle();
+        let c = verifier.get_and_append_challenge(b"supp_nonzero")?;
+        let lifted = &m + &activator.mul_scalar_oracle(-c).add_scalar_oracle(c);
+        verifier.add_mv_nozerocheck_claim(lifted.id());
         Ok(())
     }
 
@@ -164,6 +195,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
+    }
+}
+
+fn payload_table<'a, T>(payload: Option<&'a PayloadStructure<T>>, label: &str) -> &'a T {
+    match payload {
+        Some(PayloadStructure::GadgetPayload(map)) => map
+            .get(label)
+            .unwrap_or_else(|| panic!("Support gadget missing {label}")),
+        _ => panic!("Support gadget missing its payload"),
     }
 }
 
