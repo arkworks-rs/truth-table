@@ -401,9 +401,15 @@ fn arith_to_oracle<B: SnarkBackend>(
 /// Records the per-column fingerprint rules this table was encoded under, so
 /// that prover and verifier read them from the oracle. Nothing is written
 /// when no rules are installed: no string column is fingerprinted then.
+/// Records the fingerprint rules of this table's columns. The process may
+/// hold other tables' rules too, and an oracle that carried them would
+/// clash with another table's rule for a column of the same name.
 fn enrich_schema_with_fingerprint_rules(schema: Option<Schema>) -> Option<Schema> {
     let schema = schema?;
-    let rules = arithmetic::fingerprint::configured_rules();
+    let mut rules = arithmetic::fingerprint::configured_rules();
+    rules
+        .columns
+        .retain(|column, _| schema.fields().iter().any(|field| field.name() == column));
     if rules.columns.is_empty() {
         return Some(schema);
     }

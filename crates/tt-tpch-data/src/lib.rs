@@ -1012,7 +1012,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = LineItemGenerator::new(scale, 1, 1);
         let mut it_raw = LineItemArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = LineItemGenerator::new(scale, 1, 1);
+        let generator_poneglyph = LineItemGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
         let mut it_poneglyph =
             LineItemArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
