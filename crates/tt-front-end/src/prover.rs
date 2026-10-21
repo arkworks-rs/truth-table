@@ -1,13 +1,19 @@
 use std::{cell::RefCell, sync::Arc};
 
 use ark_piop::{SnarkBackend, pcs::PCS, prover::ArgProver};
+use datafusion::functions_aggregate::expr_fn::min;
+use datafusion::functions_window::expr_fn::row_number;
 use datafusion::{dataframe::DataFrame, datasource::MemTable};
 use datafusion_common::Column;
 use datafusion_common::tree_node::Transformed;
-use datafusion_expr::{Expr, LogicalPlan, Projection, Sort, SubqueryAlias, TableScan};
+use datafusion_expr::{
+    Aggregate, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, Projection, Sort,
+    SubqueryAlias, TableScan,
+};
 use indexmap::IndexMap;
 use proof_planner::data_dependent_lp_optimizer::{OptimizationHints, apply_optimization_hints};
 use tracing::{Instrument, Span, debug, info, info_span};
+use tt_core::irs::nodes::plan::lps::join::modes::{JoinMode, decide_join_mode};
 #[cfg(feature = "honest-prover")]
 use tt_core::prover::passes::honest_prover::HonestProverPass;
 use tt_core::{
@@ -395,8 +401,11 @@ impl<B: SnarkBackend> TTProver<B> {
         let lp = self.shared_config.query_to_lp(query).await;
         let analyzed_lp = self.shared_config.analyze_lp(lp).await;
         let optimized_lp = self.shared_config.optimize_lp(analyzed_lp).await;
+        // Before the activator filters: join modes are decided on plain scans.
+        let optimized_lp =
+            ProofRowOrder::new(self.shared_config.pp_optimizer().specializes_pk_fk_joins())
+                .apply(optimized_lp)?;
         let optimized_lp = filter_inactive_rows_for_execution(optimized_lp)?;
-        let optimized_lp = break_sort_ties_by_row_id(optimized_lp)?;
         let df = DataFrame::new(self.shared_config.session_ctx().state(), optimized_lp);
         let logical_schema = df.schema().as_arrow().clone();
         let batches = df.collect().await?;
@@ -405,97 +414,168 @@ impl<B: SnarkBackend> TTProver<B> {
     }
 }
 
-/// Orders rows tied on every sort key by `__row_id__`, as the proof's Sort does
-/// (`sort_df`), so that a LIMIT cutting through tied rows keeps the rows the
-/// proof keeps. The result is still computed here, apart from the proof.
+/// Orders rows tied on every sort key as the proof's Sort does (`sort_df`), by
+/// its input's `__row_id__`, so that a LIMIT cutting through tied rows keeps
+/// the rows the proof keeps. The result is still computed here, apart from
+/// the proof.
 ///
-/// Projection pushdown drops `__row_id__` from the scan, so it is threaded up
-/// to the Sort and projected away above it. Only a Sort over scans, filters,
-/// projections and aliases is changed: there the proof's row order is the
-/// table's, while a join or an aggregate renumbers rows in the proof.
-fn break_sort_ties_by_row_id(plan: LogicalPlan) -> TTResult<LogicalPlan> {
-    Ok(plan
-        .transform_up_with_subqueries(|node| {
-            let LogicalPlan::Sort(sort) = node else {
-                return Ok(Transformed::no(node));
-            };
-            let Some((input, row_id)) = with_row_id(sort.input.as_ref())? else {
-                return Ok(Transformed::no(LogicalPlan::Sort(sort)));
-            };
-            let output: Vec<Expr> = sort
-                .input
-                .schema()
-                .columns()
-                .into_iter()
-                .map(Expr::Column)
-                .collect();
-            let mut expr = sort.expr.clone();
-            expr.push(Expr::Column(row_id).sort(true, true));
-            let sorted = LogicalPlan::Sort(Sort {
-                expr,
-                input: Arc::new(input),
-                fetch: sort.fetch,
-            });
-            Ok(Transformed::yes(LogicalPlan::Projection(
-                Projection::try_new(output, Arc::new(sorted))?,
-            )))
-        })?
-        .data)
+/// The proof numbers each node's rows from its inputs' row orders: a join by
+/// (left, right), or by its foreign-key side when proved as a PK-FK join; a
+/// GROUP BY by each group's first row. That order is rebuilt as one column,
+/// threaded up to each Sort and projected away above it (projection pushdown
+/// drops `__row_id__` from the scans).
+struct ProofRowOrder {
+    specializes_pk_fk_joins: bool,
+    columns: usize,
 }
 
-/// `plan` with its table's `__row_id__` as a further output column, and that
-/// column; `None` unless `plan` reads a single table through filters,
-/// projections and aliases.
-fn with_row_id(plan: &LogicalPlan) -> datafusion_common::Result<Option<(LogicalPlan, Column)>> {
-    let rebuilt = match plan {
-        LogicalPlan::TableScan(scan) => {
-            let Ok(index) = scan.source.schema().index_of(ROW_ID_COL_NAME) else {
-                return Ok(None);
-            };
-            let mut projection = scan
-                .projection
-                .clone()
-                .unwrap_or_else(|| (0..scan.source.schema().fields().len()).collect());
-            if !projection.contains(&index) {
-                projection.push(index);
+impl ProofRowOrder {
+    fn new(specializes_pk_fk_joins: bool) -> Self {
+        Self {
+            specializes_pk_fk_joins,
+            columns: 0,
+        }
+    }
+
+    fn apply(&mut self, plan: LogicalPlan) -> TTResult<LogicalPlan> {
+        Ok(plan
+            .transform_up_with_subqueries(|node| {
+                let LogicalPlan::Sort(sort) = node else {
+                    return Ok(Transformed::no(node));
+                };
+                let Some((input, order)) = self.with_order(sort.input.as_ref())? else {
+                    return Ok(Transformed::no(LogicalPlan::Sort(sort)));
+                };
+                let output: Vec<Expr> = sort
+                    .input
+                    .schema()
+                    .columns()
+                    .into_iter()
+                    .map(Expr::Column)
+                    .collect();
+                let mut expr = sort.expr.clone();
+                expr.push(Expr::Column(order).sort(true, true));
+                let sorted = LogicalPlan::Sort(Sort {
+                    expr,
+                    input: Arc::new(input),
+                    fetch: sort.fetch,
+                });
+                Ok(Transformed::yes(LogicalPlan::Projection(
+                    Projection::try_new(output, Arc::new(sorted))?,
+                )))
+            })?
+            .data)
+    }
+
+    /// `plan` with a further output column ordering its rows as the proof
+    /// numbers them, and that column; `None` where that numbering is not
+    /// rebuilt.
+    fn with_order(
+        &mut self,
+        plan: &LogicalPlan,
+    ) -> datafusion_common::Result<Option<(LogicalPlan, Column)>> {
+        let rebuilt = match plan {
+            LogicalPlan::TableScan(scan) => {
+                let Ok(index) = scan.source.schema().index_of(ROW_ID_COL_NAME) else {
+                    return Ok(None);
+                };
+                let mut projection = scan
+                    .projection
+                    .clone()
+                    .unwrap_or_else(|| (0..scan.source.schema().fields().len()).collect());
+                if !projection.contains(&index) {
+                    projection.push(index);
+                }
+                let scan = TableScan::try_new(
+                    scan.table_name.clone(),
+                    Arc::clone(&scan.source),
+                    Some(projection),
+                    scan.filters.clone(),
+                    scan.fetch,
+                )?;
+                let order = Column::new(Some(scan.table_name.clone()), ROW_ID_COL_NAME);
+                (LogicalPlan::TableScan(scan), order)
             }
-            let scan = TableScan::try_new(
-                scan.table_name.clone(),
-                Arc::clone(&scan.source),
-                Some(projection),
-                scan.filters.clone(),
-                scan.fetch,
-            )?;
-            let row_id = Column::new(Some(scan.table_name.clone()), ROW_ID_COL_NAME);
-            (LogicalPlan::TableScan(scan), row_id)
-        }
-        LogicalPlan::Filter(filter) => {
-            let Some((input, row_id)) = with_row_id(&filter.input)? else {
-                return Ok(None);
-            };
-            let filter = Filter::try_new(filter.predicate.clone(), Arc::new(input))?;
-            (LogicalPlan::Filter(filter), row_id)
-        }
-        LogicalPlan::Projection(projection) => {
-            let Some((input, row_id)) = with_row_id(&projection.input)? else {
-                return Ok(None);
-            };
-            let mut expr = projection.expr.clone();
-            expr.push(Expr::Column(row_id.clone()));
-            let projection = Projection::try_new(expr, Arc::new(input))?;
-            (LogicalPlan::Projection(projection), row_id)
-        }
-        LogicalPlan::SubqueryAlias(alias) => {
-            let Some((input, _)) = with_row_id(&alias.input)? else {
-                return Ok(None);
-            };
-            let alias = SubqueryAlias::try_new(Arc::new(input), alias.alias.clone())?;
-            let row_id = Column::new(Some(alias.alias.clone()), ROW_ID_COL_NAME);
-            (LogicalPlan::SubqueryAlias(alias), row_id)
-        }
-        _ => return Ok(None),
-    };
-    Ok(Some(rebuilt))
+            LogicalPlan::Filter(filter) => {
+                let Some((input, order)) = self.with_order(&filter.input)? else {
+                    return Ok(None);
+                };
+                let filter = Filter::try_new(filter.predicate.clone(), Arc::new(input))?;
+                (LogicalPlan::Filter(filter), order)
+            }
+            LogicalPlan::Projection(projection) => {
+                let Some((input, order)) = self.with_order(&projection.input)? else {
+                    return Ok(None);
+                };
+                let mut expr = projection.expr.clone();
+                if !projection.schema.has_column(&order) {
+                    expr.push(Expr::Column(order.clone()));
+                }
+                let projection = Projection::try_new(expr, Arc::new(input))?;
+                (LogicalPlan::Projection(projection), order)
+            }
+            LogicalPlan::SubqueryAlias(alias) => {
+                let Some((input, order)) = self.with_order(&alias.input)? else {
+                    return Ok(None);
+                };
+                let alias = SubqueryAlias::try_new(Arc::new(input), alias.alias.clone())?;
+                let order = Column::new(Some(alias.alias.clone()), order.name);
+                (LogicalPlan::SubqueryAlias(alias), order)
+            }
+            LogicalPlan::Join(join) => {
+                let (Some((left, left_order)), Some((right, right_order))) =
+                    (self.with_order(&join.left)?, self.with_order(&join.right)?)
+                else {
+                    return Ok(None);
+                };
+                let (left_keys, right_keys) =
+                    join.on.iter().cloned().unzip::<_, _, Vec<_>, Vec<_>>();
+                let joined = LogicalPlanBuilder::from(left).join_with_expr_keys(
+                    right,
+                    join.join_type,
+                    (left_keys, right_keys),
+                    join.filter.clone(),
+                )?;
+                // A PK-FK join's output row is its foreign-key row; a left
+                // foreign-key side already comes first.
+                let fk_right =
+                    self.specializes_pk_fk_joins && decide_join_mode(join) == JoinMode::ONE_TO_MANY;
+                let (first, second) = if fk_right {
+                    (right_order, left_order)
+                } else {
+                    (left_order, right_order)
+                };
+                let name = self.fresh_name();
+                let rank = row_number()
+                    .order_by(vec![
+                        Expr::Column(first).sort(true, true),
+                        Expr::Column(second).sort(true, true),
+                    ])
+                    .build()?
+                    .alias(&name);
+                (joined.window(vec![rank])?.build()?, Column::from_name(name))
+            }
+            LogicalPlan::Aggregate(aggregate) => {
+                let Some((input, order)) = self.with_order(&aggregate.input)? else {
+                    return Ok(None);
+                };
+                // A group's output row is its first input row.
+                let name = self.fresh_name();
+                let mut aggr_expr = aggregate.aggr_expr.clone();
+                aggr_expr.push(min(Expr::Column(order)).alias(&name));
+                let aggregate =
+                    Aggregate::try_new(Arc::new(input), aggregate.group_expr.clone(), aggr_expr)?;
+                (LogicalPlan::Aggregate(aggregate), Column::from_name(name))
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(rebuilt))
+    }
+
+    fn fresh_name(&mut self) -> String {
+        self.columns += 1;
+        format!("__proof_row_order_{}__", self.columns)
+    }
 }
 
 fn filter_inactive_rows_for_execution(plan: LogicalPlan) -> TTResult<LogicalPlan> {
