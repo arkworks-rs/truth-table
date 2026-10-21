@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arithmetic::{
     ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
-use ark_ff::{One, Zero};
+use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
 use ark_piop::prover::structs::polynomial::get_or_insert_shift_poly;
@@ -26,7 +26,7 @@ use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use either::Either;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::utils::{neq, prescr_perm, sign};
+use crate::irs::nodes::utils::{prescr_perm, sign};
 use crate::{
     irs::{
         nodes::{
@@ -68,7 +68,6 @@ pub struct GadgetNode<B: SnarkBackend> {
     prescr_perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
     sign_gadget: Arc<Node<B>>,
-    neq_gadget: Arc<Node<B>>,
     sort_config: SortConfig,
     strip_row_id: bool,
 }
@@ -96,7 +95,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             self.prescr_perm.clone(),
             self.bool_gadget.clone(),
             self.sign_gadget.clone(),
-            self.neq_gadget.clone(),
         ]
     }
 }
@@ -378,14 +376,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 rotated_table,
                 virtualized_ir,
             )?;
-            populate_neq_payloads_prover(
-                &self.neq_gadget,
-                &sort_specs,
-                tie_table,
-                input_table,
-                rotated_table,
-                virtualized_ir,
-            )?;
         }
         if let Some(tie_table) = updated_tie_table {
             payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_table);
@@ -470,14 +460,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 rotated_table,
                 virtualized_ir,
             )?;
-            populate_neq_payloads_verifier(
-                &self.neq_gadget,
-                &sort_specs,
-                tie_table,
-                input_table,
-                rotated_table,
-                virtualized_ir,
-            )?;
         }
         if let Some(tie_table) = updated_tie_table_owned {
             payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_table);
@@ -494,13 +476,59 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Paper PIOP 7 step 3(d), `d_i = d'_i` on `ties_i`, is not checked: the
-        // checker is sound without it (paper Lemma "checker soundness"). Step
-        // 3(c), tie monotonicity, stays although the lemma does not need it
-        // either: the neq gadget folds every column's tie break into one
-        // nonzero claim, which is the per-column step 3(e) only when a row
-        // breaks its tie at one column at most, and monotonicity ensures that.
-        add_tie_monotonicity_zerochecks_prover(prover, gadget_ready_ir, id)?;
+        // Paper PIOP 7 steps 3(c), tie monotonicity, and 3(d), `d_i = d'_i` on
+        // `ties_i`, are not checked: the checker is sound without them (paper
+        // Lemma "checker soundness"), given step 3(e) per column.
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let (Some(ties), Some(input), Some(rotated)) = (
+            payload.get(TIE_INDICATOR_LABEL),
+            payload.get(TABLE_LABEL),
+            payload.get(ROTATED_INPUT_LABEL),
+        ) else {
+            return Ok(());
+        };
+        let sort_specs = sort_specs_for_table_prover(&self.sort_config, input);
+        let columns: Vec<_> = ordered_data_indices_prover(input, &sort_specs)
+            .into_iter()
+            .zip(ordered_data_indices_prover(rotated, &sort_specs))
+            .map(|(i, r)| {
+                (
+                    input.tracked_col_by_ind(i).data_tracked_poly(),
+                    rotated.tracked_col_by_ind(r).data_tracked_poly(),
+                )
+            })
+            .collect();
+        let ties: Vec<_> = ties
+            .data_tracked_polys_indices()
+            .into_iter()
+            .map(|idx| ties.tracked_col_by_ind(idx).data_tracked_poly())
+            .collect();
+        let activator = match (
+            input.activator_tracked_poly(),
+            rotated.activator_tracked_poly(),
+        ) {
+            (Some(left), Some(right)) => Some(&left * &right),
+            (left, right) => left.or(right),
+        };
+        if columns.len() < 2 {
+            return Ok(());
+        }
+        let c = prover.get_and_append_challenge(b"sort_tie_break")?;
+        for (k, (data, data_rotated)) in columns.iter().enumerate().take(columns.len() - 1) {
+            let mut breaks = &ties[k]
+                * &ties[k + 1]
+                    .mul_scalar_poly(-B::F::one())
+                    .add_scalar_poly(B::F::one());
+            if let Some(activator) = &activator {
+                breaks = &breaks * activator;
+            }
+            let lifted = &(&breaks * &(data_rotated - data))
+                + &breaks.mul_scalar_poly(-c).add_scalar_poly(c);
+            prover.add_mv_nozerocheck_claim(lifted.id())?;
+        }
         Ok(())
     }
 
@@ -519,8 +547,56 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        add_tie_monotonicity_zerochecks_verifier(verifier, gadget_ready_ir, id)?;
-
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let (Some(ties), Some(input), Some(rotated)) = (
+            payload.get(TIE_INDICATOR_LABEL),
+            payload.get(TABLE_LABEL),
+            payload.get(ROTATED_INPUT_LABEL),
+        ) else {
+            return Ok(());
+        };
+        let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input);
+        let columns: Vec<_> = ordered_data_indices_verifier(input, &sort_specs)
+            .into_iter()
+            .zip(ordered_data_indices_verifier(rotated, &sort_specs))
+            .map(|(i, r)| {
+                (
+                    input.tracked_col_oracle_by_ind(i).data_tracked_oracle(),
+                    rotated.tracked_col_oracle_by_ind(r).data_tracked_oracle(),
+                )
+            })
+            .collect();
+        let ties: Vec<_> = ties
+            .data_tracked_oracles_indices()
+            .into_iter()
+            .map(|idx| ties.tracked_col_oracle_by_ind(idx).data_tracked_oracle())
+            .collect();
+        let activator = match (
+            input.activator_tracked_poly(),
+            rotated.activator_tracked_poly(),
+        ) {
+            (Some(left), Some(right)) => Some(&left * &right),
+            (left, right) => left.or(right),
+        };
+        if columns.len() < 2 {
+            return Ok(());
+        }
+        let c = verifier.get_and_append_challenge(b"sort_tie_break")?;
+        for (k, (data, data_rotated)) in columns.iter().enumerate().take(columns.len() - 1) {
+            let mut breaks = &ties[k]
+                * &ties[k + 1]
+                    .mul_scalar_oracle(-B::F::one())
+                    .add_scalar_oracle(B::F::one());
+            if let Some(activator) = &activator {
+                breaks = &breaks * activator;
+            }
+            let lifted = &(&breaks * &(data_rotated - data))
+                + &breaks.mul_scalar_oracle(-c).add_scalar_oracle(c);
+            verifier.add_mv_nozerocheck_claim(lifted.id());
+        }
         Ok(())
     }
 
@@ -549,15 +625,11 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::bool::GadgetNode::new(),
         )));
-        let neq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::neq::GadgetNode::new(),
-        )));
         let sign_gadget = build_sign_gadget::<B>(&sort_config);
         Self {
             prescr_perm,
             bool_gadget,
             sign_gadget,
-            neq_gadget,
             sort_config,
             strip_row_id,
         }
@@ -1151,358 +1223,6 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
         sign_gadget.id(),
         Some(PayloadStructure::GadgetPayload(sign_payload)),
     );
-    Ok(())
-}
-
-fn populate_neq_payloads_prover<B: SnarkBackend>(
-    neq_gadget: &Arc<Node<B>>,
-    sort_specs: &[(String, bool, bool)],
-    tie_table: &TrackedTable<B>,
-    input_table: &TrackedTable<B>,
-    rotated_table: &TrackedTable<B>,
-    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-) -> ark_piop::errors::SnarkResult<()> {
-    let tie_indices = tie_table.data_tracked_polys_indices();
-    let input_indices = ordered_data_indices_prover(input_table, sort_specs);
-    let rotated_indices = ordered_data_indices_prover(rotated_table, sort_specs);
-    debug_assert_eq!(
-        tie_indices.len(),
-        input_indices.len(),
-        "Sort neq gadget expects one tie indicator per data column."
-    );
-    debug_assert_eq!(
-        input_indices.len(),
-        rotated_indices.len(),
-        "Sort neq gadget expects matching input and rotated column counts."
-    );
-    if input_indices.len() < 2 {
-        let Some(sample_col) = input_table
-            .data_tracked_polys_indices()
-            .first()
-            .copied()
-            .and_then(|idx| input_table.tracked_col_by_ind(idx).field_ref())
-        else {
-            return Ok(());
-        };
-        let log_size = input_table.log_size();
-        let tracker = tie_table
-            .tracked_col_by_ind(tie_indices[0])
-            .data_tracked_poly()
-            .tracker();
-        let zero_poly = TrackedPoly::new(Either::Right(B::F::zero()), log_size, tracker);
-        let mut left_cols = IndexMap::new();
-        let mut right_cols = IndexMap::new();
-        left_cols.insert(sample_col.clone(), zero_poly.clone());
-        right_cols.insert(sample_col, zero_poly.clone());
-        left_cols.insert(ACTIVATOR_FIELD.clone(), zero_poly.clone());
-        right_cols.insert(ACTIVATOR_FIELD.clone(), zero_poly);
-        let left_table = TrackedTable::new(None, left_cols, log_size);
-        let right_table = TrackedTable::new(None, right_cols, log_size);
-        let mut neq_payload = match virtualized_ir.payload_for_node(&neq_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        neq_payload.insert(neq::LEFT_LABEL.to_string(), left_table);
-        neq_payload.insert(neq::RIGHT_LABEL.to_string(), right_table);
-        virtualized_ir.set_payload_for_node(
-            neq_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(neq_payload)),
-        );
-        return Ok(());
-    }
-
-    let input_activator = input_table.activator_tracked_poly();
-    let rotated_activator = rotated_table.activator_tracked_poly();
-    let combined_activator = match (input_activator, rotated_activator) {
-        (Some(left), Some(right)) => Some(&left * &right),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
-    };
-
-    let one_poly = {
-        let tie_col = tie_table.tracked_col_by_ind(tie_indices[0]);
-        TrackedPoly::new(
-            Either::Right(B::F::one()),
-            tie_col.data_tracked_poly().log_size(),
-            tie_col.data_tracked_poly().tracker(),
-        )
-    };
-    let mut no_tie_break = one_poly.clone();
-    let mut left_cols = IndexMap::new();
-    let mut right_cols = IndexMap::new();
-    for (idx, ((tie_idx, tie_next_idx), (input_idx, rotated_idx))) in tie_indices
-        .iter()
-        .copied()
-        .zip(tie_indices.iter().copied().skip(1))
-        .zip(
-            input_indices
-                .iter()
-                .copied()
-                .zip(rotated_indices.iter().copied()),
-        )
-        .enumerate()
-    {
-        if idx + 1 == input_indices.len() {
-            break;
-        }
-        let tie_col = tie_table.tracked_col_by_ind(tie_idx);
-        let tie_next_col = tie_table.tracked_col_by_ind(tie_next_idx);
-        let one_poly = TrackedPoly::new(
-            Either::Right(B::F::one()),
-            tie_next_col.data_tracked_poly().log_size(),
-            tie_next_col.data_tracked_poly().tracker(),
-        );
-        let tie_break =
-            &tie_col.data_tracked_poly() * &(&one_poly - &tie_next_col.data_tracked_poly());
-        no_tie_break = &no_tie_break * &(&one_poly - &tie_break);
-        let input_col = input_table.tracked_col_by_ind(input_idx);
-        let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
-        let data_field = input_col
-            .field_ref()
-            .expect("Expected field ref for Sort neq input");
-        left_cols.insert(
-            data_field.clone(),
-            &rotated_col.data_tracked_poly() * &tie_break,
-        );
-        right_cols.insert(data_field, &input_col.data_tracked_poly() * &tie_break);
-    }
-    let any_tie_break = &one_poly - &no_tie_break;
-    if let Some(activator) = combined_activator {
-        let gated = &activator * &any_tie_break;
-        left_cols.insert(ACTIVATOR_FIELD.clone(), gated.clone());
-        right_cols.insert(ACTIVATOR_FIELD.clone(), gated);
-    }
-    let left_table = TrackedTable::new(None, left_cols, input_table.log_size());
-    let right_table = TrackedTable::new(None, right_cols, input_table.log_size());
-
-    let mut neq_payload = match virtualized_ir.payload_for_node(&neq_gadget.id()) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    neq_payload.insert(neq::LEFT_LABEL.to_string(), left_table);
-    neq_payload.insert(neq::RIGHT_LABEL.to_string(), right_table);
-    virtualized_ir.set_payload_for_node(
-        neq_gadget.id(),
-        Some(PayloadStructure::GadgetPayload(neq_payload)),
-    );
-    Ok(())
-}
-
-fn populate_neq_payloads_verifier<B: SnarkBackend>(
-    neq_gadget: &Arc<Node<B>>,
-    sort_specs: &[(String, bool, bool)],
-    tie_table: &TrackedTableOracle<B>,
-    input_table: &TrackedTableOracle<B>,
-    rotated_table: &TrackedTableOracle<B>,
-    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
-) -> ark_piop::errors::SnarkResult<()> {
-    let tie_indices = tie_table.data_tracked_oracles_indices();
-    let input_indices = ordered_data_indices_verifier(input_table, sort_specs);
-    let rotated_indices = ordered_data_indices_verifier(rotated_table, sort_specs);
-    debug_assert_eq!(
-        tie_indices.len(),
-        input_indices.len(),
-        "Sort neq gadget expects one tie indicator per data column."
-    );
-    debug_assert_eq!(
-        input_indices.len(),
-        rotated_indices.len(),
-        "Sort neq gadget expects matching input and rotated column counts."
-    );
-    if input_indices.len() < 2 {
-        let Some(sample_col) = input_table
-            .data_tracked_oracles_indices()
-            .first()
-            .copied()
-            .and_then(|idx| input_table.tracked_col_oracle_by_ind(idx).field_ref())
-        else {
-            return Ok(());
-        };
-        let log_size = input_table.log_size();
-        let tracker = tie_table
-            .tracked_col_oracle_by_ind(tie_indices[0])
-            .data_tracked_oracle()
-            .tracker();
-        let zero_oracle = TrackedOracle::new(Either::Right(B::F::zero()), tracker, log_size);
-        let mut left_cols = IndexMap::new();
-        let mut right_cols = IndexMap::new();
-        left_cols.insert(sample_col.clone(), zero_oracle.clone());
-        right_cols.insert(sample_col, zero_oracle.clone());
-        left_cols.insert(ACTIVATOR_FIELD.clone(), zero_oracle.clone());
-        right_cols.insert(ACTIVATOR_FIELD.clone(), zero_oracle);
-        let left_table = TrackedTableOracle::new(None, left_cols, log_size);
-        let right_table = TrackedTableOracle::new(None, right_cols, log_size);
-        let mut neq_payload = match virtualized_ir.payload_for_node(&neq_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        neq_payload.insert(neq::LEFT_LABEL.to_string(), left_table);
-        neq_payload.insert(neq::RIGHT_LABEL.to_string(), right_table);
-        virtualized_ir.set_payload_for_node(
-            neq_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(neq_payload)),
-        );
-        return Ok(());
-    }
-
-    let input_activator = input_table.activator_tracked_poly();
-    let rotated_activator = rotated_table.activator_tracked_poly();
-    let combined_activator = match (input_activator, rotated_activator) {
-        (Some(left), Some(right)) => Some(&left * &right),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
-    };
-
-    let one_oracle = TrackedOracle::new(
-        Either::Right(B::F::one()),
-        tie_table
-            .tracked_col_oracle_by_ind(tie_indices[0])
-            .data_tracked_oracle()
-            .tracker(),
-        tie_table.log_size(),
-    );
-    let mut no_tie_break = one_oracle.clone();
-    let mut left_cols = IndexMap::new();
-    let mut right_cols = IndexMap::new();
-    for (idx, ((tie_idx, tie_next_idx), (input_idx, rotated_idx))) in tie_indices
-        .iter()
-        .copied()
-        .zip(tie_indices.iter().copied().skip(1))
-        .zip(
-            input_indices
-                .iter()
-                .copied()
-                .zip(rotated_indices.iter().copied()),
-        )
-        .enumerate()
-    {
-        if idx + 1 == input_indices.len() {
-            break;
-        }
-        let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
-        let tie_next_col = tie_table.tracked_col_oracle_by_ind(tie_next_idx);
-        let one_oracle = TrackedOracle::new(
-            Either::Right(B::F::one()),
-            tie_next_col.data_tracked_oracle().tracker(),
-            tie_next_col.data_tracked_oracle().log_size(),
-        );
-        let tie_break =
-            &tie_col.data_tracked_oracle() * &(&one_oracle - &tie_next_col.data_tracked_oracle());
-        no_tie_break = &no_tie_break * &(&one_oracle - &tie_break);
-        let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
-        let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
-        let data_field = input_col
-            .field_ref()
-            .expect("Expected field ref for Sort neq input");
-        left_cols.insert(
-            data_field.clone(),
-            &rotated_col.data_tracked_oracle() * &tie_break,
-        );
-        right_cols.insert(data_field, &input_col.data_tracked_oracle() * &tie_break);
-    }
-    let any_tie_break = &one_oracle - &no_tie_break;
-    if let Some(activator) = combined_activator {
-        let gated = &activator * &any_tie_break;
-        left_cols.insert(ACTIVATOR_FIELD.clone(), gated.clone());
-        right_cols.insert(ACTIVATOR_FIELD.clone(), gated);
-    }
-    let left_table = TrackedTableOracle::new(None, left_cols, input_table.log_size());
-    let right_table = TrackedTableOracle::new(None, right_cols, input_table.log_size());
-
-    let mut neq_payload = match virtualized_ir.payload_for_node(&neq_gadget.id()) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    neq_payload.insert(neq::LEFT_LABEL.to_string(), left_table);
-    neq_payload.insert(neq::RIGHT_LABEL.to_string(), right_table);
-    virtualized_ir.set_payload_for_node(
-        neq_gadget.id(),
-        Some(PayloadStructure::GadgetPayload(neq_payload)),
-    );
-    Ok(())
-}
-
-fn add_tie_monotonicity_zerochecks_prover<B: SnarkBackend>(
-    prover: &mut ark_piop::prover::ArgProver<B>,
-    gadget_ready_ir: &mut GadgetReadyIr<B>,
-    id: crate::irs::nodes::NodeId,
-) -> ark_piop::errors::SnarkResult<()> {
-    let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-    else {
-        return Ok(());
-    };
-    let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() else {
-        return Ok(());
-    };
-
-    let tie_polys = tie_table.tracked_polys();
-    let data_indices: Vec<usize> = tie_table
-        .data_tracked_polys_indices()
-        .into_iter()
-        .filter(|idx| {
-            let (field, _) = tie_polys
-                .get_index(*idx)
-                .expect("tie indicator column index out of bounds");
-            field.name() != FIRST_TIE_LABEL
-        })
-        .collect();
-    if data_indices.len() < 2 {
-        return Ok(());
-    }
-
-    // Enforce ties_i * ties_{i-1} - ties_i = 0, starting from the second column.
-    let mut prev = tie_table.tracked_col_by_ind(data_indices[0]);
-    for &idx in data_indices.iter().skip(1) {
-        let current = tie_table.tracked_col_by_ind(idx);
-        let current_poly = current.activated_data_tracked_poly();
-        let prev_poly = prev.activated_data_tracked_poly();
-        let zero_poly = &(&current_poly * &prev_poly) - &current_poly;
-        prover.add_mv_zerocheck_claim(zero_poly.id())?;
-        prev = current;
-    }
-    Ok(())
-}
-
-fn add_tie_monotonicity_zerochecks_verifier<B: SnarkBackend>(
-    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-    gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-    id: crate::irs::nodes::NodeId,
-) -> ark_piop::errors::SnarkResult<()> {
-    let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-    else {
-        return Ok(());
-    };
-    let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() else {
-        return Ok(());
-    };
-
-    let tie_oracles = tie_table.tracked_oracles();
-    let data_indices: Vec<usize> = tie_table
-        .data_tracked_oracles_indices()
-        .into_iter()
-        .filter(|idx| {
-            let (field, _) = tie_oracles
-                .get_index(*idx)
-                .expect("tie indicator column index out of bounds");
-            field.name() != FIRST_TIE_LABEL
-        })
-        .collect();
-    if data_indices.len() < 2 {
-        return Ok(());
-    }
-
-    // Enforce ties_i * ties_{i-1} - ties_i = 0, starting from the second column.
-    let mut prev = tie_table.tracked_col_oracle_by_ind(data_indices[0]);
-    for &idx in data_indices.iter().skip(1) {
-        let current = tie_table.tracked_col_oracle_by_ind(idx);
-        let current_oracle = current.activated_data_tracked_oracle();
-        let prev_oracle = prev.activated_data_tracked_oracle();
-        let zero_oracle = &(&current_oracle * &prev_oracle) - &current_oracle;
-        verifier.add_mv_zerocheck_claim(zero_oracle.id());
-        prev = current;
-    }
     Ok(())
 }
 

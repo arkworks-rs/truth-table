@@ -261,11 +261,12 @@ fn tie_hint_covers_only_the_sort_keys() {
 
 #[test]
 fn non_monotone_ties_are_rejected() {
-    // Row 0 claims ties [1, 0, 1, 0]: two tie breaks, at `a` and at `c`. The
-    // neq check folds every column's break into one claim, so it only proves
-    // that `a` or `c` differs there (`c` does), while `b`, out of order
-    // (9 > 1), is never range-checked. Tie monotonicity is what rules out two
-    // breaks in one row and so makes the folded check per-column.
+    // Row 0 claims ties [1, 0, 1, 0]: two tie breaks, at `a` and at `c`, which
+    // hides `b`, out of order (9 > 1), from every range check. Tie
+    // monotonicity is not checked (paper Lemma "checker soundness"): the
+    // break at `a`, where the rows are equal, fails its own nonzero check.
+    // A single nonzero claim over all columns would accept this row, since
+    // `c` does differ.
     let keys = [
         ("a", DataType::Int64, ints(&[5, 5, 6, 7])),
         ("b", DataType::Int64, ints(&[9, 1, 0, 0])),
