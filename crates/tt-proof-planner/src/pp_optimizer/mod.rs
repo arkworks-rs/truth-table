@@ -21,6 +21,13 @@ impl<B: SnarkBackend> ProofPlanOptimizer<B> {
         Self { rules }
     }
 
+    /// Whether PK-FK joins are proved with the PKFKJoin protocol.
+    pub fn specializes_pk_fk_joins(&self) -> bool {
+        self.rules
+            .iter()
+            .any(|rule| rule.name() == pkfk_specialization::NAME)
+    }
+
     pub fn optimize(&self, mut ir: InitialIr<B>) -> InitialIr<B> {
         for rule in &self.rules {
             ir = rule.optimize(ir);

@@ -19,9 +19,11 @@ use super::ProofPlanOptimizerRule;
 /// general protocol on both prover and verifier.
 pub struct PkFkSpecializationRule;
 
+pub(super) const NAME: &str = "PkFkSpecialization";
+
 impl<B: SnarkBackend> ProofPlanOptimizerRule<B> for PkFkSpecializationRule {
     fn name(&self) -> &'static str {
-        "PkFkSpecialization"
+        NAME
     }
 
     fn optimize(&self, ir: InitialIr<B>) -> InitialIr<B> {
