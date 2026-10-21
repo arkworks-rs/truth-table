@@ -35,17 +35,19 @@ mod tests;
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
 
-pub struct GadgetNode<B: SnarkBackend>(std::marker::PhantomData<B>);
-
-impl<B: SnarkBackend> Default for GadgetNode<B> {
-    fn default() -> Self {
-        Self::new()
-    }
+pub struct GadgetNode<B: SnarkBackend> {
+    /// Compare the rows in order, not as a multiset (paper PIOP 20, step 2):
+    /// set when the query ends in an ORDER BY, whose output is contiguous.
+    ordered: bool,
+    _backend: std::marker::PhantomData<B>,
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self {
-        Self(std::marker::PhantomData)
+    pub fn new(ordered: bool) -> Self {
+        Self {
+            ordered,
+            _backend: std::marker::PhantomData,
+        }
     }
 }
 
@@ -142,7 +144,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let res_table = payload
             .get(OUTPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
-        prove_result_check(prover, t_table, res_table)
+        prove_result_check(prover, t_table, res_table, self.ordered)
     }
 
     fn honest_prover_check(
@@ -158,16 +160,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(t_table) = payload.get(INPUT_LABEL) else {
             return Ok(());
         };
-        println!("{}", t_table);
         let Some(r_table) = payload.get(OUTPUT_LABEL) else {
             return Ok(());
         };
-        println!("{}", r_table);
-        if active_row_multiset(t_table)? == active_row_multiset(r_table)? {
-            Ok(())
+        let matches = if self.ordered {
+            active_rows_in_order(t_table)? == active_rows_in_order(r_table)?
         } else {
-            Err(false_claim())
-        }
+            active_row_multiset(t_table)? == active_row_multiset(r_table)?
+        };
+        if matches { Ok(()) } else { Err(false_claim()) }
     }
 
     fn verify(
@@ -186,7 +187,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(r_table) = payload.get(OUTPUT_LABEL) else {
             return Ok(());
         };
-        verify_result_check(verifier, t_table, r_table).map_err(|err| {
+        verify_result_check(verifier, t_table, r_table, self.ordered).map_err(|err| {
             SnarkError::VerifierError(
                 ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
                     "ResultCheck failed during final verifier checks: {err:?}"
@@ -206,7 +207,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 /// Proves that the active rows of `t_table`, the query output the plan has
 /// proven, are the same multiset as the rows of `r_table`, the result the
-/// verifier holds in the clear.
+/// verifier holds in the clear. When `ordered`, each row carries its
+/// position as a further column, so the multisets are equal exactly when
+/// the rows agree in order (paper PIOP 20, step 2, which fingerprints and
+/// compares row by row; the two tables have different domains).
 ///
 /// The claimed result comes from the prover and is not otherwise in the
 /// transcript, so it must be fixed before this check draws any challenge:
@@ -219,6 +223,7 @@ fn prove_result_check<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     t_table: &TrackedTable<B>,
     r_table: &TrackedTable<B>,
+    ordered: bool,
 ) -> SnarkResult<()> {
     let t_act = t_table
         .activator_tracked_poly()
@@ -237,14 +242,18 @@ fn prove_result_check<B: SnarkBackend>(
         t_data.push(t_poly.clone());
         r_data.push(commit_claimed_poly(prover, r_poly, r_nv)?);
     }
+    if ordered {
+        t_data.push(prover.track_mat_mv_poly(index_mle(t_table.log_size())));
+        r_data.push(prover.track_mat_mv_poly(index_mle(r_nv)));
+    }
 
-    let mut challenges = Vec::with_capacity(columns.len());
-    for _ in 0..columns.len() {
+    let mut challenges = Vec::with_capacity(t_data.len());
+    for _ in 0..t_data.len() {
         challenges.push(prover.get_and_append_challenge(b"result_check_fold")?);
     }
     // With no data columns the multisets are equal exactly when the active
     // row counts are, which comparing the activators themselves checks.
-    let (t_rows, r_rows) = if columns.is_empty() {
+    let (t_rows, r_rows) = if t_data.is_empty() {
         (t_act.clone(), committed_act.clone())
     } else {
         (
@@ -310,6 +319,7 @@ fn verify_result_check<B: SnarkBackend>(
     verifier: &mut ArgVerifier<B>,
     t_table: &TrackedTableOracle<B>,
     r_table: &TrackedTableOracle<B>,
+    ordered: bool,
 ) -> SnarkResult<()> {
     let t_act = t_table
         .activator_tracked_poly()
@@ -330,12 +340,16 @@ fn verify_result_check<B: SnarkBackend>(
         t_data.push(t_oracle.clone());
         r_data.push(bind_claimed_oracle(verifier, r_oracle, r_nv)?);
     }
+    if ordered {
+        t_data.push(index_oracle(&t_act, t_table.log_size()));
+        r_data.push(index_oracle(&t_act, r_nv));
+    }
 
-    let mut challenges = Vec::with_capacity(columns.len());
-    for _ in 0..columns.len() {
+    let mut challenges = Vec::with_capacity(t_data.len());
+    for _ in 0..t_data.len() {
         challenges.push(verifier.get_and_append_challenge(b"result_check_fold")?);
     }
-    let (t_rows, r_rows) = if columns.is_empty() {
+    let (t_rows, r_rows) = if t_data.is_empty() {
         (t_act.clone(), committed_act.clone())
     } else {
         (
@@ -381,6 +395,19 @@ fn data_oracles<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<(String, 
             (field.name().to_string(), oracle.clone())
         })
         .collect()
+}
+
+/// Row `i` holds `i`; the verifier evaluates the same polynomial itself.
+fn index_mle<F: ark_ff::PrimeField>(log_size: usize) -> MLE<F> {
+    MLE::from_evaluations_vec(log_size, (0..1u64 << log_size).map(F::from).collect())
+}
+
+fn index_oracle<B: SnarkBackend>(any: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
+    let tracker = any.tracker();
+    let id = tracker.borrow_mut().track_base_oracle(
+        crate::irs::nodes::utils::prescr_perm::shift_permutation_oracle::<B::F>(log_size, 0, true),
+    );
+    TrackedOracle::new(either::Either::Left(id), tracker, log_size)
 }
 
 fn check_failed(msg: String) -> SnarkError {
@@ -436,6 +463,22 @@ fn tracked_row_key<B: SnarkBackend>(
         parts.push(format!("{:?}", value[row_idx]));
     }
     Ok(parts.join("|"))
+}
+
+fn active_rows_in_order<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+) -> ark_piop::errors::SnarkResult<Vec<String>> {
+    let activator = table
+        .activator_tracked_poly()
+        .expect("ResultCheck table activator missing")
+        .evaluations();
+    let mut rows = Vec::new();
+    for (row_idx, value) in activator.iter().enumerate() {
+        if !value.is_zero() {
+            rows.push(tracked_row_key(table, row_idx)?);
+        }
+    }
+    Ok(rows)
 }
 
 fn active_row_multiset<B: SnarkBackend>(

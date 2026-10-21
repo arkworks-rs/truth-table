@@ -148,7 +148,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         let input = crate::irs::tree::Tree::<B>::from_logical_plan(result_check.input())
             .root()
             .clone();
-        Self::new(input)
+        Self::new(input, ends_in_order_by(result_check.input()))
     }
 
     fn lp(&self) -> LogicalPlan {
@@ -214,11 +214,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> LpNode<B> {
-    pub fn new(input: Arc<Node<B>>) -> Self {
+    pub fn new(input: Arc<Node<B>>, ordered: bool) -> Self {
         let gadget = Arc::new(Node::Gadget(Arc::new(
-            crate::irs::nodes::utils::result_check::GadgetNode::<B>::new(),
+            crate::irs::nodes::utils::result_check::GadgetNode::<B>::new(ordered),
         )));
         Self { input, gadget }
+    }
+}
+
+/// Whether the result's row order is the query's: an ORDER BY, under only
+/// nodes that keep the order of the rows they pass on.
+fn ends_in_order_by(plan: &LogicalPlan) -> bool {
+    match plan {
+        LogicalPlan::Sort(_) => true,
+        LogicalPlan::Projection(projection) => ends_in_order_by(&projection.input),
+        LogicalPlan::SubqueryAlias(alias) => ends_in_order_by(&alias.input),
+        LogicalPlan::Limit(limit) => ends_in_order_by(&limit.input),
+        _ => false,
     }
 }
 

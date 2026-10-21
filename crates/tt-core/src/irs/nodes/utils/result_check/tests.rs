@@ -4,7 +4,8 @@
 //! claimed result that differs from the proven output still produces a proof.
 //! The verifier must accept exactly the claims whose active rows are the same
 //! multiset as the output's, regardless of row order, padding and domain
-//! size, and reject every other one.
+//! size, and reject every other one; in ordered mode, the same rows in the
+//! same order.
 
 use std::sync::Arc;
 
@@ -59,7 +60,19 @@ fn spec(table: &Table) -> TableSpec<F> {
 }
 
 fn run(output: Table, claimed: Table) -> Result<(), ark_piop::errors::SnarkError> {
-    let gadget: Arc<Node<B>> = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new())));
+    run_mode(output, claimed, false)
+}
+
+fn run_ordered(output: Table, claimed: Table) -> Result<(), ark_piop::errors::SnarkError> {
+    run_mode(output, claimed, true)
+}
+
+fn run_mode(
+    output: Table,
+    claimed: Table,
+    ordered: bool,
+) -> Result<(), ark_piop::errors::SnarkError> {
+    let gadget: Arc<Node<B>> = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(ordered))));
     let gadget_id = gadget.id();
     let harness = GadgetHarness::<B>::builder(8)
         .with_gadget(gadget)
@@ -183,4 +196,46 @@ fn a_renamed_column_is_rejected() {
         active: &[true, true, true, false],
     };
     assert!(run(output(), claimed).is_err());
+}
+
+/// The output of an ORDER BY: three sorted rows in the first slots of eight.
+fn sorted_output() -> Table<'static> {
+    Table {
+        nv: 3,
+        cols: &[
+            ("a", &[10, 20, 30, 0, 0, 0, 0, 0]),
+            ("b", &[1, 2, 3, 0, 0, 0, 0, 0]),
+        ],
+        active: &[true, true, true, false, false, false, false, false],
+    }
+}
+
+#[test]
+fn ordered_same_rows_in_the_same_order_verify() {
+    let claimed = Table {
+        nv: 2,
+        cols: &[("a", &[10, 20, 30, 0]), ("b", &[1, 2, 3, 0])],
+        active: &[true, true, true, false],
+    };
+    run_ordered(sorted_output(), claimed).expect("the rows in their order must verify");
+}
+
+#[test]
+fn ordered_same_rows_in_another_order_are_rejected() {
+    let claimed = Table {
+        nv: 2,
+        cols: &[("a", &[20, 10, 30, 0]), ("b", &[2, 1, 3, 0])],
+        active: &[true, true, true, false],
+    };
+    assert!(run_ordered(sorted_output(), claimed).is_err());
+}
+
+#[test]
+fn ordered_a_missing_row_is_rejected() {
+    let claimed = Table {
+        nv: 1,
+        cols: &[("a", &[10, 20]), ("b", &[1, 2])],
+        active: &[true, true],
+    };
+    assert!(run_ordered(sorted_output(), claimed).is_err());
 }
