@@ -219,6 +219,24 @@ fn ctx_oracles_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<CtxOracle
     Ok(CtxOracles::new(table_oracles))
 }
 
+/// The table's columns, as the prover registers them: the oracle's schema
+/// without a column's further encoded segments (`c__length`, ...), which a
+/// scan reading every column would otherwise see as columns of their own.
+fn table_columns(
+    schema: &datafusion::arrow::datatypes::Schema,
+) -> datafusion::arrow::datatypes::Schema {
+    let is_column = |name: &str| schema.fields().iter().any(|field| field.name() == name);
+    let fields: Vec<_> = schema
+        .fields()
+        .iter()
+        .filter(|field| {
+            !arithmetic::encoding::segment_base_name(field.name()).is_some_and(is_column)
+        })
+        .cloned()
+        .collect();
+    datafusion::arrow::datatypes::Schema::new_with_metadata(fields, schema.metadata().clone())
+}
+
 fn session_ctx_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<SessionContext> {
     let ctx = session_context();
 
@@ -229,7 +247,7 @@ fn session_ctx_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<SessionCo
         let table_name = infer_table_name_from_schema(&schema).ok_or_else(|| {
             anyhow!("oracle schema is missing table qualifier metadata needed for planning")
         })?;
-        let mem_table = MemTable::try_new(Arc::new(schema), vec![vec![]])
+        let mem_table = MemTable::try_new(Arc::new(table_columns(&schema)), vec![vec![]])
             .context("failed to build schema-only memtable from oracle")?;
         ctx.register_table(table_name, Arc::new(mem_table))
             .context("failed to register schema-only oracle table")?;

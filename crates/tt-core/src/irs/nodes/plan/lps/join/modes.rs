@@ -167,8 +167,14 @@ fn primary_key_columns(scan: &datafusion_expr::TableScan) -> Option<BTreeSet<Str
     crate::irs::nodes::hints::table_primary_key_columns(scan.table_name.table())
 }
 
-/// Whether `fk_cols` of `plan` are a foreign key into `pk_table`'s `pk_cols`.
-/// This decides only completeness (every row finds its match), not soundness.
+/// Whether `fk_cols` of `plan` are a foreign key into `pk_table`'s `pk_cols`,
+/// paired in order. This decides only completeness (every row finds its
+/// match), not soundness.
+///
+/// A composite foreign key is recorded per column in the committed schema
+/// (`l_partkey -> [ps_partkey]`) but as the whole key on each column in
+/// `constraints.json`, which a prover without schema metadata reads; both
+/// must give the same answer, or prover and verifier pick different modes.
 fn is_foreign_key_side(
     plan: &LogicalPlan,
     fk_cols: &[Column],
@@ -178,8 +184,8 @@ fn is_foreign_key_side(
     if has_outer_join(plan) {
         return false;
     }
-    let pk_names = column_name_set(pk_cols);
-    fk_cols.iter().all(|col| {
+    let mut referenced = BTreeSet::new();
+    for (col, pk_col) in fk_cols.iter().zip(pk_cols) {
         let base_table = col.relation.as_ref().and_then(|relation| {
             base_table_for_relation(plan, &table_name_from_relation(relation))
         });
@@ -187,11 +193,17 @@ fn is_foreign_key_side(
         else {
             return false;
         };
-        meta.fk_ref_table
+        let ref_columns = fk_ref_column_set(&meta);
+        let into_pk_table = meta
+            .fk_ref_table
             .as_deref()
-            .is_some_and(|ref_table| table_name_from_qualifier(ref_table) == pk_table)
-            && fk_ref_column_set(&meta) == pk_names
-    })
+            .is_some_and(|ref_table| table_name_from_qualifier(ref_table) == pk_table);
+        if !into_pk_table || !ref_columns.contains(&pk_col.name.to_lowercase()) {
+            return false;
+        }
+        referenced.extend(ref_columns);
+    }
+    referenced == column_name_set(pk_cols)
 }
 
 fn has_outer_join(plan: &LogicalPlan) -> bool {
