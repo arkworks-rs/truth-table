@@ -258,3 +258,30 @@ fn tie_hint_covers_only_the_sort_keys() {
         vec![Some(true), Some(false), Some(true), Some(false)]
     );
 }
+
+#[test]
+fn non_monotone_ties_are_rejected() {
+    // Row 0 claims ties [1, 0, 1, 0]: two tie breaks, at `a` and at `c`, which
+    // hides `b`, out of order (9 > 1), from every range check. Tie
+    // monotonicity is not checked (paper Lemma "checker soundness"): the
+    // break at `a`, where the rows are equal, fails its own nonzero check.
+    // A single nonzero claim over all columns would accept this row, since
+    // `c` does differ.
+    let keys = [
+        ("a", DataType::Int64, ints(&[5, 5, 6, 7])),
+        ("b", DataType::Int64, ints(&[9, 1, 0, 0])),
+        ("c", DataType::Int64, ints(&[0, 1, 0, 0])),
+        ("d", DataType::Int64, ints(&[0, 0, 0, 0])),
+    ];
+    let ties = [
+        ("tie_1", ints(&[0, 0, 0, 0])),
+        ("tie_2", ints(&[1, 0, 0, 0])),
+        ("tie_3", ints(&[0, 0, 0, 0])),
+    ];
+    assert_rejected(run(
+        ascending(&["a", "b", "c", "d"], false),
+        &keys,
+        &ties,
+        &[],
+    ));
+}
