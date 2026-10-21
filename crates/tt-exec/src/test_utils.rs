@@ -214,7 +214,7 @@ async fn oracle_cache_key(parquet_path: &Path, pk_path: &Path) -> Result<String>
 
 /// Bumped when the oracle files change without the encoding of the sample
 /// changing.
-const ORACLE_LAYOUT: u32 = 3;
+const ORACLE_LAYOUT: u32 = 4;
 
 /// Rows of the table run through the commit path's padding and
 /// arithmetization for [`oracle_cache_key`]. A sample is enough to notice an
