@@ -1,5 +1,5 @@
 use datafusion::execution::context::SessionState;
-use datafusion_common::{DataFusionError, Result as DataFusionResult};
+use datafusion_common::{DataFusionError, Result as DataFusionResult, tree_node::TreeNode};
 use datafusion_expr::{BinaryExpr, Expr, LogicalPlan, Operator};
 use std::collections::BTreeSet;
 use tt_core::irs::nodes::plan::{
@@ -49,7 +49,7 @@ fn collect_compaction_hints(
     path: &mut Vec<usize>,
     hints: &mut Vec<OptimizationHint>,
 ) -> DataFusionResult<()> {
-    if !in_result_tail && should_compact(session_state, plan)? {
+    if !in_result_tail && !follows_order_by(plan)? && should_compact(session_state, plan)? {
         hints.push(OptimizationHint::Compaction {
             target_path: path.clone(),
         });
@@ -145,6 +145,13 @@ pub(super) fn expressions_for_with_new_exprs(plan: &LogicalPlan) -> Vec<Expr> {
 }
 
 fn ensure_compaction_target(plan: &LogicalPlan, path: &[usize]) -> DataFusionResult<()> {
+    if follows_order_by(plan)? {
+        return Err(DataFusionError::Plan(format!(
+            "Compaction hint at path {:?} follows an ORDER BY: {}",
+            path,
+            plan.display()
+        )));
+    }
     // TODO: Limit is excluded because wrapping it in Compaction triggers
     // `HonestProverError(FalseClaim)` on queries with an explicit LIMIT
     // (TPC-H Q3, Q10). Needs an IR-side investigation.
@@ -156,6 +163,19 @@ fn ensure_compaction_target(plan: &LogicalPlan, path: &[usize]) -> DataFusionRes
         path,
         plan.display()
     )))
+}
+
+/// Whether an ORDER BY runs below `plan`. Compaction proves only that its
+/// output holds its input's rows, not in which order, so the paper forbids
+/// it after an ORDER BY (PIOP 20): the planner never places one there and
+/// the verifier rejects a hint that does.
+fn follows_order_by(plan: &LogicalPlan) -> DataFusionResult<bool> {
+    for input in plan.inputs() {
+        if input.exists(|node| Ok(matches!(node, LogicalPlan::Sort(_))))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Whether `plan`'s inputs are in the result tail: `plan` is the
@@ -219,5 +239,48 @@ fn next_power_of_two_strict(value: usize) -> usize {
         value.saturating_mul(2)
     } else {
         value.next_power_of_two()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion_expr::{LogicalPlan, col, lit, logical_plan::table_scan};
+
+    use super::apply_compaction_hints;
+
+    fn scan() -> datafusion_expr::LogicalPlanBuilder {
+        let schema = Schema::new(vec![
+            Field::new("k", DataType::Int64, false),
+            Field::new("v", DataType::Int64, false),
+        ]);
+        table_scan(Some("t"), &schema, None).unwrap()
+    }
+
+    fn compact_root(plan: LogicalPlan) -> datafusion_common::Result<LogicalPlan> {
+        let mut remaining = BTreeSet::from([vec![]]);
+        apply_compaction_hints(plan, &mut Vec::new(), &mut remaining)
+    }
+
+    #[test]
+    fn a_filter_may_be_compacted() {
+        let plan = scan().filter(col("v").eq(lit(1))).unwrap().build().unwrap();
+        assert!(compact_root(plan).is_ok());
+    }
+
+    #[test]
+    fn a_compaction_hint_after_an_order_by_is_rejected() {
+        let plan = scan()
+            .sort(vec![col("k").sort(true, false)])
+            .unwrap()
+            .limit(0, Some(3))
+            .unwrap()
+            .filter(col("v").eq(lit(1)))
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(compact_root(plan).is_err());
     }
 }
