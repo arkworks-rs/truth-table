@@ -117,11 +117,9 @@ fn materialize_union_hint(df: DataFrame, key_names: &[String]) -> DataFusionResu
     };
     let deduped = deduplicate_key_rows(&combined, key_names)?;
     let row_count = deduped.num_rows();
-    let target = if row_count == 0 {
-        2
-    } else {
-        row_count.next_power_of_two()
-    };
+    // At least two rows: a one-row union would be a zero-variable table,
+    // which the sort and shift checks of its NoDup do not support.
+    let target = row_count.next_power_of_two().max(2);
     let pad = target.saturating_sub(row_count);
 
     let mut output_fields = Vec::with_capacity(key_names.len() + 2);

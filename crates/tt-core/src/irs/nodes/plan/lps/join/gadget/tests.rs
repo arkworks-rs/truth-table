@@ -291,3 +291,34 @@ fn a_join_key_matching_several_columns_by_name_only_is_an_error() {
     let ab = indexmap::IndexMap::from([(qualified("k", "x"), ()), (qualified("k", "y"), ())]);
     assert!(super::key_segment_pairs(&self_join(false), &n0, &ab).is_err());
 }
+
+#[test]
+fn output_columns_split_into_the_inputs_columns() {
+    let left = [qualified("k", "a"), qualified("v", "a")];
+    let right = [qualified("k", "b")];
+    let output = [left[0].clone(), left[1].clone(), right[0].clone()];
+    assert_eq!(
+        super::output_side_fields(&output, &left, &right, true).unwrap(),
+        left.to_vec()
+    );
+    assert_eq!(
+        super::output_side_fields(&output, &left, &right, false).unwrap(),
+        right.to_vec()
+    );
+}
+
+#[test]
+fn an_output_column_outside_both_inputs_is_an_error() {
+    let left = [qualified("k", "a")];
+    let right = [qualified("k", "b")];
+    let output = [left[0].clone(), right[0].clone(), qualified("extra", "b")];
+    assert!(super::output_side_fields(&output, &left, &right, true).is_err());
+}
+
+#[test]
+fn an_output_column_of_another_alias_is_an_error() {
+    let left = [qualified("k", "a")];
+    let right = [qualified("k", "b")];
+    let output = [qualified("k", "b"), qualified("k", "a")];
+    assert!(super::output_side_fields(&output, &left, &right, true).is_err());
+}
