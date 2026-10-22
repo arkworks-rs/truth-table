@@ -689,8 +689,11 @@ fn build_verifier_nodup_input_hint() -> crate::irs::nodes::hints::HintDF {
 /// encoded segment of a left join key with the right key's segment of the
 /// same suffix. Paper PIOP 18 shares one key column `Ô.k` between the two
 /// provenance lookups; the output carries both sides' keys, so they are
-/// zerochecked equal. Fingerprint limbs are left out: their bins depend on
-/// the column, and equal hashes already mean equal strings.
+/// zerochecked equal. Keys are resolved by qualifier ([`wiring::key_fields`]):
+/// a self-join puts same-named columns of two aliases on one side, and
+/// pairing the wrong one would check a different join. Fingerprint limbs are
+/// left out: their bins depend on the column, and equal hashes already mean
+/// equal strings.
 fn key_segment_pairs<T>(
     join: &datafusion_expr::Join,
     left_cols: &IndexMap<FieldRef, T>,
@@ -706,27 +709,27 @@ fn key_segment_pairs<T>(
         let (Expr::Column(left_key), Expr::Column(right_key)) = (left_key, right_key) else {
             return Err(key_error("join keys must be columns".to_string()));
         };
-        let segments_before = pairs.len();
-        for left in left_cols.keys() {
-            if !arithmetic::encoding::is_segment_of(left.name(), &left_key.name) {
-                continue;
-            }
-            let suffix = &left.name()[left_key.name.len()..];
-            if suffix.starts_with(arithmetic::encoding::STRING_FINGERPRINT_LIMB_PREFIX) {
-                continue;
-            }
-            let right_name = format!("{}{suffix}", right_key.name);
-            let right = right_cols
-                .keys()
-                .find(|field| field.name() == &right_name)
-                .ok_or_else(|| key_error(format!("join output has no column {right_name}")))?;
-            pairs.push((left.clone(), right.clone()));
-        }
-        if pairs.len() == segments_before {
+        let left = wiring::key_fields(left_cols.keys(), left_key)
+            .map_err(|msg| key_error(format!("join output, left side: {msg}")))?;
+        let right = wiring::key_fields(right_cols.keys(), right_key)
+            .map_err(|msg| key_error(format!("join output, right side: {msg}")))?;
+        if left.len() != right.len() {
             return Err(key_error(format!(
-                "join output has no column {}",
-                left_key.name
+                "join keys {left_key} and {right_key} have different encodings"
             )));
+        }
+        for left in left {
+            let suffix = &left.name()[left_key.name.len()..];
+            let right = right
+                .iter()
+                .find(|field| &field.name()[right_key.name.len()..] == suffix)
+                .ok_or_else(|| {
+                    key_error(format!(
+                        "join output has no column {}{suffix}",
+                        right_key.name
+                    ))
+                })?;
+            pairs.push((left, right.clone()));
         }
     }
     Ok(pairs)

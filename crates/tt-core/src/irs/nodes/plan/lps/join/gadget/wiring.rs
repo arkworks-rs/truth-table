@@ -11,14 +11,14 @@ use arithmetic::{
     table_oracle::TrackedTableOracle,
 };
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::{Column, TableReference};
 use datafusion_expr::Expr;
 use indexmap::IndexMap;
 
-impl<B: SnarkBackend> GadgetNode<B> {
-    const QUALIFIER_METADATA_KEY: &'static str = "tt.qualifier";
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 
+impl<B: SnarkBackend> GadgetNode<B> {
     fn bool_table_from_output_prover(output: &TrackedTable<B>) -> TrackedTable<B> {
         let activator = output
             .activator_tracked_poly()
@@ -198,25 +198,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
             .collect()
     }
 
-    fn table_name_from_relation(relation: &TableReference) -> String {
-        table_name_from_qualifier(&relation.to_string())
-    }
-
-    fn field_matches_column(field: &Arc<Field>, col: &Column) -> bool {
-        if field.name() != col.name.as_str() {
-            return false;
-        }
-        let Some(relation) = col.relation.as_ref() else {
-            return true;
-        };
-        let expected = Self::table_name_from_relation(relation);
-        field
-            .metadata()
-            .get(Self::QUALIFIER_METADATA_KEY)
-            .map(|qualifier| table_name_from_qualifier(qualifier) == expected)
-            .unwrap_or(false)
-    }
-
     fn select_tracked_columns(
         table: &TrackedTable<B>,
         columns: &[Column],
@@ -225,35 +206,11 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let cols = table.tracked_polys();
         let mut selected = IndexMap::new();
         for col in columns {
-            let exact = cols
-                .iter()
-                .filter(|(field, _)| Self::field_matches_column(field, col))
-                .collect::<Vec<_>>();
-            let (field, poly) = if exact.len() == 1 {
-                (exact[0].0, exact[0].1)
-            } else {
-                let by_name = cols
-                    .iter()
-                    .filter(|(field, _)| field.name() == col.name.as_str())
-                    .collect::<Vec<_>>();
-                if by_name.len() == 1 {
-                    (by_name[0].0, by_name[0].1)
-                } else if by_name.is_empty() {
-                    panic!("Join {side} table missing column {}", col.flat_name())
-                } else {
-                    panic!(
-                        "Join {side} table has ambiguous column {} ({} candidates)",
-                        col.flat_name(),
-                        by_name.len()
-                    )
-                }
-            };
-            selected.insert(field.clone(), poly.clone());
-            for (segment, poly) in cols
-                .iter()
-                .filter(|(segment, _)| is_value_segment_of(segment.name(), field.name()))
-            {
-                selected.insert(segment.clone(), poly.clone());
+            let fields = key_fields(cols.keys(), col)
+                .unwrap_or_else(|msg| panic!("Join {side} table: {msg}"));
+            for field in fields {
+                let poly = cols[&field].clone();
+                selected.insert(field, poly);
             }
         }
         let schema = table.schema_ref().map(|schema| {
@@ -281,35 +238,11 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let cols = table.tracked_oracles();
         let mut selected = IndexMap::new();
         for col in columns {
-            let exact = cols
-                .iter()
-                .filter(|(field, _)| Self::field_matches_column(field, col))
-                .collect::<Vec<_>>();
-            let (field, oracle) = if exact.len() == 1 {
-                (exact[0].0, exact[0].1)
-            } else {
-                let by_name = cols
-                    .iter()
-                    .filter(|(field, _)| field.name() == col.name.as_str())
-                    .collect::<Vec<_>>();
-                if by_name.len() == 1 {
-                    (by_name[0].0, by_name[0].1)
-                } else if by_name.is_empty() {
-                    panic!("Join {side} table missing column {}", col.flat_name())
-                } else {
-                    panic!(
-                        "Join {side} table has ambiguous column {} ({} candidates)",
-                        col.flat_name(),
-                        by_name.len()
-                    )
-                }
-            };
-            selected.insert(field.clone(), oracle.clone());
-            for (segment, oracle) in cols
-                .iter()
-                .filter(|(segment, _)| is_value_segment_of(segment.name(), field.name()))
-            {
-                selected.insert(segment.clone(), oracle.clone());
+            let fields = key_fields(cols.keys(), col)
+                .unwrap_or_else(|msg| panic!("Join {side} table: {msg}"));
+            for field in fields {
+                let oracle = cols[&field].clone();
+                selected.insert(field, oracle);
             }
         }
         let schema = table.schema_ref().map(|schema| {
@@ -552,11 +485,73 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
-/// Whether `name` is a non-primary row-domain value segment of `base`, such
-/// as a string's further hash slots and `__length`, which the key union
-/// encodes too. Fingerprint limbs are left out: the union has none.
-fn is_value_segment_of(name: &str, base: &str) -> bool {
-    name != base
-        && arithmetic::encoding::is_segment_of(name, base)
-        && !name[base.len()..].starts_with(arithmetic::encoding::STRING_FINGERPRINT_LIMB_PREFIX)
+/// The field among `fields` that the join key `col` names, followed by its
+/// value segments: a string's further hash slots and `__length`, which the
+/// key union encodes too (fingerprint limbs are left out: the union has
+/// none). The key is resolved by qualifier, and so are its segments: a
+/// self-join puts same-named columns of two aliases on one side. A bare name
+/// decides only when no field matches by qualifier and the name is unique.
+pub(super) fn key_fields<'a>(
+    fields: impl Iterator<Item = &'a FieldRef> + Clone,
+    col: &Column,
+) -> Result<Vec<FieldRef>, String> {
+    let exact = fields
+        .clone()
+        .filter(|field| field_matches_column(field, col))
+        .collect::<Vec<_>>();
+    let candidates = if exact.is_empty() {
+        fields
+            .clone()
+            .filter(|field| field.name() == col.name.as_str())
+            .collect()
+    } else {
+        exact
+    };
+    let key = match candidates.as_slice() {
+        [key] => *key,
+        [] => return Err(format!("missing column {}", col.flat_name())),
+        _ => {
+            return Err(format!(
+                "ambiguous column {} ({} candidates)",
+                col.flat_name(),
+                candidates.len()
+            ));
+        }
+    };
+    let qualifier = key.metadata().get(QUALIFIER_METADATA_KEY);
+    let mut out = vec![key.clone()];
+    out.extend(
+        fields
+            .filter(|field| {
+                field.name() != key.name()
+                    && arithmetic::encoding::is_segment_of(field.name(), key.name())
+                    && !field.name()[key.name().len()..]
+                        .starts_with(arithmetic::encoding::STRING_FINGERPRINT_LIMB_PREFIX)
+                    && !matches!(
+                        (qualifier, field.metadata().get(QUALIFIER_METADATA_KEY)),
+                        (Some(key_q), Some(seg_q)) if key_q != seg_q
+                    )
+            })
+            .cloned(),
+    );
+    Ok(out)
+}
+
+fn field_matches_column(field: &Field, col: &Column) -> bool {
+    if field.name() != col.name.as_str() {
+        return false;
+    }
+    let Some(relation) = col.relation.as_ref() else {
+        return true;
+    };
+    let expected = table_name_from_relation(relation);
+    field
+        .metadata()
+        .get(QUALIFIER_METADATA_KEY)
+        .map(|qualifier| table_name_from_qualifier(qualifier) == expected)
+        .unwrap_or(false)
+}
+
+fn table_name_from_relation(relation: &TableReference) -> String {
+    table_name_from_qualifier(&relation.to_string())
 }
