@@ -35,8 +35,10 @@ use crate::{
 pub const LEFT_LABEL: &str = "__left__";
 /// The right join keys (a single key or a composite key).
 pub const RIGHT_LABEL: &str = "__right__";
-/// The join output. Its activator is `C_{µ,s}`, so a sumcheck on it pins
-/// the claimed number of matching pairs to `s` (paper PIOP 18, step 2).
+/// The join output. The pair count is claimed as the sum of its activator,
+/// which is the number of active output rows only for a Boolean activator;
+/// the join passes the public `C_{µ,s}`, so the count is `s` (paper PIOP 18,
+/// step 2).
 pub const OUT_LABEL: &str = "__out__";
 /// The union of the left and right keys.
 pub const UNION_LABEL: &str = "__union__";

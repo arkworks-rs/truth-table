@@ -83,3 +83,8 @@ end_to_end_tests!(&["nation"] => [
     self_join_key_on_second_alias_right => r#"SELECT n0.n_name, a.n_nationkey, b.n_name FROM nation n0 JOIN (nation a JOIN nation b ON a.n_regionkey = b.n_regionkey) ON n0.n_nationkey = b.n_nationkey"#,
     self_join_key_on_second_alias_left => r#"SELECT n0.n_name, a.n_nationkey, b.n_name FROM (nation a JOIN nation b ON a.n_regionkey = b.n_regionkey) JOIN nation n0 ON b.n_nationkey = n0.n_nationkey"#,
 ]);
+
+// A many-to-many join whose key union holds a single value.
+end_to_end_tests!(&["nation"] => [
+    many_to_many_single_key => r#"SELECT n1.n_name, n2.n_name FROM nation n1 JOIN nation n2 ON n1.n_regionkey = n2.n_regionkey WHERE n1.n_regionkey = 1 AND n2.n_regionkey = 1"#,
+]);

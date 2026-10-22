@@ -104,108 +104,6 @@ impl<B: SnarkBackend> LpNode<B> {
             .expect("full-materialized join active-row count was not cached during output()")
     }
 
-    fn preserve_row_id_prover(
-        current: &arithmetic::table::TrackedTable<B>,
-        existing: Option<&arithmetic::table::TrackedTable<B>>,
-    ) -> arithmetic::table::TrackedTable<B> {
-        let current_has_row_id = current
-            .tracked_polys()
-            .keys()
-            .any(|field| field.name() == ROW_ID_COL_NAME);
-        if current_has_row_id {
-            return current.clone();
-        }
-        let Some(existing) = existing else {
-            return current.clone();
-        };
-        let existing_cols = existing.tracked_polys();
-        let Some((row_field, row_poly)) = existing_cols
-            .iter()
-            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-            .map(|(field, poly)| (field.clone(), poly.clone()))
-        else {
-            return current.clone();
-        };
-        debug_assert_eq!(current.log_size(), existing.log_size());
-        let mut tracked_polys = current.tracked_polys();
-        tracked_polys.insert(row_field.clone(), row_poly);
-        let schema = current
-            .schema_ref()
-            .map(|schema| {
-                let mut fields = schema
-                    .fields()
-                    .iter()
-                    .map(|f| f.as_ref().clone())
-                    .collect::<Vec<_>>();
-                if !fields.iter().any(|f| f.name() == ROW_ID_COL_NAME) {
-                    fields.push(row_field.as_ref().clone());
-                }
-                Schema::new_with_metadata(fields, schema.metadata().clone())
-            })
-            .or_else(|| {
-                Some(Schema::new(
-                    tracked_polys
-                        .keys()
-                        .map(|f| f.as_ref().clone())
-                        .collect::<Vec<_>>(),
-                ))
-            });
-        arithmetic::table::TrackedTable::new(schema, tracked_polys, current.log_size())
-    }
-
-    fn preserve_row_id_verifier(
-        current: &arithmetic::table_oracle::TrackedTableOracle<B>,
-        existing: Option<&arithmetic::table_oracle::TrackedTableOracle<B>>,
-    ) -> arithmetic::table_oracle::TrackedTableOracle<B> {
-        let current_has_row_id = current
-            .tracked_oracles()
-            .keys()
-            .any(|field| field.name() == ROW_ID_COL_NAME);
-        if current_has_row_id {
-            return current.clone();
-        }
-        let Some(existing) = existing else {
-            return current.clone();
-        };
-        let existing_cols = existing.tracked_oracles();
-        let Some((row_field, row_oracle)) = existing_cols
-            .iter()
-            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-            .map(|(field, oracle)| (field.clone(), oracle.clone()))
-        else {
-            return current.clone();
-        };
-        debug_assert_eq!(current.log_size(), existing.log_size());
-        let mut tracked_oracles = current.tracked_oracles();
-        tracked_oracles.insert(row_field.clone(), row_oracle);
-        let schema = current
-            .schema_ref()
-            .map(|schema| {
-                let mut fields = schema
-                    .fields()
-                    .iter()
-                    .map(|f| f.as_ref().clone())
-                    .collect::<Vec<_>>();
-                if !fields.iter().any(|f| f.name() == ROW_ID_COL_NAME) {
-                    fields.push(row_field.as_ref().clone());
-                }
-                Schema::new_with_metadata(fields, schema.metadata().clone())
-            })
-            .or_else(|| {
-                Some(Schema::new(
-                    tracked_oracles
-                        .keys()
-                        .map(|f| f.as_ref().clone())
-                        .collect::<Vec<_>>(),
-                ))
-            });
-        arithmetic::table_oracle::TrackedTableOracle::new(
-            schema,
-            tracked_oracles,
-            current.log_size(),
-        )
-    }
-
     fn field_names_prover(table: &arithmetic::table::TrackedTable<B>) -> BTreeSet<String> {
         table
             .tracked_polys_iter()
@@ -647,12 +545,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        let left_table =
-            Self::preserve_row_id_prover(&left_table, gadget_payload.get(join_gadget::LEFT_LABEL));
-        let right_table = Self::preserve_row_id_prover(
-            &right_table,
-            gadget_payload.get(join_gadget::RIGHT_LABEL),
-        );
         gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_table);
         gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_table);
         gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_table);
@@ -1143,14 +1035,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        let left_table = Self::preserve_row_id_verifier(
-            &left_table,
-            gadget_payload.get(join_gadget::LEFT_LABEL),
-        );
-        let right_table = Self::preserve_row_id_verifier(
-            &right_table,
-            gadget_payload.get(join_gadget::RIGHT_LABEL),
-        );
         gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_table);
         gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_table);
         gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_table);

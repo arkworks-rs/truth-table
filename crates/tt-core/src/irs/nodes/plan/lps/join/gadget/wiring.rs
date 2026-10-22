@@ -1,9 +1,8 @@
-use crate::irs::nodes::hints::table_name_from_qualifier;
-use std::sync::Arc;
+use crate::irs::nodes::hints::{QUALIFIER_METADATA_KEY, table_name_from_qualifier};
 
 use crate::irs::nodes::plan::lps::join::gadget::GadgetNode;
 use crate::irs::{
-    nodes::utils::{bool, match_pair_check, nodup},
+    nodes::utils::{match_pair_check, nodup},
     payloads::PayloadStructure,
 };
 use arithmetic::{
@@ -11,36 +10,12 @@ use arithmetic::{
     table_oracle::TrackedTableOracle,
 };
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_common::{Column, TableReference};
 use datafusion_expr::Expr;
 use indexmap::IndexMap;
 
-const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
-
 impl<B: SnarkBackend> GadgetNode<B> {
-    fn bool_table_from_output_prover(output: &TrackedTable<B>) -> TrackedTable<B> {
-        let activator = output
-            .activator_tracked_poly()
-            .expect("Join output should carry an activator column");
-        let field = Arc::new(Field::new("data", DataType::Boolean, false));
-        let mut tracked_polys = IndexMap::new();
-        tracked_polys.insert(field.clone(), activator);
-        let schema = Some(Schema::new(vec![field.as_ref().clone()]));
-        TrackedTable::new(schema, tracked_polys, output.log_size())
-    }
-
-    fn bool_table_from_output_verifier(output: &TrackedTableOracle<B>) -> TrackedTableOracle<B> {
-        let activator = output
-            .activator_tracked_poly()
-            .expect("Join output should carry an activator column");
-        let field = Arc::new(Field::new("data", DataType::Boolean, false));
-        let mut tracked_oracles = IndexMap::new();
-        tracked_oracles.insert(field.clone(), activator);
-        let schema = Some(Schema::new(vec![field.as_ref().clone()]));
-        TrackedTableOracle::new(schema, tracked_oracles, output.log_size())
-    }
-
     fn nodup_table_from_output_prover(
         output: &TrackedTable<B>,
         left_src: &TrackedTable<B>,
@@ -127,26 +102,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
             right_field.as_ref().clone(),
         ]));
         TrackedTableOracle::new(schema, tracked_oracles, output.log_size())
-    }
-
-    pub(super) fn wire_prover_bool_payload(
-        &self,
-        output: &TrackedTable<B>,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-    ) {
-        let Some(gadgets) = self.many_to_many_gadgets() else {
-            return;
-        };
-        let bool_table = Self::bool_table_from_output_prover(output);
-        let mut bool_payload = match virtualized_ir.payload_for_node(&gadgets.bool_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
-        virtualized_ir.set_payload_for_node(
-            gadgets.bool_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(bool_payload)),
-        );
     }
 
     pub(super) fn wire_prover_nodup_payload(
@@ -409,26 +364,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
         virtualized_ir.set_payload_for_node(
             gadgets.match_pair_gadget.id(),
             Some(PayloadStructure::GadgetPayload(match_payload)),
-        );
-    }
-
-    pub(super) fn wire_verifier_bool_payload(
-        &self,
-        output: &TrackedTableOracle<B>,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
-    ) {
-        let Some(gadgets) = self.many_to_many_gadgets() else {
-            return;
-        };
-        let bool_table = Self::bool_table_from_output_verifier(output);
-        let mut bool_payload = match virtualized_ir.payload_for_node(&gadgets.bool_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
-        virtualized_ir.set_payload_for_node(
-            gadgets.bool_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
     }
 
