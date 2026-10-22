@@ -2,18 +2,24 @@ use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::ROW_ID_COL_NAME;
 use arithmetic::{ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::One;
-use ark_piop::{SnarkBackend, errors::SnarkError, verifier::errors::VerifierError};
+use ark_piop::{
+    SnarkBackend,
+    errors::SnarkError,
+    prover::structs::polynomial::TrackedPoly,
+    verifier::{errors::VerifierError, structs::oracle::TrackedOracle},
+};
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Expr, LogicalPlan, col};
+use either::Either;
 use indexmap::IndexMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::irs::nodes::hints::HintDF;
 use crate::{
     irs::{
         nodes::{
             IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            utils::{commit_with_tracker, field_to_usize, track_next_committed},
+            utils::{commit_with_tracker, contig_sort, field_to_usize, track_next_committed},
         },
         payloads::PayloadStructure,
         tree::Tree,
@@ -32,6 +38,9 @@ where
     input: Arc<Node<B>>,
     sort_exprs: Vec<Arc<Node<B>>>,
     gadget: Arc<Node<B>>,
+    /// `s`, from `add_virtual_witness` for `initialize_gadgets`, which hands
+    /// it to the sort check.
+    active_rows: Mutex<Option<usize>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -110,6 +119,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         let activator = tracker_rc
             .borrow_mut()
             .get_or_build_contig_one_poly(output.log_size(), s)?;
+        self.cache_active_rows(s);
 
         let mut polys = output.tracked_polys();
         polys.insert(ACTIVATOR_FIELD.clone(), activator);
@@ -153,6 +163,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input);
         }
         if let Some(output) = output_table {
+            if let Some(activator) = output.activator_tracked_poly() {
+                let count = TrackedPoly::new(
+                    Either::Right(B::F::from(self.cached_active_rows() as u64)),
+                    0,
+                    activator.tracker(),
+                );
+                gadget_payload.insert(
+                    contig_sort::ACTIVE_ROWS_LABEL.to_string(),
+                    TrackedTable::single_column_with_activator(
+                        contig_sort::active_rows_field(),
+                        count,
+                        None,
+                    ),
+                );
+            }
             gadget_payload.insert(gadget::OUTPUT_LABEL.to_string(), output);
         }
         if let Some(sort_exprs) = sort_exprs_table {
@@ -253,6 +278,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let activator = tracker_rc
             .borrow_mut()
             .get_or_build_contig_one_poly(output.log_size(), s)?;
+        self.cache_active_rows(s);
 
         let mut oracles = output.tracked_oracles();
         oracles.insert(ACTIVATOR_FIELD.clone(), activator);
@@ -292,6 +318,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input);
         }
         if let Some(output) = output_table {
+            if let Some(activator) = output.activator_tracked_poly() {
+                let count = TrackedOracle::new(
+                    Either::Right(B::F::from(self.cached_active_rows() as u64)),
+                    activator.tracker(),
+                    0,
+                );
+                gadget_payload.insert(
+                    contig_sort::ACTIVE_ROWS_LABEL.to_string(),
+                    TrackedTableOracle::single_column_with_activator(
+                        contig_sort::active_rows_field(),
+                        count,
+                        None,
+                    ),
+                );
+            }
             gadget_payload.insert(gadget::OUTPUT_LABEL.to_string(), output);
         }
         if let Some(sort_exprs) = sort_exprs_table {
@@ -640,6 +681,19 @@ fn hint_with_virtual_activator(output_df: datafusion::prelude::DataFrame) -> Hin
     HintDF::new(output_df, should_materialize)
 }
 
+impl<B: SnarkBackend> LpNode<B> {
+    fn cache_active_rows(&self, s: usize) {
+        *self.active_rows.lock().expect("Sort active-row lock") = Some(s);
+    }
+
+    fn cached_active_rows(&self) -> usize {
+        self.active_rows
+            .lock()
+            .expect("Sort active-row lock")
+            .expect("the Sort output's active rows are set in add_virtual_witness")
+    }
+}
+
 fn with_activator_field(schema: Option<&Schema>) -> Option<Schema> {
     schema.map(|schema| {
         let mut fields: Vec<_> = schema.fields().iter().cloned().collect();
@@ -681,6 +735,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             input,
             sort_exprs,
             gadget,
+            active_rows: Mutex::new(None),
         }
     }
 

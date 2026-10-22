@@ -11,8 +11,8 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
-    DIFF_INPUT_LABEL, GadgetNode, PerColumnConfig, ROTATED_INPUT_LABEL, SortConfig, TABLE_LABEL,
-    TIE_INDICATOR_LABEL, UniformConfig,
+    ACTIVE_ROWS_LABEL, DIFF_INPUT_LABEL, GadgetNode, PerColumnConfig, ROTATED_INPUT_LABEL,
+    SortConfig, TABLE_LABEL, TIE_INDICATOR_LABEL, UniformConfig,
 };
 use crate::irs::nodes::Node;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
@@ -68,6 +68,17 @@ fn table(cols: &[(&str, DataType, Vec<F>)], activator: Option<Vec<F>>) -> TableS
     }
 }
 
+/// The active-row count `s` the sort check reads, as a committed scalar.
+pub(crate) fn active_rows(s: u64) -> TableSpec<F> {
+    let field = Arc::new(Field::new("active_rows", DataType::UInt64, false));
+    TableSpec {
+        schema: Schema::new(vec![field.as_ref().clone()]),
+        log_size: 0,
+        cols: vec![(field, vec![F::from(s)])],
+        activator: None,
+    }
+}
+
 /// Proves and verifies that `keys` (all rows active) is sorted under
 /// `config`, with the given committed tie and diff hints.
 fn run(
@@ -76,18 +87,34 @@ fn run(
     ties: &[(&str, Vec<F>)],
     diffs: &[(&str, DataType, Vec<F>)],
 ) -> Result<(), ark_piop::errors::SnarkError> {
+    let rotated: Vec<_> = keys.iter().map(|(_, _, values)| rotate(values)).collect();
+    run_with(config, keys, &rotated, 4, ties, diffs)
+}
+
+/// As [`run`], with the first `s` rows active and the shifted copy `d'` of
+/// each key given.
+fn run_with(
+    config: SortConfig,
+    keys: &[(&str, DataType, Vec<F>)],
+    shifted: &[Vec<F>],
+    s: u64,
+    ties: &[(&str, Vec<F>)],
+    diffs: &[(&str, DataType, Vec<F>)],
+) -> Result<(), ark_piop::errors::SnarkError> {
     let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(config))));
     let id = gadget.id();
-    let active = ints(&[1, 1, 1, 1]);
+    let active = (0..4).map(|row| F::from(u64::from(row < s))).collect();
     let rotated: Vec<_> = keys
         .iter()
-        .map(|(name, data_type, values)| (*name, data_type.clone(), rotate(values)))
+        .zip(shifted)
+        .map(|((name, data_type, _), values)| (*name, data_type.clone(), values.clone()))
         .collect();
 
     let mut builder = GadgetHarness::<B>::builder(16)
         .with_gadget(gadget)
-        .with_table(id, TABLE_LABEL, table(keys, Some(active.clone())))
-        .with_table(id, ROTATED_INPUT_LABEL, table(&rotated, Some(active)));
+        .with_table(id, TABLE_LABEL, table(keys, Some(active)))
+        .with_table(id, ROTATED_INPUT_LABEL, table(&rotated, None))
+        .with_table(id, ACTIVE_ROWS_LABEL, active_rows(s));
     if !ties.is_empty() {
         let ties: Vec<_> = ties
             .iter()
@@ -284,4 +311,37 @@ fn non_monotone_ties_are_rejected() {
         &ties,
         &[],
     ));
+}
+
+#[test]
+fn rows_past_the_active_ones_are_not_compared() {
+    // Three active rows; the padding row is smaller than the last of them.
+    let keys = [("k", DataType::Int64, ints(&[1, 2, 3, 0]))];
+    let shifted = [ints(&[2, 3, 0, 1])];
+    run_with(ascending(&["k"], false), &keys, &shifted, 3, &[], &[])
+        .expect("only the active prefix is sorted");
+}
+
+#[test]
+fn the_last_shifted_row_is_free() {
+    // `d'[j] = d[j + 1]` is required only for `j < s - 1`: no wrap-around.
+    let keys = [("k", DataType::Int64, ints(&[1, 2, 3, 4]))];
+    let shifted = [ints(&[2, 3, 4, 999])];
+    run_with(ascending(&["k"], false), &keys, &shifted, 4, &[], &[])
+        .expect("the last row of d' is never read");
+}
+
+#[test]
+fn a_forged_shift_is_rejected() {
+    // 5 > 1 at rows 0, 1. A d' that is not d shifted, chosen so every
+    // difference is non-negative, must fail the multiset equality. That
+    // equality is checked by the verifier in both builds: the harness skips
+    // the pipeline's honest-prover pass, which holds its prover-side check.
+    let keys = [("k", DataType::Int64, ints(&[5, 1, 7, 9]))];
+    let shifted = [ints(&[6, 7, 9, 0])];
+    let result = run_with(ascending(&["k"], false), &keys, &shifted, 4, &[], &[]);
+    assert!(
+        matches!(result, Err(ark_piop::errors::SnarkError::VerifierError(_))),
+        "expected the verifier to reject, got {result:?}"
+    );
 }

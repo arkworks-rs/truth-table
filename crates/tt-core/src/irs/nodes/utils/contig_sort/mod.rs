@@ -6,19 +6,18 @@ use arithmetic::{
 };
 use ark_ff::One;
 use ark_piop::SnarkBackend;
-use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
+use ark_piop::errors::{SnarkError, SnarkResult};
 use ark_piop::prover::structs::polynomial::get_or_insert_shift_poly;
-use ark_piop::verifier::structs::oracle::Oracle;
+use ark_piop::verifier::errors::VerifierError;
 use ark_piop::verifier::structs::oracle::get_or_insert_shift_oracle;
 use ark_piop::{
     prover::ArgProver, prover::structs::polynomial::TrackedPoly, verifier::ArgVerifier,
     verifier::structs::oracle::TrackedOracle,
 };
-use ark_poly::Polynomial;
 use datafusion::arrow::{
     array::{ArrayRef, BooleanArray, Int64Array},
     compute::{concat, concat_batches},
-    datatypes::{DataType, Field, IntervalUnit, Schema},
+    datatypes::{DataType, Field, FieldRef, IntervalUnit, Schema},
     record_batch::RecordBatch,
 };
 use datafusion::datasource::MemTable;
@@ -26,7 +25,7 @@ use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use either::Either;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::utils::{prescr_perm, sign};
+use crate::irs::nodes::utils::{field_to_usize, perm, sign};
 use crate::{
     irs::{
         nodes::{
@@ -46,6 +45,14 @@ pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
 pub const DIFF_INPUT_LABEL: &str = "__diff_input__";
+/// A zero-variable table holding `s`, the number of active rows. The input's
+/// activator must be `C_{µ,s}`: the check covers its first `s` rows.
+pub const ACTIVE_ROWS_LABEL: &str = "__active_rows__";
+
+/// The column of the [`ACTIVE_ROWS_LABEL`] table.
+pub fn active_rows_field() -> FieldRef {
+    Arc::new(Field::new("active_rows", DataType::UInt64, false))
+}
 const FIRST_TIE_LABEL: &str = "tie_0";
 
 pub enum SortConfig {
@@ -65,7 +72,7 @@ pub struct PerColumnConfig {
 
 /// Enforces that a table is sorted according to its sort config.
 pub struct GadgetNode<B: SnarkBackend> {
-    prescr_perm: Arc<Node<B>>,
+    perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
     sign_gadget: Arc<Node<B>>,
     sort_config: SortConfig,
@@ -92,94 +99,105 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![
-            self.prescr_perm.clone(),
+            self.perm.clone(),
             self.bool_gadget.clone(),
             self.sign_gadget.clone(),
         ]
     }
 }
 
-fn build_perm_table_prover<B: SnarkBackend>(
-    prover: &mut ark_piop::prover::ArgProver<B>,
-    left: &TrackedTable<B>,
-) -> TrackedTable<B> {
-    let data_poly = if let Some(data_idx) = left.data_tracked_polys_indices().first().copied() {
-        left.tracked_col_by_ind(data_idx).data_tracked_poly()
-    } else if let Some(activator) = left.activator_tracked_poly() {
-        activator
-    } else if let Some(col) = left.all_tracked_cols().first() {
-        col.data_tracked_poly()
-    } else {
-        panic!("Sort permutation expects at least one column in input table");
-    };
-    let log_size = data_poly.log_size();
-    let perm_poly = get_or_insert_shift_poly(prover, log_size, 1, true);
-    let perm_field = Arc::new(Field::new(prescr_perm::PERM_LABEL, DataType::UInt64, false));
-    TrackedTable::single_column_with_activator(perm_field, perm_poly, None)
+/// The number of active rows `s` the caller passes under
+/// [`ACTIVE_ROWS_LABEL`]: the input's activator is `C_{µ,s}`.
+fn active_rows_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> SnarkResult<usize> {
+    let count = table
+        .all_tracked_cols()
+        .first()
+        .map(|col| col.data_tracked_poly())
+        .filter(|poly| poly.log_size() == 0);
+    match count {
+        Some(poly) => field_to_usize(poly.evaluations()[0], "the sorted table's active rows"),
+        None => Err(not_a_count()),
+    }
 }
 
-fn build_perm_table_verifier<B: SnarkBackend>(
-    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-    left: &TrackedTableOracle<B>,
-) -> TrackedTableOracle<B> {
-    let data_oracle = if let Some(data_idx) = left.data_tracked_oracles_indices().first().copied() {
-        left.tracked_col_oracle_by_ind(data_idx)
-            .data_tracked_oracle()
-    } else if let Some(activator) = left.activator_tracked_poly() {
-        activator
-    } else if let Some(col) = left.all_tracked_col_oracles().first() {
-        col.data_tracked_oracle()
-    } else {
-        panic!("Sort permutation expects at least one column in input table");
-    };
-    let log_size = data_oracle.log_size();
-    let perm_tracked_oracle = get_or_insert_shift_oracle(verifier, log_size, 1, true);
-    let perm_field = Arc::new(Field::new(prescr_perm::PERM_LABEL, DataType::UInt64, false));
-    TrackedTableOracle::single_column_with_activator(perm_field, perm_tracked_oracle, None)
+fn active_rows_verifier<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> SnarkResult<usize> {
+    let count = table
+        .all_tracked_col_oracles()
+        .first()
+        .map(|col| col.data_tracked_oracle())
+        .filter(|oracle| oracle.log_size() == 0)
+        .and_then(|oracle| oracle.as_constant());
+    match count {
+        Some(value) => field_to_usize(value, "the sorted table's active rows"),
+        None => Err(not_a_count()),
+    }
 }
 
-fn populate_prescr_perm_payloads_prover<B: SnarkBackend>(
-    prescr_perm: &Arc<Node<B>>,
-    prover: &mut ark_piop::prover::ArgProver<B>,
-    left: &TrackedTable<B>,
-    right: &TrackedTable<B>,
-    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-) -> ark_piop::errors::SnarkResult<()> {
-    let perm_table = build_perm_table_prover(prover, left);
-    let mut perm_payload = match virtualized_ir.payload_for_node(&prescr_perm.id()) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    perm_payload.insert(prescr_perm::LEFT_LABEL.to_string(), left.clone());
-    perm_payload.insert(prescr_perm::RIGHT_LABEL.to_string(), right.clone());
-    perm_payload.insert(prescr_perm::PERM_LABEL.to_string(), perm_table);
-    virtualized_ir.set_payload_for_node(
-        prescr_perm.id(),
-        Some(PayloadStructure::GadgetPayload(perm_payload)),
-    );
-    Ok(())
+fn not_a_count() -> SnarkError {
+    SnarkError::VerifierError(VerifierError::VerifierCheckFailed(
+        "the sort check's active-row count is not a scalar".to_string(),
+    ))
 }
 
-fn populate_prescr_perm_payloads_verifier<B: SnarkBackend>(
-    prescr_perm: &Arc<Node<B>>,
-    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-    left: &TrackedTableOracle<B>,
-    right: &TrackedTableOracle<B>,
-    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
-) -> ark_piop::errors::SnarkResult<()> {
-    let perm_table = build_perm_table_verifier(verifier, left);
-    let mut perm_payload = match virtualized_ir.payload_for_node(&prescr_perm.id()) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    perm_payload.insert(prescr_perm::LEFT_LABEL.to_string(), left.clone());
-    perm_payload.insert(prescr_perm::RIGHT_LABEL.to_string(), right.clone());
-    perm_payload.insert(prescr_perm::PERM_LABEL.to_string(), perm_table);
-    virtualized_ir.set_payload_for_node(
-        prescr_perm.id(),
-        Some(PayloadStructure::GadgetPayload(perm_payload)),
-    );
-    Ok(())
+/// The shift tables of paper PIOP 7: `(C_{µ,s-1}, [idx + 1, d'])` and
+/// `(C_{µ,s} - eq(X, 0^µ), [idx, d])`. Both hold `s - 1` rows and `j ↦ j+1`
+/// pairs them, so their multiset equality forces `d'[j] = d[j+1]` for
+/// `j < s - 1`; rows of `d'` from `s - 1` on are never read. All three
+/// polynomials besides `d` and `d'` are public.
+fn shift_tables_prover<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    columns: &[(TrackedPoly<B>, TrackedPoly<B>)],
+    mask: &TrackedPoly<B>,
+    s: usize,
+) -> SnarkResult<(TrackedTable<B>, TrackedTable<B>)> {
+    let log_size = mask.log_size();
+    let index = get_or_insert_shift_poly(prover, log_size, 0, true);
+    let shifted_activator =
+        prover.get_or_build_contig_skipped_one_poly(log_size, s.saturating_sub(1), 1)?;
+    let mut left = IndexMap::from([(position_field(), index.add_scalar_poly(B::F::one()))]);
+    let mut right = IndexMap::from([(position_field(), index)]);
+    for (k, (data, data_rotated)) in columns.iter().enumerate() {
+        left.insert(key_field(k), data_rotated.clone());
+        right.insert(key_field(k), data.clone());
+    }
+    left.insert(ACTIVATOR_FIELD.clone(), mask.clone());
+    right.insert(ACTIVATOR_FIELD.clone(), shifted_activator);
+    Ok((
+        TrackedTable::new(None, left, log_size),
+        TrackedTable::new(None, right, log_size),
+    ))
+}
+
+fn shift_tables_verifier<B: SnarkBackend>(
+    verifier: &mut ArgVerifier<B>,
+    columns: &[(TrackedOracle<B>, TrackedOracle<B>)],
+    mask: &TrackedOracle<B>,
+    s: usize,
+) -> SnarkResult<(TrackedTableOracle<B>, TrackedTableOracle<B>)> {
+    let log_size = mask.log_size();
+    let index = get_or_insert_shift_oracle(verifier, log_size, 0, true);
+    let shifted_activator =
+        verifier.get_or_build_contig_skipped_one_poly(log_size, s.saturating_sub(1), 1)?;
+    let mut left = IndexMap::from([(position_field(), index.add_scalar_oracle(B::F::one()))]);
+    let mut right = IndexMap::from([(position_field(), index)]);
+    for (k, (data, data_rotated)) in columns.iter().enumerate() {
+        left.insert(key_field(k), data_rotated.clone());
+        right.insert(key_field(k), data.clone());
+    }
+    left.insert(ACTIVATOR_FIELD.clone(), mask.clone());
+    right.insert(ACTIVATOR_FIELD.clone(), shifted_activator);
+    Ok((
+        TrackedTableOracle::new(None, left, log_size),
+        TrackedTableOracle::new(None, right, log_size),
+    ))
+}
+
+fn position_field() -> FieldRef {
+    Arc::new(Field::new("position", DataType::UInt64, false))
+}
+
+fn key_field(k: usize) -> FieldRef {
+    Arc::new(Field::new(format!("key_{k}"), DataType::UInt64, false))
 }
 
 fn initialize_gadget_plans<B: SnarkBackend>(
@@ -327,59 +345,66 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        if payload.get(TABLE_LABEL).is_some() && payload.get(ROTATED_INPUT_LABEL).is_none() {
-            panic!("Expected rotated input payload for Sort gadget");
-        }
-        let input_table = payload.get(TABLE_LABEL);
-        let rotated_table = payload.get(ROTATED_INPUT_LABEL);
-        let diff_table = payload.get(DIFF_INPUT_LABEL);
-        let tie_table = payload.get(TIE_INDICATOR_LABEL);
+        let Some(input) = payload.get(TABLE_LABEL) else {
+            return Ok(());
+        };
+        let rotated = payload
+            .get(ROTATED_INPUT_LABEL)
+            .unwrap_or_else(|| panic!("Expected rotated input payload for Sort gadget"));
+        let count = payload
+            .get(ACTIVE_ROWS_LABEL)
+            .unwrap_or_else(|| panic!("Expected active-row count for Sort gadget"));
+        let s = active_rows_prover(count)?;
+        let mask = prover.get_or_build_contig_one_poly(input.log_size(), s.saturating_sub(1))?;
+        let rotated = with_activator_prover(rotated, mask.clone());
+        let sort_specs = sort_specs_for_table_prover(&self.sort_config, input);
 
-        if let (Some(left), Some(right)) = (input_table, rotated_table) {
-            populate_prescr_perm_payloads_prover(
-                &self.prescr_perm,
-                prover,
-                left,
-                right,
-                virtualized_ir,
-            )?;
-        }
-        let updated_tie_table = input_table.map(|input_table| {
-            prepend_first_tie_indicator_prover(prover, tie_table, input_table.log_size())
-        });
-        if let Some(tie_table) = updated_tie_table.as_ref() {
-            // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
-            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-            bool_payload.insert(
-                crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-                tie_table.clone(),
-            );
-            virtualized_ir.set_payload_for_node(
-                self.bool_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(bool_payload)),
-            );
-        }
-        if let (Some(tie_table), Some(input_table), Some(rotated_table)) =
-            (updated_tie_table.as_ref(), input_table, rotated_table)
-        {
-            let sort_specs = sort_specs_for_table_prover(&self.sort_config, input_table);
-            populate_sign_payloads_prover(
-                &self.sign_gadget,
-                &self.sort_config,
-                &sort_specs,
-                diff_table,
-                tie_table,
-                input_table,
-                rotated_table,
-                virtualized_ir,
-            )?;
-        }
-        if let Some(tie_table) = updated_tie_table {
-            payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_table);
-        }
+        let shift_tables = shift_tables_prover(
+            prover,
+            &sort_columns_prover(input, &rotated, &sort_specs),
+            &mask,
+            s,
+        )?;
+        let mut perm_payload = match virtualized_ir.payload_for_node(&self.perm.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        perm_payload.insert(perm::LEFT_LABEL.to_string(), shift_tables.0);
+        perm_payload.insert(perm::RIGHT_LABEL.to_string(), shift_tables.1);
+        virtualized_ir.set_payload_for_node(
+            self.perm.id(),
+            Some(PayloadStructure::GadgetPayload(perm_payload)),
+        );
+
+        let committed_ties = payload.get(TIE_INDICATOR_LABEL);
+        let ties = prepend_first_tie_indicator_prover(committed_ties, mask);
+        // The committed ties must be Boolean. A single-key sort has none; the
+        // Bool gadget then checks the public `tie_0`, which always passes.
+        let bool_table = committed_ties.cloned().unwrap_or_else(|| ties.clone());
+        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        bool_payload.insert(
+            crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
+            bool_table,
+        );
+        virtualized_ir.set_payload_for_node(
+            self.bool_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(bool_payload)),
+        );
+        populate_sign_payloads_prover(
+            &self.sign_gadget,
+            &self.sort_config,
+            &sort_specs,
+            payload.get(DIFF_INPUT_LABEL),
+            &ties,
+            input,
+            &rotated,
+            virtualized_ir,
+        )?;
+        payload.insert(TIE_INDICATOR_LABEL.to_string(), ties);
+        payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
@@ -411,59 +436,66 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let input_table = payload.get(TABLE_LABEL);
-        let rotated_table = payload.get(ROTATED_INPUT_LABEL);
-        let diff_table = payload.get(DIFF_INPUT_LABEL);
-        let tie_table = payload.get(TIE_INDICATOR_LABEL);
+        let Some(input) = payload.get(TABLE_LABEL) else {
+            return Ok(());
+        };
+        let rotated = payload
+            .get(ROTATED_INPUT_LABEL)
+            .unwrap_or_else(|| panic!("Expected rotated input payload for Sort gadget"));
+        let count = payload
+            .get(ACTIVE_ROWS_LABEL)
+            .unwrap_or_else(|| panic!("Expected active-row count for Sort gadget"));
+        let s = active_rows_verifier(count)?;
+        let mask = verifier.get_or_build_contig_one_poly(input.log_size(), s.saturating_sub(1))?;
+        let rotated = with_activator_verifier(rotated, mask.clone());
+        let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input);
 
-        if input_table.is_some() && rotated_table.is_none() {
-            panic!("Expected rotated input payload for Sort gadget");
-        }
-        if let (Some(left), Some(right)) = (input_table, rotated_table) {
-            populate_prescr_perm_payloads_verifier(
-                &self.prescr_perm,
-                verifier,
-                left,
-                right,
-                virtualized_ir,
-            )?;
-        }
-        let updated_tie_table_owned = input_table.map(|input_table| {
-            prepend_first_tie_indicator_verifier(verifier, tie_table, input_table.log_size())
-        });
-        if let Some(tie_table) = updated_tie_table_owned.as_ref() {
-            // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
-            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-            bool_payload.insert(
-                crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-                tie_table.clone(),
-            );
-            virtualized_ir.set_payload_for_node(
-                self.bool_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(bool_payload)),
-            );
-        }
-        if let (Some(tie_table), Some(input_table), Some(rotated_table)) =
-            (updated_tie_table_owned.as_ref(), input_table, rotated_table)
-        {
-            let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input_table);
-            populate_sign_payloads_verifier(
-                &self.sign_gadget,
-                &self.sort_config,
-                &sort_specs,
-                diff_table,
-                tie_table,
-                input_table,
-                rotated_table,
-                virtualized_ir,
-            )?;
-        }
-        if let Some(tie_table) = updated_tie_table_owned {
-            payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_table);
-        }
+        let shift_tables = shift_tables_verifier(
+            verifier,
+            &sort_columns_verifier(input, &rotated, &sort_specs),
+            &mask,
+            s,
+        )?;
+        let mut perm_payload = match virtualized_ir.payload_for_node(&self.perm.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        perm_payload.insert(perm::LEFT_LABEL.to_string(), shift_tables.0);
+        perm_payload.insert(perm::RIGHT_LABEL.to_string(), shift_tables.1);
+        virtualized_ir.set_payload_for_node(
+            self.perm.id(),
+            Some(PayloadStructure::GadgetPayload(perm_payload)),
+        );
+
+        let committed_ties = payload.get(TIE_INDICATOR_LABEL);
+        let ties = prepend_first_tie_indicator_verifier(committed_ties, mask);
+        // The committed ties must be Boolean. A single-key sort has none; the
+        // Bool gadget then checks the public `tie_0`, which always passes.
+        let bool_table = committed_ties.cloned().unwrap_or_else(|| ties.clone());
+        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        bool_payload.insert(
+            crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
+            bool_table,
+        );
+        virtualized_ir.set_payload_for_node(
+            self.bool_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(bool_payload)),
+        );
+        populate_sign_payloads_verifier(
+            &self.sign_gadget,
+            &self.sort_config,
+            &sort_specs,
+            payload.get(DIFF_INPUT_LABEL),
+            &ties,
+            input,
+            &rotated,
+            virtualized_ir,
+        )?;
+        payload.insert(TIE_INDICATOR_LABEL.to_string(), ties);
+        payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
@@ -491,40 +523,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
         let sort_specs = sort_specs_for_table_prover(&self.sort_config, input);
-        let columns: Vec<_> = ordered_data_indices_prover(input, &sort_specs)
-            .into_iter()
-            .zip(ordered_data_indices_prover(rotated, &sort_specs))
-            .map(|(i, r)| {
-                (
-                    input.tracked_col_by_ind(i).data_tracked_poly(),
-                    rotated.tracked_col_by_ind(r).data_tracked_poly(),
-                )
-            })
-            .collect();
+        let columns = sort_columns_prover(input, rotated, &sort_specs);
         let ties: Vec<_> = ties
             .data_tracked_polys_indices()
             .into_iter()
             .map(|idx| ties.tracked_col_by_ind(idx).data_tracked_poly())
             .collect();
-        let activator = match (
-            input.activator_tracked_poly(),
-            rotated.activator_tracked_poly(),
-        ) {
-            (Some(left), Some(right)) => Some(&left * &right),
-            (left, right) => left.or(right),
-        };
+        let mask = rotated
+            .activator_tracked_poly()
+            .expect("the rotated table carries the mask C_{µ,s-1}");
         if columns.len() < 2 {
             return Ok(());
         }
         let c = prover.get_and_append_challenge(b"sort_tie_break")?;
         for (k, (data, data_rotated)) in columns.iter().enumerate().take(columns.len() - 1) {
-            let mut breaks = &ties[k]
+            let breaks = &(&ties[k]
                 * &ties[k + 1]
                     .mul_scalar_poly(-B::F::one())
-                    .add_scalar_poly(B::F::one());
-            if let Some(activator) = &activator {
-                breaks = &breaks * activator;
-            }
+                    .add_scalar_poly(B::F::one()))
+                * &mask;
             let lifted = &(&breaks * &(data_rotated - data))
                 + &breaks.mul_scalar_poly(-c).add_scalar_poly(c);
             prover.add_mv_nozerocheck_claim(lifted.id())?;
@@ -559,40 +576,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
         let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input);
-        let columns: Vec<_> = ordered_data_indices_verifier(input, &sort_specs)
-            .into_iter()
-            .zip(ordered_data_indices_verifier(rotated, &sort_specs))
-            .map(|(i, r)| {
-                (
-                    input.tracked_col_oracle_by_ind(i).data_tracked_oracle(),
-                    rotated.tracked_col_oracle_by_ind(r).data_tracked_oracle(),
-                )
-            })
-            .collect();
+        let columns = sort_columns_verifier(input, rotated, &sort_specs);
         let ties: Vec<_> = ties
             .data_tracked_oracles_indices()
             .into_iter()
             .map(|idx| ties.tracked_col_oracle_by_ind(idx).data_tracked_oracle())
             .collect();
-        let activator = match (
-            input.activator_tracked_poly(),
-            rotated.activator_tracked_poly(),
-        ) {
-            (Some(left), Some(right)) => Some(&left * &right),
-            (left, right) => left.or(right),
-        };
+        let mask = rotated
+            .activator_tracked_poly()
+            .expect("the rotated table carries the mask C_{µ,s-1}");
         if columns.len() < 2 {
             return Ok(());
         }
         let c = verifier.get_and_append_challenge(b"sort_tie_break")?;
         for (k, (data, data_rotated)) in columns.iter().enumerate().take(columns.len() - 1) {
-            let mut breaks = &ties[k]
+            let breaks = &(&ties[k]
                 * &ties[k + 1]
                     .mul_scalar_oracle(-B::F::one())
-                    .add_scalar_oracle(B::F::one());
-            if let Some(activator) = &activator {
-                breaks = &breaks * activator;
-            }
+                    .add_scalar_oracle(B::F::one()))
+                * &mask;
             let lifted = &(&breaks * &(data_rotated - data))
                 + &breaks.mul_scalar_oracle(-c).add_scalar_oracle(c);
             verifier.add_mv_nozerocheck_claim(lifted.id());
@@ -619,15 +621,13 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 
     fn new_internal(sort_config: SortConfig, strip_row_id: bool) -> Self {
-        let prescr_perm = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::prescr_perm::GadgetNode::new(),
-        )));
+        let perm = Arc::new(Node::<B>::Gadget(Arc::new(perm::GadgetNode::new())));
         let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::bool::GadgetNode::new(),
         )));
         let sign_gadget = build_sign_gadget::<B>(&sort_config);
         Self {
-            prescr_perm,
+            perm,
             bool_gadget,
             sign_gadget,
             sort_config,
@@ -748,7 +748,9 @@ fn build_verifier_rotated_hint(
         .schema()
         .fields()
         .iter()
-        .filter(|field| field.name() != ROW_ID_COL_NAME)
+        .filter(|field| {
+            field.name() != ROW_ID_COL_NAME && field.name() != arithmetic::ACTIVATOR_COL_NAME
+        })
         .map(|field| field.as_ref().clone())
         .collect();
     build_empty_hint_df_with_fields(fields, true)
@@ -948,6 +950,62 @@ fn non_row_id_data_indices_verifier<B: SnarkBackend>(table: &TrackedTableOracle<
         .collect()
 }
 
+/// Each sort key's column in the input and in the rotated table, in key
+/// order.
+fn sort_columns_prover<B: SnarkBackend>(
+    input: &TrackedTable<B>,
+    rotated: &TrackedTable<B>,
+    sort_specs: &[(String, bool, bool)],
+) -> Vec<(TrackedPoly<B>, TrackedPoly<B>)> {
+    ordered_data_indices_prover(input, sort_specs)
+        .into_iter()
+        .zip(ordered_data_indices_prover(rotated, sort_specs))
+        .map(|(i, r)| {
+            (
+                input.tracked_col_by_ind(i).data_tracked_poly(),
+                rotated.tracked_col_by_ind(r).data_tracked_poly(),
+            )
+        })
+        .collect()
+}
+
+fn sort_columns_verifier<B: SnarkBackend>(
+    input: &TrackedTableOracle<B>,
+    rotated: &TrackedTableOracle<B>,
+    sort_specs: &[(String, bool, bool)],
+) -> Vec<(TrackedOracle<B>, TrackedOracle<B>)> {
+    ordered_data_indices_verifier(input, sort_specs)
+        .into_iter()
+        .zip(ordered_data_indices_verifier(rotated, sort_specs))
+        .map(|(i, r)| {
+            (
+                input.tracked_col_oracle_by_ind(i).data_tracked_oracle(),
+                rotated.tracked_col_oracle_by_ind(r).data_tracked_oracle(),
+            )
+        })
+        .collect()
+}
+
+/// The rotated table with the public mask `C_{µ,s-1}` as its activator: the
+/// rows it is compared on.
+fn with_activator_prover<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    activator: TrackedPoly<B>,
+) -> TrackedTable<B> {
+    let mut polys = table.tracked_polys();
+    polys.insert(ACTIVATOR_FIELD.clone(), activator);
+    TrackedTable::new(None, polys, table.log_size())
+}
+
+fn with_activator_verifier<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    activator: TrackedOracle<B>,
+) -> TrackedTableOracle<B> {
+    let mut oracles = table.tracked_oracles();
+    oracles.insert(ACTIVATOR_FIELD.clone(), activator);
+    TrackedTableOracle::new(None, oracles, table.log_size())
+}
+
 fn sort_is_asc(sort_specs: &[(String, bool, bool)], col_name: &str) -> bool {
     sort_specs
         .iter()
@@ -982,14 +1040,6 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
     );
 
     let mut data_cols = IndexMap::new();
-    let input_activator = input_table.activator_tracked_poly();
-    let rotated_activator = rotated_table.activator_tracked_poly();
-    let combined_activator = match (input_activator, rotated_activator) {
-        (Some(left), Some(right)) => Some(&left * &right),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
-    };
 
     for (pos, ((tie_idx, input_idx), rotated_idx)) in tie_indices
         .iter()
@@ -1072,7 +1122,8 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
         data_cols.insert(Arc::new(diff_field), masked_diff);
     }
 
-    if let Some(activator) = combined_activator {
+    // Compared on the rows of the mask `C_{µ,s-1}`, the rotated table's activator.
+    if let Some(activator) = rotated_table.activator_tracked_poly() {
         data_cols.insert(ACTIVATOR_FIELD.clone(), activator);
     }
 
@@ -1115,14 +1166,6 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
     );
 
     let mut data_cols = IndexMap::new();
-    let input_activator = input_table.activator_tracked_poly();
-    let rotated_activator = rotated_table.activator_tracked_poly();
-    let combined_activator = match (input_activator, rotated_activator) {
-        (Some(left), Some(right)) => Some(&left * &right),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
-    };
 
     for (pos, ((tie_idx, input_idx), rotated_idx)) in tie_indices
         .iter()
@@ -1209,7 +1252,8 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
         data_cols.insert(Arc::new(diff_field), masked_diff);
     }
 
-    if let Some(activator) = combined_activator {
+    // Compared on the rows of the mask `C_{µ,s-1}`, the rotated table's activator.
+    if let Some(activator) = rotated_table.activator_tracked_poly() {
         data_cols.insert(ACTIVATOR_FIELD.clone(), activator);
     }
 
@@ -1226,103 +1270,49 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
     Ok(())
 }
 
-/// Puts the public `tie_0 = 1 - eq(x, 1^n)` in front of the committed ties
-/// `tie_1..` (paper PIOP 7, step 2: the verifier sets ties_0). A supplied
-/// `tie_0` is dropped: a committed one would let the prover switch every
-/// comparison off.
+/// Puts the public `tie_0 = C_{µ,s-1}` in front of the committed ties
+/// `tie_1..` (paper PIOP 7, step 2: the verifier sets ties_0). It is the
+/// comparison mask: row `j` is compared with row `j + 1` for `j < s - 1`. A
+/// supplied `tie_0` is dropped: a committed one would let the prover switch
+/// every comparison off.
 fn prepend_first_tie_indicator_prover<B: SnarkBackend>(
-    prover: &mut ArgProver<B>,
-    table: Option<&TrackedTable<B>>,
-    num_vars: usize,
+    committed: Option<&TrackedTable<B>>,
+    mask: TrackedPoly<B>,
 ) -> TrackedTable<B> {
-    let one_tracked_poly = prover.track_mat_mv_cnst_poly(num_vars, B::F::one());
-    let tracker = one_tracked_poly.tracker();
-    let tracked_last_eq_poly = if num_vars == 0 {
-        // For nv=0, eq_x_r is the constant 1; track it as a constant poly.
-        prover.track_mat_mv_cnst_poly(num_vars, B::F::one())
-    } else {
-        let last_eq_poly =
-            build_eq_x_r(&vec![B::F::one(); num_vars]).expect("build_eq_x_r should succeed");
-        let last_eq_id = tracker
-            .borrow_mut()
-            .track_mat_mv_poly(last_eq_poly.as_ref().clone());
-        TrackedPoly::new(Either::Left(last_eq_id), num_vars, tracker)
-    };
-    let first_tie_poly = &one_tracked_poly - &tracked_last_eq_poly;
-
-    let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
+    let log_size = mask.log_size();
     let mut tracked_polys = IndexMap::new();
-    tracked_polys.insert(first_tie_field.clone(), first_tie_poly);
-    for (field, poly) in table.iter().flat_map(|table| table.tracked_polys_iter()) {
+    tracked_polys.insert(first_tie_field(), mask);
+    for (field, poly) in committed
+        .iter()
+        .flat_map(|table| table.tracked_polys_iter())
+    {
         if field.name() != FIRST_TIE_LABEL {
             tracked_polys.insert(field.clone(), poly.clone());
         }
     }
-
-    let schema = table.and_then(|table| table.schema_ref()).map(|schema| {
-        let fields = tracked_polys
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        Schema::new_with_metadata(fields, schema.metadata().clone())
-    });
-    let schema = schema.or_else(|| {
-        Some(Schema::new(
-            tracked_polys
-                .keys()
-                .map(|field| field.as_ref().clone())
-                .collect::<Vec<_>>(),
-        ))
-    });
-    TrackedTable::new(schema, tracked_polys, num_vars)
+    TrackedTable::new(None, tracked_polys, log_size)
 }
 
 fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
-    verifier: &mut ArgVerifier<B>,
-    table: Option<&TrackedTableOracle<B>>,
-    num_vars: usize,
+    committed: Option<&TrackedTableOracle<B>>,
+    mask: TrackedOracle<B>,
 ) -> TrackedTableOracle<B> {
-    let one_tracked_oracle = verifier.track_mat_mv_cnst_oracle(num_vars, B::F::one());
-    let tracker = one_tracked_oracle.tracker();
-    let tracked_last_eq_oracle = if num_vars == 0 {
-        // For nv=0, eq_x_r is the constant 1; track it as a constant oracle.
-        verifier.track_mat_mv_cnst_oracle(num_vars, B::F::one())
-    } else {
-        let last_eq_sparse = build_sparse_eq_x_r(&vec![B::F::one(); num_vars])
-            .expect("build_sparse_eq_x_r should succeed");
-        let last_eq_oracle = Oracle::new_multivariate(num_vars, move |point: Vec<B::F>| {
-            Ok(last_eq_sparse.evaluate(&point))
-        });
-        let last_eq_id = tracker.borrow_mut().track_base_oracle(last_eq_oracle);
-        TrackedOracle::new(Either::Left(last_eq_id), tracker, num_vars)
-    };
-    let first_tie_oracle = &one_tracked_oracle - &tracked_last_eq_oracle;
-
-    let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
+    let log_size = mask.log_size();
     let mut tracked_oracles = IndexMap::new();
-    tracked_oracles.insert(first_tie_field.clone(), first_tie_oracle);
-    for (field, oracle) in table.iter().flat_map(|table| table.tracked_oracles_iter()) {
+    tracked_oracles.insert(first_tie_field(), mask);
+    for (field, oracle) in committed
+        .iter()
+        .flat_map(|table| table.tracked_oracles_iter())
+    {
         if field.name() != FIRST_TIE_LABEL {
             tracked_oracles.insert(field.clone(), oracle.clone());
         }
     }
+    TrackedTableOracle::new(None, tracked_oracles, log_size)
+}
 
-    let schema = table.and_then(|table| table.schema_ref()).map(|schema| {
-        let fields = tracked_oracles
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        Schema::new_with_metadata(fields, schema.metadata().clone())
-    });
-    let schema = schema.or_else(|| {
-        Some(Schema::new(
-            tracked_oracles
-                .keys()
-                .map(|field| field.as_ref().clone())
-                .collect::<Vec<_>>(),
-        ))
-    });
-    TrackedTableOracle::new(schema, tracked_oracles, num_vars)
+fn first_tie_field() -> FieldRef {
+    Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false))
 }
 
 fn pad_df_to_power_of_two(

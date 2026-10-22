@@ -12,9 +12,18 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
-use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
+};
+use ark_piop::{
+    SnarkBackend,
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
+};
 use datafusion::arrow::array::Array;
+use either::Either;
+
+use crate::irs::nodes::utils::contig_sort::{ACTIVE_ROWS_LABEL, active_rows_field};
 use indexmap::IndexMap;
 
 pub const INPUT_LABEL: &str = "_input_";
@@ -136,6 +145,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     let sort_payload = with_sort_table_label(
         planned_ir.payload_for_node(&sort_id).cloned(),
         lex_sorted_virtual_hint,
+        None,
     );
     planned_ir.set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
 
@@ -202,6 +212,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let lex_sorted_with_activator =
             append_activator_prover(&lex_sorted_table, contig_activator);
         payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_with_activator);
+        let count = TrackedPoly::new(
+            Either::Right(B::F::from(num_active_input_rows as u64)),
+            0,
+            tracker_rc,
+        );
+        payload.insert(
+            ACTIVE_ROWS_LABEL.to_string(),
+            TrackedTable::single_column_with_activator(active_rows_field(), count, None),
+        );
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
@@ -230,6 +249,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let sort_payload = with_sort_table_label(
             virtualized_ir.payload_for_node(&sort_id).cloned(),
             lex_sorted_hint.clone(),
+            payload.get(ACTIVE_ROWS_LABEL).cloned(),
         );
         virtualized_ir
             .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
@@ -301,6 +321,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let lex_sorted_with_activator =
             append_activator_verifier(lex_sorted_table, contig_activator);
         payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_with_activator);
+        let count = TrackedOracle::new(Either::Right(num_active_input_rows_field), tracker_rc, 0);
+        payload.insert(
+            ACTIVE_ROWS_LABEL.to_string(),
+            TrackedTableOracle::single_column_with_activator(active_rows_field(), count, None),
+        );
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
@@ -330,6 +355,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let sort_payload = with_sort_table_label(
             virtualized_ir.payload_for_node(&sort_id).cloned(),
             lex_sorted_hint.clone(),
+            payload.get(ACTIVE_ROWS_LABEL).cloned(),
         );
         virtualized_ir
             .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
@@ -506,12 +532,21 @@ fn build_lex_sorted_hint_for_verifier(
     )
 }
 
-fn with_sort_table_label<T>(payload: Option<PayloadStructure<T>>, table: T) -> GadgetPayload<T> {
+/// The sort check's payload: the sorted table, and once witnesses exist `n`,
+/// as the table's activator is `C_{µ,n}`.
+fn with_sort_table_label<T>(
+    payload: Option<PayloadStructure<T>>,
+    table: T,
+    active_rows: Option<T>,
+) -> GadgetPayload<T> {
     let mut payload = gadget_payload_or_empty(payload);
     payload.insert(
         crate::irs::nodes::utils::contig_sort::TABLE_LABEL.to_string(),
         table,
     );
+    if let Some(count) = active_rows {
+        payload.insert(ACTIVE_ROWS_LABEL.to_string(), count);
+    }
     payload
 }
 

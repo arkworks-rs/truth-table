@@ -35,8 +35,28 @@ fn table(name: &str, values: [i64; 4]) -> TableSpec<F> {
     }
 }
 
+/// The output's active-row count, as the Sort node commits it.
+fn active_rows(s: u64) -> TableSpec<F> {
+    let field = Arc::new(Field::new("active_rows", DataType::UInt64, false));
+    TableSpec {
+        schema: Schema::new(vec![field.as_ref().clone()]),
+        log_size: 0,
+        cols: vec![(field, vec![F::from(s)])],
+        activator: None,
+    }
+}
+
 fn rotate(values: [i64; 4]) -> [i64; 4] {
     [values[1], values[2], values[3], values[0]]
+}
+
+/// The rotation hint: no activator, as the sort check supplies the mask.
+fn rotated_table(values: [i64; 4]) -> TableSpec<F> {
+    TableSpec {
+        activator: None,
+        schema: Schema::new(vec![Field::new("key", DataType::Int64, false)]),
+        ..table("key", values)
+    }
 }
 
 /// An ORDER BY on `key` (`asc` or descending) whose output is `output`. The
@@ -68,10 +88,11 @@ fn harness(
         .with_table(root, OUTPUT_LABEL, table("key", output))
         .with_table(root, INPUT_SORT_EXPRS, table(key_name, [2, 4, 1, 3]))
         .with_table(sort_check, contig_sort::TABLE_LABEL, table("key", helper))
+        .with_table(root, contig_sort::ACTIVE_ROWS_LABEL, active_rows(4))
         .with_table(
             sort_check,
             contig_sort::ROTATED_INPUT_LABEL,
-            table("key", rotated),
+            rotated_table(rotated),
         )
         .build()
 }
