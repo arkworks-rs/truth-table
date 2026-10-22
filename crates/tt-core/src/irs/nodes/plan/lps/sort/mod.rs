@@ -594,24 +594,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
         };
 
         let output_df = output::sort_df(input_hint_df.data_frame(), &self.sort);
-        let output_df = if output_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ROW_ID_COL_NAME)
-        {
-            let projected = output_df
-                .schema()
-                .fields()
-                .iter()
-                .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
-                .collect();
-            output_df
-                .select(projected)
-                .expect("sort output projection should succeed")
-        } else {
-            output_df
-        };
         hint_with_virtual_activator(output_df)
     }
 }
@@ -641,13 +623,19 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
 }
 
 /// The output's columns, all committed except the activator, which
-/// `add_virtual_witness` installs.
+/// `add_virtual_witness` installs, and `__row_id__`, which only orders hints.
 fn hint_with_virtual_activator(output_df: datafusion::prelude::DataFrame) -> HintDF {
     let should_materialize = output_df
         .schema()
         .fields()
         .iter()
-        .map(|field| (field.clone(), field.name() != ACTIVATOR_COL_NAME))
+        .map(|field| {
+            let name = field.name();
+            (
+                field.clone(),
+                name != ACTIVATOR_COL_NAME && name != ROW_ID_COL_NAME,
+            )
+        })
         .collect();
     HintDF::new(output_df, should_materialize)
 }

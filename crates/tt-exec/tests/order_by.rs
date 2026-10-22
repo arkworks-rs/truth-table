@@ -29,3 +29,13 @@ end_to_end_tests!(&["customer", "orders"] => [
     // Without a LIMIT too: ResultCheck compares an ORDER BY result in order.
     order_by_ties_above_join => r#"SELECT c.c_name, o.o_orderkey FROM customer c JOIN orders o ON c.c_custkey = o.o_custkey ORDER BY o.o_shippriority, c.c_nationkey"#,
 ]);
+
+// ORDER BY … LIMIT in a subquery. A filter stays above it (it cannot be
+// pushed through the LIMIT), so the nodes above see the sorted rows' order,
+// and compaction must not reorder them.
+end_to_end_tests!(&["nation"] => [
+    ordered_limit_in_subquery => r#"SELECT n_name FROM (SELECT * FROM nation ORDER BY n_nationkey LIMIT 20) s"#,
+    filter_over_ordered_limit => r#"SELECT n_name FROM (SELECT * FROM nation ORDER BY n_nationkey LIMIT 20) s WHERE n_regionkey = 1"#,
+    limit_over_filter_over_ordered_limit => r#"SELECT n_name FROM (SELECT * FROM nation ORDER BY n_nationkey LIMIT 20) s WHERE n_regionkey = 1 LIMIT 2"#,
+    ordered_filter_over_ordered_limit => r#"SELECT n_name, n_nationkey FROM (SELECT * FROM nation ORDER BY n_nationkey LIMIT 20) s WHERE n_regionkey = 1 ORDER BY n_nationkey DESC"#,
+]);

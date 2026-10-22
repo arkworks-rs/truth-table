@@ -1,8 +1,10 @@
 use std::{cell::RefCell, sync::Arc};
 
 use ark_piop::{SnarkBackend, pcs::PCS, prover::ArgProver};
+use datafusion::execution::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::functions_window::expr_fn::row_number;
+use datafusion::optimizer::{Optimizer, OptimizerRule, push_down_filter::PushDownFilter};
 use datafusion::{dataframe::DataFrame, datasource::MemTable};
 use datafusion_common::Column;
 use datafusion_common::tree_node::Transformed;
@@ -406,7 +408,19 @@ impl<B: SnarkBackend> TTProver<B> {
             ProofRowOrder::new(self.shared_config.pp_optimizer().specializes_pk_fk_joins())
                 .apply(optimized_lp)?;
         let optimized_lp = filter_inactive_rows_for_execution(optimized_lp)?;
-        let df = DataFrame::new(self.shared_config.session_ctx().state(), optimized_lp);
+        // DataFusion's default pipeline, minus PushDownFilter: in DataFusion 46
+        // it moves a filter below a Sort with a fetch (a top-k), which changes
+        // the result. The proof planner has already placed the filters.
+        let state = self.shared_config.session_ctx().state();
+        let rules = Optimizer::new()
+            .rules
+            .into_iter()
+            .filter(|rule| rule.name() != PushDownFilter::new().name())
+            .collect();
+        let state = SessionStateBuilder::new_from_existing(state)
+            .with_optimizer_rules(rules)
+            .build();
+        let df = DataFrame::new(state, optimized_lp);
         let logical_schema = df.schema().as_arrow().clone();
         let batches = df.collect().await?;
         let mem_table = MemTable::try_new(Arc::new(logical_schema), vec![batches])?;

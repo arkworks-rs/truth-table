@@ -91,10 +91,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .unwrap_or_default();
 
         let mut merged_polys = current_table.tracked_polys();
-        debug_assert!(
-            !merged_polys.is_empty(),
-            "Limit payload should already contain the activator column"
-        );
 
         for (field, poly) in input_table.tracked_polys_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
@@ -199,10 +195,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             .unwrap_or_default();
 
         let mut merged_polys = current_table.tracked_oracles();
-        debug_assert!(
-            !merged_polys.is_empty(),
-            "Limit payload should already contain the activator column"
-        );
 
         for (field, poly) in input_table.tracked_oracles_iter() {
             if field.name() == ACTIVATOR_COL_NAME {

@@ -1,11 +1,20 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
+use datafusion::arrow::datatypes::DataType;
+use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::tree_node::{Transformed, TreeNode};
 use datafusion_common::{Column, DFSchema};
-use datafusion_expr::{Expr, Sort, col, expr::Sort as SortExpr};
+use datafusion_expr::{
+    Expr, ExprFunctionExt, ExprSchemable, Sort, col, expr::Sort as SortExpr, lit,
+};
+
+const POSITION_COL: &str = "__sort_position__";
 
 /// Sorts by activator first (active rows first), then the provided sort
 /// expressions, and finally `__row_id__` when present for deterministic output.
+/// `__row_id__` becomes the row's output position, numbered by a window that
+/// requires the sort order: DataFusion keeps an order only where an operator
+/// requires it, so nodes above this one order their hints by `__row_id__`.
 pub(crate) fn sort_df(input: &DataFrame, sort: &Sort) -> DataFrame {
     let row_id_sort_exprs: Vec<SortExpr> = input
         .schema()
@@ -21,23 +30,44 @@ pub(crate) fn sort_df(input: &DataFrame, sort: &Sort) -> DataFrame {
     let mut sort_exprs: Vec<SortExpr> = Vec::with_capacity(sort.expr.len() + 2);
     sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
     sort_exprs.extend(resolve_sort_exprs(input.schema(), &sort.expr));
-    if !row_id_sort_exprs.is_empty() {
-        sort_exprs.extend(row_id_sort_exprs);
-    }
+    sort_exprs.extend(row_id_sort_exprs);
 
     let sorted = input
         .clone()
-        .sort(sort_exprs)
+        .sort(sort_exprs.clone())
         .expect("sorting activated rows should succeed");
-
-    match sort.fetch {
+    let sorted = match sort.fetch {
         Some(fetch) => sorted
             // DataFusion encodes top-k as `Sort(fetch = k)`; apply it so the
             // proof-side plan output matches the compact query result.
             .limit(0, Some(fetch))
             .expect("top-k after sorting should succeed"),
         None => sorted,
-    }
+    };
+
+    let position = row_number()
+        .order_by(sort_exprs)
+        .build()
+        .expect("sort position window should build")
+        .alias(POSITION_COL);
+    let numbered = sorted
+        .window(vec![position])
+        .expect("sort position window should apply");
+    let mut exprs: Vec<Expr> = numbered
+        .schema()
+        .iter()
+        .filter(|(_, field)| field.name() != ROW_ID_COL_NAME && field.name() != POSITION_COL)
+        .map(|(qualifier, field)| Expr::Column(Column::new(qualifier.cloned(), field.name())))
+        .collect();
+    exprs.push(
+        (col(POSITION_COL) - lit(1u64))
+            .cast_to(&DataType::Int64, numbered.schema())
+            .expect("sort position cast should succeed")
+            .alias(ROW_ID_COL_NAME),
+    );
+    numbered
+        .select(exprs)
+        .expect("sort output projection should succeed")
 }
 
 pub(crate) fn resolve_sort_exprs(schema: &DFSchema, exprs: &[SortExpr]) -> Vec<SortExpr> {
