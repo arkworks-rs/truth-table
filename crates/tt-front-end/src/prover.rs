@@ -4,7 +4,7 @@ use ark_piop::{SnarkBackend, pcs::PCS, prover::ArgProver};
 use datafusion::execution::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::functions_window::expr_fn::row_number;
-use datafusion::optimizer::{Optimizer, OptimizerRule, push_down_filter::PushDownFilter};
+use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::{dataframe::DataFrame, datasource::MemTable};
 use datafusion_common::Column;
 use datafusion_common::tree_node::Transformed;
@@ -14,6 +14,7 @@ use datafusion_expr::{
 };
 use indexmap::IndexMap;
 use proof_planner::data_dependent_lp_optimizer::{OptimizationHints, apply_optimization_hints};
+use proof_planner::lp_optimizer::FetchSafePushDownFilter;
 use tracing::{Instrument, Span, debug, info, info_span};
 use tt_core::irs::nodes::plan::lps::join::modes::{JoinMode, decide_join_mode};
 #[cfg(feature = "honest-prover")]
@@ -408,14 +409,21 @@ impl<B: SnarkBackend> TTProver<B> {
             ProofRowOrder::new(self.shared_config.pp_optimizer().specializes_pk_fk_joins())
                 .apply(optimized_lp)?;
         let optimized_lp = filter_inactive_rows_for_execution(optimized_lp)?;
-        // DataFusion's default pipeline, minus PushDownFilter: in DataFusion 46
-        // it moves a filter below a Sort with a fetch (a top-k), which changes
-        // the result. The proof planner has already placed the filters.
+        // DataFusion's default pipeline, with its PushDownFilter replaced by
+        // the one that keeps a filter above a top-k.
         let state = self.shared_config.session_ctx().state();
+        let fetch_safe: Arc<dyn OptimizerRule + Send + Sync> =
+            Arc::new(FetchSafePushDownFilter::new());
         let rules = Optimizer::new()
             .rules
             .into_iter()
-            .filter(|rule| rule.name() != PushDownFilter::new().name())
+            .map(|rule| {
+                if rule.name() == fetch_safe.name() {
+                    Arc::clone(&fetch_safe)
+                } else {
+                    rule
+                }
+            })
             .collect();
         let state = SessionStateBuilder::new_from_existing(state)
             .with_optimizer_rules(rules)
