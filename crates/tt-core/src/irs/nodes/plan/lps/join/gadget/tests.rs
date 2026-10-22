@@ -205,3 +205,89 @@ fn an_inactive_pk_row_is_rejected() {
     );
     assert!(run_with(true, fk, pk(), output).is_err());
 }
+
+/// A field of alias `qualifier`, as the join's input tables carry it.
+fn qualified(name: &str, qualifier: &str) -> Arc<Field> {
+    Arc::new(
+        Field::new(name, DataType::UInt64, false)
+            .with_metadata([("tt.qualifier".to_string(), qualifier.to_string())].into()),
+    )
+}
+
+/// `n0 JOIN (a JOIN b ON a.k = b.k) ON n0.k = b.k`, or with the sides
+/// swapped when `nested_left`.
+fn self_join(nested_left: bool) -> datafusion_expr::Join {
+    use datafusion_expr::col;
+    let scan = |alias| table_scan(Some(alias), &schema(&["k"]), None).unwrap();
+    let nested = scan("a")
+        .join(
+            scan("b").build().unwrap(),
+            JoinType::Inner,
+            (vec!["a.k"], vec!["b.k"]),
+            None,
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+    let plan = if nested_left {
+        datafusion_expr::LogicalPlanBuilder::from(nested).join_with_expr_keys(
+            scan("n0").build().unwrap(),
+            JoinType::Inner,
+            (vec![col("b.k")], vec![col("n0.k")]),
+            None,
+        )
+    } else {
+        scan("n0").join_with_expr_keys(
+            nested,
+            JoinType::Inner,
+            (vec![col("n0.k")], vec![col("b.k")]),
+            None,
+        )
+    };
+    let LogicalPlan::Join(join) = plan.unwrap().build().unwrap() else {
+        unreachable!("the builder produced a join");
+    };
+    join
+}
+
+fn names(pairs: &[(Arc<Field>, Arc<Field>)]) -> Vec<(String, String)> {
+    let show =
+        |field: &Arc<Field>| format!("{}.{}", field.metadata()["tt.qualifier"], field.name());
+    pairs.iter().map(|(l, r)| (show(l), show(r))).collect()
+}
+
+#[test]
+fn key_equality_pairs_the_key_of_its_own_alias() {
+    let n0 = indexmap::IndexMap::from([
+        (qualified("k", "n0"), ()),
+        (qualified("k__length", "n0"), ()),
+    ]);
+    let ab = indexmap::IndexMap::from([
+        (qualified("k", "a"), ()),
+        (qualified("k__length", "a"), ()),
+        (qualified("k", "b"), ()),
+        (qualified("k__length", "b"), ()),
+    ]);
+    let expected = [("n0.k", "b.k"), ("n0.k__length", "b.k__length")];
+
+    let right_nested = super::key_segment_pairs(&self_join(false), &n0, &ab).unwrap();
+    let expected_right: Vec<_> = expected
+        .iter()
+        .map(|(l, r)| (l.to_string(), r.to_string()))
+        .collect();
+    assert_eq!(names(&right_nested), expected_right);
+
+    let left_nested = super::key_segment_pairs(&self_join(true), &ab, &n0).unwrap();
+    let expected_left: Vec<_> = expected
+        .iter()
+        .map(|(l, r)| (r.to_string(), l.to_string()))
+        .collect();
+    assert_eq!(names(&left_nested), expected_left);
+}
+
+#[test]
+fn a_join_key_matching_several_columns_by_name_only_is_an_error() {
+    let n0 = indexmap::IndexMap::from([(qualified("k", "n0"), ())]);
+    let ab = indexmap::IndexMap::from([(qualified("k", "x"), ()), (qualified("k", "y"), ())]);
+    assert!(super::key_segment_pairs(&self_join(false), &n0, &ab).is_err());
+}
