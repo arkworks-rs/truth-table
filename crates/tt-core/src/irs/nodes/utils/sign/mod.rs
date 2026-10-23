@@ -537,7 +537,7 @@ impl<B: SnarkBackend> SignNode<B> {
         format!("range_{}", nv)
     }
 
-    fn add_range_inclusion(
+    pub(crate) fn add_range_inclusion(
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
         nv: usize,
@@ -579,7 +579,7 @@ impl<B: SnarkBackend> SignNode<B> {
         Oracle::new_multivariate(nv, move |x| Ok(poly.evaluate(&x)))
     }
 
-    fn add_range_inclusion_oracle(
+    pub(crate) fn add_range_inclusion_oracle(
         verifier: &mut ArgVerifier<B>,
         col: &TrackedColOracle<B>,
         nv: usize,

@@ -1,10 +1,12 @@
+use crate::irs::nodes::utils::contig_sort::sort_distinct;
 use crate::session::session_context;
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_FIELD, is_system_column};
+use ark_ff::PrimeField;
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray, Int64Array, UInt32Array, new_null_array},
         compute::{concat, concat_batches, take},
-        datatypes::{Field, Schema},
+        datatypes::Schema,
         record_batch::RecordBatch,
     },
     prelude::DataFrame,
@@ -15,10 +17,13 @@ use std::{collections::HashSet, sync::Arc};
 
 use crate::irs::nodes::hints::sort_by_row_id_if_present;
 
-pub(crate) fn build_union_hint_df(
+/// The distinct active keys of both sides, padded with inactive rows and
+/// sorted with [`sort_distinct`]. Returns the union and its number of active
+/// rows `t`.
+pub(crate) fn build_union_hint_df<F: PrimeField>(
     left: DataFrame,
     right: DataFrame,
-) -> DataFusionResult<DataFrame> {
+) -> DataFusionResult<(DataFrame, usize)> {
     ensure_union_input_shape(&left, "left")?;
     ensure_union_input_shape(&right, "right")?;
     let left_active = project_active_key_rows(left)?;
@@ -26,7 +31,8 @@ pub(crate) fn build_union_hint_df(
     let key_names = data_column_names(&left_active)?;
 
     let unioned = left_active.union(right_active)?;
-    materialize_union_hint(unioned, &key_names)
+    let (union, active_rows) = materialize_union_hint(unioned, &key_names)?;
+    Ok((sort_distinct::<F>(union)?, active_rows))
 }
 
 fn ensure_union_input_shape(df: &DataFrame, side: &str) -> DataFusionResult<()> {
@@ -102,7 +108,10 @@ fn data_column_names(df: &DataFrame) -> DataFusionResult<Vec<String>> {
     Ok(key_names)
 }
 
-fn materialize_union_hint(df: DataFrame, key_names: &[String]) -> DataFusionResult<DataFrame> {
+fn materialize_union_hint(
+    df: DataFrame,
+    key_names: &[String],
+) -> DataFusionResult<(DataFrame, usize)> {
     let batches = crate::session::block_on(collect_in_partition_order(df.clone()))?;
     let schema_ref = if batches.is_empty() {
         Arc::new(df.schema().as_arrow().clone())
@@ -118,41 +127,25 @@ fn materialize_union_hint(df: DataFrame, key_names: &[String]) -> DataFusionResu
     let deduped = deduplicate_key_rows(&combined, key_names)?;
     let row_count = deduped.num_rows();
     // At least two rows: a one-row union would be a zero-variable table,
-    // which the sort and shift checks of its NoDup do not support.
+    // which the sort and shift checks do not support.
     let target = row_count.next_power_of_two().max(2);
     let pad = target.saturating_sub(row_count);
 
     let mut output_fields = Vec::with_capacity(key_names.len() + 2);
     let mut output_arrays = Vec::with_capacity(key_names.len() + 2);
-
     for key in key_names {
-        let (idx, field) = deduped
-            .schema()
-            .fields()
-            .iter()
-            .enumerate()
-            .find(|(_, field)| field.name() == key)
-            .map(|(idx, field)| (idx, field.clone()))
-            .ok_or_else(|| {
-                DataFusionError::Plan(format!("match-pair key column missing: {key}"))
-            })?;
+        let idx = deduped.schema().index_of(key)?;
+        let field = deduped.schema().field(idx).clone();
         let base = deduped.column(idx).clone();
-        output_fields.push(Field::new(
-            field.name(),
-            field.data_type().clone(),
-            field.is_nullable() || pad > 0,
-        ));
-        let out = if pad == 0 {
+        let padded = if pad == 0 {
             base
         } else {
             let pad_arr: ArrayRef = new_null_array(field.data_type(), pad);
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         };
-        output_arrays.push(out);
+        output_fields.push(field.with_nullable(true));
+        output_arrays.push(padded);
     }
-
-    // Fresh row ids are assigned after the set-union is materialized and padded so
-    // downstream gadgets see a dense 0..2^k-1 domain.
     output_fields.push((**ROW_ID_FIELD).clone());
     output_arrays.push(Arc::new(Int64Array::from_iter_values(
         (0..target).map(|idx| idx as i64),
@@ -166,7 +159,7 @@ fn materialize_union_hint(df: DataFrame, key_names: &[String]) -> DataFusionResu
 
     let out_schema = Arc::new(Schema::new(output_fields));
     let out_batch = RecordBatch::try_new(out_schema, output_arrays)?;
-    session_context().read_batch(out_batch)
+    Ok((session_context().read_batch(out_batch)?, row_count))
 }
 
 fn deduplicate_key_rows(

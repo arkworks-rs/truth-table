@@ -7,7 +7,7 @@ use crate::fingerprint::{NUM_LIMBS, limb, scheme_for_column};
 
 use super::encodable::{Encodable, EncodeOptions, FingerprintLimbs};
 use super::segment::{EncodedSegment, auto_segments, auto_suffixes};
-use super::util::{encode_hashed_bytes, field_element_byte_capacity, map_indices};
+use super::util::{encode_hashed_bytes, hash_slot_count, map_indices};
 
 /// Row-domain segment holding each string's byte length.
 pub const STRING_LENGTH_SUFFIX: &str = "__length";
@@ -62,7 +62,7 @@ pub const STRING_BND_SUFFIX: &str = "__bnd";
 /// then `STRING_LENGTH_SUFFIX`. The fingerprint limbs
 /// ([`fingerprint_segment_suffixes`]) follow them when requested.
 pub(super) fn string_row_segment_suffixes<F: PrimeField>() -> Vec<String> {
-    let hash_slots = 32usize.div_ceil(field_element_byte_capacity::<F>());
+    let hash_slots = hash_slot_count::<F>();
     let mut s = auto_suffixes(hash_slots);
     s.push(STRING_LENGTH_SUFFIX.to_string());
     s
@@ -131,13 +131,13 @@ where
     let max_len = values.iter().map(|v| v.len()).max().unwrap_or(0);
 
     let inline_short = max_len <= short_string_threshold && max_len <= 1;
-    // An all-null array still produces every segment. The hash is 32 bytes
-    // chunked by field byte capacity, or one slot holding the byte itself
-    // when no string is longer than one byte.
+    // An all-null array still produces every segment. The hash takes
+    // `hash_slot_count` slots, or one slot holding the byte itself when no
+    // string is longer than one byte.
     let hash_slots = if inline_short {
         1
     } else {
-        32usize.div_ceil(field_element_byte_capacity::<F>())
+        hash_slot_count::<F>()
     };
 
     let hash_cols: Vec<Vec<F>> = if inline_short {

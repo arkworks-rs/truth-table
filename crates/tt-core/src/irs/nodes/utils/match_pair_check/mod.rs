@@ -1,4 +1,15 @@
-use std::sync::Arc;
+//! MatchPaircheck, the paper's matching pair check that the inner join
+//! (PIOP 18) invokes: `s` is the number of matching pairs between the left
+//! and right keys.
+//!
+//! 1. The prover sends `t` and the union `û` of the distinct keys, sorted;
+//!    `û.act := C_{µ,t}` is public.
+//! 2. A StrictSortcheck (the sort check's distinct mode) on `û` proves its
+//!    keys distinct.
+//! 3. Lookups prove both sides' keys in `û` and give the multiplicities
+//!    `m_L`, `m_R`.
+//! 4. A sumcheck proves `Σ û.act · m_L · m_R = s`.
+use std::sync::{Arc, Mutex};
 
 mod hints;
 
@@ -16,12 +27,16 @@ use datafusion::{
 };
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, Join, LogicalPlan, col};
+use either::Either;
 use indexmap::IndexMap;
 use tracing::error;
 
 use self::hints::build_union_hint_df;
-use crate::irs::nodes::hints::sort_by_row_id_if_present;
-use crate::irs::nodes::utils::{bool, bool_field, lookup, nodup};
+use crate::irs::nodes::hints::{HintDF, sort_by_row_id_if_present};
+use crate::irs::nodes::utils::contig_sort::{ACTIVE_ROWS_LABEL, active_rows_field};
+use crate::irs::nodes::utils::{
+    commit_with_tracker, contig_sort, field_to_usize, lookup, track_next_committed,
+};
 use crate::{
     irs::{
         nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
@@ -40,7 +55,7 @@ pub const RIGHT_LABEL: &str = "__right__";
 /// the join passes the public `C_{µ,s}`, so the count is `s` (paper PIOP 18,
 /// step 2).
 pub const OUT_LABEL: &str = "__out__";
-/// The union of the left and right keys.
+/// The sorted union `û` of the left and right keys.
 pub const UNION_LABEL: &str = "__union__";
 
 thread_local! {
@@ -50,37 +65,29 @@ thread_local! {
 
 #[derive(Clone)]
 struct MatchPairPlanningContext {
-    left_hint: crate::irs::nodes::hints::HintDF,
-    right_hint: crate::irs::nodes::hints::HintDF,
+    left_hint: HintDF,
+    right_hint: HintDF,
     join: Join,
 }
 
-struct MatchPairPlannedHints {
-    key_hint: crate::irs::nodes::hints::HintDF,
-    union_hint: crate::irs::nodes::hints::HintDF,
-    left_lookup_hint: crate::irs::nodes::hints::HintDF,
-    right_lookup_hint: crate::irs::nodes::hints::HintDF,
-}
-
-fn union_runtime_hint(df: DataFrame) -> crate::irs::nodes::hints::HintDF {
+/// `û` with every column but the row id and the activator committed: the
+/// activator is the public `C_{µ,t}`.
+fn union_runtime_hint(df: DataFrame) -> HintDF {
     let should_materialize = df
         .schema()
         .fields()
         .iter()
-        .map(|field| {
-            let materialize = field.name() != arithmetic::ROW_ID_COL_NAME;
-            (field.clone(), materialize)
-        })
+        .map(|field| (field.clone(), !arithmetic::is_system_column(field.name())))
         .collect();
-    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
+    HintDF::new(df, should_materialize)
 }
 
 pub struct GadgetNode<B: SnarkBackend> {
-    nodup_gadget: Arc<Node<B>>,
-    /// The union activator weights the pair count, so it must be Boolean.
-    bool_gadget: Arc<Node<B>>,
+    sort_gadget: Arc<Node<B>>,
     left_lookup_gadget: Arc<Node<B>>,
     right_lookup_gadget: Arc<Node<B>>,
+    /// The prover's `t`, counted in planning.
+    active_rows: Mutex<Option<usize>>,
 }
 
 pub fn begin_match_pair_planning_cache_scope() {
@@ -134,8 +141,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![
-            self.nodup_gadget.clone(),
-            self.bool_gadget.clone(),
+            self.sort_gadget.clone(),
             self.left_lookup_gadget.clone(),
             self.right_lookup_gadget.clone(),
         ]
@@ -166,38 +172,71 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             "right",
         )
         .expect("match-pair right key projection should succeed");
-        let key_union = build_union_hint_df(left_keys_df.clone(), right_keys_df.clone())
-            .expect("match-pair union hint should succeed");
-        let key_hint = union_runtime_hint(key_union);
-        let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
-            .expect("match-pair union sort should succeed");
-        let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
+        let (union_df, active_rows) =
+            build_union_hint_df::<B::F>(left_keys_df.clone(), right_keys_df.clone())
+                .map_err(|e| SnarkError::Artifact(format!("match-pair union hint: {e}")))?;
+        *self.active_rows.lock().expect("lock poisoned") = Some(active_rows);
 
-        let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
-        let left_lookup_hint = crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
-
-        let right_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(right_keys_df);
+        let left_lookup_hint =
+            crate::irs::nodes::hints::strip_row_id_from_hint(&HintDF::new_virtual(left_keys_df));
         let right_lookup_hint =
-            crate::irs::nodes::hints::strip_row_id_from_hint(&right_lookup_hint);
+            crate::irs::nodes::hints::strip_row_id_from_hint(&HintDF::new_virtual(right_keys_df));
         apply_match_pair_planned_hints(
             self,
             id,
             planned_ir,
-            MatchPairPlannedHints {
-                key_hint,
-                union_hint,
-                left_lookup_hint,
-                right_lookup_hint,
-            },
-        );
-        Ok(())
+            union_runtime_hint(union_df),
+            left_lookup_hint,
+            right_lookup_hint,
+        )
     }
 
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(mut payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            panic!("Expected gadget payload for Match-Pair gadget node");
+        };
+        let union = payload
+            .get(UNION_LABEL)
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL));
+        let t = self
+            .active_rows
+            .lock()
+            .expect("lock poisoned")
+            .expect("the union's active rows are counted in planning");
+        let tracker_rc = union
+            .tracked_polys_iter()
+            .next()
+            .map(|(_, poly)| poly.tracker())
+            .expect("the union has committed key columns");
+        commit_with_tracker(&tracker_rc, 0, vec![B::F::from(t as u64)])?;
+        let activator = tracker_rc
+            .borrow_mut()
+            .get_or_build_contig_one_poly(union.log_size(), t)?;
+        let mut polys = union.tracked_polys();
+        polys.insert(arithmetic::ACTIVATOR_FIELD.clone(), activator);
+        let union = arithmetic::table::TrackedTable::new_with_side_cols(
+            union.schema_ref().cloned(),
+            polys,
+            union.log_size(),
+            union.side_cols(),
+        );
+        let count = TrackedPoly::new(Either::Right(B::F::from(t as u64)), 0, tracker_rc);
+        payload.insert(UNION_LABEL.to_string(), union);
+        payload.insert(
+            ACTIVE_ROWS_LABEL.to_string(),
+            arithmetic::table::TrackedTable::single_column_with_activator(
+                active_rows_field(),
+                count,
+                None,
+            ),
+        );
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
 
@@ -212,78 +251,54 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         else {
             panic!("Expected gadget payload for Match-Pair gadget node");
         };
-        let union = payload
-            .get(UNION_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL));
-        let left_keys = payload
-            .get(LEFT_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", LEFT_LABEL));
-        let right_keys = payload
-            .get(RIGHT_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", RIGHT_LABEL));
-
-        let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
+        let get = |label: &str| {
+            payload
+                .get(label)
+                .cloned()
+                .unwrap_or_else(|| panic!("Match-Pair gadget missing {label}"))
         };
-        // The committed union, replacing the planning hint, which only seeds
-        // the sort hints.
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union.clone());
-        virtualized_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
-        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        bool_payload.insert(
-            bool::TABLE_LABEL.to_string(),
-            union_activator_table_prover(&union),
-        );
-        virtualized_ir.set_payload_for_node(
-            self.bool_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(bool_payload)),
-        );
-
-        let mut left_lookup_payload =
-            match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
+        let (union, left_keys, right_keys) = (get(UNION_LABEL), get(LEFT_LABEL), get(RIGHT_LABEL));
+        let key_columns = select_columns_prover(&union, |_| true);
+        let mut payloads = vec![(
+            &self.sort_gadget,
+            vec![
+                (contig_sort::TABLE_LABEL, key_columns.clone()),
+                (ACTIVE_ROWS_LABEL, get(ACTIVE_ROWS_LABEL)),
+            ],
+        )];
+        payloads.push((
+            &self.left_lookup_gadget,
+            vec![
+                (
+                    lookup::INCLUDED_LABEL,
+                    select_columns_prover(&left_keys, |_| true),
+                ),
+                (lookup::SUPER_LABEL, key_columns.clone()),
+            ],
+        ));
+        payloads.push((
+            &self.right_lookup_gadget,
+            vec![
+                (
+                    lookup::INCLUDED_LABEL,
+                    select_columns_prover(&right_keys, |_| true),
+                ),
+                (lookup::SUPER_LABEL, key_columns),
+            ],
+        ));
+        for (gadget, tables) in payloads {
+            let mut child_payload = match virtualized_ir.payload_for_node(&gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
             };
-        left_lookup_payload.insert(
-            lookup::INCLUDED_LABEL.to_string(),
-            drop_row_id_keep_activator_prover(&left_keys),
-        );
-        left_lookup_payload.insert(
-            lookup::SUPER_LABEL.to_string(),
-            drop_row_id_keep_activator_prover(&union),
-        );
-        virtualized_ir.set_payload_for_node(
-            self.left_lookup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
-        );
-
-        let mut right_lookup_payload =
-            match virtualized_ir.payload_for_node(&self.right_lookup_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-        right_lookup_payload.insert(
-            lookup::INCLUDED_LABEL.to_string(),
-            drop_row_id_keep_activator_prover(&right_keys),
-        );
-        right_lookup_payload.insert(
-            lookup::SUPER_LABEL.to_string(),
-            drop_row_id_keep_activator_prover(&union),
-        );
-        virtualized_ir.set_payload_for_node(
-            self.right_lookup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
-        );
+            for (label, table) in tables {
+                child_payload.insert(label.to_string(), table);
+            }
+            virtualized_ir.set_payload_for_node(
+                gadget.id(),
+                Some(PayloadStructure::GadgetPayload(child_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -316,119 +331,157 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             "right",
         )
         .expect("match-pair verifier right key schema should succeed");
-        let key_union = build_union_schema_only(&key_names, &left_keys_df)
-            .expect("match-pair verifier union schema should succeed");
-        let key_hint = union_runtime_hint(key_union);
-        let union_hint =
-            crate::irs::nodes::hints::HintDF::new_virtual(key_hint.data_frame().clone());
-        let left_lookup_hint = strip_row_id_keep_activator_schema_only(
-            &crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df),
-        );
-        let right_lookup_hint = strip_row_id_keep_activator_schema_only(
-            &crate::irs::nodes::hints::HintDF::new_virtual(right_keys_df),
-        );
+        let mut union_fields = key_fields(&left_keys_df, &key_names);
+        union_fields.push((**arithmetic::ROW_ID_FIELD).clone());
+        union_fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
+        let union_df = crate::irs::nodes::hints::schema_only_df(union_fields);
+        let left_lookup_hint =
+            strip_row_id_keep_activator_schema_only(&HintDF::new_virtual(left_keys_df));
+        let right_lookup_hint =
+            strip_row_id_keep_activator_schema_only(&HintDF::new_virtual(right_keys_df));
 
         apply_match_pair_planned_hints(
             self,
             id,
             planned_ir,
-            MatchPairPlannedHints {
-                key_hint,
-                union_hint,
-                left_lookup_hint,
-                right_lookup_hint,
-            },
-        );
-        Ok(())
+            union_runtime_hint(union_df),
+            left_lookup_hint,
+            right_lookup_hint,
+        )
     }
 
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(mut payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            return Ok(());
+        };
+        let union = payload
+            .get(UNION_LABEL)
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL));
+        let tracker_rc = union
+            .tracked_oracles_iter()
+            .next()
+            .map(|(_, oracle)| oracle.tracker())
+            .expect("the union has committed key columns");
+        let count = track_next_committed(&tracker_rc)?;
+        let t = match count.as_constant() {
+            Some(value) if count.log_size() == 0 => {
+                field_to_usize(value, "the match-pair union's active rows")?
+            }
+            _ => {
+                return Err(SnarkError::VerifierError(
+                    VerifierError::VerifierCheckFailed(
+                        "the match-pair union's active-row count is not a committed scalar"
+                            .to_string(),
+                    ),
+                ));
+            }
+        };
+        let activator = tracker_rc
+            .borrow_mut()
+            .get_or_build_contig_one_poly(union.log_size(), t)?;
+        let mut oracles = union.tracked_oracles();
+        oracles.insert(arithmetic::ACTIVATOR_FIELD.clone(), activator);
+        let union = arithmetic::table_oracle::TrackedTableOracle::new_with_side_cols(
+            union.schema_ref().cloned(),
+            oracles,
+            union.log_size(),
+            union.side_cols(),
+        );
+        payload.insert(UNION_LABEL.to_string(), union);
+        payload.insert(
+            ACTIVE_ROWS_LABEL.to_string(),
+            arithmetic::table_oracle::TrackedTableOracle::single_column_with_activator(
+                active_rows_field(),
+                count,
+                None,
+            ),
+        );
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
+
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let (union, left_keys, right_keys) = {
-            let Some(PayloadStructure::GadgetPayload(payload)) =
-                virtualized_ir.payload_for_node(&id)
-            else {
-                return Ok(());
-            };
-            (
-                payload
-                    .get(UNION_LABEL)
-                    .cloned()
-                    .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL)),
-                payload
-                    .get(LEFT_LABEL)
-                    .cloned()
-                    .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", LEFT_LABEL)),
-                payload
-                    .get(RIGHT_LABEL)
-                    .cloned()
-                    .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", RIGHT_LABEL)),
-            )
+        let Some(PayloadStructure::GadgetPayload(payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            return Ok(());
         };
-        let union_no_row_id = drop_row_id_keep_activator_verifier(&union);
-        let left_keys_no_row_id = drop_row_id_keep_activator_verifier(&left_keys);
-        let right_keys_no_row_id = drop_row_id_keep_activator_verifier(&right_keys);
-
-        let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
+        let get = |label: &str| {
+            payload
+                .get(label)
+                .cloned()
+                .unwrap_or_else(|| panic!("Match-Pair gadget missing {label}"))
         };
-        // The committed union, replacing the planning hint, which only seeds
-        // the sort hints.
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union.clone());
-        virtualized_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
-        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        bool_payload.insert(
-            bool::TABLE_LABEL.to_string(),
-            union_activator_table_verifier(&union),
-        );
-        virtualized_ir.set_payload_for_node(
-            self.bool_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(bool_payload)),
-        );
-
-        let mut left_lookup_payload =
-            match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
+        let (union, left_keys, right_keys) = (get(UNION_LABEL), get(LEFT_LABEL), get(RIGHT_LABEL));
+        let key_columns = select_columns_verifier(&union, |_| true);
+        let mut payloads = vec![(
+            &self.sort_gadget,
+            vec![
+                (contig_sort::TABLE_LABEL, key_columns.clone()),
+                (ACTIVE_ROWS_LABEL, get(ACTIVE_ROWS_LABEL)),
+            ],
+        )];
+        payloads.push((
+            &self.left_lookup_gadget,
+            vec![
+                (
+                    lookup::INCLUDED_LABEL,
+                    select_columns_verifier(&left_keys, |_| true),
+                ),
+                (lookup::SUPER_LABEL, key_columns.clone()),
+            ],
+        ));
+        payloads.push((
+            &self.right_lookup_gadget,
+            vec![
+                (
+                    lookup::INCLUDED_LABEL,
+                    select_columns_verifier(&right_keys, |_| true),
+                ),
+                (lookup::SUPER_LABEL, key_columns),
+            ],
+        ));
+        for (gadget, tables) in payloads {
+            let mut child_payload = match virtualized_ir.payload_for_node(&gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
             };
-        left_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), left_keys_no_row_id);
-        left_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_no_row_id.clone());
-        virtualized_ir.set_payload_for_node(
-            self.left_lookup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
-        );
-
-        let mut right_lookup_payload =
-            match virtualized_ir.payload_for_node(&self.right_lookup_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-        right_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), right_keys_no_row_id);
-        right_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_no_row_id);
-        virtualized_ir.set_payload_for_node(
-            self.right_lookup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
-        );
+            for (label, table) in tables {
+                child_payload.insert(label.to_string(), table);
+            }
+            virtualized_ir.set_payload_for_node(
+                gadget.id(),
+                Some(PayloadStructure::GadgetPayload(child_payload)),
+            );
+        }
         Ok(())
     }
+}
+
+/// The key fields named `key_names`, in that order.
+fn key_fields(keys_df: &DataFrame, key_names: &[String]) -> Vec<Field> {
+    key_names
+        .iter()
+        .filter_map(|name| {
+            keys_df
+                .schema()
+                .fields()
+                .iter()
+                .find(|field| field.name() == name)
+                .map(|field| field.as_ref().clone())
+        })
+        .collect()
 }
 
 fn strip_row_id_keep_activator_schema_only(
@@ -459,27 +512,6 @@ fn build_lookup_keys_schema_only(
             key_field.data_type().clone(),
             key_field.is_nullable(),
         ));
-    }
-    fields.push((**arithmetic::ROW_ID_FIELD).clone());
-    fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
-    Ok(crate::irs::nodes::hints::schema_only_df(fields))
-}
-
-fn build_union_schema_only(
-    key_names: &[String],
-    keys_df: &DataFrame,
-) -> DataFusionResult<DataFrame> {
-    let mut fields = Vec::with_capacity(key_names.len() + 2);
-    for key_name in key_names {
-        let field = keys_df
-            .schema()
-            .fields()
-            .iter()
-            .find(|f| f.name() == key_name)
-            .ok_or_else(|| {
-                DataFusionError::Plan(format!("match-pair key column missing: {key_name}"))
-            })?;
-        fields.push(field.as_ref().clone());
     }
     fields.push((**arithmetic::ROW_ID_FIELD).clone());
     fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
@@ -537,13 +569,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected output activator table for Match-Pair gadget");
         };
 
+        let union_activator = union_table
+            .activator_tracked_poly()
+            .expect("Match-Pair union table missing activator");
         let left_multiplicities =
             lookup_multiplicities_table_prover(gadget_ready_ir, &self.left_lookup_gadget);
         let right_multiplicities =
             lookup_multiplicities_table_prover(gadget_ready_ir, &self.right_lookup_gadget);
-        let union_activator = union_table
-            .activator_tracked_poly()
-            .expect("Match-Pair union table missing activator");
         let output_activator = output_table
             .activator_tracked_poly()
             .expect("Match-Pair output table missing activator");
@@ -632,14 +664,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected output activator table for Match-Pair gadget");
         };
 
+        let union_activator = union_table
+            .activator_tracked_poly()
+            .expect("Match-Pair union table missing activator");
         let left_multiplicities =
             lookup_multiplicities_table_verifier(gadget_ready_ir, &self.left_lookup_gadget);
         let right_multiplicities =
             lookup_multiplicities_table_verifier(gadget_ready_ir, &self.right_lookup_gadget);
-
-        let union_activator = union_table
-            .activator_tracked_poly()
-            .expect("Match-Pair union table missing activator");
 
         let left_mult = single_data_oracle_from_table(&left_multiplicities, "left multiplicity");
         let right_mult = single_data_oracle_from_table(&right_multiplicities, "right multiplicity");
@@ -682,113 +713,58 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
-        let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::nodup::GadgetNode::default(),
-        )));
-        let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(bool::GadgetNode::<B>::new())));
-        let left_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::lookup::GadgetNode::new(),
-        )));
-        let right_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::lookup::GadgetNode::new(),
-        )));
+        let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(contig_sort::GadgetNode::new(
+            contig_sort::SortConfig::Distinct,
+        ))));
+        let left_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
+        let right_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
         Self {
-            nodup_gadget,
-            bool_gadget,
+            sort_gadget,
             left_lookup_gadget,
             right_lookup_gadget,
+            active_rows: Mutex::new(None),
         }
     }
 }
 
-fn union_activator_table_prover<B: SnarkBackend>(
-    union: &arithmetic::table::TrackedTable<B>,
-) -> arithmetic::table::TrackedTable<B> {
-    let activator = union
-        .activator_tracked_poly()
-        .expect("Match-Pair union table missing activator");
-    let mut polys = IndexMap::new();
-    polys.insert(bool_field(), activator);
-    arithmetic::table::TrackedTable::new(
-        Some(Schema::new(vec![bool_field().as_ref().clone()])),
-        polys,
-        union.log_size(),
-    )
-}
-
-fn union_activator_table_verifier<B: SnarkBackend>(
-    union: &arithmetic::table_oracle::TrackedTableOracle<B>,
-) -> arithmetic::table_oracle::TrackedTableOracle<B> {
-    let activator = union
-        .activator_tracked_poly()
-        .expect("Match-Pair union table missing activator");
-    let mut oracles = IndexMap::new();
-    oracles.insert(bool_field(), activator);
-    arithmetic::table_oracle::TrackedTableOracle::new(
-        Some(Schema::new(vec![bool_field().as_ref().clone()])),
-        oracles,
-        union.log_size(),
-    )
-}
-
-fn drop_row_id_keep_activator_prover<B: SnarkBackend>(
+/// `table`'s columns that `keep` selects, without the row id, with the
+/// activator.
+fn select_columns_prover<B: SnarkBackend>(
     table: &arithmetic::table::TrackedTable<B>,
+    keep: impl Fn(&str) -> bool,
 ) -> arithmetic::table::TrackedTable<B> {
-    let cols = table.tracked_polys();
-    if !cols
-        .keys()
-        .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
-    {
-        panic!(
-            "Match-Pair lookup tables must include {}",
-            arithmetic::ACTIVATOR_COL_NAME
-        );
-    }
-    let mut filtered = IndexMap::new();
-    for (field, poly) in cols.iter() {
-        if field.name() == arithmetic::ROW_ID_COL_NAME {
-            continue;
-        }
-        filtered.insert(field.clone(), poly.clone());
-    }
+    let polys: IndexMap<_, _> = table
+        .tracked_polys()
+        .into_iter()
+        .filter(|(field, _)| {
+            field.name() == arithmetic::ACTIVATOR_COL_NAME
+                || (field.name() != arithmetic::ROW_ID_COL_NAME && keep(field.name()))
+        })
+        .collect();
     let schema = table.schema_ref().map(|schema| {
-        let fields: Vec<Field> = filtered
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect();
+        let fields: Vec<Field> = polys.keys().map(|field| field.as_ref().clone()).collect();
         Schema::new_with_metadata(fields, schema.metadata().clone())
     });
-    arithmetic::table::TrackedTable::new(schema, filtered, table.log_size())
+    arithmetic::table::TrackedTable::new(schema, polys, table.log_size())
 }
 
-fn drop_row_id_keep_activator_verifier<B: SnarkBackend>(
+fn select_columns_verifier<B: SnarkBackend>(
     table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    keep: impl Fn(&str) -> bool,
 ) -> arithmetic::table_oracle::TrackedTableOracle<B> {
-    let cols = table.tracked_oracles();
-    if !cols
-        .keys()
-        .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
-    {
-        panic!(
-            "Match-Pair lookup tables must include {}",
-            arithmetic::ACTIVATOR_COL_NAME
-        );
-    }
-    let mut filtered = IndexMap::new();
-    for (field, oracle) in cols.iter() {
-        if field.name() == arithmetic::ROW_ID_COL_NAME {
-            continue;
-        }
-        filtered.insert(field.clone(), oracle.clone());
-    }
+    let oracles: IndexMap<_, _> = table
+        .tracked_oracles()
+        .into_iter()
+        .filter(|(field, _)| {
+            field.name() == arithmetic::ACTIVATOR_COL_NAME
+                || (field.name() != arithmetic::ROW_ID_COL_NAME && keep(field.name()))
+        })
+        .collect();
     let schema = table.schema_ref().map(|schema| {
-        let fields: Vec<Field> = filtered
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect();
+        let fields: Vec<Field> = oracles.keys().map(|field| field.as_ref().clone()).collect();
         Schema::new_with_metadata(fields, schema.metadata().clone())
     });
-    arithmetic::table_oracle::TrackedTableOracle::new(schema, filtered, table.log_size())
+    arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, table.log_size())
 }
 
 fn lookup_multiplicities_table_prover<B: SnarkBackend>(
@@ -975,49 +951,45 @@ fn apply_match_pair_planned_hints<B: SnarkBackend>(
     node: &GadgetNode<B>,
     id: crate::irs::nodes::NodeId,
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    hints: MatchPairPlannedHints,
-) {
-    let mut gadget_payload = match planned_ir.payload_for_node(&id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    gadget_payload.insert(UNION_LABEL.to_string(), hints.key_hint);
-    planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
-
-    let mut nodup_payload = match planned_ir.payload_for_node(&node.nodup_gadget.id()) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    nodup_payload
-        .entry(nodup::INPUT_LABEL.to_string())
-        .or_insert_with(|| hints.union_hint.clone());
-    planned_ir.set_payload_for_node(
-        node.nodup_gadget.id(),
-        Some(PayloadStructure::GadgetPayload(nodup_payload)),
+    union_hint: HintDF,
+    left_lookup_hint: HintDF,
+    right_lookup_hint: HintDF,
+) -> ark_piop::errors::SnarkResult<()> {
+    // The lookups count multiplicities against `û` in its row-id order.
+    let super_hint = HintDF::new_virtual(
+        sort_by_row_id_if_present(union_hint.data_frame().clone())
+            .map_err(|e| SnarkError::Artifact(format!("match-pair hints: {e}")))?,
     );
-
-    let mut left_lookup_payload = match planned_ir.payload_for_node(&node.left_lookup_gadget.id()) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
+    let mut set = |gadget_id, entries: Vec<(&str, HintDF)>| {
+        let mut payload = match planned_ir.payload_for_node(&gadget_id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        for (label, hint) in entries {
+            payload.insert(label.to_string(), hint);
+        }
+        planned_ir.set_payload_for_node(gadget_id, Some(PayloadStructure::GadgetPayload(payload)));
     };
-    left_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), hints.left_lookup_hint);
-    left_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), hints.union_hint.clone());
-    planned_ir.set_payload_for_node(
+    set(
+        node.sort_gadget.id(),
+        vec![(contig_sort::TABLE_LABEL, union_hint.as_virtual_view())],
+    );
+    set(id, vec![(UNION_LABEL, union_hint)]);
+    set(
         node.left_lookup_gadget.id(),
-        Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
+        vec![
+            (lookup::INCLUDED_LABEL, left_lookup_hint),
+            (lookup::SUPER_LABEL, super_hint.clone()),
+        ],
     );
-
-    let mut right_lookup_payload = match planned_ir.payload_for_node(&node.right_lookup_gadget.id())
-    {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    right_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), hints.right_lookup_hint);
-    right_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), hints.union_hint);
-    planned_ir.set_payload_for_node(
+    set(
         node.right_lookup_gadget.id(),
-        Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
+        vec![
+            (lookup::INCLUDED_LABEL, right_lookup_hint),
+            (lookup::SUPER_LABEL, super_hint),
+        ],
     );
+    Ok(())
 }
 
 fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, Vec<String>)> {

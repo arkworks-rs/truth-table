@@ -11,11 +11,12 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
-    ACTIVE_ROWS_LABEL, DIFF_INPUT_LABEL, GadgetNode, PerColumnConfig, ROTATED_INPUT_LABEL,
-    SortConfig, TABLE_LABEL, TIE_INDICATOR_LABEL, UniformConfig,
+    ACTIVE_ROWS_LABEL, DIFF_INPUT_LABEL, GadgetNode, LIMBS_LABEL, PerColumnConfig,
+    ROTATED_INPUT_LABEL, SortConfig, TABLE_LABEL, TIE_INDICATOR_LABEL,
 };
 use crate::irs::nodes::Node;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
+use arithmetic::encoding::{encode_arrow_array_to_field, hash_slot_limb_widths, hash_slot_limbs};
 
 type B = DefaultSnarkBackend;
 type F = <B as SnarkBackend>::F;
@@ -30,12 +31,8 @@ fn rotate(xs: &[F]) -> Vec<F> {
     (0..xs.len()).map(|i| xs[(i + 1) % xs.len()]).collect()
 }
 
-/// The strict descending sort that `NoDup` runs.
-fn nodup_config() -> SortConfig {
-    SortConfig::Uniform(UniformConfig {
-        asc: false,
-        strict: true,
-    })
+fn distinct() -> SortConfig {
+    SortConfig::Distinct
 }
 
 fn ascending(keys: &[&str], strict: bool) -> SortConfig {
@@ -81,7 +78,7 @@ pub(crate) fn active_rows(s: u64) -> TableSpec<F> {
 
 /// Proves and verifies that `keys` (all rows active) is sorted under
 /// `config`, with the given committed tie and diff hints.
-fn run(
+pub(crate) fn run(
     config: SortConfig,
     keys: &[(&str, DataType, Vec<F>)],
     ties: &[(&str, Vec<F>)],
@@ -130,7 +127,7 @@ fn run_with(
 
 /// With `honest-prover` the prover refuses the false claim before the
 /// verifier sees it.
-fn assert_rejected(result: Result<(), ark_piop::errors::SnarkError>) {
+pub(crate) fn assert_rejected(result: Result<(), ark_piop::errors::SnarkError>) {
     use ark_piop::errors::SnarkError;
     use ark_piop::prover::errors::{HonestProverError, ProverError};
     let rejected = if cfg!(feature = "honest-prover") {
@@ -150,29 +147,29 @@ fn assert_rejected(result: Result<(), ark_piop::errors::SnarkError>) {
 }
 
 #[test]
-fn distinct_descending_keys_accepted() {
-    let keys = [("k", DataType::Int64, ints(&[9, 5, 3, 1]))];
-    run(nodup_config(), &keys, &[], &[]).expect("a strictly sorted key column verifies");
+fn distinct_ascending_keys_accepted() {
+    let keys = [("k", DataType::Int64, ints(&[1, 3, 5, 9]))];
+    run(distinct(), &keys, &[], &[]).expect("a strictly sorted key column verifies");
 }
 
 #[test]
 fn duplicate_with_zero_first_tie_rejected() {
     // An all-zero tie_0 switches off every comparison; the gadget must use
     // the public mask instead.
-    let keys = [("k", DataType::Int64, ints(&[5, 5, 3, 1]))];
+    let keys = [("k", DataType::Int64, ints(&[1, 5, 5, 9]))];
     let ties = [("tie_0", ints(&[0, 0, 0, 0]))];
-    let diffs = [("k", DataType::Int64, ints(&[0, 2, 2, -4]))];
-    assert_rejected(run(nodup_config(), &keys, &ties, &diffs));
+    let diffs = [("k", DataType::Int64, ints(&[4, 0, 4, -8]))];
+    assert_rejected(run(distinct(), &keys, &ties, &diffs));
 }
 
 #[test]
 fn duplicate_with_forged_diff_rejected() {
     // The true difference of the duplicate pair is 0; a committed 1 must
     // not reach the Sign check.
-    let keys = [("k", DataType::Int64, ints(&[5, 5, 3, 1]))];
+    let keys = [("k", DataType::Int64, ints(&[1, 5, 5, 9]))];
     let ties = [("tie_0", ints(&[1, 1, 1, 0]))];
-    let diffs = [("k", DataType::Int64, ints(&[1, 2, 2, 0]))];
-    assert_rejected(run(nodup_config(), &keys, &ties, &diffs));
+    let diffs = [("k", DataType::Int64, ints(&[4, 1, 4, 0]))];
+    assert_rejected(run(distinct(), &keys, &ties, &diffs));
 }
 
 #[test]
@@ -344,4 +341,142 @@ fn a_forged_shift_is_rejected() {
         matches!(result, Err(ark_piop::errors::SnarkError::VerifierError(_))),
         "expected the verifier to reject, got {result:?}"
     );
+}
+
+/// The distinct sort of a string column whose rows hold `strings`' hash
+/// slots, the first `s` active, with the given limbs per row (most
+/// significant first) and honest ties over them.
+fn run_distinct_strings(
+    strings: &[&str],
+    limbs: Vec<Vec<u64>>,
+    s: u64,
+) -> Result<(), ark_piop::errors::SnarkError> {
+    let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(distinct()))));
+    let id = gadget.id();
+    let widths = hash_slot_limb_widths::<F>();
+    let limb_cols: Vec<(String, DataType, Vec<F>)> = widths
+        .iter()
+        .enumerate()
+        .map(|(j, width)| {
+            let dtype = if *width == 8 {
+                DataType::UInt8
+            } else {
+                DataType::UInt16
+            };
+            let values = limbs.iter().map(|row| F::from(row[j])).collect();
+            (format!("s_limb{j}"), dtype, values)
+        })
+        .collect();
+    let limb_spec: Vec<(&str, DataType, Vec<F>)> = limb_cols
+        .iter()
+        .map(|(name, dtype, values)| (name.as_str(), dtype.clone(), values.clone()))
+        .collect();
+    let rotated: Vec<(&str, DataType, Vec<F>)> = limb_spec
+        .iter()
+        .map(|(name, dtype, values)| (*name, dtype.clone(), rotate(values)))
+        .collect();
+    let tie_names: Vec<String> = (1..widths.len()).map(|k| format!("tie_{k}")).collect();
+    let ties: Vec<(&str, DataType, Vec<F>)> = tie_names
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| {
+            let values = (0..4)
+                .map(|row| {
+                    let tied = row < 3 && limbs[row][..=idx] == limbs[row + 1][..=idx];
+                    F::from(u64::from(tied))
+                })
+                .collect();
+            (name.as_str(), DataType::Boolean, values)
+        })
+        .collect();
+    let slots = (
+        "s",
+        DataType::Utf8,
+        strings.iter().map(|s| hash_slot(s)).collect(),
+    );
+    let builder = GadgetHarness::<B>::builder(16)
+        .with_gadget(gadget)
+        .with_table(
+            id,
+            TABLE_LABEL,
+            table(
+                &[slots],
+                Some((0..4).map(|row| F::from(u64::from(row < s))).collect()),
+            ),
+        )
+        .with_table(id, LIMBS_LABEL, table(&limb_spec, None))
+        .with_table(id, ROTATED_INPUT_LABEL, table(&rotated, None))
+        .with_table(id, TIE_INDICATOR_LABEL, table(&ties, None))
+        .with_table(id, ACTIVE_ROWS_LABEL, active_rows(s));
+    run_gadget_pipeline(builder.build())
+}
+
+fn hash_slot(string: &str) -> F {
+    let array: datafusion::arrow::array::ArrayRef =
+        Arc::new(datafusion::arrow::array::StringArray::from(vec![
+            string, "pad",
+        ]));
+    encode_arrow_array_to_field::<F>(&array).unwrap()[0]
+        .iter_values()
+        .next()
+        .unwrap()
+}
+
+fn honest_limbs(string: &str) -> Vec<u64> {
+    hash_slot_limbs(hash_slot(string))
+        .into_iter()
+        .map(u64::from)
+        .collect()
+}
+
+/// Four strings in the order of their hash limbs.
+fn strings_in_limb_order() -> Vec<&'static str> {
+    let mut strings = vec!["FRANCE", "GERMANY", "JAPAN", "PERU"];
+    strings.sort_by_key(|s| honest_limbs(s));
+    strings
+}
+
+#[test]
+fn distinct_strings_sorted_on_their_hash_limbs_verify() {
+    let strings = strings_in_limb_order();
+    let limbs = strings.iter().map(|s| honest_limbs(s)).collect();
+    run_distinct_strings(&strings, limbs, 4).expect("distinct hashes sorted on their limbs verify");
+}
+
+#[test]
+fn a_duplicated_string_is_rejected() {
+    let mut strings = strings_in_limb_order();
+    strings[1] = strings[0];
+    let limbs = strings.iter().map(|s| honest_limbs(s)).collect();
+    assert_rejected(run_distinct_strings(&strings, limbs, 4));
+}
+
+#[test]
+fn a_duplicated_string_with_forged_limbs_is_rejected() {
+    // The copy's limbs sort above the original's, but do not recompose its
+    // hash.
+    let mut strings = strings_in_limb_order();
+    strings[1] = strings[0];
+    let mut limbs: Vec<Vec<u64>> = strings.iter().map(|s| honest_limbs(s)).collect();
+    *limbs[1].last_mut().unwrap() += 1;
+    assert!(limbs[0] < limbs[1] && limbs[1] < limbs[2]);
+    assert_rejected(run_distinct_strings(&strings, limbs, 4));
+}
+
+#[test]
+fn a_duplicated_string_with_a_borrowed_limb_is_rejected() {
+    // The first copy borrows 1 from its top limb into the next one: the limbs
+    // still recompose the hash and sort below the honest copy's, with an
+    // in-range difference of 1 at the top limb. Only the range check on the
+    // limbs themselves rejects the second limb, 2^16 too large.
+    let string = ["FRANCE", "GERMANY", "JAPAN", "PERU"]
+        .into_iter()
+        .find(|s| honest_limbs(s)[0] > 0)
+        .expect("a hash with a nonzero top limb");
+    let honest = honest_limbs(string);
+    let mut borrowed = honest.clone();
+    borrowed[0] -= 1;
+    borrowed[1] += 1 << 16;
+    let limbs = vec![borrowed, honest.clone(), honest.clone(), honest];
+    assert_rejected(run_distinct_strings(&[string; 4], limbs, 2));
 }

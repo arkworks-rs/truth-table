@@ -38,7 +38,6 @@ mod bezout;
 mod binary_check;
 mod compaction_check;
 mod compactor;
-mod hints;
 pub(crate) mod perm_check;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,7 +128,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     let lex_sorted_hint = if is_verifier {
         build_lex_sorted_hint_for_verifier(&input_hint)
     } else {
-        build_lex_sorted_hint(&input_hint)
+        build_lex_sorted_hint::<B>(&input_hint)?
     };
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
@@ -442,12 +441,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 gadgets: Gadgets::SortNoDup(SortNoDupGadgets {
                     sort_gadget: Arc::new(Node::<B>::Gadget(Arc::new(
                         crate::irs::nodes::utils::contig_sort::GadgetNode::new_preserve_row_id(
-                            crate::irs::nodes::utils::contig_sort::SortConfig::Uniform(
-                                crate::irs::nodes::utils::contig_sort::UniformConfig {
-                                    asc: false,
-                                    strict: true,
-                                },
-                            ),
+                            crate::irs::nodes::utils::contig_sort::SortConfig::Distinct,
                         ),
                     ))),
                     perm_gadget: Arc::new(Node::<B>::Gadget(Arc::new(
@@ -490,11 +484,14 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
-fn build_lex_sorted_hint(
+/// The input sorted in the order the distinct sort check proves.
+fn build_lex_sorted_hint<B: SnarkBackend>(
     input_hint: &crate::irs::nodes::hints::HintDF,
-) -> crate::irs::nodes::hints::HintDF {
-    let lex_sorted_df = hints::lex_sort_contiguous(input_hint.data_frame().clone())
-        .expect("NoDup lex sort should succeed");
+) -> ark_piop::errors::SnarkResult<crate::irs::nodes::hints::HintDF> {
+    let lex_sorted_df = crate::irs::nodes::utils::contig_sort::sort_distinct::<B::F>(
+        input_hint.data_frame().clone(),
+    )
+    .map_err(|e| ark_piop::errors::SnarkError::Artifact(format!("NoDup sort: {e}")))?;
     let should_materialize = lex_sorted_df
         .schema()
         .fields()
@@ -506,7 +503,10 @@ fn build_lex_sorted_hint(
             )
         })
         .collect();
-    crate::irs::nodes::hints::HintDF::new(lex_sorted_df, should_materialize)
+    Ok(crate::irs::nodes::hints::HintDF::new(
+        lex_sorted_df,
+        should_materialize,
+    ))
 }
 
 fn build_lex_sorted_hint_for_verifier(
