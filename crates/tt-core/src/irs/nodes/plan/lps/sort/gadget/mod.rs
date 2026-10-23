@@ -147,6 +147,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 contig_sort::TABLE_LABEL.to_string(),
                 output_sort_keys_prover(output, keys)?,
             );
+            if let Some(count) = payload.get(contig_sort::ACTIVE_ROWS_LABEL) {
+                sort_payload.insert(contig_sort::ACTIVE_ROWS_LABEL.to_string(), count.clone());
+            }
             virtualized_ir.set_payload_for_node(
                 self.sort_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(sort_payload)),
@@ -222,6 +225,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 contig_sort::TABLE_LABEL.to_string(),
                 output_sort_keys_verifier(output, keys)?,
             );
+            if let Some(count) = payload.get(contig_sort::ACTIVE_ROWS_LABEL) {
+                sort_payload.insert(contig_sort::ACTIVE_ROWS_LABEL.to_string(), count.clone());
+            }
             virtualized_ir.set_payload_for_node(
                 self.sort_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(sort_payload)),

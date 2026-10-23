@@ -87,6 +87,12 @@ pub(crate) fn sort_input_for_contig_sort(
     input_hint.data_frame().clone().sort(order_by)
 }
 
+/// The rotated table has no row ids and no activator: the sort check gives it
+/// the public mask `C_{µ,s-1}`.
+fn is_rotation_excluded(name: &str) -> bool {
+    name == ROW_ID_COL_NAME || name == ACTIVATOR_COL_NAME
+}
+
 pub(crate) fn rotate(
     df: DataFrame,
     order_by: Vec<SortExpr>,
@@ -99,14 +105,14 @@ pub(crate) fn rotate(
             .schema()
             .fields()
             .iter()
-            .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
+            .filter(|field| !is_rotation_excluded(field.name()))
+            .map(|field| col(field.name()))
             .collect();
         return df.select(projected);
     }
 
-    // Rotate after power-of-two padding: rotating first would bury the wrap row
-    // under the padding rows, and the prescribed permutation would no longer be
-    // the cyclic shift.
+    // `d'[j] = d[j + 1]`. Only rows `j < s - 1` are read, so the last row
+    // (here `d[0]`) is arbitrary.
     let ordered = if order_by.is_empty() {
         let has_row_id = df
             .schema()
@@ -145,7 +151,7 @@ pub(crate) fn rotate(
     let mut out_fields = Vec::new();
     let mut out_cols = Vec::new();
     for (idx, field) in padded.schema().fields().iter().enumerate() {
-        if field.name() == ROW_ID_COL_NAME {
+        if is_rotation_excluded(field.name()) {
             continue;
         }
         let source = padded.column(idx).clone();
