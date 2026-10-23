@@ -216,6 +216,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         &self,
         lp: datafusion_expr::LogicalPlan,
     ) -> TTResult<GadgetPlannedIr<B>> {
+        tt_core::irs::supported::ensure_supported(&lp)?;
         let initial_ir = EmptyIr::<B>::from_logical_plan(&lp);
         debug!(
             "verifier initial ir:\n{}",

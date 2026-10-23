@@ -1,3 +1,5 @@
+#[cfg(feature = "test-utils")]
+pub mod dishonest_prover;
 pub mod gadget_harness;
 
 use std::sync::Arc;
