@@ -249,6 +249,11 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
             })
             .collect::<Vec<_>>();
 
+        // Without ELSE, a row no branch matches is NULL, which encodes as 0.
+        assert!(
+            case.else_expr.is_some(),
+            "NULL is not supported: CASE without ELSE yields NULL"
+        );
         let else_node = case.else_expr.as_ref().map(|else_expr| {
             Tree::<B>::from_expr(else_expr, Some(self_ref.clone()), scope.clone())
                 .root()

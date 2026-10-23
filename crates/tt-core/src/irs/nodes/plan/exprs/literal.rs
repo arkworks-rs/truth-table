@@ -309,6 +309,11 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
             datafusion_expr::Expr::Literal(scalar_value) => scalar_value,
             _ => panic!("Expected Expr::Literal"),
         };
+        // NULL encodes as 0, so the proof would treat it as a 0.
+        assert!(
+            !literal.is_null(),
+            "NULL is not supported: the query has a NULL literal"
+        );
         Self { literal, scope }
     }
 

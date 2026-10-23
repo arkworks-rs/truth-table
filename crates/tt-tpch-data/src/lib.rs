@@ -553,11 +553,8 @@ fn convert_batch_to_poneglyph(batch: &RecordBatch, out_schema: &Arc<Schema>) -> 
                         continue;
                     }
                     let scaled = f64::from(arr.value(i)) * 1000.0;
-                    if scaled.is_finite() && scaled >= 0.0 && scaled <= u64::MAX as f64 {
-                        builder.append_value(scaled as u64);
-                    } else {
-                        builder.append_null();
-                    }
+                    // Saturating: a negative value is 0, as the column is unsigned.
+                    builder.append_value(scaled as u64);
                 }
                 Arc::new(builder.finish())
             }
@@ -573,11 +570,8 @@ fn convert_batch_to_poneglyph(batch: &RecordBatch, out_schema: &Arc<Schema>) -> 
                         continue;
                     }
                     let scaled = arr.value(i) * 1000.0;
-                    if scaled.is_finite() && scaled >= 0.0 && scaled <= u64::MAX as f64 {
-                        builder.append_value(scaled as u64);
-                    } else {
-                        builder.append_null();
-                    }
+                    // Saturating: a negative value is 0, as the column is unsigned.
+                    builder.append_value(scaled as u64);
                 }
                 Arc::new(builder.finish())
             }
@@ -592,12 +586,8 @@ fn convert_batch_to_poneglyph(batch: &RecordBatch, out_schema: &Arc<Schema>) -> 
                         builder.append_null();
                         continue;
                     }
-                    let value = arr.value(i);
-                    if value >= 0 && value <= u64::MAX as i128 {
-                        builder.append_value(value as u64);
-                    } else {
-                        builder.append_null();
-                    }
+                    // A negative value is 0, as the column is unsigned.
+                    builder.append_value(arr.value(i).clamp(0, u64::MAX as i128) as u64);
                 }
                 Arc::new(builder.finish())
             }
