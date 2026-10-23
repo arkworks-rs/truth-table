@@ -685,11 +685,9 @@ fn build_verifier_nodup_input_hint() -> crate::irs::nodes::hints::HintDF {
 /// encoded segment of a left join key with the right key's segment of the
 /// same suffix. Paper PIOP 18 shares one key column `Ô.k` between the two
 /// provenance lookups; the output carries both sides' keys, so they are
-/// zerochecked equal. Keys are resolved by qualifier ([`wiring::key_fields`]):
-/// a self-join puts same-named columns of two aliases on one side, and
-/// pairing the wrong one would check a different join. Fingerprint limbs are
-/// left out: their bins depend on the column, and equal hashes already mean
-/// equal strings.
+/// zerochecked equal. Keys and segments are resolved by
+/// [`wiring::key_fields`]; fingerprint limbs are left out, as their bins
+/// depend on the column.
 fn key_segment_pairs<T>(
     join: &datafusion_expr::Join,
     left_cols: &IndexMap<FieldRef, T>,

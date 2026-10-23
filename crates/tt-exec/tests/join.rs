@@ -81,7 +81,7 @@ async fn left_join_is_not_supported() {
     );
 }
 
-// Join keys resolved by qualifier (#145): the input that carries the key
+// Join keys resolved by qualifier: the input that carries the key
 // also carries a same-named column of another alias, listed first.
 end_to_end_tests!(&["nation"] => [
     self_join_key_on_second_alias_right => r#"SELECT n0.n_name, a.n_nationkey, b.n_name FROM nation n0 JOIN (nation a JOIN nation b ON a.n_regionkey = b.n_regionkey) ON n0.n_nationkey = b.n_nationkey"#,
