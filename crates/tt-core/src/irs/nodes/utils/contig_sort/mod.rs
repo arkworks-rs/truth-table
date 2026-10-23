@@ -37,6 +37,7 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+mod distinct;
 mod hints;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -55,14 +56,17 @@ pub fn active_rows_field() -> FieldRef {
 }
 const FIRST_TIE_LABEL: &str = "tie_0";
 
-pub enum SortConfig {
-    Uniform(UniformConfig),
-    PerColumn(PerColumnConfig),
-}
+pub(crate) use distinct::sort_distinct;
+use distinct::{DistinctLayout, distinct_view, distinct_view_fields};
 
-pub struct UniformConfig {
-    pub asc: bool,
-    pub strict: bool,
+/// The committed limbs of the hash slots a distinct sort compares.
+pub const LIMBS_LABEL: &str = "__limbs__";
+
+pub enum SortConfig {
+    /// Strictly ascending in some order: the rows are distinct. Hashed
+    /// columns are compared on their hash limbs ([`distinct`]).
+    Distinct,
+    PerColumn(PerColumnConfig),
 }
 
 pub struct PerColumnConfig {
@@ -77,6 +81,8 @@ pub struct GadgetNode<B: SnarkBackend> {
     sign_gadget: Arc<Node<B>>,
     sort_config: SortConfig,
     strip_row_id: bool,
+    /// The distinct mode's layout, read from the input table.
+    distinct_layout: std::sync::Mutex<Option<DistinctLayout>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -214,6 +220,32 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         Some(hint_df) => hint_df.clone(),
         None => return Ok(()),
     };
+    let planning_error = |e: DataFusionError| SnarkError::Artifact(format!("sort planning: {e}"));
+    // The distinct mode sorts its view: the order-preserving columns and the
+    // hash limbs.
+    let layout = match node.sort_config {
+        SortConfig::Distinct => {
+            let fields: Vec<Field> = input_hint
+                .data_frame()
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| field.as_ref().clone())
+                .collect();
+            let layout = DistinctLayout::new::<B::F>(&fields).map_err(planning_error)?;
+            Some((layout, fields))
+        }
+        SortConfig::PerColumn(_) => None,
+    };
+    let input_hint = match &layout {
+        Some((layout, fields)) if is_verifier => crate::irs::nodes::hints::HintDF::new_virtual(
+            crate::irs::nodes::hints::schema_only_df(distinct_view_fields(fields, layout)),
+        ),
+        Some(_) => crate::irs::nodes::hints::HintDF::new_virtual(
+            distinct_view::<B::F>(input_hint.data_frame().clone()).map_err(planning_error)?,
+        ),
+        None => input_hint,
+    };
     let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
     let sorted_input_hint = if is_verifier {
         build_schema_only_hint_from_existing(&input_hint)
@@ -251,6 +283,27 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     } else {
         populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs, false);
         populate_tie_and_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+    }
+    if let Some((layout, _)) = &layout
+        && !layout.slots.is_empty()
+    {
+        let limb_fields: Vec<Field> = layout.limb_fields().cloned().collect();
+        let limbs_hint = if is_verifier {
+            build_empty_hint_df_with_fields(limb_fields, true)
+        } else {
+            let columns = limb_fields
+                .iter()
+                .map(|field| datafusion::prelude::col(field.name()))
+                .collect::<Vec<_>>();
+            crate::irs::nodes::hints::HintDF::new_materialized(
+                sorted_input_hint
+                    .data_frame()
+                    .clone()
+                    .select(columns)
+                    .map_err(planning_error)?,
+            )
+        };
+        gadget_payload.insert(LIMBS_LABEL.to_string(), limbs_hint);
     }
     let input_hint = if node.strip_row_id {
         // Strip row-id before storing to avoid exposing it in gadget payloads.
@@ -345,9 +398,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let Some(input) = payload.get(TABLE_LABEL) else {
+        let Some(input) = payload.get(TABLE_LABEL).cloned() else {
             return Ok(());
         };
+        let input = &self.distinct_view_prover(input, &mut payload)?;
         let rotated = payload
             .get(ROTATED_INPUT_LABEL)
             .unwrap_or_else(|| panic!("Expected rotated input payload for Sort gadget"));
@@ -436,9 +490,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let Some(input) = payload.get(TABLE_LABEL) else {
+        let Some(input) = payload.get(TABLE_LABEL).cloned() else {
             return Ok(());
         };
+        let input = &self.distinct_view_verifier(input, &mut payload)?;
         let rotated = payload
             .get(ROTATED_INPUT_LABEL)
             .unwrap_or_else(|| panic!("Expected rotated input payload for Sort gadget"));
@@ -522,6 +577,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         ) else {
             return Ok(());
         };
+        if let Some(check) = payload.get(LIMBS_LABEL) {
+            self.prove_limbs(prover, check)?;
+        }
         let sort_specs = sort_specs_for_table_prover(&self.sort_config, input);
         let columns = sort_columns_prover(input, rotated, &sort_specs);
         let ties: Vec<_> = ties
@@ -575,6 +633,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         ) else {
             return Ok(());
         };
+        if let Some(check) = payload.get(LIMBS_LABEL) {
+            self.verify_limbs(verifier, check)?;
+        }
         let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input);
         let columns = sort_columns_verifier(input, rotated, &sort_specs);
         let ties: Vec<_> = ties
@@ -611,6 +672,197 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
+fn missing_column(name: &str) -> SnarkError {
+    SnarkError::Artifact(format!("the distinct sort's input lacks {name}"))
+}
+
+impl<B: SnarkBackend> GadgetNode<B> {
+    /// In the distinct mode, replaces `input` in `payload` by the compared
+    /// view, and the committed limbs by the table the limb checks read: each
+    /// hash slot, its limbs and the activator.
+    fn distinct_view_prover(
+        &self,
+        input: TrackedTable<B>,
+        payload: &mut IndexMap<String, TrackedTable<B>>,
+    ) -> SnarkResult<TrackedTable<B>> {
+        let SortConfig::Distinct = self.sort_config else {
+            return Ok(input);
+        };
+        let polys = input.tracked_polys();
+        let layout = DistinctLayout::new::<B::F>(polys.keys().map(|field| field.as_ref()))
+            .map_err(|e| SnarkError::Artifact(e.to_string()))?;
+        let limbs = payload
+            .get(LIMBS_LABEL)
+            .map(|table| table.tracked_polys())
+            .unwrap_or_default();
+        let find = |name: &str| {
+            polys
+                .iter()
+                .chain(limbs.iter())
+                .find(|(field, _)| field.name() == name)
+                .map(|(field, poly)| (field.clone(), poly.clone()))
+                .ok_or_else(|| missing_column(name))
+        };
+        let activator = input.activator_tracked_poly();
+        let mut view = IndexMap::new();
+        for field in &layout.sort_fields {
+            let (field, poly) = find(field.name())?;
+            view.insert(field, poly);
+        }
+        view.extend(
+            activator
+                .clone()
+                .map(|poly| (ACTIVATOR_FIELD.clone(), poly)),
+        );
+        if !layout.slots.is_empty() {
+            let mut check = IndexMap::new();
+            for slot in &layout.slots {
+                let (field, poly) = find(&slot.name())?;
+                check.insert(field, poly);
+                for (limb, _) in &slot.limbs {
+                    let (field, poly) = find(limb.name())?;
+                    check.insert(field, poly);
+                }
+            }
+            check.extend(activator.map(|poly| (ACTIVATOR_FIELD.clone(), poly)));
+            payload.insert(
+                LIMBS_LABEL.to_string(),
+                TrackedTable::new(None, check, input.log_size()),
+            );
+        }
+        let view = TrackedTable::new(None, view, input.log_size());
+        payload.insert(TABLE_LABEL.to_string(), view.clone());
+        *self.distinct_layout.lock().expect("lock poisoned") = Some(layout);
+        Ok(view)
+    }
+
+    fn distinct_view_verifier(
+        &self,
+        input: TrackedTableOracle<B>,
+        payload: &mut IndexMap<String, TrackedTableOracle<B>>,
+    ) -> SnarkResult<TrackedTableOracle<B>> {
+        let SortConfig::Distinct = self.sort_config else {
+            return Ok(input);
+        };
+        let oracles = input.tracked_oracles();
+        let layout = DistinctLayout::new::<B::F>(oracles.keys().map(|field| field.as_ref()))
+            .map_err(|e| SnarkError::Artifact(e.to_string()))?;
+        let limbs = payload
+            .get(LIMBS_LABEL)
+            .map(|table| table.tracked_oracles())
+            .unwrap_or_default();
+        let find = |name: &str| {
+            oracles
+                .iter()
+                .chain(limbs.iter())
+                .find(|(field, _)| field.name() == name)
+                .map(|(field, oracle)| (field.clone(), oracle.clone()))
+                .ok_or_else(|| missing_column(name))
+        };
+        let activator = input.activator_tracked_poly();
+        let mut view = IndexMap::new();
+        for field in &layout.sort_fields {
+            let (field, oracle) = find(field.name())?;
+            view.insert(field, oracle);
+        }
+        view.extend(
+            activator
+                .clone()
+                .map(|oracle| (ACTIVATOR_FIELD.clone(), oracle)),
+        );
+        if !layout.slots.is_empty() {
+            let mut check = IndexMap::new();
+            for slot in &layout.slots {
+                let (field, oracle) = find(&slot.name())?;
+                check.insert(field, oracle);
+                for (limb, _) in &slot.limbs {
+                    let (field, oracle) = find(limb.name())?;
+                    check.insert(field, oracle);
+                }
+            }
+            check.extend(activator.map(|oracle| (ACTIVATOR_FIELD.clone(), oracle)));
+            payload.insert(
+                LIMBS_LABEL.to_string(),
+                TrackedTableOracle::new(None, check, input.log_size()),
+            );
+        }
+        let view = TrackedTableOracle::new(None, view, input.log_size());
+        payload.insert(TABLE_LABEL.to_string(), view.clone());
+        *self.distinct_layout.lock().expect("lock poisoned") = Some(layout);
+        Ok(view)
+    }
+
+    /// Each hash slot equals the integer of its limbs, and each limb is
+    /// within its width, on the active rows.
+    fn prove_limbs(&self, prover: &mut ArgProver<B>, check: &TrackedTable<B>) -> SnarkResult<()> {
+        let layout = self.distinct_layout.lock().expect("lock poisoned").clone();
+        let layout = layout.expect("the distinct layout is read in initialize_gadgets");
+        let activator = check
+            .activator_tracked_poly()
+            .expect("the distinct sort's input has an activator");
+        let polys = check.tracked_polys();
+        let poly = |name: &str| {
+            polys
+                .iter()
+                .find(|(field, _)| field.name() == name)
+                .map(|(_, poly)| poly.clone())
+                .expect("the limb check table holds every slot and limb")
+        };
+        for slot in &layout.slots {
+            let mut limbs = slot.limbs.iter();
+            let (top, _) = limbs.next().expect("a hash slot has limbs");
+            let recomposed = limbs.fold(poly(top.name()), |acc, (limb, width)| {
+                &acc.mul_scalar_poly(B::F::from(1u64 << width)) + &poly(limb.name())
+            });
+            let difference = &(&poly(&slot.name()) - &recomposed) * &activator;
+            prover.add_mv_zerocheck_claim(difference.id())?;
+            for (limb, width) in &slot.limbs {
+                let col = check
+                    .tracked_col_by_name(limb.name())
+                    .expect("the limb check table holds every limb");
+                sign::SignNode::<B>::add_range_inclusion(prover, &col, *width as usize)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_limbs(
+        &self,
+        verifier: &mut ArgVerifier<B>,
+        check: &TrackedTableOracle<B>,
+    ) -> SnarkResult<()> {
+        let layout = self.distinct_layout.lock().expect("lock poisoned").clone();
+        let layout = layout.expect("the distinct layout is read in initialize_gadgets");
+        let activator = check
+            .activator_tracked_poly()
+            .expect("the distinct sort's input has an activator");
+        let oracles = check.tracked_oracles();
+        let oracle = |name: &str| {
+            oracles
+                .iter()
+                .find(|(field, _)| field.name() == name)
+                .map(|(_, oracle)| oracle.clone())
+                .expect("the limb check table holds every slot and limb")
+        };
+        for slot in &layout.slots {
+            let mut limbs = slot.limbs.iter();
+            let (top, _) = limbs.next().expect("a hash slot has limbs");
+            let recomposed = limbs.fold(oracle(top.name()), |acc, (limb, width)| {
+                &acc.mul_scalar_oracle(B::F::from(1u64 << width)) + &oracle(limb.name())
+            });
+            let difference = &(&oracle(&slot.name()) - &recomposed) * &activator;
+            verifier.add_mv_zerocheck_claim(difference.id());
+            for (limb, width) in &slot.limbs {
+                let col = check
+                    .tracked_col_oracle_by_name(limb.name())
+                    .expect("the limb check table holds every limb");
+                sign::SignNode::<B>::add_range_inclusion_oracle(verifier, &col, *width as usize)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort_config: SortConfig) -> Self {
         Self::new_internal(sort_config, true)
@@ -632,6 +884,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             sign_gadget,
             sort_config,
             strip_row_id,
+            distinct_layout: std::sync::Mutex::new(None),
         }
     }
 }
@@ -647,12 +900,8 @@ fn sign_for_column(_is_asc: bool, strict_for_col: bool) -> sign::Sign {
 
 fn build_sign_gadget<B: SnarkBackend>(sort_config: &SortConfig) -> Arc<Node<B>> {
     let sign_config = match sort_config {
-        SortConfig::Uniform(config) => {
-            if config.strict {
-                sign::SignConfig::SemiUniform(sign::Sign::NonNegative, sign::Sign::Positive)
-            } else {
-                sign::SignConfig::Uniform(sign::Sign::NonNegative)
-            }
+        SortConfig::Distinct => {
+            sign::SignConfig::SemiUniform(sign::Sign::NonNegative, sign::Sign::Positive)
         }
         SortConfig::PerColumn(config) => {
             let last_idx = config.sort_specs.len().saturating_sub(1);
@@ -683,13 +932,13 @@ fn sort_specs_for_hint(
 ) -> Vec<(String, bool, bool)> {
     match sort_config {
         SortConfig::PerColumn(config) => config.sort_specs.clone(),
-        SortConfig::Uniform(config) => input_hint
+        SortConfig::Distinct => input_hint
             .data_frame()
             .schema()
             .fields()
             .iter()
             .filter(|field| !arithmetic::is_system_column(field.name()))
-            .map(|field| (field.name().to_string(), config.asc, true))
+            .map(|field| (field.name().to_string(), true, true))
             .collect(),
     }
 }
@@ -813,7 +1062,7 @@ fn sort_specs_for_table_prover<B: SnarkBackend>(
 ) -> Vec<(String, bool, bool)> {
     match sort_config {
         SortConfig::PerColumn(config) => config.sort_specs.clone(),
-        SortConfig::Uniform(config) => input_table
+        SortConfig::Distinct => input_table
             .data_tracked_polys_indices()
             .into_iter()
             .filter(|idx| {
@@ -832,7 +1081,7 @@ fn sort_specs_for_table_prover<B: SnarkBackend>(
                     .tracked_col_by_ind(idx)
                     .field_ref()
                     .expect("Expected field ref for Sort input");
-                (field.name().to_string(), config.asc, true)
+                (field.name().to_string(), true, true)
             })
             .collect(),
     }
@@ -844,7 +1093,7 @@ fn sort_specs_for_table_verifier<B: SnarkBackend>(
 ) -> Vec<(String, bool, bool)> {
     match sort_config {
         SortConfig::PerColumn(config) => config.sort_specs.clone(),
-        SortConfig::Uniform(config) => input_table
+        SortConfig::Distinct => input_table
             .data_tracked_oracles_indices()
             .into_iter()
             .filter(|idx| {
@@ -860,7 +1109,7 @@ fn sort_specs_for_table_verifier<B: SnarkBackend>(
                     .tracked_col_oracle_by_ind(idx)
                     .field_ref()
                     .expect("Expected field ref for Sort input");
-                (field.name().to_string(), config.asc, true)
+                (field.name().to_string(), true, true)
             })
             .collect(),
     }
@@ -1059,7 +1308,7 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
         let col_name = normalize_sort_name(&col_name);
         let is_asc = sort_is_asc(sort_specs, &col_name);
         let sign = match sort_config {
-            SortConfig::Uniform(config) => sign_for_column(config.asc, config.strict),
+            SortConfig::Distinct => sign_for_column(true, true),
             SortConfig::PerColumn(config) => {
                 let strict_for_col = config.strict && pos + 1 == input_indices.len();
                 sign_for_column(is_asc, strict_for_col)
@@ -1185,7 +1434,7 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
         let col_name = normalize_sort_name(&col_name);
         let is_asc = sort_is_asc(sort_specs, &col_name);
         let sign = match sort_config {
-            SortConfig::Uniform(config) => sign_for_column(config.asc, config.strict),
+            SortConfig::Distinct => sign_for_column(true, true),
             SortConfig::PerColumn(config) => {
                 let strict_for_col = config.strict && pos + 1 == input_indices.len();
                 sign_for_column(is_asc, strict_for_col)

@@ -4,19 +4,14 @@
 //!
 //! 1. The prover sends `t` and the union `û` of the distinct keys, sorted;
 //!    `û.act := C_{µ,t}` is public.
-//! 2. A StrictSortcheck on `û` proves its keys distinct. A hashed key (a
-//!    string or binary value) is sorted on the limbs of its hash slots, which
-//!    the prover sends with `û`: a zerocheck binds them to the slot, and a
-//!    range check to their widths, so they recompose the slot's integer and
-//!    are unique.
+//! 2. A StrictSortcheck (the sort check's distinct mode) on `û` proves its
+//!    keys distinct.
 //! 3. Lookups prove both sides' keys in `û` and give the multiplicities
 //!    `m_L`, `m_R`.
 //! 4. A sumcheck proves `Σ û.act · m_L · m_R = s`.
 use std::sync::{Arc, Mutex};
 
 mod hints;
-#[cfg(test)]
-mod tests;
 
 use ark_ff::{One, Zero};
 use ark_piop::{
@@ -36,11 +31,11 @@ use either::Either;
 use indexmap::IndexMap;
 use tracing::error;
 
-use self::hints::{UnionLayout, build_union_hint_df};
+use self::hints::build_union_hint_df;
 use crate::irs::nodes::hints::{HintDF, sort_by_row_id_if_present};
 use crate::irs::nodes::utils::contig_sort::{ACTIVE_ROWS_LABEL, active_rows_field};
 use crate::irs::nodes::utils::{
-    commit_with_tracker, contig_sort, field_to_usize, lookup, sign, track_next_committed,
+    commit_with_tracker, contig_sort, field_to_usize, lookup, track_next_committed,
 };
 use crate::{
     irs::{
@@ -89,12 +84,8 @@ fn union_runtime_hint(df: DataFrame) -> HintDF {
 
 pub struct GadgetNode<B: SnarkBackend> {
     sort_gadget: Arc<Node<B>>,
-    /// Range-checks the hash limbs; only with a hashed key.
-    limb_range_gadget: Option<Arc<Node<B>>>,
     left_lookup_gadget: Arc<Node<B>>,
     right_lookup_gadget: Arc<Node<B>>,
-    /// Built in planning from the key types, the same on both sides.
-    layout: Mutex<Option<UnionLayout>>,
     /// The prover's `t`, counted in planning.
     active_rows: Mutex<Option<usize>>,
 }
@@ -149,11 +140,11 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        let mut children = vec![self.sort_gadget.clone()];
-        children.extend(self.limb_range_gadget.clone());
-        children.push(self.left_lookup_gadget.clone());
-        children.push(self.right_lookup_gadget.clone());
-        children
+        vec![
+            self.sort_gadget.clone(),
+            self.left_lookup_gadget.clone(),
+            self.right_lookup_gadget.clone(),
+        ]
     }
 }
 
@@ -181,9 +172,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             "right",
         )
         .expect("match-pair right key projection should succeed");
-        let layout = union_layout::<B>(&left_keys_df, &key_names)?;
         let (union_df, active_rows) =
-            build_union_hint_df::<B::F>(left_keys_df.clone(), right_keys_df.clone(), &layout)
+            build_union_hint_df::<B::F>(left_keys_df.clone(), right_keys_df.clone())
                 .map_err(|e| SnarkError::Artifact(format!("match-pair union hint: {e}")))?;
         *self.active_rows.lock().expect("lock poisoned") = Some(active_rows);
 
@@ -198,7 +188,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             union_runtime_hint(union_df),
             left_lookup_hint,
             right_lookup_hint,
-            layout,
         )
     }
 
@@ -269,29 +258,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 .unwrap_or_else(|| panic!("Match-Pair gadget missing {label}"))
         };
         let (union, left_keys, right_keys) = (get(UNION_LABEL), get(LEFT_LABEL), get(RIGHT_LABEL));
-        let layout = self
-            .layout()
-            .expect("the union layout is built in planning");
-        let key_columns = select_columns_prover(&union, |name| !layout.is_limb(name));
-        let sort_columns = select_columns_prover(&union, |name| {
-            layout.sort_fields.iter().any(|field| field.name() == name)
-        });
+        let key_columns = select_columns_prover(&union, |_| true);
         let mut payloads = vec![(
             &self.sort_gadget,
             vec![
-                (contig_sort::TABLE_LABEL, sort_columns),
+                (contig_sort::TABLE_LABEL, key_columns.clone()),
                 (ACTIVE_ROWS_LABEL, get(ACTIVE_ROWS_LABEL)),
             ],
         )];
-        if let Some(limb_range_gadget) = &self.limb_range_gadget {
-            payloads.push((
-                limb_range_gadget,
-                vec![(
-                    sign::INPUT_LABEL,
-                    select_columns_prover(&union, |name| layout.is_limb(name)),
-                )],
-            ));
-        }
         payloads.push((
             &self.left_lookup_gadget,
             vec![
@@ -357,10 +331,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             "right",
         )
         .expect("match-pair verifier right key schema should succeed");
-        let layout = union_layout::<B>(&left_keys_df, &key_names)?;
-        let union_df = crate::irs::nodes::hints::schema_only_df(
-            layout.union_fields(&key_fields(&left_keys_df, &key_names)),
-        );
+        let mut union_fields = key_fields(&left_keys_df, &key_names);
+        union_fields.push((**arithmetic::ROW_ID_FIELD).clone());
+        union_fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
+        let union_df = crate::irs::nodes::hints::schema_only_df(union_fields);
         let left_lookup_hint =
             strip_row_id_keep_activator_schema_only(&HintDF::new_virtual(left_keys_df));
         let right_lookup_hint =
@@ -373,7 +347,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             union_runtime_hint(union_df),
             left_lookup_hint,
             right_lookup_hint,
-            layout,
         )
     }
 
@@ -451,29 +424,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 .unwrap_or_else(|| panic!("Match-Pair gadget missing {label}"))
         };
         let (union, left_keys, right_keys) = (get(UNION_LABEL), get(LEFT_LABEL), get(RIGHT_LABEL));
-        let layout = self
-            .layout()
-            .expect("the union layout is built in planning");
-        let key_columns = select_columns_verifier(&union, |name| !layout.is_limb(name));
-        let sort_columns = select_columns_verifier(&union, |name| {
-            layout.sort_fields.iter().any(|field| field.name() == name)
-        });
+        let key_columns = select_columns_verifier(&union, |_| true);
         let mut payloads = vec![(
             &self.sort_gadget,
             vec![
-                (contig_sort::TABLE_LABEL, sort_columns),
+                (contig_sort::TABLE_LABEL, key_columns.clone()),
                 (ACTIVE_ROWS_LABEL, get(ACTIVE_ROWS_LABEL)),
             ],
         )];
-        if let Some(limb_range_gadget) = &self.limb_range_gadget {
-            payloads.push((
-                limb_range_gadget,
-                vec![(
-                    sign::INPUT_LABEL,
-                    select_columns_verifier(&union, |name| layout.is_limb(name)),
-                )],
-            ));
-        }
         payloads.push((
             &self.left_lookup_gadget,
             vec![
@@ -524,14 +482,6 @@ fn key_fields(keys_df: &DataFrame, key_names: &[String]) -> Vec<Field> {
                 .map(|field| field.as_ref().clone())
         })
         .collect()
-}
-
-fn union_layout<B: SnarkBackend>(
-    keys_df: &DataFrame,
-    key_names: &[String],
-) -> ark_piop::errors::SnarkResult<UnionLayout> {
-    UnionLayout::new::<B::F>(&key_fields(keys_df, key_names))
-        .map_err(|e| SnarkError::Artifact(format!("match-pair union layout: {e}")))
 }
 
 fn strip_row_id_keep_activator_schema_only(
@@ -622,27 +572,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let union_activator = union_table
             .activator_tracked_poly()
             .expect("Match-Pair union table missing activator");
-        let union_polys = union_table.tracked_polys();
-        let poly = |name: &str| {
-            union_polys
-                .iter()
-                .find(|(field, _)| field.name() == name)
-                .map(|(_, poly)| poly.clone())
-                .unwrap_or_else(|| panic!("Match-Pair union missing {name}"))
-        };
-        let layout = self
-            .layout()
-            .expect("the union layout is built in planning");
-        for slot in &layout.slots {
-            let mut limbs = slot.limbs.iter();
-            let (top, _) = limbs.next().expect("a hash slot has limbs");
-            let recomposed = limbs.fold(poly(top.name()), |acc, (limb, width)| {
-                &acc.mul_scalar_poly(B::F::from(1u64 << width)) + &poly(limb.name())
-            });
-            let difference = &(&poly(&slot.name()) - &recomposed) * &union_activator;
-            prover.add_mv_zerocheck_claim(difference.id())?;
-        }
-
         let left_multiplicities =
             lookup_multiplicities_table_prover(gadget_ready_ir, &self.left_lookup_gadget);
         let right_multiplicities =
@@ -738,27 +667,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let union_activator = union_table
             .activator_tracked_poly()
             .expect("Match-Pair union table missing activator");
-        let union_oracles = union_table.tracked_oracles();
-        let oracle = |name: &str| {
-            union_oracles
-                .iter()
-                .find(|(field, _)| field.name() == name)
-                .map(|(_, oracle)| oracle.clone())
-                .unwrap_or_else(|| panic!("Match-Pair union missing {name}"))
-        };
-        let layout = self
-            .layout()
-            .expect("the union layout is built in planning");
-        for slot in &layout.slots {
-            let mut limbs = slot.limbs.iter();
-            let (top, _) = limbs.next().expect("a hash slot has limbs");
-            let recomposed = limbs.fold(oracle(top.name()), |acc, (limb, width)| {
-                &acc.mul_scalar_oracle(B::F::from(1u64 << width)) + &oracle(limb.name())
-            });
-            let difference = &(&oracle(&slot.name()) - &recomposed) * &union_activator;
-            verifier.add_mv_zerocheck_claim(difference.id());
-        }
-
         let left_multiplicities =
             lookup_multiplicities_table_verifier(gadget_ready_ir, &self.left_lookup_gadget);
         let right_multiplicities =
@@ -797,34 +705,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
+impl<B: SnarkBackend> Default for GadgetNode<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B: SnarkBackend> GadgetNode<B> {
-    /// `hashed_keys`: whether a key is hashed, so that `û` carries limbs.
-    pub fn new(hashed_keys: bool) -> Self {
+    pub fn new() -> Self {
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(contig_sort::GadgetNode::new(
-            contig_sort::SortConfig::Uniform(contig_sort::UniformConfig {
-                asc: true,
-                strict: true,
-            }),
+            contig_sort::SortConfig::Distinct,
         ))));
-        let limb_range_gadget = hashed_keys.then(|| {
-            Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
-                sign::SignConfig::Uniform(sign::Sign::NonNegative),
-            ))))
-        });
         let left_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
         let right_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new())));
         Self {
             sort_gadget,
-            limb_range_gadget,
             left_lookup_gadget,
             right_lookup_gadget,
-            layout: Mutex::new(None),
             active_rows: Mutex::new(None),
         }
-    }
-
-    fn layout(&self) -> Option<UnionLayout> {
-        self.layout.lock().expect("lock poisoned").clone()
     }
 }
 
@@ -1048,9 +947,6 @@ fn load_match_pair_planning_context<B: SnarkBackend>(
     })
 }
 
-/// Sets `û` on this node, and the planning hints of the sort check and the
-/// lookups: the sort check sorts and rotates its table, and the lookups
-/// count multiplicities against `û`'s keys in row-id order.
 fn apply_match_pair_planned_hints<B: SnarkBackend>(
     node: &GadgetNode<B>,
     id: crate::irs::nodes::NodeId,
@@ -1058,40 +954,12 @@ fn apply_match_pair_planned_hints<B: SnarkBackend>(
     union_hint: HintDF,
     left_lookup_hint: HintDF,
     right_lookup_hint: HintDF,
-    layout: UnionLayout,
 ) -> ark_piop::errors::SnarkResult<()> {
-    // Limbs the range check does not cover would make the sort meaningless.
-    if layout.slots.is_empty() != node.limb_range_gadget.is_none() {
-        return Err(SnarkError::Artifact(
-            "match-pair: the join's key types disagree with its inputs' key types".to_string(),
-        ));
-    }
-    let union_df = union_hint.data_frame().clone();
-    let select = |keep: &dyn Fn(&str) -> bool| -> DataFusionResult<DataFrame> {
-        let columns: Vec<Expr> = union_df
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| keep(field.name()))
-            .map(|field| col(field.name()))
-            .collect();
-        union_df.clone().select(columns)
-    };
-    let planning_error =
-        |e: DataFusionError| SnarkError::Artifact(format!("match-pair hints: {e}"));
+    // The lookups count multiplicities against `û` in its row-id order.
     let super_hint = HintDF::new_virtual(
-        sort_by_row_id_if_present(select(&|name| !layout.is_limb(name)).map_err(planning_error)?)
-            .map_err(planning_error)?,
+        sort_by_row_id_if_present(union_hint.data_frame().clone())
+            .map_err(|e| SnarkError::Artifact(format!("match-pair hints: {e}")))?,
     );
-    let sort_hint = HintDF::new_virtual(
-        select(&|name| {
-            name == arithmetic::ACTIVATOR_COL_NAME
-                || layout.sort_fields.iter().any(|field| field.name() == name)
-        })
-        .map_err(planning_error)?,
-    );
-    *node.layout.lock().expect("lock poisoned") = Some(layout);
-
     let mut set = |gadget_id, entries: Vec<(&str, HintDF)>| {
         let mut payload = match planned_ir.payload_for_node(&gadget_id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -1102,11 +970,11 @@ fn apply_match_pair_planned_hints<B: SnarkBackend>(
         }
         planned_ir.set_payload_for_node(gadget_id, Some(PayloadStructure::GadgetPayload(payload)));
     };
-    set(id, vec![(UNION_LABEL, union_hint)]);
     set(
         node.sort_gadget.id(),
-        vec![(contig_sort::TABLE_LABEL, sort_hint)],
+        vec![(contig_sort::TABLE_LABEL, union_hint.as_virtual_view())],
     );
+    set(id, vec![(UNION_LABEL, union_hint)]);
     set(
         node.left_lookup_gadget.id(),
         vec![

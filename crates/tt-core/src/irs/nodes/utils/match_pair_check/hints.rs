@@ -1,130 +1,28 @@
-use crate::irs::nodes::utils::contig_sort::difference_sign_type;
+use crate::irs::nodes::utils::contig_sort::sort_distinct;
 use crate::session::session_context;
-use arithmetic::encoding::{
-    EncodeOptions, STRING_LENGTH_SUFFIX, encode_arrow_array_to_field_with_options,
-    hash_slot_limb_widths, hash_slot_limbs, is_hashed_type, segment_suffixes_for_type,
-};
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_FIELD, is_system_column};
 use ark_ff::PrimeField;
 use datafusion::{
     arrow::{
-        array::{
-            Array, ArrayRef, BooleanArray, Int64Array, UInt8Array, UInt16Array, UInt32Array,
-            new_null_array,
-        },
-        compute::{SortColumn, SortOptions, concat, concat_batches, lexsort_to_indices, take},
-        datatypes::{DataType, Field, Schema},
+        array::{ArrayRef, BooleanArray, Int64Array, UInt32Array, new_null_array},
+        compute::{concat, concat_batches, take},
+        datatypes::Schema,
         record_batch::RecordBatch,
     },
     prelude::DataFrame,
 };
 use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::{Expr, col, lit};
-use indexmap::IndexMap;
 use std::{collections::HashSet, sync::Arc};
 
 use crate::irs::nodes::hints::sort_by_row_id_if_present;
 
-/// The column layout of the union `û`: its sort key, and how each hash slot
-/// of a hashed key splits into limbs.
-#[derive(Clone)]
-pub(crate) struct UnionLayout {
-    /// The sort key: the order-preserving keys, then the hash limbs, in the
-    /// union's column order. Each adjacent difference is then a
-    /// range-checked integer, which a hash's is not.
-    pub sort_fields: Vec<Field>,
-    pub slots: Vec<HashSlot>,
-}
-
-/// One hash slot of a hashed key and its limbs, most significant first.
-#[derive(Clone)]
-pub(crate) struct HashSlot {
-    pub key: String,
-    /// The slot's segment suffix (`""` for the primary segment).
-    pub suffix: String,
-    /// Each limb's field and bit width.
-    pub limbs: Vec<(Field, u32)>,
-}
-
-impl HashSlot {
-    pub fn name(&self) -> String {
-        format!("{}{}", self.key, self.suffix)
-    }
-}
-
-impl UnionLayout {
-    pub fn new<F: PrimeField>(key_fields: &[Field]) -> DataFusionResult<Self> {
-        let widths = hash_slot_limb_widths::<F>();
-        let mut sort_fields = Vec::new();
-        let mut slots = Vec::new();
-        for key in key_fields {
-            let dtype = key.data_type();
-            if difference_sign_type(dtype).is_some() {
-                sort_fields.push(Field::new(key.name(), dtype.clone(), true));
-                continue;
-            }
-            if !is_hashed_type(dtype) {
-                return Err(DataFusionError::Plan(format!(
-                    "a many-to-many join key of type {dtype} has no order-preserving encoding"
-                )));
-            }
-            for suffix in segment_suffixes_for_type::<F>(dtype) {
-                if suffix == STRING_LENGTH_SUFFIX {
-                    continue;
-                }
-                let limbs: Vec<(Field, u32)> = widths
-                    .iter()
-                    .enumerate()
-                    .map(|(j, &width)| {
-                        let dtype = if width == 8 {
-                            DataType::UInt8
-                        } else {
-                            DataType::UInt16
-                        };
-                        let name = format!("{}{suffix}_limb{j}", key.name());
-                        (Field::new(name, dtype, false), width)
-                    })
-                    .collect();
-                slots.push(HashSlot {
-                    key: key.name().clone(),
-                    suffix,
-                    limbs,
-                });
-            }
-        }
-        let mut layout = Self { sort_fields, slots };
-        let limbs: Vec<Field> = layout.limb_fields().cloned().collect();
-        layout.sort_fields.extend(limbs);
-        Ok(layout)
-    }
-
-    pub fn limb_fields(&self) -> impl Iterator<Item = &Field> {
-        self.slots
-            .iter()
-            .flat_map(|slot| slot.limbs.iter().map(|(field, _)| field))
-    }
-
-    pub fn is_limb(&self, name: &str) -> bool {
-        self.limb_fields().any(|field| field.name() == name)
-    }
-
-    /// The union's fields: the keys, the limbs, the row id and the activator.
-    pub fn union_fields(&self, key_fields: &[Field]) -> Vec<Field> {
-        let mut fields = key_fields.to_vec();
-        fields.extend(self.limb_fields().cloned());
-        fields.push((**ROW_ID_FIELD).clone());
-        fields.push((**ACTIVATOR_FIELD).clone());
-        fields
-    }
-}
-
-/// The distinct active keys of both sides, with the limbs of `layout`,
-/// sorted strictly by `layout.sort_fields` and padded with inactive rows.
-/// Returns the union and its number of active rows `t`.
+/// The distinct active keys of both sides, padded with inactive rows and
+/// sorted with [`sort_distinct`]. Returns the union and its number of active
+/// rows `t`.
 pub(crate) fn build_union_hint_df<F: PrimeField>(
     left: DataFrame,
     right: DataFrame,
-    layout: &UnionLayout,
 ) -> DataFusionResult<(DataFrame, usize)> {
     ensure_union_input_shape(&left, "left")?;
     ensure_union_input_shape(&right, "right")?;
@@ -133,7 +31,8 @@ pub(crate) fn build_union_hint_df<F: PrimeField>(
     let key_names = data_column_names(&left_active)?;
 
     let unioned = left_active.union(right_active)?;
-    materialize_union_hint::<F>(unioned, &key_names, layout)
+    let (union, active_rows) = materialize_union_hint(unioned, &key_names)?;
+    Ok((sort_distinct::<F>(union)?, active_rows))
 }
 
 fn ensure_union_input_shape(df: &DataFrame, side: &str) -> DataFusionResult<()> {
@@ -209,10 +108,9 @@ fn data_column_names(df: &DataFrame) -> DataFusionResult<Vec<String>> {
     Ok(key_names)
 }
 
-fn materialize_union_hint<F: PrimeField>(
+fn materialize_union_hint(
     df: DataFrame,
     key_names: &[String],
-    layout: &UnionLayout,
 ) -> DataFusionResult<(DataFrame, usize)> {
     let batches = crate::session::block_on(collect_in_partition_order(df.clone()))?;
     let schema_ref = if batches.is_empty() {
@@ -233,7 +131,8 @@ fn materialize_union_hint<F: PrimeField>(
     let target = row_count.next_power_of_two().max(2);
     let pad = target.saturating_sub(row_count);
 
-    let mut columns: Vec<(Field, ArrayRef)> = Vec::with_capacity(key_names.len());
+    let mut output_fields = Vec::with_capacity(key_names.len() + 2);
+    let mut output_arrays = Vec::with_capacity(key_names.len() + 2);
     for key in key_names {
         let idx = deduped.schema().index_of(key)?;
         let field = deduped.schema().field(idx).clone();
@@ -244,81 +143,8 @@ fn materialize_union_hint<F: PrimeField>(
             let pad_arr: ArrayRef = new_null_array(field.data_type(), pad);
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         };
-        columns.push((field.with_nullable(true), padded));
-    }
-    // The limbs split the encoded slots, so the padding nulls are encoded
-    // too: their slots are zero.
-    let mut encoded = IndexMap::new();
-    for slot in &layout.slots {
-        if !encoded.contains_key(&slot.key) {
-            let (_, array) = columns
-                .iter()
-                .find(|(field, _)| field.name() == &slot.key)
-                .ok_or_else(|| {
-                    DataFusionError::Plan(format!("match-pair key column missing: {}", slot.key))
-                })?;
-            let segments =
-                encode_arrow_array_to_field_with_options::<F>(array, EncodeOptions::NONE).map_err(
-                    |e| DataFusionError::Execution(format!("match-pair key encoding: {e}")),
-                )?;
-            encoded.insert(slot.key.clone(), segments);
-        }
-        let values: Vec<Vec<u16>> = encoded[&slot.key]
-            .iter()
-            .find(|segment| segment.suffix == slot.suffix)
-            .map(|segment| segment.iter_values().map(hash_slot_limbs::<F>).collect())
-            .unwrap_or_else(|| vec![vec![0; slot.limbs.len()]; target]);
-        for (j, (field, width)) in slot.limbs.iter().enumerate() {
-            let array: ArrayRef = if *width == 8 {
-                Arc::new(UInt8Array::from_iter_values(
-                    values.iter().map(|limbs| limbs[j] as u8),
-                ))
-            } else {
-                Arc::new(UInt16Array::from_iter_values(
-                    values.iter().map(|limbs| limbs[j]),
-                ))
-            };
-            columns.push((field.clone(), array));
-        }
-    }
-
-    // Sort the active rows; the padding stays last.
-    let sort_columns = layout
-        .sort_fields
-        .iter()
-        .map(|sort_field| {
-            let (_, array) = columns
-                .iter()
-                .find(|(field, _)| field.name() == sort_field.name())
-                .ok_or_else(|| {
-                    DataFusionError::Plan(format!(
-                        "match-pair sort column missing: {}",
-                        sort_field.name()
-                    ))
-                })?;
-            Ok(SortColumn {
-                values: array.slice(0, row_count),
-                options: Some(SortOptions {
-                    descending: false,
-                    nulls_first: false,
-                }),
-            })
-        })
-        .collect::<DataFusionResult<Vec<_>>>()?;
-    let order = lexsort_to_indices(&sort_columns, None)?;
-    let indices = UInt32Array::from_iter_values(
-        order
-            .values()
-            .iter()
-            .copied()
-            .chain(row_count as u32..target as u32),
-    );
-
-    let mut output_fields = Vec::with_capacity(columns.len() + 2);
-    let mut output_arrays = Vec::with_capacity(columns.len() + 2);
-    for (field, array) in columns {
-        output_fields.push(field);
-        output_arrays.push(take(array.as_ref(), &indices, None)?);
+        output_fields.push(field.with_nullable(true));
+        output_arrays.push(padded);
     }
     output_fields.push((**ROW_ID_FIELD).clone());
     output_arrays.push(Arc::new(Int64Array::from_iter_values(
