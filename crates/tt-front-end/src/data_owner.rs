@@ -91,11 +91,58 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         Err(DataFusionError::Internal("table scan payload not found".to_string()).into())
     }
 
+    /// The proof encodes NULL as 0 and has no other notion of it, so a NULL
+    /// would join, group and compare as a 0. The data owner commits none in
+    /// an active row; padding rows are inactive.
+    async fn ensure_no_nulls(&self, lp: &datafusion_expr::LogicalPlan) -> TTResult<()> {
+        use datafusion_expr::{Expr, col};
+        let schema = lp.schema();
+        let null_checks = schema
+            .iter()
+            .filter(|(_, field)| !arithmetic::is_system_column(field.name()))
+            .map(|(qualifier, field)| {
+                Expr::Column(datafusion_common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ))
+                .is_null()
+            })
+            .reduce(Expr::or);
+        let Some(any_null) = null_checks else {
+            return Ok(());
+        };
+        let has_activator = schema
+            .fields()
+            .iter()
+            .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME);
+        let predicate = if has_activator {
+            col(arithmetic::ACTIVATOR_COL_NAME).and(any_null)
+        } else {
+            any_null
+        };
+        let rows_with_nulls = self
+            .shared_config
+            .session_ctx()
+            .execute_logical_plan(lp.clone())
+            .await?
+            .filter(predicate)?
+            .count()
+            .await?;
+        if rows_with_nulls > 0 {
+            return Err(DataFusionError::Plan(format!(
+                "NULL is not supported: {rows_with_nulls} active rows hold a NULL"
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
     /// Commits the table-scan output of `query` into a serializable oracle.
     pub async fn commit(&self, query: &str) -> TTResult<ArithTableOracle<B>> {
         let _ = self.data_owner_config();
 
         let initial_lp = self.shared_config.query_to_lp(query).await;
+        self.ensure_no_nulls(&initial_lp).await?;
         debug!("Initial Logical plan{}", initial_lp.display_graphviz());
         let analyzed_lp = self.shared_config.analyze_lp(initial_lp).await;
         let analyzed_and_optimized_lp = self.shared_config.optimize_lp(analyzed_lp).await;
