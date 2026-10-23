@@ -5,7 +5,7 @@ use datafusion::arrow::datatypes::{DataType, IntervalUnit};
 use super::strings::{
     string_row_segment_suffixes, string_segment_base, string_side_segment_suffixes,
 };
-use super::util::field_element_byte_capacity;
+use super::util::{field_element_byte_capacity, hash_slot_count};
 
 /// One column of an Arrow column's encoding. An Arrow column may expand into
 /// several segments (a string becomes `["", "__length", "__chars", …]`). The
@@ -226,7 +226,7 @@ pub fn is_segment_of(field_name: &str, base_name: &str) -> bool {
 /// tracking pass, which has the schema but no data, enumerates segments
 /// with it, so it must agree with the encoders.
 pub fn segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String> {
-    let hash_slots = 32usize.div_ceil(field_element_byte_capacity::<F>());
+    let hash_slots = hash_slot_count::<F>();
 
     match dtype {
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {

@@ -81,7 +81,7 @@ pub(crate) fn active_rows(s: u64) -> TableSpec<F> {
 
 /// Proves and verifies that `keys` (all rows active) is sorted under
 /// `config`, with the given committed tie and diff hints.
-fn run(
+pub(crate) fn run(
     config: SortConfig,
     keys: &[(&str, DataType, Vec<F>)],
     ties: &[(&str, Vec<F>)],
@@ -130,7 +130,7 @@ fn run_with(
 
 /// With `honest-prover` the prover refuses the false claim before the
 /// verifier sees it.
-fn assert_rejected(result: Result<(), ark_piop::errors::SnarkError>) {
+pub(crate) fn assert_rejected(result: Result<(), ark_piop::errors::SnarkError>) {
     use ark_piop::errors::SnarkError;
     use ark_piop::prover::errors::{HonestProverError, ProverError};
     let rejected = if cfg!(feature = "honest-prover") {

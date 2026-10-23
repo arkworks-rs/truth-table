@@ -32,6 +32,7 @@ pub use strings::{
     STRING_LENGTH_SUFFIX, STRING_ORIG_IND_SUFFIX, fingerprint_limb_of, fingerprint_limb_suffix,
     fingerprint_segment_suffixes,
 };
+pub use util::{hash_slot_limb_widths, hash_slot_limbs, is_hashed_type};
 
 #[cfg(test)]
 mod tests {
@@ -40,6 +41,7 @@ mod tests {
     use ark_ff::Zero;
     use ark_test_curves::bls12_381::Fr;
     use datafusion::arrow::array::{Array, StringArray};
+    use datafusion::arrow::datatypes::DataType;
     use datafusion_common::ScalarValue;
 
     #[test]
@@ -120,6 +122,32 @@ mod tests {
         assert_eq!(length_col[1], Fr::from(3u64));
         assert_eq!(length_col[2], Fr::zero());
         assert_eq!(length_col[3], Fr::from(3u64));
+    }
+
+    #[test]
+    fn a_hash_takes_one_slot_split_into_16_bit_limbs() {
+        assert_eq!(
+            segment_suffixes_for_type::<Fr>(&DataType::Binary),
+            vec![String::new()]
+        );
+        let widths = hash_slot_limb_widths::<Fr>();
+        assert_eq!(widths.len(), 16);
+        assert_eq!(widths.iter().sum::<u32>(), 8 * util::HASH_BYTES as u32);
+        assert_eq!(widths[0], 8);
+    }
+
+    #[test]
+    fn hash_slot_limbs_recompose_the_slot() {
+        let slot = encode_hashed_bytes::<Fr>(b"a string longer than one byte")[0];
+        let limbs = hash_slot_limbs(slot);
+        let recomposed = hash_slot_limb_widths::<Fr>()
+            .into_iter()
+            .zip(&limbs)
+            .fold(Fr::zero(), |acc, (width, limb)| {
+                acc * Fr::from(1u64 << width) + Fr::from(*limb)
+            });
+        assert_eq!(recomposed, slot);
+        assert!(limbs[0] < 1 << 8);
     }
 
     #[test]

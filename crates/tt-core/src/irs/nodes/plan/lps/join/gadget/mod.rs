@@ -1450,8 +1450,12 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::nodup::GadgetNode::default(),
         )));
+        let hashed_keys = join.on.iter().any(|(left, _)| {
+            datafusion_expr::ExprSchemable::get_type(left, join.left.schema())
+                .is_ok_and(|dtype| arithmetic::encoding::is_hashed_type(&dtype))
+        });
         let match_pair_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::match_pair_check::GadgetNode::new(),
+            crate::irs::nodes::utils::match_pair_check::GadgetNode::new(hashed_keys),
         )));
         let mut gadgets = Gadgets::ManyToMany(ManyToManyGadgets {
             nodup_gadget,

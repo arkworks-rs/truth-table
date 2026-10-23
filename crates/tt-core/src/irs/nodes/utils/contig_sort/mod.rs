@@ -39,7 +39,7 @@ use crate::{
 };
 mod hints;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
