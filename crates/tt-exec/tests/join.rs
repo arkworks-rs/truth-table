@@ -67,14 +67,18 @@ end_to_end_tests!(&["nation"] => [
 ]);
 
 #[tokio::test]
-#[should_panic(expected = "only inner equijoins")]
 async fn left_join_is_not_supported() {
-    let _ = tt_exec::test_utils::prove_and_verify_query(
+    let error = tt_exec::test_utils::prove_and_verify_query(
         r#"SELECT n.n_name, r.r_name FROM nation n LEFT JOIN region r ON n.n_regionkey = r.r_regionkey"#,
         &["nation", "region"],
         None,
     )
-    .await;
+    .await
+    .expect_err("a left join must be rejected");
+    assert!(
+        format!("{error:#}").contains("only inner equijoins"),
+        "{error:#}"
+    );
 }
 
 // Join keys resolved by qualifier (#145): the input that carries the key

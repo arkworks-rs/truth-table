@@ -384,6 +384,7 @@ impl<B: SnarkBackend> TTProver<B> {
     pub async fn prove(&self, query: &str) -> TTResult<(Arc<MemTable>, TTProof<B>)> {
         let result = self.execute(query).await?;
         let (lp, optimization_hints) = self.lp_passes(query).await?;
+        tt_core::irs::supported::ensure_supported(&lp)?;
         let initial_ir = EmptyIr::<B>::from_logical_plan(&lp);
         self.ir_passes(initial_ir, Arc::clone(&result)).await?;
         let tt_proof = self.assemble_proof(optimization_hints)?;
@@ -431,6 +432,8 @@ impl<B: SnarkBackend> TTProver<B> {
         let df = DataFrame::new(state, optimized_lp);
         let logical_schema = df.schema().as_arrow().clone();
         let batches = df.collect().await?;
+        #[cfg(feature = "test-utils")]
+        let batches = tt_core::test_utils::dishonest_prover::claimed_result(batches);
         let mem_table = MemTable::try_new(Arc::new(logical_schema), vec![batches])?;
         Ok(Arc::new(mem_table))
     }

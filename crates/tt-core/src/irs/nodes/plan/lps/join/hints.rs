@@ -44,8 +44,23 @@ pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Jo
     let right_df = prepare_input(right_df, "__right_row_id__");
 
     let joined = left_df
-        .join_on(right_df, join.join_type, join_exprs)
+        .clone()
+        .join_on(right_df.clone(), join.join_type, join_exprs)
         .expect("join output should succeed");
+    #[cfg(feature = "test-utils")]
+    let joined = crate::test_utils::dishonest_prover::forge(
+        joined,
+        &left_df,
+        &right_df,
+        &Column::from_name("__left_row_id__"),
+        &Column::from_name("__right_row_id__"),
+        &join
+            .on
+            .iter()
+            .map(|(_, right)| right.clone())
+            .collect::<Vec<_>>(),
+    )
+    .expect("join forgery should succeed");
 
     // Output: the joined data columns, an all-true `__activator__`, and a
     // fresh 0-based `__row_id__` in (left row id, right row id) order.

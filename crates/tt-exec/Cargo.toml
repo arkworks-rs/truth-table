@@ -74,7 +74,7 @@ honest-prover = [
     "front-end/honest-prover",
     "tt-core/honest-prover",
 ]
-test-utils = ["tt-core/test-utils"]
+test-utils = ["tt-core/test-utils", "front-end/test-utils"]
 # Swap the proving backend from BN254 (default) to BLS12-381. Used by the
 # micro benchmark to produce a TT@BLS12-381 column for parity with QEDB.
 bls12-381 = []

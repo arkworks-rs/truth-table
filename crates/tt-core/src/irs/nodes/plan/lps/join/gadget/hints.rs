@@ -94,6 +94,19 @@ fn build_indexed_join_frames_impl(
     let joined = left
         .clone()
         .join_on(right.clone(), join.join_type, join_exprs)?;
+    #[cfg(feature = "test-utils")]
+    let joined = crate::test_utils::dishonest_prover::forge(
+        joined,
+        &left,
+        &right,
+        &left_row_id,
+        &right_row_id,
+        &join
+            .on
+            .iter()
+            .map(|(_, right)| right.clone())
+            .collect::<Vec<_>>(),
+    )?;
     let joined_left_row_id = resolve_column_like(&joined, &left_row_id)?;
     let joined_right_row_id = resolve_column_like(&joined, &right_row_id)?;
     let row_id_sort_exprs = vec![

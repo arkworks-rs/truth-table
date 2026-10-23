@@ -49,24 +49,40 @@ async fn a_null_in_an_active_row_is_not_committed() {
     assert!(error.contains("NULL is not supported"), "{error}");
 }
 
+async fn assert_rejected_as_null(query: &str, tables: &[&str]) {
+    let error = prove_and_verify_query(query, tables, None)
+        .await
+        .expect_err("a query producing NULL must be rejected");
+    assert!(
+        format!("{error:#}").contains("NULL is not supported"),
+        "{error:#}"
+    );
+}
+
 #[tokio::test]
-#[should_panic(expected = "NULL is not supported")]
 async fn a_null_literal_is_not_supported() {
-    let _ = prove_and_verify_query(
+    assert_rejected_as_null(
         "SELECT n_name, CAST(NULL AS BIGINT) AS missing FROM nation",
         &["nation"],
-        None,
     )
     .await;
 }
 
 #[tokio::test]
-#[should_panic(expected = "NULL is not supported")]
 async fn case_without_else_is_not_supported() {
-    let _ = prove_and_verify_query(
+    assert_rejected_as_null(
         "SELECT CASE WHEN n_nationkey < 5 THEN n_regionkey END AS k FROM nation",
         &["nation"],
-        None,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_null_in_a_subquery_is_not_supported() {
+    assert_rejected_as_null(
+        "SELECT n_name FROM nation WHERE n_regionkey IN \
+         (SELECT CASE WHEN r_regionkey < 2 THEN r_regionkey END FROM region)",
+        &["nation", "region"],
     )
     .await;
 }

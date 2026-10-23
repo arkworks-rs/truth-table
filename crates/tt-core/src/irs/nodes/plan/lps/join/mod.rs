@@ -1057,19 +1057,10 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         } else {
             panic!("Expected Join LogicalPlan");
         };
-        // Both join protocols prove inner equijoins without a residual filter.
         assert!(
-            join.join_type == datafusion_expr::JoinType::Inner
-                && !join.on.is_empty()
-                && join.filter.is_none(),
-            "only inner equijoins without a join filter are supported, got {} join with {} keys{}",
-            join.join_type,
-            join.on.len(),
-            if join.filter.is_some() {
-                " and a filter"
-            } else {
-                ""
-            },
+            crate::irs::supported::is_inner_equijoin(&join),
+            "{}",
+            crate::irs::supported::unsupported_join(&join)
         );
         // Every join starts as MANY_TO_MANY. The `PkFkSpecialization`
         // pp_optimizer rule upgrades the ones whose PK/FK metadata supports a

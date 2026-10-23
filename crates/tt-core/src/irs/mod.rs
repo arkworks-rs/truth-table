@@ -10,4 +10,5 @@ pub mod ir;
 pub mod nodes;
 pub mod payloads;
 pub mod shared_ir;
+pub mod supported;
 pub mod tree;

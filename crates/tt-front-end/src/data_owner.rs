@@ -160,6 +160,7 @@ impl<B: SnarkBackend> TTDataOwner<B> {
             analyzed_and_optimized_lp.display_graphviz()
         );
 
+        tt_core::irs::supported::ensure_supported(&analyzed_and_optimized_lp)?;
         let initial_ir = EmptyIr::<B>::from_logical_plan(&analyzed_and_optimized_lp);
         debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
 
