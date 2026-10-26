@@ -1,10 +1,11 @@
 #![cfg(feature = "test-utils")]
 
-//! `Tree::required_side_columns` decides which string columns get side polys
-//! (`__chars`, `__orig_ind`, `__int_ind`, `__bnd`) encoded, committed and
-//! tracked. It must name exactly the columns consumed by white-box string
-//! gadgets (LIKE), so a query without one loads no auxiliary column (paper:
-//! "Dropping Auxiliary Columns").
+//! `Tree::required_side_columns` decides which string columns' side polys
+//! (`__chars`, `__orig_ind`, `__int_ind`, `__bnd`) a query encodes and
+//! tracks; the data owner commits them for every string column. It must name
+//! exactly the columns consumed by white-box string gadgets (LIKE), so a
+//! query without one loads no auxiliary column (paper: "Dropping Auxiliary
+//! Columns").
 
 use std::collections::BTreeSet;
 

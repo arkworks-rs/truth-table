@@ -409,3 +409,170 @@ async fn empty_result_verifies() {
         Outcome::Rejected(reason) => panic!("honest empty result must verify: {reason}"),
     }
 }
+
+/// Reads `n_comment`'s characters through the side segments of `nation`.
+const LIKE_COMMENT: &str = "SELECT n_name FROM nation WHERE n_comment LIKE '%haggle%'";
+
+/// Writes the oracle at `from` with the side commitments of `a` and `b`
+/// exchanged, into a sibling file tagged `tag`. Both segments share a
+/// domain, so the result is a well-formed oracle of other characters.
+fn swap_side_commitments(from: &Path, a: &str, b: &str, tag: &str) -> PathBuf {
+    use arithmetic::table_oracle::ArithTableOracle;
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    let oracle = ArithTableOracle::<tt_exec::backend::BenchBackend>::deserialize_compressed(
+        File::open(from).expect("open oracle"),
+    )
+    .expect("oracle parses");
+    let mut sides = oracle.side_commitments().clone();
+    let index = |name: &str| {
+        sides
+            .keys()
+            .position(|field| field.name() == name)
+            .unwrap_or_else(|| panic!("oracle has no side segment {name}"))
+    };
+    let (i, j) = (index(a), index(b));
+    let (first, second) = (sides[i].clone(), sides[j].clone());
+    sides[i] = second;
+    sides[j] = first;
+    let path = workspace_artifacts_dir().join(format!(
+        "proof_substitution.{tag}.{}.oracle",
+        std::process::id()
+    ));
+    oracle
+        .with_side_commitments(sides)
+        .serialize_compressed(File::create(&path).expect("create oracle"))
+        .expect("write oracle");
+    path
+}
+
+/// A copy of `nation`, constraints included, in which one comment that does
+/// not match `LIKE_COMMENT` is overwritten to match at the same length, so
+/// that every committed domain keeps its size.
+fn nation_with_forged_comment() -> PathBuf {
+    use datafusion::arrow::{array::StringArray, compute::cast};
+    let honest = resolve_parquet_path("nation").expect("test parquet");
+    let dir = workspace_artifacts_dir().join(format!("forged_nation.{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create forged table dir");
+    let constraints = honest.with_file_name("constraints.json");
+    if constraints.exists() {
+        std::fs::copy(&constraints, dir.join("constraints.json")).expect("copy constraints");
+    }
+    let table = read_result(&honest);
+    let index = table
+        .schema()
+        .index_of("n_comment")
+        .expect("n_comment column");
+    let original = table.column(index);
+    let comments =
+        cast(original, &datafusion::arrow::datatypes::DataType::Utf8).expect("comments as Utf8");
+    let comments = comments
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .expect("Utf8 comments");
+    let mut forged_row = None;
+    let forged: StringArray = comments
+        .iter()
+        .enumerate()
+        .map(|(row, comment)| {
+            let comment = comment?;
+            if forged_row.is_none() && !comment.contains("haggle") && comment.len() >= 6 {
+                forged_row = Some(row);
+                return Some(format!("haggle{}", &comment[6..]));
+            }
+            Some(comment.to_string())
+        })
+        .collect();
+    assert!(forged_row.is_some(), "some comment must not match");
+    let mut columns = table.columns().to_vec();
+    columns[index] = cast(&forged, original.data_type()).expect("comments in their own type");
+    let forged = RecordBatch::try_new(table.schema(), columns).expect("forged table");
+    let path = dir.join("nation.parquet");
+    let mut writer = ArrowWriter::try_new(
+        File::create(&path).expect("create forged parquet"),
+        forged.schema(),
+        None,
+    )
+    .expect("parquet writer");
+    writer.write(&forged).expect("write forged table");
+    writer.close().expect("close forged table");
+    path
+}
+
+/// A prover whose table differs from the data owner's in the characters of
+/// a LIKE column alone must not convince the verifier of the matches.
+#[tokio::test]
+async fn like_over_other_characters_is_rejected() {
+    let (pk, vk) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE).expect("keys");
+    let (_, nation) = oracle_paths(&["nation"], &pk).await;
+    let output = workspace_artifacts_dir().join(format!(
+        "proof_substitution.forged_comment.{}.pi",
+        std::process::id()
+    ));
+    let proved = ProveBuilder::new()
+        .with_query(LIKE_COMMENT.to_owned())
+        .with_parquet_paths(vec![nation_with_forged_comment()])
+        .with_oracle_paths(nation.clone())
+        .with_pk_path(pk.clone())
+        .with_output_path(Some(output))
+        .build()
+        .expect("prove builder")
+        .run()
+        .await;
+    // Refusing to prove is a rejection too.
+    let forged = match proved {
+        Ok(forged) => forged,
+        Err(e) => return eprintln!("rejected  prover refused: {e:#}"),
+    };
+    match verify(LIKE_COMMENT, nation, &forged, &vk) {
+        Outcome::Accepted => {
+            panic!("verifier accepted a LIKE proved over characters the data owner did not commit")
+        }
+        Outcome::Rejected(reason) => eprintln!("rejected  {reason}"),
+    }
+}
+
+/// The characters a LIKE matches are the data owner's: a verifier holding
+/// an oracle of other characters must reject an honest proof.
+#[tokio::test]
+async fn forged_side_commitments_are_rejected() {
+    let (pk, vk) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE).expect("keys");
+    let (_, nation) = oracle_paths(&["nation"], &pk).await;
+    let honest = prove(LIKE_COMMENT, &["nation"], &pk, "like_comment").await;
+    assert!(
+        matches!(
+            verify(LIKE_COMMENT, nation.clone(), &honest, &vk),
+            Outcome::Accepted
+        ),
+        "honest LIKE proof must verify; otherwise the rejections below prove nothing"
+    );
+
+    let forgeries = [
+        (
+            "characters replaced by the word boundaries",
+            swap_side_commitments(&nation[0], "n_comment__chars", "n_comment__bnd", "chars"),
+        ),
+        (
+            "owning string and position exchanged",
+            swap_side_commitments(
+                &nation[0],
+                "n_comment__orig_ind",
+                "n_comment__int_ind",
+                "indices",
+            ),
+        ),
+    ];
+    let mut accepted = Vec::new();
+    for (name, oracle) in &forgeries {
+        match verify(LIKE_COMMENT, vec![oracle.clone()], &honest, &vk) {
+            Outcome::Accepted => {
+                eprintln!("ACCEPTED  {name}");
+                accepted.push(*name);
+            }
+            Outcome::Rejected(reason) => eprintln!("rejected  {name}: {reason}"),
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "verifier accepted oracles of other characters: {accepted:?}"
+    );
+}

@@ -253,8 +253,9 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
 
     let mut verifier = verifier.borrow_mut();
     // The prover's order: every row-domain segment, then every side-domain
-    // segment. Side commitments always come from the proof, even when the
-    // row commitments come from the ctx oracle, and take the ids after them.
+    // segment. Both come from the ctx oracle: the side segments hold the
+    // characters string gadgets read, and only the data owner's commitment
+    // ties them to the committed strings.
     let materialized: Vec<FieldRef> = hint_df
         .field_materialization_iter()
         .filter(|&(_field, should_mat)| *should_mat)
@@ -340,17 +341,23 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
             continue;
         }
         for side_field in side_segment_fields::<B>(qualified_field) {
+            let committed = oracle
+                .side_commitment(side_field.name())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "ctx_oracle has no side commitments for {}",
+                        side_field.name()
+                    )
+                });
             let data = verifier
-                .track_next_mv_com()
-                .expect("verifier should track side data commitment");
+                .track_mat_mv_com_with_binding(committed.data.clone(), CommitmentBinding::External)
+                .expect("verifier should track ctx_oracle side data commitment");
             let activator = verifier
-                .track_next_mv_com()
-                .expect("verifier should track side activator commitment");
-            assert_eq!(
-                data.log_size(),
-                activator.log_size(),
-                "side data/activator must share log_size"
-            );
+                .track_mat_mv_com_with_binding(
+                    committed.activator.clone(),
+                    CommitmentBinding::External,
+                )
+                .expect("verifier should track ctx_oracle side activator commitment");
             side_cols.insert(
                 side_field,
                 arithmetic::col_oracle::OracleBundle::new(data, Some(activator)),

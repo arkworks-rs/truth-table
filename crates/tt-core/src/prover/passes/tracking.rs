@@ -323,9 +323,13 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         fingerprint_openings.borrow_mut().push(siblings);
     }
 
-    // Each side col gives a (data, activator) pair of tracked polys. The
-    // prover always emits the side commitments itself, even when the
-    // row-domain ones come from a ctx oracle, so they bind as `ProofEmitted`.
+    // Each side col gives a (data, activator) pair of tracked polys, bound
+    // like the row-domain ones: a table scan's come from the ctx oracle.
+    let side_binding = if external_commitments {
+        CommitmentBinding::External
+    } else {
+        CommitmentBinding::ProofEmitted
+    };
     let mut tracked_side_cols: IndexMap<FieldRef, arithmetic::col::PolyBundle<B>> =
         IndexMap::with_capacity(arith_table.side_cols().len());
     for (field_ref, side) in arith_table.side_cols() {
@@ -336,11 +340,7 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         // The tracker keeps its own Arc clones of these MLEs.
         let data_mle = materialize_side_data_mle::<B::F>(&side.data, side.log_size);
         let data_poly = prover_borrow
-            .track_mat_mv_poly_with_commitment(
-                &data_mle,
-                side_oracle.data.clone(),
-                CommitmentBinding::ProofEmitted,
-            )
+            .track_mat_mv_poly_with_commitment(&data_mle, side_oracle.data.clone(), side_binding)
             .expect("failed to track side data polynomial with commitment");
         let act_mle = Arc::new(MLE::<B::F>::from_prefix_activator(
             side.active_len,
@@ -350,12 +350,14 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
             .track_mat_mv_poly_with_commitment(
                 &act_mle,
                 side_oracle.activator.clone(),
-                CommitmentBinding::ProofEmitted,
+                side_binding,
             )
             .expect("failed to track side activator polynomial with commitment");
         drop(data_mle);
         drop(act_mle);
-        total_committed.set(total_committed.get() + 2);
+        if side_binding == CommitmentBinding::ProofEmitted {
+            total_committed.set(total_committed.get() + 2);
+        }
         tracked_side_cols.insert(
             field_ref.clone(),
             arithmetic::col::PolyBundle::new(data_poly, Some(activator_poly)),

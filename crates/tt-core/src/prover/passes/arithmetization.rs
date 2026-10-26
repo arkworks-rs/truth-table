@@ -38,19 +38,37 @@ impl FingerprintColumns {
     }
 }
 
+/// Which string columns get char-level side segments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SideColumns {
+    /// Every string column: the data owner commits them all, so that a
+    /// string gadget reads characters bound to the committed strings.
+    All,
+    /// Only the columns a query's string gadgets read
+    /// (from `Tree::required_side_columns`).
+    Only(BTreeSet<String>),
+}
+
+impl SideColumns {
+    pub fn contains(&self, column: &str) -> bool {
+        match self {
+            SideColumns::All => true,
+            SideColumns::Only(columns) => columns.contains(column),
+        }
+    }
+}
+
 /// Encodes each column of the materialized tables as multilinear extensions
 /// over the field.
 pub struct ArithmetizationPass<B> {
-    /// The string columns that get char-level side polys
-    /// (from `Tree::required_side_columns`).
-    side_columns: BTreeSet<String>,
+    side_columns: SideColumns,
     /// Table-scan string columns that get fingerprint limb segments.
     fingerprint_columns: FingerprintColumns,
     _phantom: std::marker::PhantomData<B>,
 }
 
 impl<B> ArithmetizationPass<B> {
-    pub fn new(side_columns: BTreeSet<String>, fingerprint_columns: FingerprintColumns) -> Self {
+    pub fn new(side_columns: SideColumns, fingerprint_columns: FingerprintColumns) -> Self {
         Self {
             side_columns,
             fingerprint_columns,
@@ -62,7 +80,7 @@ impl<B> ArithmetizationPass<B> {
 impl<B> Default for ArithmetizationPass<B> {
     fn default() -> Self {
         Self::new(
-            BTreeSet::new(),
+            SideColumns::Only(BTreeSet::new()),
             FingerprintColumns::Only(Default::default()),
         )
     }
@@ -118,12 +136,12 @@ where
     }
 }
 
-/// `side_columns` names the columns that get char-level side polys; `None`
+/// `side_columns` selects the columns that get char-level side polys; `None`
 /// (intermediate operators, output table) gives none.
 /// `fingerprint_columns` gates fingerprint limb segments the same way.
 pub fn arithmetize_materialized_table<F: PrimeField>(
     mat: &MaterializedTable,
-    side_columns: Option<&std::collections::BTreeSet<String>>,
+    side_columns: Option<&SideColumns>,
     fingerprint_columns: Option<&FingerprintColumns>,
 ) -> ArithTable<F> {
     let batches = mat

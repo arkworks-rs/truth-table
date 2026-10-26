@@ -117,20 +117,40 @@ where
                                 log_size = oracle.log_size(),
                                 "commitment loaded"
                             );
-                            self.total_ctx_loaded
-                                .fetch_add(oracle.commitments().len(), Ordering::Relaxed);
-                            // A ctx oracle carries row-domain commitments
-                            // only. Commit the table's side columns (e.g.
-                            // `__chars`) here so that the proof carries them.
-                            let cached = oracle.clone().with_external_commitment_source(true);
-                            let merged = merge_cached_oracle_with_side_commitments::<B>(
-                                cached,
-                                arith_table,
-                                &self.mv_pcs_param,
-                                &self.commitment_cache,
-                                &self.total_committed,
+                            // The side segments (e.g. `__chars`) of the
+                            // columns this query reads are the data owner's
+                            // too.
+                            let side_commitments: IndexMap<_, _> = arith_table
+                                .side_cols()
+                                .iter()
+                                .map(|(field_ref, side)| {
+                                    let committed = oracle
+                                        .side_commitment(field_ref.name())
+                                        .unwrap_or_else(|| {
+                                            panic!(
+                                                "ctx_oracle has no side commitments for {}; \
+                                                 recommit the table",
+                                                field_ref.name()
+                                            )
+                                        });
+                                    assert_eq!(
+                                        committed.log_size,
+                                        side.log_size,
+                                        "side segment {} log_size differs from the ctx_oracle's",
+                                        field_ref.name()
+                                    );
+                                    (field_ref.clone(), committed.clone())
+                                })
+                                .collect();
+                            self.total_ctx_loaded.fetch_add(
+                                oracle.commitments().len() + side_commitments.len() * 2,
+                                Ordering::Relaxed,
                             );
-                            return Some(CommittedPayload::PlanPayload(merged));
+                            let cached = oracle
+                                .clone()
+                                .with_external_commitment_source(true)
+                                .with_side_commitments(side_commitments);
+                            return Some(CommittedPayload::PlanPayload(cached));
                         }
                         panic!(
                             "TableScan oracle log_size mismatch for schema {:?}: oracle={}, arith={}",
@@ -204,67 +224,6 @@ where
     fn name(&self) -> &'static str {
         "Prover Commitment"
     }
-}
-
-/// Adds the side-domain commitments of `arith_table` (data and activator per
-/// side col) to a cached row-domain oracle.
-fn merge_cached_oracle_with_side_commitments<B: SnarkBackend>(
-    cached: ArithTableOracle<B>,
-    arith_table: &arithmetic::table::ArithTable<B::F>,
-    mv_pcs_param: &Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
-    cache: &CommitmentCache<B>,
-    total_committed: &AtomicUsize,
-) -> ArithTableOracle<B> {
-    if arith_table.side_cols().is_empty() {
-        return cached;
-    }
-    let commit =
-        |mle_arc: Arc<MLE<B::F>>, field_name: &str| -> <B::MvPCS as PCS<B::F>>::Commitment {
-            let digest = mle_digest(mle_arc.as_ref());
-            if let Some(cached) = cache.lock().unwrap().get(&digest) {
-                return cached.clone();
-            }
-            match B::MvPCS::commit(Arc::clone(mv_pcs_param), &mle_arc) {
-                Ok(comm) => {
-                    cache.lock().unwrap().insert(digest, comm.clone());
-                    comm
-                }
-                Err(err) => panic!(
-                    "failed to commit side polynomial '{}' (log_size={}, len={}): {:?}",
-                    field_name,
-                    mle_arc.num_vars(),
-                    mle_arc.evaluations().len(),
-                    err
-                ),
-            }
-        };
-    let mut side_commitments: IndexMap<
-        datafusion::arrow::datatypes::FieldRef,
-        arithmetic::table_oracle::ArithSideColOracle<B>,
-    > = IndexMap::with_capacity(arith_table.side_cols().len());
-    for (field_ref, side) in arith_table.side_cols() {
-        // Each MLE is dropped when its commit returns, so the field-element
-        // form does not outlive the MSM.
-        let data_mle = materialize_side_data_mle::<B::F>(&side.data, side.log_size);
-        let data_comm = commit(data_mle, field_ref.name());
-        let act_mle = Arc::new(MLE::<B::F>::from_prefix_activator(
-            side.active_len,
-            side.log_size,
-        ));
-        let act_comm = commit(act_mle, field_ref.name());
-        side_commitments.insert(
-            field_ref.clone(),
-            arithmetic::table_oracle::ArithSideColOracle {
-                data: data_comm,
-                activator: act_comm,
-                log_size: side.log_size,
-                active_len: side.active_len,
-            },
-        );
-    }
-    total_committed.fetch_add(side_commitments.len() * 2, Ordering::Relaxed);
-
-    cached.with_side_commitments(side_commitments)
 }
 
 fn arith_to_oracle<B: SnarkBackend>(
@@ -382,7 +341,6 @@ fn arith_to_oracle<B: SnarkBackend>(
                 data: data_comm,
                 activator: act_comm,
                 log_size: side.log_size,
-                active_len: side.active_len,
             },
         );
     }
