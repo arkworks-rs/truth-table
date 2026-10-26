@@ -357,7 +357,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             if !super_active[row] {
                 continue;
             }
-            if multiplicity_values[row] != expected[row] {
+            if multiplicity_values[row] != B::F::from(expected[row]) {
                 tracing::debug!(
                     node_id = ?id,
                     row,
@@ -572,10 +572,8 @@ fn multiplicities_from_runtime_tables_prover<B: SnarkBackend>(
         &active_mask_from_optional(included_activator.as_ref(), included_table.size()),
     );
 
-    let multiplicity_poly = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-        super_table.log_size(),
-        multiplicities,
-    ))?;
+    let multiplicity_poly = prover
+        .track_and_commit_mat_mv_poly(&MLE::from_u64s(multiplicities, super_table.log_size()))?;
     let multiplicity_field = Arc::new(Field::new("multiplicity", DataType::Int64, false));
     Ok(TrackedTable::single_column_with_activator(
         multiplicity_field,
@@ -667,8 +665,8 @@ fn expected_lookup_multiplicities_from_values<B: SnarkBackend>(
     included_values: &[Vec<B::F>],
     super_active: &[bool],
     included_active: &[bool],
-) -> Vec<B::F> {
-    let counts: Vec<u64> = match (super_values, included_values) {
+) -> Vec<u64> {
+    match (super_values, included_values) {
         ([sup], [inc]) => first_occurrence_counts(
             |row| sup[row],
             super_active,
@@ -686,8 +684,7 @@ fn expected_lookup_multiplicities_from_values<B: SnarkBackend>(
             },
             included_active,
         ),
-    };
-    counts.into_iter().map(B::F::from).collect()
+    }
 }
 
 /// For every active super row that is the first with its key: how many

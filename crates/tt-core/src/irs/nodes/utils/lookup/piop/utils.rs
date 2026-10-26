@@ -36,17 +36,17 @@ where
         if let Some(ref activator_evals) = super_col_activator_evals
             && activator_evals[i] == B::F::zero()
         {
-            super_col_mult_evals.push(B::F::zero());
+            super_col_mult_evals.push(0);
             continue;
         }
 
         if let Some(&included_col_mult) = included_col_mults_map.get(&val) {
-            super_col_mult_evals.push(B::F::from(included_col_mult));
+            super_col_mult_evals.push(included_col_mult);
             included_col_mults_map.insert(val, 0);
         } else {
-            super_col_mult_evals.push(B::F::zero());
+            super_col_mult_evals.push(0);
         }
     }
 
-    MLE::from_evaluations_vec(super_col_nv, super_col_mult_evals)
+    MLE::from_u64s(super_col_mult_evals, super_col_nv)
 }
