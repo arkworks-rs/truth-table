@@ -818,34 +818,48 @@ impl<B: SnarkBackend> SignNode<B> {
         let evaluations = col.data_tracked_poly().evaluations();
         let activator_evals = col.activator_tracked_poly().map(|a| a.evaluations());
         let log_size = col.log_size();
-        let mut chunk3_vals = Vec::with_capacity(evaluations.len());
-        let mut chunk2_vals = Vec::with_capacity(evaluations.len());
-        let mut chunk1_vals = Vec::with_capacity(evaluations.len());
-        let mut chunk0_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk3_vals: Vec<i64> = Vec::with_capacity(evaluations.len());
+        let mut chunk2_vals: Vec<u32> = Vec::with_capacity(evaluations.len());
+        let mut chunk1_vals: Vec<u32> = Vec::with_capacity(evaluations.len());
+        let mut chunk0_vals: Vec<u32> = Vec::with_capacity(evaluations.len());
 
         for (idx, &eval) in evaluations.iter().enumerate() {
             if activator_evals.as_ref().is_some_and(|a| a[idx].is_zero()) {
-                chunk3_vals.push(B::F::zero());
-                chunk2_vals.push(B::F::zero());
-                chunk1_vals.push(B::F::zero());
-                chunk0_vals.push(B::F::zero());
+                chunk3_vals.push(0);
+                chunk2_vals.push(0);
+                chunk1_vals.push(0);
+                chunk0_vals.push(0);
                 continue;
             }
             let [chunk3, chunk2, chunk1, chunk0] = eval_to_chunks(eval);
-            // Preserve signed chunk semantics when lifting into field elements.
-            chunk3_vals.push(B::F::from(chunk3 as i128));
-            chunk2_vals.push(B::F::from(chunk2 as i128));
-            chunk1_vals.push(B::F::from(chunk1 as i128));
-            chunk0_vals.push(B::F::from(chunk0 as i128));
+            chunk3_vals.push(chunk3);
+            chunk2_vals.push(chunk2 as u32);
+            chunk1_vals.push(chunk1 as u32);
+            chunk0_vals.push(chunk0 as u32);
         }
-        let chunk3_poly = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk3_vals))?;
-        let chunk2_poly = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk2_vals))?;
-        let chunk1_poly = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk1_vals))?;
-        let chunk0_poly = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
+        // Only a signed type's top chunk can be negative, which lifts to a
+        // full-width field element.
+        let chunk3_mle = if chunk3_vals.iter().all(|&c| c >= 0) {
+            MLE::from_u32s(
+                chunk3_vals.into_iter().map(|c| c as u32).collect(),
+                log_size,
+            )
+        } else {
+            MLE::from_evaluations_vec(
+                log_size,
+                chunk3_vals
+                    .into_iter()
+                    .map(|c| B::F::from(c as i128))
+                    .collect(),
+            )
+        };
+        let chunk3_poly = prover.track_and_commit_mat_mv_poly(&chunk3_mle)?;
+        let chunk2_poly =
+            prover.track_and_commit_mat_mv_poly(&MLE::from_u32s(chunk2_vals, log_size))?;
+        let chunk1_poly =
+            prover.track_and_commit_mat_mv_poly(&MLE::from_u32s(chunk1_vals, log_size))?;
+        let chunk0_poly =
+            prover.track_and_commit_mat_mv_poly(&MLE::from_u32s(chunk0_vals, log_size))?;
 
         let recomposed = Self::recompose_tracked_polys(&[
             chunk3_poly.clone(),
@@ -913,14 +927,14 @@ impl<B: SnarkBackend> SignNode<B> {
         let evaluations = col.data_tracked_poly().evaluations();
         let activator_evals = col.activator_tracked_poly().map(|a| a.evaluations());
         let log_size = col.log_size();
-        let mut chunk_values: Vec<Vec<B::F>> = (0..8)
+        let mut chunk_values: Vec<Vec<u32>> = (0..8)
             .map(|_| Vec::with_capacity(evaluations.len()))
             .collect();
 
         for (idx, &eval) in evaluations.iter().enumerate() {
             if activator_evals.as_ref().is_some_and(|a| a[idx].is_zero()) {
                 for target in chunk_values.iter_mut() {
-                    target.push(B::F::zero());
+                    target.push(0);
                 }
                 continue;
             }
@@ -929,14 +943,13 @@ impl<B: SnarkBackend> SignNode<B> {
                 .iter_mut()
                 .zip(Self::split_i128_into_u16s(n).into_iter())
             {
-                target.push(B::F::from(chunk as u64));
+                target.push(chunk as u32);
             }
         }
 
         let mut chunk_polys = Vec::with_capacity(8);
         for values in chunk_values {
-            let poly = prover
-                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, values))?;
+            let poly = prover.track_and_commit_mat_mv_poly(&MLE::from_u32s(values, log_size))?;
             chunk_polys.push(poly);
         }
 
@@ -997,27 +1010,26 @@ impl<B: SnarkBackend> SignNode<B> {
         let evaluations = col.data_tracked_poly().evaluations();
         let activator_evals = col.activator_tracked_poly().map(|a| a.evaluations());
         let log_size = col.log_size();
-        let mut chunk_values: Vec<Vec<B::F>> = (0..16)
+        let mut chunk_values: Vec<Vec<u32>> = (0..16)
             .map(|_| Vec::with_capacity(evaluations.len()))
             .collect();
 
         for (idx, &eval) in evaluations.iter().enumerate() {
             if activator_evals.as_ref().is_some_and(|a| a[idx].is_zero()) {
                 for target in chunk_values.iter_mut() {
-                    target.push(B::F::zero());
+                    target.push(0);
                 }
                 continue;
             }
             let chunks = Self::split_field_into_u16_limbs::<16>(eval);
             for (target, chunk) in chunk_values.iter_mut().zip(chunks.iter()) {
-                target.push(B::F::from(*chunk as u64));
+                target.push(*chunk as u32);
             }
         }
 
         let mut chunk_polys = Vec::with_capacity(16);
         for values in chunk_values {
-            let poly = prover
-                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, values))?;
+            let poly = prover.track_and_commit_mat_mv_poly(&MLE::from_u32s(values, log_size))?;
             chunk_polys.push(poly);
         }
 
