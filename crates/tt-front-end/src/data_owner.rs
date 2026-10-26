@@ -195,9 +195,10 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         );
         let arithmetized_ir = materialized_ir.apply_local_pass_parallel(
             &tt_core::prover::passes::arithmetization::ArithmetizationPass::new(
-                materialized_ir.tree().required_side_columns(),
-                // The oracle carries every string column's fingerprint limbs,
-                // so any later query can pre-filter any column.
+                // The oracle carries every string column's char-level side
+                // segments and fingerprint limbs, so any later query can
+                // read the characters of, or pre-filter, any column.
+                tt_core::prover::passes::arithmetization::SideColumns::All,
                 tt_core::prover::passes::arithmetization::FingerprintColumns::All,
             ),
         );

@@ -579,8 +579,24 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             let oracle = verifier.track_mv_com_by_id(poly.id())?;
             data_map.insert(field_ref.clone(), oracle);
         }
+        let mut side_cols = IndexMap::new();
+        for (field_ref, side) in table.side_cols() {
+            let activator = side
+                .activator
+                .as_ref()
+                .expect("side segment must carry a tracked activator");
+            side_cols.insert(
+                field_ref,
+                OracleBundle::new(
+                    verifier.track_mv_com_by_id(side.data.id())?,
+                    Some(verifier.track_mv_com_by_id(activator.id())?),
+                ),
+            );
+        }
 
-        Ok(Self::new(schema, data_map, log_size))
+        Ok(Self::new_with_side_cols(
+            schema, data_map, log_size, side_cols,
+        ))
     }
 }
 
@@ -670,7 +686,6 @@ pub struct ArithSideColOracle<B: SnarkBackend> {
     pub data: <B::MvPCS as PCS<B::F>>::Commitment,
     pub activator: <B::MvPCS as PCS<B::F>>::Commitment,
     pub log_size: usize,
-    pub active_len: usize,
 }
 
 #[derive(Derivative)]
@@ -682,7 +697,10 @@ pub struct ArithTableOracle<B: SnarkBackend> {
     schema: Option<Schema>,
     commitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
     log_size: usize,
-    /// Keyed by the side segment's own field (`<col>__chars`).
+    /// Keyed by the side segment's own field (`<col>__chars`). A base
+    /// table's are the data owner's, like its row-domain commitments: a
+    /// string gadget reads the characters through them, and nothing else
+    /// ties the characters to the committed strings.
     side_commitments: IndexMap<FieldRef, ArithSideColOracle<B>>,
     /// Per string column, its fingerprint bin commitments sealed under a
     /// Merkle root (see [`Self::seal_fingerprints`]). The `__fp{b}` fields
@@ -967,6 +985,14 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
     pub fn side_commitments(&self) -> &IndexMap<FieldRef, ArithSideColOracle<B>> {
         &self.side_commitments
     }
+
+    /// Looked up by name alone: a query's field carries its own metadata.
+    pub fn side_commitment(&self, field_name: &str) -> Option<&ArithSideColOracle<B>> {
+        self.side_commitments
+            .iter()
+            .find_map(|(field, side)| (field.name() == field_name).then_some(side))
+    }
+
     #[cfg(debug_assertions)]
     fn check_new_args(
         schema: &Option<Schema>,
@@ -1066,10 +1092,6 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
                             .expect("side segment must carry a tracked activator")
                             .commitment(),
                         log_size: side.log_size(),
-                        // Placeholder: the tracked layer does not carry
-                        // `active_len`, and nothing reads it from an
-                        // `ArithSideColOracle`.
-                        active_len: 0,
                     },
                 )
             })
@@ -1140,6 +1162,18 @@ where
             sealed.root.serialize_with_mode(&mut writer, compress)?;
             (sealed.num_bins as u64).serialize_with_mode(&mut writer, compress)?;
         }
+
+        // Side segments: their fields as a schema, then each one's data and
+        // activator commitments and log size.
+        let side_schema = side_commitments_schema(&self.side_commitments);
+        schema_to_vec(&side_schema)
+            .map_err(|_| SerializationError::InvalidData)?
+            .serialize_with_mode(&mut writer, compress)?;
+        for side in self.side_commitments.values() {
+            side.data.serialize_with_mode(&mut writer, compress)?;
+            side.activator.serialize_with_mode(&mut writer, compress)?;
+            (side.log_size as u64).serialize_with_mode(&mut writer, compress)?;
+        }
         Ok(())
     }
 
@@ -1174,6 +1208,14 @@ where
             size += column.as_bytes().to_vec().serialized_size(compress)
                 + sealed.root.serialized_size(compress)
                 + (sealed.num_bins as u64).serialized_size(compress);
+        }
+        size += schema_to_vec(&side_commitments_schema(&self.side_commitments))
+            .expect("schema serialization should succeed")
+            .serialized_size(compress);
+        for side in self.side_commitments.values() {
+            size += side.data.serialized_size(compress)
+                + side.activator.serialized_size(compress)
+                + (side.log_size as u64).serialized_size(compress);
         }
         size
     }
@@ -1257,12 +1299,44 @@ where
             }
         }
 
+        // An oracle file without side commitments ends here; a query that
+        // reads a string's characters is then refused at tracking.
+        let mut side_commitments = IndexMap::new();
+        if let Ok(side_schema_bytes) =
+            Vec::<u8>::deserialize_with_mode(&mut reader, compress, validate)
+        {
+            let side_schema = schema_from_slice::<Schema>(&side_schema_bytes)
+                .map_err(|_| SerializationError::InvalidData)?;
+            for field_ref in side_schema.fields().iter().cloned() {
+                let data = <B::MvPCS as PCS<B::F>>::Commitment::deserialize_with_mode(
+                    &mut reader,
+                    compress,
+                    validate,
+                )?;
+                let activator = <B::MvPCS as PCS<B::F>>::Commitment::deserialize_with_mode(
+                    &mut reader,
+                    compress,
+                    validate,
+                )?;
+                let log_size = u64::deserialize_with_mode(&mut reader, compress, validate)?;
+                side_commitments.insert(
+                    field_ref,
+                    ArithSideColOracle {
+                        data,
+                        activator,
+                        log_size: usize::try_from(log_size)
+                            .map_err(|_| SerializationError::InvalidData)?,
+                    },
+                );
+            }
+        }
+
         Ok(Self {
             _phantom: std::marker::PhantomData,
             schema,
             commitments,
             log_size,
-            side_commitments: IndexMap::new(),
+            side_commitments,
             fingerprints,
         }
         .seal_fingerprints())
@@ -1277,8 +1351,18 @@ where
         for commitment in self.commitments.values() {
             commitment.check()?;
         }
+        for side in self.side_commitments.values() {
+            side.data.check()?;
+            side.activator.check()?;
+        }
         Ok(())
     }
+}
+
+fn side_commitments_schema<B: SnarkBackend>(
+    side_commitments: &IndexMap<FieldRef, ArithSideColOracle<B>>,
+) -> Schema {
+    Schema::new(side_commitments.keys().cloned().collect::<Vec<_>>())
 }
 
 fn border_line(widths: &[usize]) -> String {

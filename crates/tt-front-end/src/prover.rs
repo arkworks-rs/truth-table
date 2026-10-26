@@ -98,7 +98,7 @@ impl<B: SnarkBackend> TTProverConfig<B> {
         fingerprint_columns: arithmetic::encoding::FingerprintSelection,
     ) -> ArithmetizationPass<B> {
         ArithmetizationPass::new(
-            side_columns,
+            tt_core::prover::passes::arithmetization::SideColumns::Only(side_columns),
             tt_core::prover::passes::arithmetization::FingerprintColumns::Only(fingerprint_columns),
         )
     }
