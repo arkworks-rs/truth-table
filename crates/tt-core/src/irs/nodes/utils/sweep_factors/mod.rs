@@ -1,4 +1,4 @@
-//! Sweep Factors (paper §6.1, PIOP 7).
+//! TruthTable++ Sweep Factors (§5.1, PIOP 7).
 //!
 //! Places the `t` factors `p_j = (str_j, mode_j)` one after the other,
 //! threading the activators so that factor `j+1` can only match chars past

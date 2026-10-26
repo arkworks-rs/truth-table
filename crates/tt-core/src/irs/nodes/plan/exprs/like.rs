@@ -1,5 +1,5 @@
 //! `Expr::Like`: SQL `LIKE` lowered onto the Multi-Character Pattern
-//! Matching (MCPM) gadget (paper §6.1, PIOP 6).
+//! Matching (MCPM) gadget (TruthTable++ §5.1, PIOP 6).
 //!
 //! 1. `from_expr` parses the pattern into an ordered `(literal, Mode)`
 //!    factor list (`sweep_factors::parse_like_pattern`).

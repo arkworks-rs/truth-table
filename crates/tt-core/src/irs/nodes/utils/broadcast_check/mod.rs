@@ -1,4 +1,4 @@
-//! Broadcast check (paper §4.3).
+//! TruthTable++ Broadcast Check (§4.1, PIOP 1).
 //!
 //! Given a string-level column `x` and a character-level column `x'`,
 //! with `src` (each character's owning-string index) and `ind` (the string

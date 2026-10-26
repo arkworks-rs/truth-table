@@ -34,6 +34,7 @@ pub struct CommitBuilder {
     pk_path: Option<PathBuf>,
     output_root: Option<PathBuf>,
     fp_width: Option<usize>,
+    ranks: bool,
 }
 
 impl Default for CommitBuilder {
@@ -49,7 +50,15 @@ impl CommitBuilder {
             pk_path: None,
             output_root: None,
             fp_width: None,
+            ranks: true,
         }
+    }
+
+    /// Whether to commit every string column's rank, which a query sorting
+    /// by a string needs. On by default.
+    pub fn with_ranks(mut self, ranks: bool) -> Self {
+        self.ranks = ranks;
+        self
     }
 
     /// Bins of every string column's rule; without one, [`NUM_BINS`]. Zero
@@ -90,6 +99,7 @@ impl CommitBuilder {
             pk_path,
             output_path,
             fp_width,
+            ranks: self.ranks,
         })
     }
 }
@@ -99,6 +109,7 @@ pub struct CommitRunner {
     pk_path: PathBuf,
     output_path: PathBuf,
     fp_width: usize,
+    ranks: bool,
 }
 
 impl CommitRunner {
@@ -115,15 +126,21 @@ impl CommitRunner {
         let output_path = self.output_path.clone();
 
         info!(width = self.fp_width, "fingerprint width");
-        let elapsed = commit_parquet_with_pk(&parquet_path, &pk_path, &output_path, self.fp_width)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to commit parquet '{}' with proving key '{}'",
-                    parquet_path.display(),
-                    pk_path.display()
-                )
-            })?;
+        let elapsed = commit_parquet_with_pk(
+            &parquet_path,
+            &pk_path,
+            &output_path,
+            self.fp_width,
+            self.ranks,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "failed to commit parquet '{}' with proving key '{}'",
+                parquet_path.display(),
+                pk_path.display()
+            )
+        })?;
         info!(seconds = elapsed.as_secs_f64(), "committed");
         Ok((output_path, elapsed))
     }
@@ -225,6 +242,7 @@ async fn commit_parquet_with_pk(
     pk_path: &Path,
     output_path: &Path,
     width: usize,
+    ranks: bool,
 ) -> Result<Duration> {
     let snark_pk = load_snark_pk(pk_path)
         .with_context(|| format!("failed to load proving key from {}", pk_path.display()))?;
@@ -257,7 +275,11 @@ async fn commit_parquet_with_pk(
     let query = format!("SELECT * EXCEPT ({}) FROM {table_name}", ROW_ID_COL_NAME);
 
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
-    let data_owner = TTDataOwner::new(TTDataOwnerConfig::default(), shared_config, snark_pk);
+    let data_owner = TTDataOwner::new(
+        TTDataOwnerConfig::default().with_ranks(ranks),
+        shared_config,
+        snark_pk,
+    );
     // The verifier's oracle keeps one Merkle root per fingerprinted column;
     // the bins themselves go to the prover alone.
     let serializable = data_owner.commit(&query).await?.seal_fingerprints();

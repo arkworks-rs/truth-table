@@ -1,5 +1,5 @@
-//! Tests for `MultiCharacterPatternMatching` (paper §6.1 PIOP 6). The string
-//! and char domains have the same log size in every fixture.
+//! Tests for `MultiCharacterPatternMatching` (TruthTable++ Multi-Character Pattern Matching, §5.1, PIOP 6).
+//! The string and char domains have the same log size in every fixture.
 
 use std::sync::Arc;
 

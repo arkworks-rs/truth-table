@@ -2,19 +2,19 @@ use super::multiplicity_count::vec_multiplicity_count;
 use arithmetic::col::TrackedCol;
 use ark_ff::Zero;
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
+use indexmap::IndexMap;
 
 // TODO: Check if it can be optimized. Also, put in the paper
 /// The MLE of the multiplicities of the super column's elements in the
-/// claimed included column. A value's count sits on its first active super
-/// row; later duplicates get 0.
+/// claimed included columns, counted over all of them together. A value's
+/// count sits on its first active super row; later duplicates get 0.
 pub fn calc_inclusion_multiplicity<B>(
-    included_col: &TrackedCol<B>,
+    included_cols: &[TrackedCol<B>],
     super_col: &TrackedCol<B>,
 ) -> MLE<B::F>
 where
     B: SnarkBackend,
 {
-    let included_col_evals = included_col.data_tracked_poly().evaluations();
     let super_col_evals = super_col.data_tracked_poly().evaluations();
 
     let super_col_nv = super_col.log_size();
@@ -25,10 +25,18 @@ where
         .as_ref()
         .map(|sel| sel.evaluations());
 
-    let mut included_col_mults_map = match included_col.activator_tracked_poly() {
-        Some(sel) => vec_multiplicity_count::<B::F>(&included_col_evals, Some(&sel.evaluations())),
-        None => vec_multiplicity_count::<B::F>(&included_col_evals, None),
-    };
+    let mut included_col_mults_map = IndexMap::<B::F, u64>::new();
+    for included_col in included_cols {
+        let included_col_evals = included_col.data_tracked_poly().evaluations();
+        let activator_evals = included_col
+            .activator_tracked_poly()
+            .map(|sel| sel.evaluations());
+        for (val, count) in
+            vec_multiplicity_count::<B::F>(&included_col_evals, activator_evals.as_deref())
+        {
+            *included_col_mults_map.entry(val).or_insert(0) += count;
+        }
+    }
 
     let mut super_col_mult_evals = Vec::with_capacity(super_col_len);
 

@@ -1,4 +1,5 @@
-//! Fingerprint pre-filter (paper §6.2, PIOP 8) as a plan-level predicate.
+//! Fingerprint pre-filter (TruthTable++ Pre-Filtering Check, §6.3, PIOP 9)
+//! as a plan-level predicate.
 //!
 //! The static pre-filter pass (tt-proof-planner) rewrites
 //! `Filter(col LIKE pattern)` over a table scan into
@@ -906,7 +907,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         )
         .root()
         .clone();
-        // Row-only PIOP 8: the plan-level composition never consumes the
+        // Row-only PIOP 9: the plan-level composition never consumes the
         // narrowed char activator (MCPM re-derives its own consistent
         // pair, and the compaction path uses the compacted table's fresh
         // side activator), so the char-domain DPUC half is omitted.

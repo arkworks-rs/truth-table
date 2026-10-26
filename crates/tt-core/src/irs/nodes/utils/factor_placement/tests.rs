@@ -1,4 +1,4 @@
-//! Tests for `FactorPlacement` (paper PIOP 8).
+//! Tests for `FactorPlacement` (TruthTable++ Factor Placement, §5.1, PIOP 8).
 //!
 //! Prefix fixture: two strings `"ab"` laid out contiguously (chars 0..=1 and
 //! 2..=3, n_char = 4), factor `"ab"` (ℓ = 2). Both match, which gives two

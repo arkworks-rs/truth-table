@@ -54,21 +54,26 @@ pub struct EncodeOptions<'a> {
     /// fingerprints it under. With `None`, or a column with no rule, no
     /// limbs are emitted.
     pub column: Option<&'a str>,
+    /// The rank segment (`__rank`) of a string column.
+    pub rank: bool,
 }
 
 impl EncodeOptions<'_> {
-    /// Every optional segment of an unnamed column: side segments, and no
-    /// limbs, since only a named column has a rule.
+    /// The optional segments of an unnamed column: side segments, and no
+    /// limbs, since only a named column has a rule. No rank, which only a
+    /// table scan asks for.
     pub const ALL: Self = Self {
         side: true,
         fingerprint: FingerprintLimbs::All,
         column: None,
+        rank: false,
     };
     /// Row-domain value segments only.
     pub const NONE: Self = Self {
         side: false,
         fingerprint: FingerprintLimbs::None,
         column: None,
+        rank: false,
     };
 }
 

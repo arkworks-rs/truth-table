@@ -1,6 +1,5 @@
 use crate::irs::nodes::utils::contig_sort::{
-    DIFF_INPUT_LABEL, ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL, difference_sign_type,
-    ordered_data_fields_for_hint,
+    ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL, key_positions,
 };
 use crate::session::session_context;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
@@ -23,7 +22,8 @@ pub(crate) fn populate_rotated(
     sort_specs: &[(String, bool, bool)],
     skip_collection: bool,
 ) {
-    let order_by = sort_order_from_hint(input_hint, sort_specs);
+    let order_by =
+        sort_order_from_hint(input_hint, sort_specs).expect("sort keys resolve in the hint");
     let rotated_df = rotate(input_hint.data_frame().clone(), order_by, skip_collection)
         .expect("sort rotate planning should succeed");
     let should_materialize = rotated_df
@@ -36,19 +36,20 @@ pub(crate) fn populate_rotated(
     gadget_payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated_hint);
 }
 
-pub(crate) fn populate_tie_and_diff(
+pub(crate) fn populate_ties(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
 ) {
-    let order_by = sort_order_from_hint(input_hint, sort_specs);
+    let order_by =
+        sort_order_from_hint(input_hint, sort_specs).expect("sort keys resolve in the hint");
     let ordered = input_hint
         .data_frame()
         .clone()
         .sort(order_by.clone())
-        .expect("sort ordering for tie/diff planning should succeed");
+        .expect("sort ordering for tie planning should succeed");
 
-    if let Some(tie_df) = tie_indicator_on_ordered(ordered.clone(), order_by, sort_specs)
+    if let Some(tie_df) = tie_indicator_on_ordered(ordered, order_by, sort_specs)
         .expect("sort tie indicator planning should succeed")
     {
         let tie_should_materialize = tie_df
@@ -60,30 +61,13 @@ pub(crate) fn populate_tie_and_diff(
         let tie_hint = crate::irs::nodes::hints::HintDF::new(tie_df, tie_should_materialize);
         gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
     }
-
-    let sign_only_fields: Vec<Field> = ordered_data_fields_for_hint(input_hint, sort_specs)
-        .into_iter()
-        .filter(|field| difference_sign_type(field.data_type()).is_none())
-        .collect();
-    if !sign_only_fields.is_empty() {
-        let diff_df = sign_only_diff_on_ordered(ordered, &sign_only_fields, sort_specs)
-            .expect("sort diff planning should succeed");
-        let diff_should_materialize = diff_df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| (field.clone(), true))
-            .collect();
-        let diff_hint = crate::irs::nodes::hints::HintDF::new(diff_df, diff_should_materialize);
-        gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
-    }
 }
 
 pub(crate) fn sort_input_for_contig_sort(
     input_hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
 ) -> DataFusionResult<DataFrame> {
-    let order_by = sort_order_from_hint(input_hint, sort_specs);
+    let order_by = sort_order_from_hint(input_hint, sort_specs)?;
     input_hint.data_frame().clone().sort(order_by)
 }
 
@@ -260,76 +244,6 @@ fn zero_array(data_type: &DataType, len: usize) -> DataFusionResult<ArrayRef> {
     }
 }
 
-/// The shifted sign `{0, 1, 2}` of each adjacent pair, for the keys in
-/// `fields` (those without a `difference_sign_type`).
-fn sign_only_diff_on_ordered(
-    ordered: DataFrame,
-    fields: &[Field],
-    sort_specs: &[(String, bool, bool)],
-) -> DataFusionResult<DataFrame> {
-    let batches = crate::session::block_on(ordered.collect())?;
-    if batches.is_empty() {
-        return Err(DataFusionError::Execution(
-            "sign-only diff input produced no batches".to_string(),
-        ));
-    }
-    let schema_ref = batches[0].schema();
-    let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
-    let combined = concat_batches(&schema_ref, batch_refs)?;
-    let row_count = combined.num_rows();
-
-    let mut out_fields = Vec::with_capacity(fields.len());
-    let mut out_cols = Vec::with_capacity(fields.len());
-    for field in fields {
-        let source = combined
-            .column(combined.schema().index_of(field.name())?)
-            .clone();
-        let rotated = rotate_array(source.clone(), row_count)?;
-        let (lhs, rhs) = if sort_is_asc(sort_specs, field.name()) {
-            (rotated.as_ref(), source.as_ref())
-        } else {
-            (source.as_ref(), rotated.as_ref())
-        };
-        out_fields.push(Field::new(field.name(), DataType::UInt8, true));
-        out_cols.push(sign_only_diff_array(lhs, rhs)?);
-    }
-
-    let out_schema = std::sync::Arc::new(Schema::new(out_fields));
-    let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
-    session_context().read_batch(out_batch)
-}
-
-fn rotate_array(source: ArrayRef, row_count: usize) -> DataFusionResult<ArrayRef> {
-    if row_count <= 1 {
-        return Ok(source);
-    }
-    let tail = source.slice(1, row_count - 1);
-    let head = source.slice(0, 1);
-    concat(&[tail.as_ref(), head.as_ref()]).map_err(Into::into)
-}
-
-fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
-    let values = (0..lhs.len())
-        .map(|idx| {
-            if lhs.is_null(idx) || rhs.is_null(idx) {
-                Ok(None)
-            } else {
-                let left = ScalarValue::try_from_array(lhs, idx)?;
-                let right = ScalarValue::try_from_array(rhs, idx)?;
-                let shifted: u8 = match left.partial_cmp(&right) {
-                    Some(std::cmp::Ordering::Greater) => 2,
-                    Some(std::cmp::Ordering::Less) => 0,
-                    _ => 1,
-                };
-                Ok(Some(shifted))
-            }
-        })
-        .collect::<DataFusionResult<Vec<_>>>()?;
-    Ok(std::sync::Arc::new(
-        datafusion::arrow::array::UInt8Array::from(values),
-    ))
-}
-
 /// Builds the committed tie indicators `tie_1..tie_{k-1}`: `tie_j` is true on
 /// row i iff rows i and i+1 match on the first `j` keys. `None` for fewer
 /// than two keys, where only the public `tie_0` remains.
@@ -338,28 +252,7 @@ fn tie_indicator_on_ordered(
     order_by: Vec<SortExpr>,
     sort_specs: &[(String, bool, bool)],
 ) -> DataFusionResult<Option<DataFrame>> {
-    let mut data_cols: Vec<String> = ordered
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| field.name().to_string())
-        .filter(|name| !is_system_column(name))
-        .collect();
-    if !sort_specs.is_empty() {
-        let mut ordered_cols = Vec::with_capacity(data_cols.len());
-        for (name, _, _) in sort_specs {
-            let normalized = normalize_sort_name(name);
-            if let Some(col_name) = data_cols
-                .iter()
-                .find(|col_name| normalize_sort_name(col_name) == normalized)
-            {
-                ordered_cols.push(col_name.clone());
-            }
-        }
-        if ordered_cols.len() == sort_specs.len() {
-            data_cols = ordered_cols;
-        }
-    }
+    let data_cols = key_names(&ordered, sort_specs)?;
     if data_cols.len() < 2 {
         return Ok(None);
     }
@@ -424,13 +317,32 @@ fn tie_indicator_on_ordered(
     session_context().read_batch(out_batch).map(Some)
 }
 
+/// The data columns of `df` holding the sort keys, in key order.
+fn key_names(df: &DataFrame, sort_specs: &[(String, bool, bool)]) -> DataFusionResult<Vec<String>> {
+    let data_cols: Vec<String> = df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.name().to_string())
+        .filter(|name| !is_system_column(name))
+        .collect();
+    let positions = key_positions(data_cols.iter().map(String::as_str), sort_specs)
+        .map_err(DataFusionError::Plan)?;
+    Ok(positions
+        .into_iter()
+        .map(|position| data_cols[position].clone())
+        .collect())
+}
+
+/// Activator first (active rows first), then the keys, then `__row_id__`.
+/// NULLS LAST throughout, as padding and rotation assume.
 fn sort_order_from_hint(
     hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
-) -> Vec<SortExpr> {
-    let schema = hint.data_frame().schema();
+) -> DataFusionResult<Vec<SortExpr>> {
+    let df = hint.data_frame();
+    let schema = df.schema();
     let mut order_by = Vec::new();
-
     if schema
         .fields()
         .iter()
@@ -438,43 +350,9 @@ fn sort_order_from_hint(
     {
         order_by.push(col(ACTIVATOR_COL_NAME).sort(false, false));
     }
-
-    let data_fields: Vec<_> = schema
-        .fields()
-        .iter()
-        .filter(|field| !is_system_column(field.name()))
-        .collect();
-    if !sort_specs.is_empty() {
-        let mut ordered = Vec::with_capacity(sort_specs.len());
-        for (name, asc, nulls_first) in sort_specs {
-            let normalized = normalize_sort_name(name);
-            if let Some(field) = data_fields
-                .iter()
-                .find(|field| normalize_sort_name(field.name()) == normalized)
-            {
-                // Force NULLS LAST to match the ordering used during padding and
-                // rotation and keep prover and verifier aligned.
-                let _ = nulls_first;
-                ordered.push(col(field.name()).sort(*asc, false));
-            }
-        }
-        if ordered.len() == sort_specs.len() {
-            order_by.extend(ordered);
-        } else {
-            order_by.extend(
-                data_fields
-                    .iter()
-                    .map(|field| col(field.name()).sort(true, false)),
-            );
-        }
-    } else {
-        order_by.extend(
-            data_fields
-                .iter()
-                .map(|field| col(field.name()).sort(true, false)),
-        );
+    for (name, (_, asc, _)) in key_names(df, sort_specs)?.iter().zip(sort_specs) {
+        order_by.push(col(name.as_str()).sort(*asc, false));
     }
-
     if schema
         .fields()
         .iter()
@@ -483,18 +361,5 @@ fn sort_order_from_hint(
         // Row-id is only a deterministic tiebreaker once the sort order is fixed.
         order_by.push(col(ROW_ID_COL_NAME).sort(true, true));
     }
-
-    order_by
-}
-
-fn normalize_sort_name(name: &str) -> String {
-    name.rsplit('.').next().unwrap_or(name).to_string()
-}
-
-fn sort_is_asc(sort_specs: &[(String, bool, bool)], col_name: &str) -> bool {
-    sort_specs
-        .iter()
-        .find(|(name, _, _)| normalize_sort_name(name) == normalize_sort_name(col_name))
-        .map(|(_, asc, _)| *asc)
-        .unwrap_or(true)
+    Ok(order_by)
 }

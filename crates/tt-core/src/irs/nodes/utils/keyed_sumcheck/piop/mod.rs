@@ -87,6 +87,7 @@ fn ark_prover_input<B: SnarkBackend>(
     input: KeyedSumcheckProverInput<B>,
 ) -> ark_keyed_sumcheck::KeyedSumcheckProverInput<B> {
     let side = |cols: &[TrackedCol<B>], mults: Vec<Option<TrackedPoly<B>>>| {
+        assert_eq!(cols.len(), mults.len(), "a multiplicity slot per column");
         let numerators = cols
             .iter()
             .zip(mults)
@@ -134,6 +135,7 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let side = |cols: &[TrackedColOracle<B>], mults: Vec<Option<TrackedOracle<B>>>| {
+            assert_eq!(cols.len(), mults.len(), "a multiplicity slot per column");
             let numerators = cols
                 .iter()
                 .zip(mults)

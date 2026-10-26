@@ -1,14 +1,18 @@
 use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::ROW_ID_COL_NAME;
-use arithmetic::{ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    ACTIVATOR_FIELD, is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
+};
 use ark_ff::One;
 use ark_piop::{
     SnarkBackend,
-    errors::SnarkError,
+    arithmetic::errors::DataTypeError,
+    errors::{SnarkError, SnarkResult},
     prover::structs::polynomial::TrackedPoly,
     verifier::{errors::VerifierError, structs::oracle::TrackedOracle},
 };
-use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion_common::Column;
 use datafusion_expr::{Expr, LogicalPlan, col};
 use either::Either;
 use indexmap::IndexMap;
@@ -17,11 +21,15 @@ use std::sync::{Arc, Mutex};
 use crate::irs::nodes::hints::HintDF;
 use crate::{
     irs::{
+        lineage::{base_column, is_string_type},
         nodes::{
             IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
+            plan::lps::table_scan,
             utils::{commit_with_tracker, contig_sort, field_to_usize, track_next_committed},
         },
         payloads::PayloadStructure,
+        string_order::{StringOrder, string_order},
+        supported::sort_key_position,
         tree::Tree,
     },
     prover::irs::VirtualizedIr as ProverVirtualizedIr,
@@ -29,18 +37,36 @@ use crate::{
 };
 pub mod gadget;
 pub(crate) mod output;
+mod rank;
 use datafusion::logical_expr::Sort;
+use gadget::{KeyOrder, SortKey, rank_super_label, sort_key_name, sorts_on_characters};
+
 pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
     sort: Sort,
     input: Arc<Node<B>>,
-    sort_exprs: Vec<Arc<Node<B>>>,
+    keys: Vec<SortKey>,
+    rank_keys: Vec<RankKey<B>>,
+    /// The base columns of the keys sorted on their characters, which the
+    /// table scans load the character columns of.
+    character_columns: Vec<String>,
     gadget: Arc<Node<B>>,
     /// `s`, from `add_virtual_witness` for `initialize_gadgets`, which hands
     /// it to the sort check.
     active_rows: Mutex<Option<usize>>,
+}
+
+/// A string ORDER BY key sorted on its base column's rank.
+struct RankKey<B: SnarkBackend> {
+    /// The key's index among the ORDER BY keys.
+    index: usize,
+    table: String,
+    column: String,
+    /// The table scan of the base column on the key's lineage, in the
+    /// input's subtree: the lookup's base side.
+    scan: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -49,15 +75,13 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     }
 
     fn display(&self) -> String {
-        let exprs = if self.sort_exprs.is_empty() {
-            "none".to_string()
-        } else {
-            self.sort_exprs
-                .iter()
-                .map(|node| node.name())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
+        let exprs = self
+            .sort
+            .expr
+            .iter()
+            .map(|expr| expr.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         let fetch = self
             .sort
             .fetch
@@ -80,10 +104,18 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        let mut children = vec![self.input.clone()];
-        children.extend(self.sort_exprs.iter().cloned());
-        children.push(self.gadget.clone());
-        children
+        vec![self.input.clone(), self.gadget.clone()]
+    }
+
+    fn required_rank_columns(&self) -> Vec<(String, String)> {
+        self.rank_keys
+            .iter()
+            .map(|key| (key.table.clone(), key.column.clone()))
+            .collect()
+    }
+
+    fn required_side_columns(&self) -> Vec<String> {
+        self.character_columns.clone()
     }
 }
 
@@ -133,8 +165,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         Ok(())
     }
 
-    /// The gadget takes the input table, the output table and the sort-key
-    /// table, all without the row-id column.
+    /// The gadget takes the input and output tables, without the row-id
+    /// column, and the base side of each rank key's lookup.
     fn initialize_gadgets(
         &self,
         _id: NodeId,
@@ -153,12 +185,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                     _ => None,
                 });
 
-        let sort_exprs_table = build_sort_exprs_table_prover(&self.sort_exprs, virtualized_ir);
-
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
+        for key in &self.rank_keys {
+            gadget_payload.insert(
+                rank_super_label(key.index),
+                key.base_side_prover(virtualized_ir)?,
+            );
+        }
         if let Some(input) = input_table {
             gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input);
         }
@@ -180,9 +216,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             }
             gadget_payload.insert(gadget::OUTPUT_LABEL.to_string(), output);
         }
-        if let Some(sort_exprs) = sort_exprs_table {
-            gadget_payload.insert(gadget::INPUT_SORT_EXPRS.to_string(), sort_exprs);
-        }
 
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
@@ -192,6 +225,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         }
         Ok(())
     }
+
+    /// The sort keys of the input rows under [`sort_key_name`]; a rank key
+    /// as its string's rank in the base column.
     fn initialize_gadget_plans(
         &self,
         _id: NodeId,
@@ -201,15 +237,49 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
             _ => return Ok(()),
         };
+        // The String Sort Check plans no witness: it computes them at proving.
+        if sorts_on_characters(&self.keys) {
+            return Ok(());
+        }
 
         let input_df =
             crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
                 .expect("sort input row-id sort should succeed");
 
-        let mut exprs: Vec<Expr> = output::resolve_sort_exprs(input_df.schema(), &self.sort.expr)
-            .into_iter()
-            .map(|sort_expr| sort_expr.expr)
+        let data_columns: Vec<(Option<String>, Column)> = input_df
+            .schema()
+            .iter()
+            .filter(|(_, field)| !is_system_column(field.name()))
+            .map(|(qualifier, field)| {
+                (
+                    gadget::column_qualifier(qualifier, field),
+                    Column::new(qualifier.cloned(), field.name()),
+                )
+            })
             .collect();
+        let mut exprs = Vec::with_capacity(self.keys.len() + 2);
+        for (index, key) in self.keys.iter().enumerate() {
+            let position = key.index_in(
+                data_columns
+                    .iter()
+                    .map(|(qualifier, column)| (qualifier.clone(), column.name.as_str())),
+            )?;
+            let column = Expr::Column(data_columns[position].1.clone());
+            let key_expr = match self.rank_keys.iter().find(|rank| rank.index == index) {
+                Some(rank) => {
+                    let Some(PayloadStructure::PlanPayload(scan)) =
+                        planned_ir.payload_for_node(&rank.scan.id())
+                    else {
+                        return Err(missing_scan(rank));
+                    };
+                    let ranks = rank::base_ranks(scan.data_frame(), &rank.column)
+                        .map_err(|e| SnarkError::Artifact(format!("rank planning: {e}")))?;
+                    rank::rank_expr(column, ranks)
+                }
+                None => column,
+            };
+            exprs.push(key_expr.alias(sort_key_name(index)));
+        }
         if input_df
             .schema()
             .fields()
@@ -308,12 +378,16 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 _ => None,
             });
 
-        let sort_exprs_table = build_sort_exprs_table_verifier(&self.sort_exprs, virtualized_ir);
-
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
+        for key in &self.rank_keys {
+            gadget_payload.insert(
+                rank_super_label(key.index),
+                key.base_side_verifier(virtualized_ir)?,
+            );
+        }
         if let Some(input) = input_table {
             gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input);
         }
@@ -335,9 +409,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             }
             gadget_payload.insert(gadget::OUTPUT_LABEL.to_string(), output);
         }
-        if let Some(sort_exprs) = sort_exprs_table {
-            gadget_payload.insert(gadget::INPUT_SORT_EXPRS.to_string(), sort_exprs);
-        }
 
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
@@ -356,9 +427,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
             _ => return Ok(()),
         };
+        if sorts_on_characters(&self.keys) {
+            return Ok(());
+        }
 
-        let sort_exprs_hint =
-            build_sort_exprs_hint_verifier(&self.sort_exprs, &input_hint_df, planned_ir);
+        let sort_exprs_hint = self.sort_keys_hint_verifier(&input_hint_df)?;
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -373,200 +446,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     }
 }
 
-/// One table holding the data columns of every sort expression plus their
-/// shared activator.
-fn build_sort_exprs_table_prover<B: SnarkBackend>(
-    sort_exprs: &[Arc<Node<B>>],
-    virtualized_ir: &ProverVirtualizedIr<B>,
-) -> Option<TrackedTable<B>> {
-    if sort_exprs.is_empty() {
-        return None;
-    }
-
-    let mut output_cols: IndexMap<FieldRef, ark_piop::prover::structs::polynomial::TrackedPoly<B>> =
-        IndexMap::new();
-    let mut activator: Option<(FieldRef, _)> = None;
-    let mut log_size: Option<usize> = None;
-    let mut metadata = None;
-
-    for expr_node in sort_exprs {
-        let expr_table = match virtualized_ir.payload_for_node(&expr_node.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Sort expression missing tracked table payload"),
-        };
-
-        log_size.get_or_insert(expr_table.log_size());
-        debug_assert_eq!(
-            *log_size.as_ref().unwrap(),
-            expr_table.log_size(),
-            "Sort expr tables should share log size"
-        );
-        metadata.get_or_insert_with(|| {
-            expr_table
-                .schema_ref()
-                .map(|schema| schema.metadata().clone())
-                .unwrap_or_default()
-        });
-
-        if activator.is_none()
-            && let Some(activator_poly) = expr_table.activator_tracked_poly()
-        {
-            let activator_field = expr_table
-                .tracked_polys()
-                .keys()
-                .find(|field| field.name() == ACTIVATOR_COL_NAME)
-                .cloned()
-                .expect("activator field missing from sort expr table");
-            activator = Some((activator_field, activator_poly));
-        }
-        // A sort expression yields several data columns when its column is
-        // encoded as several segments (strings: hash + __length). Forward all
-        // of them so the sort gadget sees the shape of the table it sorts.
-        let data_indices = expr_table.data_tracked_polys_indices();
-        let expr_tracked = expr_table.tracked_polys();
-        for idx in &data_indices {
-            let (field, poly) = expr_tracked
-                .get_index(*idx)
-                .expect("sort expr column index out of bounds");
-            output_cols.insert(field.clone(), poly.clone());
-        }
-    }
-
-    if let Some((field, poly)) = activator {
-        output_cols.entry(field).or_insert(poly);
-    }
-    // Row-id is left out: it only orders rows in plans.
-
-    let fields: Vec<Field> = output_cols
-        .keys()
-        .map(|field| field.as_ref().clone())
-        .collect();
-    let schema = Some(Schema::new_with_metadata(
-        fields,
-        metadata.unwrap_or_default(),
-    ));
-    Some(TrackedTable::new(
-        schema,
-        output_cols,
-        log_size.unwrap_or_default(),
-    ))
-}
-
-fn build_sort_exprs_table_verifier<B: SnarkBackend>(
-    sort_exprs: &[Arc<Node<B>>],
-    virtualized_ir: &VerifierVirtualizedIr<B>,
-) -> Option<TrackedTableOracle<B>> {
-    if sort_exprs.is_empty() {
-        return None;
-    }
-
-    let mut output_cols: IndexMap<FieldRef, ark_piop::verifier::structs::oracle::TrackedOracle<B>> =
-        IndexMap::new();
-    let mut activator: Option<(FieldRef, _)> = None;
-    let mut log_size: Option<usize> = None;
-    let mut metadata = None;
-
-    for expr_node in sort_exprs {
-        let expr_table = match virtualized_ir.payload_for_node(&expr_node.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Sort expression missing tracked table payload"),
-        };
-
-        log_size.get_or_insert(expr_table.log_size());
-        debug_assert_eq!(
-            *log_size.as_ref().unwrap(),
-            expr_table.log_size(),
-            "Sort expr tables should share log size"
-        );
-        metadata.get_or_insert_with(|| {
-            expr_table
-                .schema_ref()
-                .map(|schema| schema.metadata().clone())
-                .unwrap_or_default()
-        });
-
-        if activator.is_none()
-            && let Some(activator_oracle) = expr_table.activator_tracked_poly()
-        {
-            let activator_field = expr_table
-                .tracked_oracles()
-                .keys()
-                .find(|field| field.name() == ACTIVATOR_COL_NAME)
-                .cloned()
-                .expect("activator field missing from sort expr table");
-            activator = Some((activator_field, activator_oracle));
-        }
-        // Every data segment, so the table has the prover's shape.
-        let data_indices = expr_table.data_tracked_oracles_indices();
-        let expr_tracked = expr_table.tracked_oracles();
-        for idx in &data_indices {
-            let (field, oracle) = expr_tracked
-                .get_index(*idx)
-                .expect("sort expr column index out of bounds");
-            output_cols.insert(field.clone(), oracle.clone());
-        }
-    }
-
-    if let Some((field, oracle)) = activator {
-        output_cols.entry(field).or_insert(oracle);
-    }
-
-    let fields: Vec<Field> = output_cols
-        .keys()
-        .map(|field| field.as_ref().clone())
-        .collect();
-    let schema = Some(Schema::new_with_metadata(
-        fields,
-        metadata.unwrap_or_default(),
-    ));
-    Some(TrackedTableOracle::new(
-        schema,
-        output_cols,
-        log_size.unwrap_or_default(),
-    ))
-}
-
-fn build_sort_exprs_hint_verifier<B: SnarkBackend>(
-    sort_exprs: &[Arc<Node<B>>],
-    input_hint_df: &HintDF,
-    planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
-) -> HintDF {
-    let mut fields = Vec::new();
-
-    for expr_node in sort_exprs {
-        let Some(PayloadStructure::PlanPayload(expr_hint_df)) =
-            planned_ir.payload_for_node(&expr_node.id())
-        else {
-            continue;
-        };
-
-        fields.extend(
-            expr_hint_df
-                .data_frame()
-                .schema()
-                .fields()
-                .iter()
-                .filter(|field| {
-                    field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME
-                })
-                .map(|field| field.as_ref().clone()),
-        );
-    }
-
-    fields.extend(
-        input_hint_df
-            .data_frame()
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME)
-            .map(|field| field.as_ref().clone()),
-    );
-
-    let sort_exprs_df = crate::irs::nodes::hints::schema_only_df(fields);
-    HintDF::new_virtual(sort_exprs_df)
-}
-
 fn strip_row_id_tracked_table<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
     let Some(schema) = table.schema_ref() else {
         return table.clone();
@@ -579,7 +458,8 @@ fn strip_row_id_tracked_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Track
         return table.clone();
     }
 
-    // Row-id is only used for deterministic ordering, so omit it from payload tables.
+    // Row-id is only used for deterministic ordering, so omit it from payload
+    // tables. The side columns stay: the String Sort Check reads the input's.
     let mut cols = IndexMap::new();
     for (field, poly) in table.tracked_polys_iter() {
         if field.name() != ROW_ID_COL_NAME {
@@ -588,7 +468,7 @@ fn strip_row_id_tracked_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Track
     }
     let fields: Vec<Field> = cols.keys().map(|field| field.as_ref().clone()).collect();
     let schema = Some(Schema::new_with_metadata(fields, schema.metadata().clone()));
-    TrackedTable::new(schema, cols, table.log_size())
+    TrackedTable::new_with_side_cols(schema, cols, table.log_size(), table.side_cols())
 }
 
 fn strip_row_id_tracked_oracle<B: SnarkBackend>(
@@ -614,7 +494,7 @@ fn strip_row_id_tracked_oracle<B: SnarkBackend>(
     }
     let fields: Vec<Field> = cols.keys().map(|field| field.as_ref().clone()).collect();
     let schema = Some(Schema::new_with_metadata(fields, schema.metadata().clone()));
-    TrackedTableOracle::new(schema, cols, table.log_size())
+    TrackedTableOracle::new_with_side_cols(schema, cols, table.log_size(), table.side_cols())
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
@@ -650,15 +530,19 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
-        let output_fields = input_hint_df
-            .data_frame()
+        // A projection of the schema-only input, not a fresh schema: the
+        // qualifiers keep same-named columns (a self-join's) apart.
+        let input_df = input_hint_df.data_frame();
+        let output_columns = input_df
             .schema()
-            .fields()
             .iter()
-            .filter(|field| field.name() != ROW_ID_COL_NAME)
-            .map(|field| field.as_ref().clone())
-            .collect();
-        let output_df = crate::irs::nodes::hints::schema_only_df(output_fields);
+            .filter(|(_, field)| field.name() != ROW_ID_COL_NAME)
+            .map(|(qualifier, field)| Expr::Column(Column::new(qualifier.cloned(), field.name())))
+            .collect::<Vec<_>>();
+        let output_df = input_df
+            .clone()
+            .select(output_columns)
+            .expect("the sort output's schema projection should succeed");
         hint_with_virtual_activator(output_df)
     }
 }
@@ -703,7 +587,7 @@ fn with_activator_field(schema: Option<&Schema>) -> Option<Schema> {
 }
 
 impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
-    fn from_lp(plan: LogicalPlan, self_ref: std::sync::Weak<Node<B>>) -> Self
+    fn from_lp(plan: LogicalPlan, _self_ref: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,
     {
@@ -713,27 +597,61 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         };
 
         let input = Tree::<B>::from_logical_plan(&sort.input).root().clone();
+        let input_schema = sort.input.schema();
+        let lexicographic = string_order() == StringOrder::Lexicographic;
 
-        let mut sort_exprs = vec![];
-        for expr in &sort.expr {
-            let expr_lp = Tree::<B>::from_expr(
-                &expr.expr.clone(),
-                Some(self_ref.clone()),
-                vec![Arc::downgrade(&input)],
-            )
-            .root()
-            .clone();
-            sort_exprs.push(expr_lp);
+        let mut keys = Vec::with_capacity(sort.expr.len());
+        let mut rank_keys = Vec::new();
+        let mut character_columns = Vec::new();
+        for (index, expr) in sort.expr.iter().enumerate() {
+            let position = sort_key_position(&sort, index).unwrap_or_else(|e| panic!("{e}"));
+            let field = input_schema.field(position);
+            let order = match (is_string_type(field.data_type()), lexicographic) {
+                (false, _) => KeyOrder::Value,
+                (true, false) => KeyOrder::Rank,
+                (true, true) => KeyOrder::Characters,
+            };
+            let base = || {
+                base_column(&sort.input, position)
+                    .expect("sort_key_position resolved the key's lineage")
+            };
+            match order {
+                KeyOrder::Value => {}
+                KeyOrder::Characters => character_columns.push(base().column),
+                KeyOrder::Rank => {
+                    let base = base();
+                    let scan = find_scan(&input, base.scan).unwrap_or_else(|| {
+                        panic!(
+                            "ORDER BY {}: no scan of {} on its lineage in the sort's input",
+                            expr.expr, base.table
+                        )
+                    });
+                    rank_keys.push(RankKey {
+                        index,
+                        table: base.table,
+                        column: base.column,
+                        scan,
+                    });
+                }
+            }
+            let (qualifier, _) = input_schema.qualified_field(position);
+            keys.push(SortKey {
+                column: Column::new(qualifier.cloned(), field.name()),
+                asc: expr.asc,
+                order,
+            });
         }
 
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(gadget::GadgetNode::new(
-            sort.clone(),
+            keys.clone(),
         ))));
 
         Self {
             sort,
             input,
-            sort_exprs,
+            keys,
+            rank_keys,
+            character_columns,
             gadget,
             active_rows: Mutex::new(None),
         }
@@ -741,5 +659,128 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
 
     fn lp(&self) -> LogicalPlan {
         LogicalPlan::Sort(self.sort.clone())
+    }
+}
+
+/// The table scan in `root`'s subtree whose plan is `scan`. Equal scans
+/// (a self-join's) are interchangeable: they read the same committed table.
+fn find_scan<B: SnarkBackend>(root: &Arc<Node<B>>, scan: &LogicalPlan) -> Option<Arc<Node<B>>> {
+    if let Some(node) = table_scan::LpNode::of(root)
+        && &<table_scan::LpNode as IsLpNode<B>>::lp(node) == scan
+    {
+        return Some(root.clone());
+    }
+    root.children()
+        .iter()
+        .find_map(|child| find_scan(child, scan))
+}
+
+fn missing_scan<B: SnarkBackend>(key: &RankKey<B>) -> SnarkError {
+    SnarkError::DataTypeError(DataTypeError::NotSupported(format!(
+        "the scan of the base column {} of ORDER BY key {} has no table",
+        key.column, key.index
+    )))
+}
+
+impl<B: SnarkBackend> RankKey<B> {
+    /// The scan's hash slots, `__length` and rank of the base column, under
+    /// the scan's activator: the lookup's base side.
+    fn base_side_prover(
+        &self,
+        virtualized_ir: &ProverVirtualizedIr<B>,
+    ) -> SnarkResult<TrackedTable<B>> {
+        let (rank_id, num_vars) = self.cached_rank()?;
+        let Some(PayloadStructure::PlanPayload(scan)) =
+            virtualized_ir.payload_for_node(&self.scan.id())
+        else {
+            return Err(missing_scan(self));
+        };
+        let (field, column) = scan
+            .tracked_cols_iter()
+            .find(|(field, _)| field.name() == &self.column)
+            .ok_or_else(|| missing_scan(self))?;
+        let mut columns = gadget::string_identity_prover(column, field.data_type())?;
+        let tracker = columns[0].tracker();
+        columns.push(TrackedPoly::new(Either::Left(rank_id), num_vars, tracker));
+        Ok(gadget::lookup_table_prover(
+            columns,
+            scan.activator_tracked_poly(),
+            scan.log_size(),
+        ))
+    }
+
+    fn base_side_verifier(
+        &self,
+        virtualized_ir: &VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<TrackedTableOracle<B>> {
+        let (rank_id, num_vars) = self.cached_rank()?;
+        let Some(PayloadStructure::PlanPayload(scan)) =
+            virtualized_ir.payload_for_node(&self.scan.id())
+        else {
+            return Err(missing_scan(self));
+        };
+        let (field, column) = scan
+            .tracked_col_oracles_iter()
+            .find(|(field, _)| field.name() == &self.column)
+            .ok_or_else(|| missing_scan(self))?;
+        let mut columns = gadget::string_identity_verifier(column, field.data_type())?;
+        let tracker = columns[0].tracker();
+        columns.push(TrackedOracle::new(Either::Left(rank_id), tracker, num_vars));
+        Ok(gadget::lookup_table_verifier(
+            columns,
+            scan.activator_tracked_poly(),
+            scan.log_size(),
+        ))
+    }
+
+    /// The rank segment the scan took out of its payload.
+    fn cached_rank(&self) -> SnarkResult<(ark_piop::types::TrackerID, usize)> {
+        table_scan::LpNode::of(&self.scan)
+            .and_then(|scan| scan.rank_poly(&self.column))
+            .ok_or_else(|| {
+                SnarkError::DataTypeError(DataTypeError::NotSupported(format!(
+                    "the table scan carries no rank of {}",
+                    self.column
+                )))
+            })
+    }
+}
+
+impl<B: SnarkBackend> LpNode<B> {
+    /// The verifier's [`gadget::INPUT_SORT_EXPRS`] hint: the prover's key
+    /// columns, rank keys as UInt32, then the input's system columns.
+    fn sort_keys_hint_verifier(&self, input_hint_df: &HintDF) -> SnarkResult<HintDF> {
+        let schema = input_hint_df.data_frame().schema();
+        let data_fields: Vec<(Option<String>, &Field)> = schema
+            .iter()
+            .filter(|(_, field)| !is_system_column(field.name()))
+            .map(|(qualifier, field)| (gadget::column_qualifier(qualifier, field), field.as_ref()))
+            .collect();
+        let mut fields = Vec::with_capacity(self.keys.len() + 2);
+        for (index, key) in self.keys.iter().enumerate() {
+            let (_, field) = data_fields[key.index_in(
+                data_fields
+                    .iter()
+                    .map(|(qualifier, field)| (qualifier.clone(), field.name().as_str())),
+            )?];
+            let data_type = if key.order == KeyOrder::Rank {
+                DataType::UInt32
+            } else {
+                field.data_type().clone()
+            };
+            fields.push(Field::new(sort_key_name(index), data_type, true));
+        }
+        fields.extend(
+            schema
+                .fields()
+                .iter()
+                .filter(|field| {
+                    field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME
+                })
+                .map(|field| field.as_ref().clone()),
+        );
+        Ok(HintDF::new_virtual(
+            crate::irs::nodes::hints::schema_only_df(fields),
+        ))
     }
 }

@@ -221,10 +221,10 @@ pub fn is_segment_of(field_name: &str, base_name: &str) -> bool {
 }
 
 /// The row-domain segment suffixes the encoder produces for a column of
-/// type `dtype`, in encoder order, without the fingerprint limbs and the
-/// side segments ([`side_segment_suffixes_for_type`]). The verifier's
-/// tracking pass, which has the schema but no data, enumerates segments
-/// with it, so it must agree with the encoders.
+/// type `dtype`, in encoder order, without the opt-in fingerprint limbs and
+/// rank, and without the side segments ([`side_segment_suffixes_for_type`]).
+/// The verifier's tracking pass, which has the schema but no data,
+/// enumerates segments with it, so it must agree with the encoders.
 pub fn segment_suffixes_for_type<F: PrimeField>(dtype: &DataType) -> Vec<String> {
     let hash_slots = hash_slot_count::<F>();
 

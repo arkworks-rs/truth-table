@@ -1,8 +1,9 @@
 //! A dishonest prover for tests. A [`JoinForgery`] rewrites a many-to-many
 //! join's matching pairs before any witness is derived from them, in both
 //! places that compute them (the output hint and the gadget's source maps),
-//! so every witness carries the same forgery. A claimed-result rewrite makes
-//! the prover claim the result of the forged plan, so the result check
+//! so every witness carries the same forgery. A [`SortForgery`] reverses an
+//! ORDER BY, or its last key, in the prover's plan. A claimed-result rewrite
+//! makes the prover claim the result of the forged plan, so the result check
 //! passes and only the forged operator's own checks can reject.
 //!
 //! Both are process-wide: a test that installs one must be the only test of
@@ -14,7 +15,7 @@ use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, Result as DataFusionResult, ScalarValue};
-use datafusion_expr::{Expr, JoinType, lit, not};
+use datafusion_expr::{Expr, JoinType, SortExpr, lit, not};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JoinForgery {
@@ -29,12 +30,61 @@ pub enum JoinForgery {
 
 static FORGERY: Mutex<Option<JoinForgery>> = Mutex::new(None);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortForgery {
+    /// Every ORDER BY output is sorted against its keys' directions; the
+    /// sort check's witnesses (sorted keys and ranks, rotation, ties) stay
+    /// those of the honest order.
+    ReverseOutput,
+    /// The output and the sort check's witnesses alike: they agree with each
+    /// other, and only the order of the sorted keys is wrong.
+    ReverseOutputAndWitnesses,
+    /// Only the last ORDER BY key of the output is sorted against its
+    /// direction, the earlier keys keep theirs; the sort check's witnesses
+    /// stay those of the honest order. The wrong order is then only inside
+    /// the earlier keys' ties.
+    ReverseLastKey,
+}
+
+static SORT_FORGERY: Mutex<Option<SortForgery>> = Mutex::new(None);
+
 pub type ResultRewrite = Box<dyn Fn(Vec<RecordBatch>) -> Vec<RecordBatch> + Send>;
 
 static CLAIMED_RESULT: Mutex<Option<ResultRewrite>> = Mutex::new(None);
 
 pub fn set_join_forgery(forgery: Option<JoinForgery>) {
     *FORGERY.lock().expect("lock poisoned") = forgery;
+}
+
+pub fn set_sort_forgery(forgery: Option<SortForgery>) {
+    *SORT_FORGERY.lock().expect("lock poisoned") = forgery;
+}
+
+/// The ORDER BY keys the prover's Sort output is sorted on.
+pub(crate) fn forge_sort_exprs(exprs: Vec<SortExpr>) -> Vec<SortExpr> {
+    match *SORT_FORGERY.lock().expect("lock poisoned") {
+        Some(SortForgery::ReverseLastKey) => {
+            let mut exprs = exprs;
+            if let Some(last) = exprs.pop() {
+                exprs.push(last.reverse());
+            }
+            exprs
+        }
+        Some(_) => exprs.into_iter().map(|expr| expr.reverse()).collect(),
+        None => exprs,
+    }
+}
+
+/// The keys the sort check's witnesses are planned on, as `(column,
+/// ascending, nulls first)`.
+pub(crate) fn forge_sort_specs(specs: Vec<(String, bool, bool)>) -> Vec<(String, bool, bool)> {
+    match *SORT_FORGERY.lock().expect("lock poisoned") {
+        Some(SortForgery::ReverseOutputAndWitnesses) => specs
+            .into_iter()
+            .map(|(name, asc, nulls_first)| (name, !asc, nulls_first))
+            .collect(),
+        _ => specs,
+    }
 }
 
 pub fn set_claimed_result(rewrite: Option<ResultRewrite>) {

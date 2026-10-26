@@ -12,7 +12,9 @@ use ark_serialize::{
 use derivative::Derivative;
 use proof_planner::data_dependent_lp_optimizer::OptimizationHints;
 use tracing::debug;
-use tt_core::{errors::TTResult, prover::passes::tracking::FingerprintOpenings};
+use tt_core::{
+    errors::TTResult, irs::string_order::StringOrder, prover::passes::tracking::FingerprintOpenings,
+};
 use zstd::stream::{decode_all as zstd_decode_all, encode_all as zstd_encode_all};
 
 pub use ark_piop::types::artifact::{Artifact, SizeBreakdown};
@@ -30,6 +32,8 @@ pub struct TTProof<B: SnarkBackend> {
     /// The prover's data-dependent choices, which the verifier replays to
     /// arrive at the same proof plan.
     optimization_hints: OptimizationHints,
+    /// The prover's string order, which the verifier requires to be its own.
+    string_order: StringOrder,
     /// The Merkle multiproofs opening, against the table oracles' roots, the
     /// fingerprint bins whose commitments this proof carries.
     fingerprint_openings: FingerprintOpenings,
@@ -47,11 +51,13 @@ impl<B: SnarkBackend> TTProof<B> {
     pub fn new(
         snark_proof: SNARKProof<B>,
         optimization_hints: OptimizationHints,
+        string_order: StringOrder,
         fingerprint_openings: FingerprintOpenings,
     ) -> TTResult<Self> {
         Ok(Self {
             snark_proof,
             optimization_hints,
+            string_order,
             fingerprint_openings,
         })
     }
@@ -71,6 +77,10 @@ impl<B: SnarkBackend> TTProof<B> {
 
     pub fn optimization_hints(&self) -> &OptimizationHints {
         &self.optimization_hints
+    }
+
+    pub fn string_order(&self) -> StringOrder {
+        self.string_order
     }
 
     /// The multiproofs of the fingerprint bins this proof opens.
@@ -155,8 +165,8 @@ where
         }
     }
 
-    /// The length prefix (8 bytes), the hint payload, the SNARK proof and the
-    /// fingerprint openings.
+    /// The length prefix (8 bytes), the hint payload, the string order (one
+    /// byte), the SNARK proof and the fingerprint openings.
     fn size_breakdown(&self) -> Option<SizeBreakdown> {
         let optimization_hints = optimization_hints_payload_bytes(&self.optimization_hints)
             .map(|bytes| bytes.len())
@@ -165,12 +175,13 @@ where
         let openings = self.fingerprint_openings.serialized_size(Compress::Yes);
 
         Some(SizeBreakdown::node(
-            8 + optimization_hints + snark_proof.size + openings,
+            8 + optimization_hints + 1 + snark_proof.size + openings,
             [
                 (
                     "optimization_hints",
                     SizeBreakdown::leaf(optimization_hints),
                 ),
+                ("string_order", SizeBreakdown::leaf(1)),
                 ("snark_proof", snark_proof),
                 ("fingerprint_openings", SizeBreakdown::leaf(openings)),
             ],
@@ -238,8 +249,9 @@ where
 /// The serialized layout is:
 /// 1. little-endian payload length for optimization hints
 /// 2. framed optimization-hint payload bytes
-/// 3. canonical SNARK proof bytes
-/// 4. the fingerprint multiproofs
+/// 3. the string order, one byte
+/// 4. canonical SNARK proof bytes
+/// 5. the fingerprint multiproofs
 impl<B> CanonicalSerialize for TTProof<B>
 where
     B: SnarkBackend,
@@ -258,6 +270,7 @@ where
         );
         writer.write_all(&plan_len.to_le_bytes())?;
         writer.write_all(&plan_bytes)?;
+        writer.write_all(&[self.string_order.to_byte()])?;
         self.snark_proof
             .serialize_with_mode(&mut writer, compress)?;
         self.fingerprint_openings
@@ -270,6 +283,7 @@ where
             .map(|bytes| bytes.len())
             .unwrap_or(0);
         8 + plan_len
+            + 1
             + self.snark_proof.serialized_size(compress)
             + self.fingerprint_openings.serialized_size(compress)
     }
@@ -302,12 +316,17 @@ where
             // stored IR bytes in this slot) and is ignored.
             OptimizationHints::default()
         };
+        let mut order_byte = [0u8; 1];
+        reader.read_exact(&mut order_byte)?;
+        let string_order =
+            StringOrder::from_byte(order_byte[0]).ok_or(SerializationError::InvalidData)?;
         let snark_proof = SNARKProof::<B>::deserialize_with_mode(&mut reader, compress, _validate)?;
         let fingerprint_openings =
             FingerprintOpenings::deserialize_with_mode(&mut reader, compress, _validate)?;
         Ok(Self {
             snark_proof,
             optimization_hints,
+            string_order,
             fingerprint_openings,
         })
     }

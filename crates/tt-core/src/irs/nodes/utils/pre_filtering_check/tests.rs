@@ -1,4 +1,4 @@
-//! Tests for `PreFilteringCheck` (paper PIOP 8), under a local
+//! Tests for `PreFilteringCheck` (TruthTable++ Pre-Filtering Check, §6.3, PIOP 9), under a local
 //! one-bin-per-character scheme so that they do not depend on the deployed
 //! one.
 //!

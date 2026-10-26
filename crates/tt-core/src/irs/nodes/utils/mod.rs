@@ -12,6 +12,7 @@ pub mod geq;
 pub mod keyed_sumcheck;
 pub mod length_filtering_check;
 pub mod leq;
+pub mod lex_sort;
 pub mod lookup;
 pub mod match_pair_check;
 pub mod multi_character_pattern_matching;

@@ -11,8 +11,8 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
-    ACTIVE_ROWS_LABEL, DIFF_INPUT_LABEL, GadgetNode, LIMBS_LABEL, PerColumnConfig,
-    ROTATED_INPUT_LABEL, SortConfig, TABLE_LABEL, TIE_INDICATOR_LABEL,
+    ACTIVE_ROWS_LABEL, GadgetNode, LIMBS_LABEL, PerColumnConfig, ROTATED_INPUT_LABEL, SortConfig,
+    TABLE_LABEL, TIE_INDICATOR_LABEL,
 };
 use crate::irs::nodes::Node;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
@@ -77,15 +77,14 @@ pub(crate) fn active_rows(s: u64) -> TableSpec<F> {
 }
 
 /// Proves and verifies that `keys` (all rows active) is sorted under
-/// `config`, with the given committed tie and diff hints.
+/// `config`, with the given committed tie hints.
 pub(crate) fn run(
     config: SortConfig,
     keys: &[(&str, DataType, Vec<F>)],
     ties: &[(&str, Vec<F>)],
-    diffs: &[(&str, DataType, Vec<F>)],
 ) -> Result<(), ark_piop::errors::SnarkError> {
     let rotated: Vec<_> = keys.iter().map(|(_, _, values)| rotate(values)).collect();
-    run_with(config, keys, &rotated, 4, ties, diffs)
+    run_with(config, keys, &rotated, 4, ties)
 }
 
 /// As [`run`], with the first `s` rows active and the shifted copy `d'` of
@@ -96,7 +95,6 @@ fn run_with(
     shifted: &[Vec<F>],
     s: u64,
     ties: &[(&str, Vec<F>)],
-    diffs: &[(&str, DataType, Vec<F>)],
 ) -> Result<(), ark_piop::errors::SnarkError> {
     let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(config))));
     let id = gadget.id();
@@ -118,9 +116,6 @@ fn run_with(
             .map(|(name, values)| (*name, DataType::Boolean, values.clone()))
             .collect();
         builder = builder.with_table(id, TIE_INDICATOR_LABEL, table(&ties, None));
-    }
-    if !diffs.is_empty() {
-        builder = builder.with_table(id, DIFF_INPUT_LABEL, table(diffs, None));
     }
     run_gadget_pipeline(builder.build())
 }
@@ -149,7 +144,7 @@ pub(crate) fn assert_rejected(result: Result<(), ark_piop::errors::SnarkError>) 
 #[test]
 fn distinct_ascending_keys_accepted() {
     let keys = [("k", DataType::Int64, ints(&[1, 3, 5, 9]))];
-    run(distinct(), &keys, &[], &[]).expect("a strictly sorted key column verifies");
+    run(distinct(), &keys, &[]).expect("a strictly sorted key column verifies");
 }
 
 #[test]
@@ -158,33 +153,26 @@ fn duplicate_with_zero_first_tie_rejected() {
     // the public mask instead.
     let keys = [("k", DataType::Int64, ints(&[1, 5, 5, 9]))];
     let ties = [("tie_0", ints(&[0, 0, 0, 0]))];
-    let diffs = [("k", DataType::Int64, ints(&[4, 0, 4, -8]))];
-    assert_rejected(run(distinct(), &keys, &ties, &diffs));
+    assert_rejected(run(distinct(), &keys, &ties));
 }
 
 #[test]
-fn duplicate_with_forged_diff_rejected() {
-    // The true difference of the duplicate pair is 0; a committed 1 must
-    // not reach the Sign check.
+fn duplicate_rejected() {
     let keys = [("k", DataType::Int64, ints(&[1, 5, 5, 9]))];
-    let ties = [("tie_0", ints(&[1, 1, 1, 0]))];
-    let diffs = [("k", DataType::Int64, ints(&[4, 1, 4, 0]))];
-    assert_rejected(run(distinct(), &keys, &ties, &diffs));
+    assert_rejected(run(distinct(), &keys, &[]));
 }
 
 #[test]
-fn inversion_with_forged_diff_rejected() {
+fn inversion_rejected() {
     let keys = [("k", DataType::Int64, ints(&[1, 7, 3, 9]))];
-    let ties = [("tie_0", ints(&[1, 1, 1, 0]))];
-    let diffs = [("k", DataType::Int64, ints(&[6, 1, 6, 0]))];
-    assert_rejected(run(ascending(&["k"], false), &keys, &ties, &diffs));
+    assert_rejected(run(ascending(&["k"], false), &keys, &[]));
 }
 
 #[test]
 fn signed_extremes_accepted() {
     // Adjacent differences up to 2^64 - 1 need the unsigned 64-bit width.
     let keys = [("k", DataType::Int64, ints(&[i64::MIN, -1, 0, i64::MAX]))];
-    run(ascending(&["k"], false), &keys, &[], &[]).expect("sorted signed keys verify");
+    run(ascending(&["k"], false), &keys, &[]).expect("sorted signed keys verify");
 }
 
 #[test]
@@ -194,7 +182,7 @@ fn ties_broken_by_second_key_accepted() {
         ("b", DataType::Int32, ints(&[3, 4, 1, 5])),
     ];
     let ties = [("tie_1", ints(&[1, 0, 1, 0]))];
-    run(ascending(&["a", "b"], true), &keys, &ties, &[])
+    run(ascending(&["a", "b"], true), &keys, &ties)
         .expect("a lexicographically strict table verifies");
 }
 
@@ -205,16 +193,41 @@ fn duplicate_row_with_two_keys_rejected() {
         ("b", DataType::Int32, ints(&[3, 3, 1, 5])),
     ];
     let ties = [("tie_1", ints(&[1, 0, 1, 0]))];
-    assert_rejected(run(ascending(&["a", "b"], true), &keys, &ties, &[]));
+    assert_rejected(run(ascending(&["a", "b"], true), &keys, &ties));
 }
 
 #[test]
-fn sign_only_key_uses_committed_diff() {
-    // String keys have no order-preserving encoding; they are compared
-    // through the committed shifted sign {0, 1, 2}.
-    let keys = [("s", DataType::Utf8, ints(&[40, 10, 30, 20]))];
-    let diffs = [("s", DataType::UInt8, ints(&[2, 2, 2, 0]))];
-    run(ascending(&["s"], false), &keys, &[], &diffs).expect("a sign-only key verifies");
+fn a_key_without_an_ordered_encoding_is_not_supported() {
+    // A string's hash says nothing about its order: its rank is sorted
+    // instead.
+    let keys = [("s", DataType::Utf8, ints(&[10, 20, 30, 40]))];
+    let result = run(ascending(&["s"], false), &keys, &[]);
+    assert!(
+        matches!(
+            result,
+            Err(ark_piop::errors::SnarkError::DataTypeError(
+                ark_piop::arithmetic::errors::DataTypeError::NotSupported(_)
+            ))
+        ),
+        "got {result:?}"
+    );
+}
+
+#[test]
+fn a_key_must_name_exactly_one_column() {
+    let keys = [("t.k", DataType::Int64, ints(&[1, 2, 3, 4]))];
+    for spec in ["k", "t.k2"] {
+        let result = run(ascending(&[spec], false), &keys, &[]);
+        assert!(
+            matches!(
+                result,
+                Err(ark_piop::errors::SnarkError::DataTypeError(
+                    ark_piop::arithmetic::errors::DataTypeError::NotSupported(_)
+                ))
+            ),
+            "{spec}: got {result:?}"
+        );
+    }
 }
 
 #[test]
@@ -226,7 +239,7 @@ fn ties_follow_key_order_not_column_order() {
         ("b", DataType::Int64, ints(&[1, 1, 3, 3])),
     ];
     let ties = [("tie_1", ints(&[1, 0, 1, 0]))];
-    run(ascending(&["b", "a"], false), &keys, &ties, &[])
+    run(ascending(&["b", "a"], false), &keys, &ties)
         .expect("a table sorted by a key order unlike its column order verifies");
 }
 
@@ -266,7 +279,7 @@ fn tie_hint_covers_only_the_sort_keys() {
     ];
 
     let mut payload = indexmap::IndexMap::new();
-    super::hints::populate_tie_and_diff(&mut payload, &input, &specs);
+    super::hints::populate_ties(&mut payload, &input, &specs);
 
     let tie_df = payload[TIE_INDICATOR_LABEL].data_frame().clone();
     let batches = crate::session::block_on(tie_df.collect()).unwrap();
@@ -302,12 +315,7 @@ fn non_monotone_ties_are_rejected() {
         ("tie_2", ints(&[1, 0, 0, 0])),
         ("tie_3", ints(&[0, 0, 0, 0])),
     ];
-    assert_rejected(run(
-        ascending(&["a", "b", "c", "d"], false),
-        &keys,
-        &ties,
-        &[],
-    ));
+    assert_rejected(run(ascending(&["a", "b", "c", "d"], false), &keys, &ties));
 }
 
 #[test]
@@ -315,7 +323,7 @@ fn rows_past_the_active_ones_are_not_compared() {
     // Three active rows; the padding row is smaller than the last of them.
     let keys = [("k", DataType::Int64, ints(&[1, 2, 3, 0]))];
     let shifted = [ints(&[2, 3, 0, 1])];
-    run_with(ascending(&["k"], false), &keys, &shifted, 3, &[], &[])
+    run_with(ascending(&["k"], false), &keys, &shifted, 3, &[])
         .expect("only the active prefix is sorted");
 }
 
@@ -324,7 +332,7 @@ fn the_last_shifted_row_is_free() {
     // `d'[j] = d[j + 1]` is required only for `j < s - 1`: no wrap-around.
     let keys = [("k", DataType::Int64, ints(&[1, 2, 3, 4]))];
     let shifted = [ints(&[2, 3, 4, 999])];
-    run_with(ascending(&["k"], false), &keys, &shifted, 4, &[], &[])
+    run_with(ascending(&["k"], false), &keys, &shifted, 4, &[])
         .expect("the last row of d' is never read");
 }
 
@@ -336,7 +344,7 @@ fn a_forged_shift_is_rejected() {
     // the pipeline's honest-prover pass, which holds its prover-side check.
     let keys = [("k", DataType::Int64, ints(&[5, 1, 7, 9]))];
     let shifted = [ints(&[6, 7, 9, 0])];
-    let result = run_with(ascending(&["k"], false), &keys, &shifted, 4, &[], &[]);
+    let result = run_with(ascending(&["k"], false), &keys, &shifted, 4, &[]);
     assert!(
         matches!(result, Err(ark_piop::errors::SnarkError::VerifierError(_))),
         "expected the verifier to reject, got {result:?}"

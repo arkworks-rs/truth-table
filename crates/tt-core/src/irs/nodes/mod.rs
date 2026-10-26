@@ -125,6 +125,12 @@ where
     fn required_fingerprint_columns(&self) -> Vec<(String, Vec<usize>)> {
         Vec::new()
     }
+    /// The `(table, column)` base string columns whose rank segment
+    /// (`__rank`) this node's proof reads; see
+    /// [`crate::irs::tree::Tree::required_rank_columns`].
+    fn required_rank_columns(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
 
 pub(crate) fn display_with_inputs<B: SnarkBackend>(name: &str, inputs: &[Arc<Node<B>>]) -> String {
@@ -263,6 +269,17 @@ pub(crate) fn end_verifier_output_cache_scope() {
 }
 
 impl<B: SnarkBackend> Node<B> {
+    /// The table a table-scan node reads.
+    pub fn scanned_table(&self) -> Option<String> {
+        let Node::Plan(PlanNode::LpBased(node)) = self else {
+            return None;
+        };
+        match node.lp() {
+            LogicalPlan::TableScan(scan) => Some(scan.table_name.table().to_string()),
+            _ => None,
+        }
+    }
+
     /// A hash of the node's address.
     pub fn id(&self) -> NodeId {
         let mut hasher = DefaultHasher::new();
@@ -515,6 +532,13 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.required_fingerprint_columns(),
         }
     }
+
+    fn required_rank_columns(&self) -> Vec<(String, String)> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.required_rank_columns(),
+            Node::Gadget(gadget_node) => gadget_node.required_rank_columns(),
+        }
+    }
 }
 
 impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
@@ -720,6 +744,13 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
         match &self {
             PlanNode::LpBased(node) => node.required_fingerprint_columns(),
             PlanNode::ExprBased(node) => node.required_fingerprint_columns(),
+        }
+    }
+
+    fn required_rank_columns(&self) -> Vec<(String, String)> {
+        match &self {
+            PlanNode::LpBased(node) => node.required_rank_columns(),
+            PlanNode::ExprBased(node) => node.required_rank_columns(),
         }
     }
 }

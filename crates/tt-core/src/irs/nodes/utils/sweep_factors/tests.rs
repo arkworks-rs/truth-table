@@ -1,4 +1,5 @@
-//! Tests for SweepFactors (paper §6.1 PIOP 7) and `parse_like_pattern`.
+//! Tests for SweepFactors (TruthTable++ Sweep Factors, §5.1, PIOP 7) and
+//! `parse_like_pattern`.
 
 use std::sync::Arc;
 

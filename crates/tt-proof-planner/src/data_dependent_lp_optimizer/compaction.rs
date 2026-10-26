@@ -2,9 +2,12 @@ use datafusion::execution::context::SessionState;
 use datafusion_common::{DataFusionError, Result as DataFusionResult, tree_node::TreeNode};
 use datafusion_expr::{BinaryExpr, Expr, LogicalPlan, Operator};
 use std::collections::BTreeSet;
-use tt_core::irs::nodes::plan::{
-    compaction::{CompactionLogicalNode, wrap_logical_plan},
-    result_check::ResultCheckLogicalNode,
+use tt_core::irs::{
+    nodes::plan::{
+        compaction::{CompactionLogicalNode, wrap_logical_plan},
+        result_check::ResultCheckLogicalNode,
+    },
+    string_order::{StringOrder, string_order},
 };
 
 use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
@@ -35,6 +38,12 @@ impl DataDependentOptimizationRule for CompactionRule {
         session_state: &SessionState,
         plan: &LogicalPlan,
     ) -> DataFusionResult<Vec<OptimizationHint>> {
+        // A compaction re-encodes characters that only its DPUC binds, and
+        // only for a single side column; the lexicographic string order reads
+        // characters at the ORDER BY, so it forbids compaction altogether.
+        if string_order() == StringOrder::Lexicographic {
+            return Ok(Vec::new());
+        }
         let mut hints = Vec::new();
         let mut path = Vec::new();
         collect_compaction_hints(session_state, plan, false, &mut path, &mut hints)?;

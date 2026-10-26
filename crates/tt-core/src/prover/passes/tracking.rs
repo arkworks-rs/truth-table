@@ -94,7 +94,8 @@ impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
         let output_memtable = Self::normalize_output_memtable(output_memtable).await?;
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         // The final output table has no side segments: no PIOP reads them.
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None, None);
+        let arith_table =
+            arithmetize_materialized_table::<B::F>(&materialized, None, None, &|_| false);
         let tracked_table = Self::track_arith_table_without_commitment(&arith_table, &self.prover)?;
         let gadget_id = root
             .children()

@@ -6,6 +6,7 @@ use arithmetic::{
 };
 use ark_ff::One;
 use ark_piop::SnarkBackend;
+use ark_piop::arithmetic::errors::DataTypeError;
 use ark_piop::errors::{SnarkError, SnarkResult};
 use ark_piop::prover::structs::polynomial::get_or_insert_shift_poly;
 use ark_piop::verifier::errors::VerifierError;
@@ -30,7 +31,7 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-            utils::contig_sort::hints::{populate_rotated, populate_tie_and_diff},
+            utils::contig_sort::hints::{populate_rotated, populate_ties},
         },
         payloads::PayloadStructure,
     },
@@ -39,13 +40,13 @@ use crate::{
 };
 mod distinct;
 mod hints;
+pub mod rotation;
 #[cfg(test)]
 pub(crate) mod tests;
 
 pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
-pub const DIFF_INPUT_LABEL: &str = "__diff_input__";
 /// A zero-variable table holding `s`, the number of active rows. The input's
 /// activator must be `C_{µ,s}`: the check covers its first `s` rows.
 pub const ACTIVE_ROWS_LABEL: &str = "__active_rows__";
@@ -69,6 +70,8 @@ pub enum SortConfig {
     PerColumn(PerColumnConfig),
 }
 
+/// `sort_specs` are `(column, ascending, nulls first)` in key order; each
+/// names exactly one column of the sorted table.
 pub struct PerColumnConfig {
     pub sort_specs: Vec<(String, bool, bool)>,
     pub strict: bool,
@@ -114,7 +117,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
 /// The number of active rows `s` the caller passes under
 /// [`ACTIVE_ROWS_LABEL`]: the input's activator is `C_{µ,s}`.
-fn active_rows_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> SnarkResult<usize> {
+pub(crate) fn active_rows_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> SnarkResult<usize> {
     let count = table
         .all_tracked_cols()
         .first()
@@ -126,7 +129,9 @@ fn active_rows_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> SnarkResult<u
     }
 }
 
-fn active_rows_verifier<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> SnarkResult<usize> {
+pub(crate) fn active_rows_verifier<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> SnarkResult<usize> {
     let count = table
         .all_tracked_col_oracles()
         .first()
@@ -150,7 +155,7 @@ fn not_a_count() -> SnarkError {
 /// pairs them, so their multiset equality forces `d'[j] = d[j+1]` for
 /// `j < s - 1`; rows of `d'` from `s - 1` on are never read. All three
 /// polynomials besides `d` and `d'` are public.
-fn shift_tables_prover<B: SnarkBackend>(
+pub(crate) fn shift_tables_prover<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     columns: &[(TrackedPoly<B>, TrackedPoly<B>)],
     mask: &TrackedPoly<B>,
@@ -174,7 +179,7 @@ fn shift_tables_prover<B: SnarkBackend>(
     ))
 }
 
-fn shift_tables_verifier<B: SnarkBackend>(
+pub(crate) fn shift_tables_verifier<B: SnarkBackend>(
     verifier: &mut ArgVerifier<B>,
     columns: &[(TrackedOracle<B>, TrackedOracle<B>)],
     mask: &TrackedOracle<B>,
@@ -247,6 +252,13 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         None => input_hint,
     };
     let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
+    #[cfg(feature = "test-utils")]
+    let sort_specs = match node.sort_config {
+        SortConfig::PerColumn(_) if !is_verifier => {
+            crate::test_utils::dishonest_prover::forge_sort_specs(sort_specs)
+        }
+        _ => sort_specs,
+    };
     let sorted_input_hint = if is_verifier {
         build_schema_only_hint_from_existing(&input_hint)
     } else {
@@ -269,20 +281,19 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
     };
     if is_verifier {
-        let ordered_data_fields = ordered_data_fields_for_hint(&sorted_input_hint, &sort_specs);
+        let key_count = hint_key_positions(&sorted_input_hint, &sort_specs)
+            .map_err(SnarkError::Artifact)?
+            .len();
         gadget_payload.insert(
             ROTATED_INPUT_LABEL.to_string(),
             build_verifier_rotated_hint(&sorted_input_hint),
         );
-        if let Some(tie_hint) = build_verifier_tie_hint_from_ordered(&ordered_data_fields) {
+        if let Some(tie_hint) = build_verifier_tie_hint(key_count) {
             gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
-        }
-        if let Some(diff_hint) = build_verifier_diff_hint_from_ordered(&ordered_data_fields) {
-            gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
         }
     } else {
         populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs, false);
-        populate_tie_and_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+        populate_ties(&mut gadget_payload, &sorted_input_hint, &sort_specs);
     }
     if let Some((layout, _)) = &layout
         && !layout.slots.is_empty()
@@ -415,7 +426,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
         let shift_tables = shift_tables_prover(
             prover,
-            &sort_columns_prover(input, &rotated, &sort_specs),
+            &sort_columns_prover(input, &rotated, &sort_specs)?,
             &mask,
             s,
         )?;
@@ -451,7 +462,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             &self.sign_gadget,
             &self.sort_config,
             &sort_specs,
-            payload.get(DIFF_INPUT_LABEL),
             &ties,
             input,
             &rotated,
@@ -507,7 +517,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
         let shift_tables = shift_tables_verifier(
             verifier,
-            &sort_columns_verifier(input, &rotated, &sort_specs),
+            &sort_columns_verifier(input, &rotated, &sort_specs)?,
             &mask,
             s,
         )?;
@@ -543,7 +553,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             &self.sign_gadget,
             &self.sort_config,
             &sort_specs,
-            payload.get(DIFF_INPUT_LABEL),
             &ties,
             input,
             &rotated,
@@ -581,7 +590,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             self.prove_limbs(prover, check)?;
         }
         let sort_specs = sort_specs_for_table_prover(&self.sort_config, input);
-        let columns = sort_columns_prover(input, rotated, &sort_specs);
+        let columns = sort_columns_prover(input, rotated, &sort_specs)?;
         let ties: Vec<_> = ties
             .data_tracked_polys_indices()
             .into_iter()
@@ -637,7 +646,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             self.verify_limbs(verifier, check)?;
         }
         let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input);
-        let columns = sort_columns_verifier(input, rotated, &sort_specs);
+        let columns = sort_columns_verifier(input, rotated, &sort_specs)?;
         let ties: Vec<_> = ties
             .data_tracked_oracles_indices()
             .into_iter()
@@ -922,8 +931,32 @@ fn build_sign_gadget<B: SnarkBackend>(sort_config: &SortConfig) -> Arc<Node<B>> 
     ))))
 }
 
-fn normalize_sort_name(name: &str) -> String {
-    name.rsplit('.').next().unwrap_or(name).to_string()
+/// The position among `names` of each sort key, in key order. A key names
+/// exactly one column: a missing or ambiguous key is an error, never a
+/// fallback to other columns.
+pub(crate) fn key_positions<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+    sort_specs: &[(String, bool, bool)],
+) -> Result<Vec<usize>, String> {
+    let names: Vec<&str> = names.into_iter().collect();
+    sort_specs
+        .iter()
+        .map(|(key, _, _)| {
+            let mut matches = names
+                .iter()
+                .enumerate()
+                .filter(|(_, name)| **name == key.as_str());
+            match (matches.next(), matches.next()) {
+                (Some((position, _)), None) => Ok(position),
+                (None, _) => Err(format!(
+                    "the sort key {key} names no column of the sorted table"
+                )),
+                (Some(_), Some(_)) => Err(format!(
+                    "the sort key {key} names more than one column of the sorted table"
+                )),
+            }
+        })
+        .collect()
 }
 
 fn sort_specs_for_hint(
@@ -955,38 +988,18 @@ fn build_empty_hint_df_with_fields(
     crate::irs::nodes::hints::HintDF::new_assume_normalized(df, should_materialize)
 }
 
-fn ordered_data_fields_for_hint(
+/// The position among the data fields of `hint` of each sort key.
+fn hint_key_positions(
     hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
-) -> Vec<Field> {
-    let data_fields: Vec<Field> = hint
-        .data_frame()
-        .schema()
+) -> Result<Vec<usize>, String> {
+    let schema = hint.data_frame().schema();
+    let names = schema
         .fields()
         .iter()
-        .filter(|field| !arithmetic::is_system_column(field.name()))
-        .map(|field| field.as_ref().clone())
-        .collect();
-
-    if sort_specs.is_empty() {
-        return data_fields;
-    }
-
-    let mut ordered = Vec::with_capacity(data_fields.len());
-    for (name, _, _) in sort_specs {
-        let normalized = normalize_sort_name(name);
-        if let Some(field) = data_fields
-            .iter()
-            .find(|field| normalize_sort_name(field.name()) == normalized)
-        {
-            ordered.push(field.clone());
-        }
-    }
-    if ordered.len() == sort_specs.len() {
-        ordered
-    } else {
-        data_fields
-    }
+        .map(|field| field.name().as_str())
+        .filter(|name| !arithmetic::is_system_column(name));
+    key_positions(names, sort_specs)
 }
 
 fn build_verifier_rotated_hint(
@@ -1005,13 +1018,11 @@ fn build_verifier_rotated_hint(
     build_empty_hint_df_with_fields(fields, true)
 }
 
-fn build_verifier_tie_hint_from_ordered(
-    ordered_data_fields: &[Field],
-) -> Option<crate::irs::nodes::hints::HintDF> {
-    if ordered_data_fields.len() < 2 {
+fn build_verifier_tie_hint(key_count: usize) -> Option<crate::irs::nodes::hints::HintDF> {
+    if key_count < 2 {
         return None;
     }
-    let fields = (1..ordered_data_fields.len())
+    let fields = (1..key_count)
         .map(|idx| Field::new(format!("tie_{idx}"), DataType::Boolean, true))
         .collect();
     Some(build_empty_hint_df_with_fields(fields, true))
@@ -1023,8 +1034,8 @@ fn build_verifier_tie_hint_from_ordered(
 /// gives a value in `[0, 2^w)` for the key's unsigned width `w`.
 ///
 /// `None` when the encoding does not preserve the key's order (strings,
-/// binary). Such a key is compared through a committed
-/// sign-only diff in `{0, 1, 2}`, which is not bound to the key.
+/// binary, floats): such a key cannot be sorted on. A string key is sorted
+/// on its rank instead (TruthTable++ Rank-Based String Sort Check, §7.3, PIOP 13).
 pub(crate) fn difference_sign_type(data_type: &DataType) -> Option<DataType> {
     match data_type {
         DataType::Boolean | DataType::Int8 | DataType::UInt8 => Some(DataType::UInt8),
@@ -1043,17 +1054,6 @@ pub(crate) fn difference_sign_type(data_type: &DataType) -> Option<DataType> {
         DataType::Decimal128(..) => Some(data_type.clone()),
         _ => None,
     }
-}
-
-fn build_verifier_diff_hint_from_ordered(
-    ordered_data_fields: &[Field],
-) -> Option<crate::irs::nodes::hints::HintDF> {
-    let fields: Vec<Field> = ordered_data_fields
-        .iter()
-        .filter(|field| difference_sign_type(field.data_type()).is_none())
-        .map(|field| Field::new(field.name(), DataType::UInt8, true))
-        .collect();
-    (!fields.is_empty()).then(|| build_empty_hint_df_with_fields(fields, true))
 }
 
 fn sort_specs_for_table_prover<B: SnarkBackend>(
@@ -1115,60 +1115,57 @@ fn sort_specs_for_table_verifier<B: SnarkBackend>(
     }
 }
 
+/// The flat index in `table` of each sort key's column, in key order.
 fn ordered_data_indices_prover<B: SnarkBackend>(
     table: &TrackedTable<B>,
     sort_specs: &[(String, bool, bool)],
-) -> Vec<usize> {
-    let data_indices: Vec<usize> = non_row_id_data_indices_prover(table);
-    if sort_specs.is_empty() {
-        return data_indices;
-    }
-    let mut ordered = Vec::with_capacity(data_indices.len());
-    for (name, _, _) in sort_specs {
-        let normalized = normalize_sort_name(name);
-        if let Some(idx) = data_indices.iter().copied().find(|idx| {
-            let field = table
+) -> SnarkResult<Vec<usize>> {
+    let data_indices = non_row_id_data_indices_prover(table);
+    let names: Vec<String> = data_indices
+        .iter()
+        .map(|idx| {
+            table
                 .tracked_col_by_ind(*idx)
                 .field_ref()
-                .expect("Expected field ref for Sort input");
-            normalize_sort_name(field.name()) == normalized
-        }) {
-            ordered.push(idx);
-        }
-    }
-    if ordered.len() == sort_specs.len() {
-        ordered
-    } else {
-        data_indices
-    }
+                .expect("a field")
+                .name()
+                .clone()
+        })
+        .collect();
+    let positions =
+        key_positions(names.iter().map(String::as_str), sort_specs).map_err(sort_key_error)?;
+    Ok(positions
+        .into_iter()
+        .map(|position| data_indices[position])
+        .collect())
 }
 
 fn ordered_data_indices_verifier<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     sort_specs: &[(String, bool, bool)],
-) -> Vec<usize> {
-    let data_indices: Vec<usize> = non_row_id_data_indices_verifier(table);
-    if sort_specs.is_empty() {
-        return data_indices;
-    }
-    let mut ordered = Vec::with_capacity(data_indices.len());
-    for (name, _, _) in sort_specs {
-        let normalized = normalize_sort_name(name);
-        if let Some(idx) = data_indices.iter().copied().find(|idx| {
-            let field = table
+) -> SnarkResult<Vec<usize>> {
+    let data_indices = non_row_id_data_indices_verifier(table);
+    let names: Vec<String> = data_indices
+        .iter()
+        .map(|idx| {
+            table
                 .tracked_col_oracle_by_ind(*idx)
                 .field_ref()
-                .expect("Expected field ref for Sort input");
-            normalize_sort_name(field.name()) == normalized
-        }) {
-            ordered.push(idx);
-        }
-    }
-    if ordered.len() == sort_specs.len() {
-        ordered
-    } else {
-        data_indices
-    }
+                .expect("a field")
+                .name()
+                .clone()
+        })
+        .collect();
+    let positions =
+        key_positions(names.iter().map(String::as_str), sort_specs).map_err(sort_key_error)?;
+    Ok(positions
+        .into_iter()
+        .map(|position| data_indices[position])
+        .collect())
+}
+
+fn sort_key_error(message: String) -> SnarkError {
+    SnarkError::DataTypeError(DataTypeError::NotSupported(message))
 }
 
 fn non_row_id_data_indices_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<usize> {
@@ -1205,34 +1202,34 @@ fn sort_columns_prover<B: SnarkBackend>(
     input: &TrackedTable<B>,
     rotated: &TrackedTable<B>,
     sort_specs: &[(String, bool, bool)],
-) -> Vec<(TrackedPoly<B>, TrackedPoly<B>)> {
-    ordered_data_indices_prover(input, sort_specs)
+) -> SnarkResult<Vec<(TrackedPoly<B>, TrackedPoly<B>)>> {
+    Ok(ordered_data_indices_prover(input, sort_specs)?
         .into_iter()
-        .zip(ordered_data_indices_prover(rotated, sort_specs))
+        .zip(ordered_data_indices_prover(rotated, sort_specs)?)
         .map(|(i, r)| {
             (
                 input.tracked_col_by_ind(i).data_tracked_poly(),
                 rotated.tracked_col_by_ind(r).data_tracked_poly(),
             )
         })
-        .collect()
+        .collect())
 }
 
 fn sort_columns_verifier<B: SnarkBackend>(
     input: &TrackedTableOracle<B>,
     rotated: &TrackedTableOracle<B>,
     sort_specs: &[(String, bool, bool)],
-) -> Vec<(TrackedOracle<B>, TrackedOracle<B>)> {
-    ordered_data_indices_verifier(input, sort_specs)
+) -> SnarkResult<Vec<(TrackedOracle<B>, TrackedOracle<B>)>> {
+    Ok(ordered_data_indices_verifier(input, sort_specs)?
         .into_iter()
-        .zip(ordered_data_indices_verifier(rotated, sort_specs))
+        .zip(ordered_data_indices_verifier(rotated, sort_specs)?)
         .map(|(i, r)| {
             (
                 input.tracked_col_oracle_by_ind(i).data_tracked_oracle(),
                 rotated.tracked_col_oracle_by_ind(r).data_tracked_oracle(),
             )
         })
-        .collect()
+        .collect())
 }
 
 /// The rotated table with the public mask `C_{µ,s-1}` as its activator: the
@@ -1255,106 +1252,63 @@ fn with_activator_verifier<B: SnarkBackend>(
     TrackedTableOracle::new(None, oracles, table.log_size())
 }
 
-fn sort_is_asc(sort_specs: &[(String, bool, bool)], col_name: &str) -> bool {
-    sort_specs
-        .iter()
-        .find(|(name, _, _)| normalize_sort_name(name) == col_name)
-        .map(|(_, asc, _)| *asc)
-        .unwrap_or(true)
-}
-
-#[allow(clippy::too_many_arguments)]
 fn populate_sign_payloads_prover<B: SnarkBackend>(
     sign_gadget: &Arc<Node<B>>,
     sort_config: &SortConfig,
     sort_specs: &[(String, bool, bool)],
-    diff_table: Option<&TrackedTable<B>>,
     tie_table: &TrackedTable<B>,
     input_table: &TrackedTable<B>,
     rotated_table: &TrackedTable<B>,
     virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let tie_indices = tie_table.data_tracked_polys_indices();
-    let input_indices = ordered_data_indices_prover(input_table, sort_specs);
-    let rotated_indices = ordered_data_indices_prover(rotated_table, sort_specs);
+    let input_indices = ordered_data_indices_prover(input_table, sort_specs)?;
+    let rotated_indices = ordered_data_indices_prover(rotated_table, sort_specs)?;
     debug_assert_eq!(
         tie_indices.len(),
         input_indices.len(),
         "Sort sign gadget expects one tie indicator per data column."
     );
-    debug_assert_eq!(
-        input_indices.len(),
-        rotated_indices.len(),
-        "Sort sign gadget expects matching input and rotated column counts."
-    );
 
     let mut data_cols = IndexMap::new();
 
-    for (pos, ((tie_idx, input_idx), rotated_idx)) in tie_indices
+    for (pos, (((tie_idx, input_idx), rotated_idx), (_, is_asc, _))) in tie_indices
         .iter()
         .copied()
         .zip(input_indices.iter().copied())
         .zip(rotated_indices.iter().copied())
+        .zip(sort_specs)
         .enumerate()
     {
         let tie_col = tie_table.tracked_col_by_ind(tie_idx);
         let input_col = input_table.tracked_col_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
-        let col_name = input_col
-            .field_ref()
-            .expect("Expected field ref for Sort sign input")
-            .name()
-            .to_string();
-        let col_name = normalize_sort_name(&col_name);
-        let is_asc = sort_is_asc(sort_specs, &col_name);
         let sign = match sort_config {
             SortConfig::Distinct => sign_for_column(true, true),
             SortConfig::PerColumn(config) => {
                 let strict_for_col = config.strict && pos + 1 == input_indices.len();
-                sign_for_column(is_asc, strict_for_col)
+                sign_for_column(*is_asc, strict_for_col)
             }
         };
 
         let input_field = input_col
             .field_ref()
             .expect("Expected field ref for Sort sign input");
-        let (diff_poly, diff_field) = match difference_sign_type(input_field.data_type()) {
-            Some(sign_type) => {
-                let input_poly = input_col.data_tracked_poly();
-                let rotated_poly = rotated_col.data_tracked_poly();
-                let diff_poly = if is_asc {
-                    &rotated_poly - &input_poly
-                } else {
-                    &input_poly - &rotated_poly
-                };
-                (diff_poly, Field::new(input_field.name(), sign_type, false))
-            }
-            None => {
-                let diff_col = diff_table
-                    .and_then(|table| {
-                        table
-                            .data_tracked_polys_indices()
-                            .into_iter()
-                            .map(|idx| table.tracked_col_by_ind(idx))
-                            .find(|col| {
-                                col.field_ref().is_some_and(|field| {
-                                    normalize_sort_name(field.name()) == col_name
-                                })
-                            })
-                    })
-                    .expect("Expected a sign-only diff column for Sort key");
-                let diff_field = diff_col
-                    .field_ref()
-                    .expect("Expected field ref for Sort diff input")
-                    .as_ref()
-                    .clone();
-                // Undo the `+1` shift of the stored `{0, 1, 2}`.
-                (
-                    diff_col.data_tracked_poly().sub_scalar_poly(B::F::one()),
-                    diff_field,
-                )
-            }
+        let sign_type = difference_sign_type(input_field.data_type()).ok_or_else(|| {
+            sort_key_error(format!(
+                "the sort key {} of type {} has no order-preserving encoding",
+                input_field.name(),
+                input_field.data_type()
+            ))
+        })?;
+        let input_poly = input_col.data_tracked_poly();
+        let rotated_poly = rotated_col.data_tracked_poly();
+        let diff_poly = if *is_asc {
+            &rotated_poly - &input_poly
+        } else {
+            &input_poly - &rotated_poly
         };
+        let diff_field = Field::new(input_field.name(), sign_type, false);
 
         let tie_poly = tie_col.data_tracked_poly();
         let one_poly = TrackedPoly::new(
@@ -1389,102 +1343,63 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn populate_sign_payloads_verifier<B: SnarkBackend>(
     sign_gadget: &Arc<Node<B>>,
     sort_config: &SortConfig,
     sort_specs: &[(String, bool, bool)],
-    diff_table: Option<&TrackedTableOracle<B>>,
     tie_table: &TrackedTableOracle<B>,
     input_table: &TrackedTableOracle<B>,
     rotated_table: &TrackedTableOracle<B>,
     virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let tie_indices = tie_table.data_tracked_oracles_indices();
-    let input_indices = ordered_data_indices_verifier(input_table, sort_specs);
-    let rotated_indices = ordered_data_indices_verifier(rotated_table, sort_specs);
+    let input_indices = ordered_data_indices_verifier(input_table, sort_specs)?;
+    let rotated_indices = ordered_data_indices_verifier(rotated_table, sort_specs)?;
     debug_assert_eq!(
         tie_indices.len(),
         input_indices.len(),
         "Sort sign gadget expects one tie indicator per data column."
     );
-    debug_assert_eq!(
-        input_indices.len(),
-        rotated_indices.len(),
-        "Sort sign gadget expects matching input and rotated column counts."
-    );
 
     let mut data_cols = IndexMap::new();
 
-    for (pos, ((tie_idx, input_idx), rotated_idx)) in tie_indices
+    for (pos, (((tie_idx, input_idx), rotated_idx), (_, is_asc, _))) in tie_indices
         .iter()
         .copied()
         .zip(input_indices.iter().copied())
         .zip(rotated_indices.iter().copied())
+        .zip(sort_specs)
         .enumerate()
     {
         let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
         let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
-        let col_name = input_col
-            .field_ref()
-            .expect("Expected field ref for Sort sign input")
-            .name()
-            .to_string();
-        let col_name = normalize_sort_name(&col_name);
-        let is_asc = sort_is_asc(sort_specs, &col_name);
         let sign = match sort_config {
             SortConfig::Distinct => sign_for_column(true, true),
             SortConfig::PerColumn(config) => {
                 let strict_for_col = config.strict && pos + 1 == input_indices.len();
-                sign_for_column(is_asc, strict_for_col)
+                sign_for_column(*is_asc, strict_for_col)
             }
         };
 
         let input_field = input_col
             .field_ref()
             .expect("Expected field ref for Sort sign input");
-        let (diff_oracle, diff_field) = match difference_sign_type(input_field.data_type()) {
-            Some(sign_type) => {
-                let input_oracle = input_col.data_tracked_oracle();
-                let rotated_oracle = rotated_col.data_tracked_oracle();
-                let diff_oracle = if is_asc {
-                    &rotated_oracle - &input_oracle
-                } else {
-                    &input_oracle - &rotated_oracle
-                };
-                (
-                    diff_oracle,
-                    Field::new(input_field.name(), sign_type, false),
-                )
-            }
-            None => {
-                let diff_col = diff_table
-                    .and_then(|table| {
-                        table
-                            .data_tracked_oracles_indices()
-                            .into_iter()
-                            .map(|idx| table.tracked_col_oracle_by_ind(idx))
-                            .find(|col| {
-                                col.field_ref().is_some_and(|field| {
-                                    normalize_sort_name(field.name()) == col_name
-                                })
-                            })
-                    })
-                    .expect("Expected a sign-only diff column for Sort key");
-                let diff_field = diff_col
-                    .field_ref()
-                    .expect("Expected field ref for Sort diff input")
-                    .as_ref()
-                    .clone();
-                (
-                    diff_col
-                        .data_tracked_oracle()
-                        .sub_scalar_oracle(B::F::one()),
-                    diff_field,
-                )
-            }
+        let sign_type = difference_sign_type(input_field.data_type()).ok_or_else(|| {
+            sort_key_error(format!(
+                "the sort key {} of type {} has no order-preserving encoding",
+                input_field.name(),
+                input_field.data_type()
+            ))
+        })?;
+        let input_oracle = input_col.data_tracked_oracle();
+        let rotated_oracle = rotated_col.data_tracked_oracle();
+        let diff_oracle = if *is_asc {
+            &rotated_oracle - &input_oracle
+        } else {
+            &input_oracle - &rotated_oracle
         };
+        let diff_field = Field::new(input_field.name(), sign_type, false);
 
         let tie_oracle = tie_col.data_tracked_oracle();
         let one_oracle = TrackedOracle::new(

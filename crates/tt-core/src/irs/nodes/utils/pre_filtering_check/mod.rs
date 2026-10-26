@@ -1,4 +1,4 @@
-//! Pre-Filtering Check (paper §6.2, PIOP 8).
+//! TruthTable++ Pre-Filtering Check (§6.3, PIOP 9).
 //!
 //! Proves that the prover's filtered activator `a'` keeps exactly the active
 //! strings that set every tested bin,

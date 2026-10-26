@@ -1,9 +1,19 @@
+use std::collections::BTreeSet;
+
 use arithmetic::ROW_ID_COL_NAME;
+use arithmetic::encoding::STRING_RANK_SUFFIX;
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::Schema;
+use datafusion_common::DataFusionError;
+use datafusion_expr::LogicalPlan;
 use derivative::Derivative;
 use indexmap::IndexMap;
+
+use crate::errors::TTResult;
+use crate::irs::lineage::is_string_type;
+use crate::irs::nodes::{Node, PlanNode};
+use crate::irs::tree::Tree;
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
@@ -56,6 +66,55 @@ impl<B: SnarkBackend> CtxOracles<B> {
 
     pub fn table_oracles(&self) -> &IndexMap<Schema, ArithTableOracle<B>> {
         &self.table_oracles
+    }
+
+    /// Every table scan in `tree` of a `(table, column)` in `rank_columns`
+    /// has an oracle committing that column's rank. A rank is owner data: a
+    /// scan with no oracle would take it from the prover.
+    pub fn ensure_rank_columns(
+        &self,
+        tree: &Tree<B>,
+        rank_columns: &BTreeSet<(String, String)>,
+    ) -> TTResult<()> {
+        if rank_columns.is_empty() {
+            return Ok(());
+        }
+        for node in tree.arena().values() {
+            let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref() else {
+                continue;
+            };
+            let LogicalPlan::TableScan(scan) = lp_node.lp() else {
+                continue;
+            };
+            let table = scan.table_name.table();
+            for field in scan.projected_schema.fields() {
+                let column = field.name();
+                if !is_string_type(field.data_type())
+                    || !rank_columns.contains(&(table.to_string(), column.clone()))
+                {
+                    continue;
+                }
+                let Some(oracle) = self.table_oracle_by_name(table) else {
+                    return Err(DataFusionError::Plan(format!(
+                        "column {column} of table {table} needs its committed rank, \
+                         but the table has no oracle"
+                    ))
+                    .into());
+                };
+                let rank_field = format!("{column}{STRING_RANK_SUFFIX}");
+                if !oracle
+                    .commitments()
+                    .keys()
+                    .any(|field| *field.name() == rank_field)
+                {
+                    return Err(DataFusionError::Plan(format!(
+                        "table {table} has no rank for column {column}; re-commit it with ranks"
+                    ))
+                    .into());
+                }
+            }
+        }
+        Ok(())
     }
 }
 

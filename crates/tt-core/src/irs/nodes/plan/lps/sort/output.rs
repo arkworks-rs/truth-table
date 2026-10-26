@@ -29,7 +29,10 @@ pub(crate) fn sort_df(input: &DataFrame, sort: &Sort) -> DataFrame {
 
     let mut sort_exprs: Vec<SortExpr> = Vec::with_capacity(sort.expr.len() + 2);
     sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
-    sort_exprs.extend(resolve_sort_exprs(input.schema(), &sort.expr));
+    let keys = resolve_sort_exprs(input.schema(), &sort.expr);
+    #[cfg(feature = "test-utils")]
+    let keys = crate::test_utils::dishonest_prover::forge_sort_exprs(keys);
+    sort_exprs.extend(keys);
     sort_exprs.extend(row_id_sort_exprs);
 
     let sorted = input

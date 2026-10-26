@@ -10,10 +10,19 @@ use indexmap::IndexMap;
 use crate::irs::{
     nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
+    string_order::{StringOrder, string_order},
     tree::Tree,
 };
 
 pub(super) mod hints;
+
+/// Whether column references pass their character columns on, which only the
+/// lexicographic string order reads past a projection. In the rank order a
+/// compaction's DPUC expects character columns only where its input
+/// subtree's LIKE reads them.
+pub(crate) fn forwards_side_columns() -> bool {
+    string_order() == StringOrder::Lexicographic
+}
 
 pub struct LpNode<B>
 where
@@ -78,6 +87,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         }
 
         let mut output_cols: IndexMap<_, _> = IndexMap::new();
+        let mut side_cols = IndexMap::new();
+        let forwards_side_cols = forwards_side_columns();
         let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
         let mut row_id: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
         let mut log_size: Option<usize> = None;
@@ -125,6 +136,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                 log_size = Some(expr_log_size);
             }
 
+            if forwards_side_cols {
+                side_cols.extend(expr_table.side_cols());
+            }
             let tracked_polys = expr_table.tracked_polys();
             for idx in expr_table.data_tracked_polys_indices() {
                 let (field, poly) = tracked_polys
@@ -151,8 +165,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                 .collect::<Vec<_>>(),
         );
         let log_size = log_size.unwrap_or(0);
-        let projected_table =
-            arithmetic::table::TrackedTable::new(Some(schema), output_cols, log_size);
+        let projected_table = arithmetic::table::TrackedTable::new_with_side_cols(
+            Some(schema),
+            output_cols,
+            log_size,
+            side_cols,
+        );
         debug_assert!(
             projected_table
                 .tracked_polys_iter()
@@ -248,6 +266,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         }
 
         let mut output_cols: IndexMap<_, _> = IndexMap::new();
+        let mut side_cols = IndexMap::new();
+        let forwards_side_cols = forwards_side_columns();
         let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
         let mut row_id: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
         let mut log_size: Option<usize> = None;
@@ -297,6 +317,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 log_size = Some(expr_log_size);
             }
 
+            if forwards_side_cols {
+                side_cols.extend(expr_table.side_cols());
+            }
             for idx in expr_table.data_tracked_oracles_indices() {
                 let col = expr_table.tracked_col_oracle_by_ind(idx);
                 let field = col
@@ -323,7 +346,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 .collect::<Vec<_>>(),
         );
         let log_size = log_size.unwrap_or(0);
-        let projected_table = TrackedTableOracle::new(Some(schema), output_cols, log_size);
+        let projected_table =
+            TrackedTableOracle::new_with_side_cols(Some(schema), output_cols, log_size, side_cols);
         debug_assert!(
             projected_table
                 .tracked_oracles_iter()

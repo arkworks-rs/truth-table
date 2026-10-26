@@ -233,8 +233,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 super_table.fold_all_data_columns(&challenges),
             )
         };
-        let super_col_multiplicities =
-            Self::multiplicities_from_table(&multiplicities_table, included_cols.len());
+        let super_col_multiplicity = multiplicity_column(&multiplicities_table);
 
         // Debug subset relation expected by HintedLookupPIOP honest check.
         #[cfg(feature = "honest-prover")]
@@ -265,7 +264,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let input = HintedLookupProverInput {
             included_cols,
             super_col,
-            super_col_multiplicities,
+            super_col_multiplicity,
         };
         HintedLookupPIOP::<B>::prove(prover, input)?;
 
@@ -305,7 +304,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let super_active = active_row_mask(&super_table);
         let included_active = active_row_mask(&included_table);
-        let multiplicity_values = multiplicity_column_values(&multiplicities_table);
+        let multiplicity_values = multiplicity_column(&multiplicities_table).evaluations();
 
         let active_super_keys: IndexSet<String> = (0..super_table.size())
             .filter(|&row| super_active[row])
@@ -348,7 +347,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         }
 
         // Only the multiplicity values on rows the super table marks active
-        // are part of the witness: `multiplicities_from_table` hands the PIOP
+        // are part of the witness: `multiplicity_column` hands the PIOP
         // the bare data poly, which becomes `mgxs` against `gxs = [super_col]`,
         // and the keyed-sumcheck identity sums over active `g` alone. The
         // multiplicity table's own activator is never read and can differ
@@ -414,13 +413,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 super_table.fold_all_data_oracles(&challenges),
             )
         };
-        let super_col_multiplicities =
-            Self::multiplicities_from_table_oracle(&multiplicities_table, included_cols.len());
+        let super_col_multiplicity = multiplicity_column_oracle(&multiplicities_table);
 
         let input = HintedLookupVerifierInput {
             included_tracked_col_oracles: included_cols,
             super_tracked_col_oracle: super_col,
-            super_col_multiplicities,
+            super_col_multiplicity,
         };
         HintedLookupPIOP::<B>::verify(verifier, input)?;
         Ok(())
@@ -493,38 +491,34 @@ impl<B: SnarkBackend> GadgetNode<B> {
         }
         Ok(table.fold_all_data_oracles(&challenges))
     }
+}
 
-    fn multiplicities_from_table(
-        table: &TrackedTable<B>,
-        expected_len: usize,
-    ) -> Vec<ark_piop::prover::structs::polynomial::TrackedPoly<B>> {
-        let data_indices = table.data_tracked_polys_indices();
-        debug_assert_eq!(
-            data_indices.len(),
-            expected_len,
-            "Lookup multiplicity hints must align with included columns."
-        );
-        data_indices
-            .into_iter()
-            .map(|idx| table.tracked_col_by_ind(idx).data_tracked_poly())
-            .collect()
-    }
+fn multiplicity_column<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+) -> ark_piop::prover::structs::polynomial::TrackedPoly<B> {
+    let data_indices = table.data_tracked_polys_indices();
+    assert_eq!(
+        data_indices.len(),
+        1,
+        "Lookup multiplicity table must have exactly one data column"
+    );
+    table
+        .tracked_col_by_ind(data_indices[0])
+        .data_tracked_poly()
+}
 
-    fn multiplicities_from_table_oracle(
-        table: &TrackedTableOracle<B>,
-        expected_len: usize,
-    ) -> Vec<ark_piop::verifier::structs::oracle::TrackedOracle<B>> {
-        let data_indices = table.data_tracked_oracles_indices();
-        debug_assert_eq!(
-            data_indices.len(),
-            expected_len,
-            "Lookup multiplicity hints must align with included column oracles."
-        );
-        data_indices
-            .into_iter()
-            .map(|idx| table.tracked_col_oracle_by_ind(idx).data_tracked_oracle())
-            .collect()
-    }
+fn multiplicity_column_oracle<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> ark_piop::verifier::structs::oracle::TrackedOracle<B> {
+    let data_indices = table.data_tracked_oracles_indices();
+    assert_eq!(
+        data_indices.len(),
+        1,
+        "Lookup multiplicity table must have exactly one data column"
+    );
+    table
+        .tracked_col_oracle_by_ind(data_indices[0])
+        .data_tracked_oracle()
 }
 
 fn multiplicities_from_runtime_tables_prover<B: SnarkBackend>(
@@ -617,19 +611,6 @@ fn data_column_values<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<Vec<B::F>
                 .evaluations()
         })
         .collect()
-}
-
-fn multiplicity_column_values<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<B::F> {
-    let data_indices = table.data_tracked_polys_indices();
-    assert_eq!(
-        data_indices.len(),
-        1,
-        "Lookup multiplicity table must have exactly one data column"
-    );
-    table
-        .tracked_col_by_ind(data_indices[0])
-        .data_tracked_poly()
-        .evaluations()
 }
 
 fn active_row_mask<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<bool> {

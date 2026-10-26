@@ -1,5 +1,6 @@
-//! Wiring for the Domain-Preserving Update Check (paper §4.2.2, the "Full
-//! String Validity Check"), B1 variant, on the compaction node's output.
+//! Wiring for the Domain-Preserving Update Check (TruthTable++ Full String
+//! Validity Check, §4.2.2, PIOP 3), B1 variant, on the compaction node's
+//! output.
 //!
 //! Compaction repacks a filtered table's active rows into a smaller
 //! hypercube and materializes every column afresh, including the char-domain

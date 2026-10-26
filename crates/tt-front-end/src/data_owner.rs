@@ -25,14 +25,23 @@ use tt_core::{
 use crate::{shared::TTSharedConfig, structs::TTProof};
 
 pub struct TTDataOwnerConfig<B: SnarkBackend> {
+    /// Commit every string column's rank (TruthTable++ §3.2). A table
+    /// committed without ranks cannot serve a query that sorts by a string.
+    ranks: bool,
     phantom: std::marker::PhantomData<B>,
 }
 
 impl<B: SnarkBackend> TTDataOwnerConfig<B> {
     pub fn new() -> Self {
         Self {
+            ranks: true,
             phantom: std::marker::PhantomData,
         }
+    }
+
+    pub fn with_ranks(mut self, ranks: bool) -> Self {
+        self.ranks = ranks;
+        self
     }
 }
 
@@ -139,7 +148,11 @@ impl<B: SnarkBackend> TTDataOwner<B> {
 
     /// Commits the table-scan output of `query` into a serializable oracle.
     pub async fn commit(&self, query: &str) -> TTResult<ArithTableOracle<B>> {
-        let _ = self.data_owner_config();
+        let rank_columns = if self.data_owner_config().ranks {
+            tt_core::prover::passes::arithmetization::RankColumns::All
+        } else {
+            tt_core::prover::passes::arithmetization::RankColumns::None
+        };
 
         let initial_lp = self.shared_config.query_to_lp(query).await;
         self.ensure_no_nulls(&initial_lp).await?;
@@ -200,6 +213,7 @@ impl<B: SnarkBackend> TTDataOwner<B> {
                 // read the characters of, or pre-filter, any column.
                 tt_core::prover::passes::arithmetization::SideColumns::All,
                 tt_core::prover::passes::arithmetization::FingerprintColumns::All,
+                rank_columns,
             ),
         );
         drop(materialized_ir);
@@ -226,6 +240,7 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         drop(arithmetized_ir);
         drop(committed_ir);
         debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
+        // Taken before virtualization, where the scan sets its ranks aside.
         let table_scan = self.table_scan_payload(&tracked_ir)?;
 
         // Finish the proving pipeline: the tracked-table oracle is derived
@@ -267,7 +282,12 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         proving_pass.take_result()?;
         let mut arg_prover = arg_prover;
         let arg_proof = arg_prover.build_proof().unwrap();
-        let tt_proof = TTProof::new(arg_proof, optimization_hints, Vec::new())?;
+        let tt_proof = TTProof::new(
+            arg_proof,
+            optimization_hints,
+            tt_core::irs::string_order::string_order(),
+            Vec::new(),
+        )?;
 
         // Convert the tracked table into a serializable oracle using
         // verifier-side state.
