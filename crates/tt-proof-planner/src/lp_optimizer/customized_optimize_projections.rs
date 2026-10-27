@@ -31,7 +31,7 @@ use datafusion_common::{
     internal_datafusion_err, internal_err,
 };
 use datafusion_expr::Unnest;
-use datafusion_expr::expr::Alias;
+use datafusion_expr::expr::{AggregateFunction, Alias};
 use datafusion_expr::expr_rewriter::NamePreserver;
 use datafusion_expr::{
     Aggregate, Distinct, Expr, Projection, TableScan, Window, logical_plan::LogicalPlan,
@@ -125,7 +125,15 @@ fn optimize_projections(
                 aggregate.group_expr
             };
 
-            let mut new_aggr_expr = aggregate_reqs.get_at_indices(&aggregate.aggr_expr);
+            // An AVG is proved from the SUM and COUNT of its argument, which
+            // `AddAvgSupport` adds, so they stay while the AVG does.
+            let required = aggregate_reqs.get_at_indices(&aggregate.aggr_expr);
+            let mut new_aggr_expr: Vec<Expr> = aggregate
+                .aggr_expr
+                .iter()
+                .filter(|expr| required.contains(expr) || supports_avg(expr, &required))
+                .cloned()
+                .collect();
 
             // An aggregation needs at least one aggregate expression. A nested
             // count such as `SELECT count(*) FROM (SELECT count(*) FROM [...])`
@@ -354,6 +362,35 @@ fn optimize_projections(
     } else {
         Ok(transformed_plan)
     }
+}
+
+/// Whether `expr` is a SUM or COUNT with the arguments of an AVG in
+/// `aggr_exprs`, up to the casts `AlignAggInputToOutput` adds.
+fn supports_avg(expr: &Expr, aggr_exprs: &[Expr]) -> bool {
+    fn uncast(expr: &Expr) -> &Expr {
+        match expr {
+            Expr::Cast(cast) => uncast(&cast.expr),
+            Expr::TryCast(cast) => uncast(&cast.expr),
+            other => other,
+        }
+    }
+    fn aggregate_function(expr: &Expr) -> Option<&AggregateFunction> {
+        match expr {
+            Expr::AggregateFunction(func) => Some(func),
+            Expr::Alias(alias) => aggregate_function(&alias.expr),
+            _ => None,
+        }
+    }
+    let Some(func) = aggregate_function(expr).filter(|f| matches!(f.func.name(), "sum" | "count"))
+    else {
+        return false;
+    };
+    aggr_exprs.iter().filter_map(aggregate_function).any(|avg| {
+        avg.func.name() == "avg"
+            && avg.params.args.first().map(uncast) == func.params.args.first().map(uncast)
+            && avg.params.distinct == func.params.distinct
+            && avg.params.filter == func.params.filter
+    })
 }
 
 /// Merges `proj` into the projection below it, when there is one and merging
