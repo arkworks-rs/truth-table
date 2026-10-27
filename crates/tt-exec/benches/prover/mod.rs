@@ -4,7 +4,7 @@ use crate::support::emit_benchmark_stats_row;
 use divan::black_box;
 use front_end::prover::TTProver;
 use tokio::runtime::Runtime;
-use tpch_data::{bench_data_path, query_spec};
+use tpch_data::{Variant, bench_data_path, query_spec};
 use tt_exec::{
     backend::BenchBackend,
     prove::ProveBuilder,
@@ -28,7 +28,7 @@ impl fmt::Display for BenchQuery {
 fn prover_bench_queries() -> &'static [BenchQuery] {
     static QUERIES: OnceLock<&'static [BenchQuery]> = OnceLock::new();
     QUERIES.get_or_init(|| {
-        let tpch = query_spec(1, false);
+        let tpch = query_spec(1, Variant::Tt);
         let queries = vec![BenchQuery {
             name: "tpch_q1",
             query: tpch.sql,

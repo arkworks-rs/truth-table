@@ -70,18 +70,21 @@ async fn initial_ir(sql: &str, tables: &[&str], copies: &[(&str, &str)]) -> Empt
 async fn queries_without_a_string_sort_load_no_rank() {
     // The benchmark queries (benches/tpch/mod.rs) whose ORDER BY keys are
     // all numeric or that have none.
-    let tt_queries: &[u8] = &[3, 5, 6, 8, 10, 14, 15, 17, 18, 19];
+    let tt_queries: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 17, 18, 19, 20];
     let pgn_queries: &[u8] = &[3, 5, 8, 18];
-    for &(numbers, poneglyph) in &[(tt_queries, false), (pgn_queries, true)] {
+    for &(numbers, variant) in &[
+        (tt_queries, tpch_data::Variant::Tt),
+        (pgn_queries, tpch_data::Variant::Pgn),
+    ] {
         for &number in numbers {
-            let spec = tpch_data::query_spec(number, poneglyph);
+            let spec = tpch_data::query_spec(number, variant);
             let ranks = initial_ir(spec.sql, spec.tables, &[])
                 .await
                 .tree()
                 .required_rank_columns();
             assert!(
                 ranks.is_empty(),
-                "TPC-H q{number} (poneglyph={poneglyph}) would load ranks {ranks:?}"
+                "TPC-H q{number} ({variant:?}) would load ranks {ranks:?}"
             );
         }
     }
@@ -97,6 +100,34 @@ async fn queries_without_a_string_sort_load_no_rank() {
             .tree()
             .required_rank_columns();
         assert!(ranks.is_empty(), "{sql} would load ranks {ranks:?}");
+    }
+}
+
+/// A benchmark query has a `_tt_2` variant exactly when it has a white-box
+/// string operation: its `_tt` variant reads no string's characters or rank,
+/// and its `_tt_2` variant reads some.
+#[tokio::test]
+async fn tt_2_variants_are_the_white_box_string_queries() {
+    use tpch_data::{TT_2_QUERIES, Variant};
+    let white_box = |ir: &EmptyIr<B>| {
+        !ir.tree().required_side_columns().is_empty()
+            || !ir.tree().required_rank_columns().is_empty()
+    };
+    for number in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 17, 18, 19, 20] {
+        let spec = tpch_data::query_spec(number, Variant::Tt);
+        let ir = initial_ir(spec.sql, spec.tables, &[]).await;
+        assert!(
+            !white_box(&ir),
+            "TPC-H q{number}_tt reads white-box strings"
+        );
+    }
+    for number in TT_2_QUERIES {
+        let spec = tpch_data::query_spec(number, Variant::Tt2);
+        let ir = initial_ir(spec.sql, spec.tables, &[]).await;
+        assert!(
+            white_box(&ir),
+            "TPC-H q{number}_tt_2 reads no white-box string"
+        );
     }
 }
 

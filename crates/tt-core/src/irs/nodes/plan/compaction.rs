@@ -17,7 +17,9 @@ use ark_std::One;
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
-use datafusion_common::{Column, DFSchemaRef, DataFusionError, Result as DataFusionResult};
+use datafusion_common::{
+    Column, DFSchema, DFSchemaRef, DataFusionError, Result as DataFusionResult,
+};
 use datafusion_expr::{
     BinaryExpr, Expr, ExprFunctionExt, LogicalPlan, Operator, col, lit,
     logical_plan::{Extension, UserDefinedLogicalNode},
@@ -46,19 +48,25 @@ where
 }
 
 /// The base name of the input subtree's string column with char-domain side
-/// segments, iff there is exactly one. Only white-box string columns (LIKE /
-/// MCPM) get side segments, so this reads [`Tree::required_side_columns`],
-/// not the schema's string types. That attaches the DPUC child exactly when
-/// it is active and agrees with the run-time detection in
+/// segments, iff there is exactly one and the input still has the column.
+/// Only white-box string columns (LIKE / MCPM) get side segments, so this
+/// reads [`Tree::required_side_columns`], not the schema's string types; a
+/// column a LIKE below reads and a projection then drops leaves the input
+/// with no characters to bind. That attaches the DPUC child exactly when it
+/// is active and agrees with the run-time detection in
 /// [`compaction_dpuc::single_string_base`].
 pub fn single_side_string_base<B: SnarkBackend>(
     input_tree: &crate::irs::tree::Tree<B>,
+    input_schema: &DFSchema,
 ) -> Option<String> {
-    let side = input_tree.required_side_columns();
-    if side.len() == 1 {
-        side.into_iter().next()
-    } else {
-        None
+    let side: Vec<String> = input_tree
+        .required_side_columns()
+        .into_iter()
+        .filter(|name| input_schema.has_column_with_unqualified_name(name))
+        .collect();
+    match side.as_slice() {
+        [base] => Some(base.clone()),
+        _ => None,
     }
 }
 
@@ -319,7 +327,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             .expect("Compaction extension node");
         let input_tree = crate::irs::tree::Tree::<B>::from_logical_plan(compaction.input());
         let input = input_tree.root().clone();
-        let dpuc_base = single_side_string_base(&input_tree);
+        let dpuc_base = single_side_string_base(&input_tree, compaction.input().schema());
         Self::new(input, dpuc_base)
     }
 
@@ -740,6 +748,31 @@ mod tests {
             .build()
             .unwrap();
         let tree = Tree::<B>::from_logical_plan(&prefiltered);
-        assert_eq!(single_side_string_base(&tree).as_deref(), Some("l_comment"));
+        assert_eq!(
+            single_side_string_base(&tree, prefiltered.schema()).as_deref(),
+            Some("l_comment")
+        );
+    }
+
+    /// `Projection(l_orderkey) ∘ Filter(LIKE) ∘ TableScan`: the LIKE reads
+    /// `l_comment`'s characters, but the compacted input no longer has the
+    /// column, so there is nothing for the compaction to bind.
+    #[test]
+    fn a_like_column_projected_away_is_not_bound() {
+        let schema = Schema::new(vec![
+            Field::new("l_orderkey", DataType::Int64, false),
+            Field::new("l_comment", DataType::Utf8, false),
+        ]);
+        let projected = table_scan(Some("lineitem"), &schema, None)
+            .unwrap()
+            .filter(col("l_comment").like(datafusion_expr::lit("%erve%")))
+            .unwrap()
+            .project(vec![col("l_orderkey")])
+            .unwrap()
+            .build()
+            .unwrap();
+        let tree = Tree::<B>::from_logical_plan(&projected);
+        assert!(!tree.required_side_columns().is_empty());
+        assert_eq!(single_side_string_base(&tree, projected.schema()), None);
     }
 }

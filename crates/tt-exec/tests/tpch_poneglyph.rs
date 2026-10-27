@@ -4,7 +4,7 @@
 //! process of their own (see `tpch.rs`).
 
 async fn prove(number: u8) {
-    let spec = tpch_data::query_spec(number, true);
+    let spec = tpch_data::query_spec(number, tpch_data::Variant::Pgn);
     tt_exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
         .await
         .unwrap_or_else(|err| panic!("TPC-H q{number} (Poneglyph): {err:?}"));
