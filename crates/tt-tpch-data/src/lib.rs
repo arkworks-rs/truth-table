@@ -1097,16 +1097,70 @@ fn normalize_tpch_sql(number: u8, sql: String) -> String {
     }
 }
 
-static TPCH_Q1_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q1_TT_2_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q3_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q5_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q6_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q10_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q11_TT_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q12_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q12_TT_2_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q18_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q19_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q21_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+
+// Q1 without its string ORDER BY keys.
+const TPCH_Q1_TT_SQL: &str = r#"
+SELECT
+    l_returnflag,
+    l_linestatus,
+    sum(l_quantity) AS sum_qty,
+    sum(l_extendedprice) AS sum_base_price,
+    sum(l_extendedprice * (1 - l_discount)) AS sum_disc_price,
+    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge,
+    avg(l_quantity) AS avg_qty,
+    avg(l_extendedprice) AS avg_price,
+    avg(l_discount) AS avg_disc,
+    count(*) AS count_order
+FROM
+    lineitem
+WHERE
+    l_shipdate <= CAST('1998-09-02' AS date)
+GROUP BY
+    l_returnflag,
+    l_linestatus;
+"#;
+
+// Q12 without its string ORDER BY key.
+const TPCH_Q12_TT_SQL: &str = r#"
+SELECT
+    l_shipmode,
+    sum(
+        CASE WHEN o_orderpriority = '1-URGENT'
+            OR o_orderpriority = '2-HIGH' THEN
+            1
+        ELSE
+            0
+        END) AS high_line_count,
+    sum(
+        CASE WHEN o_orderpriority <> '1-URGENT'
+            AND o_orderpriority <> '2-HIGH' THEN
+            1
+        ELSE
+            0
+        END) AS low_line_count
+FROM
+    orders,
+    lineitem
+WHERE
+    o_orderkey = l_orderkey
+    AND l_shipmode IN ('MAIL', 'SHIP')
+    AND l_commitdate < l_receiptdate
+    AND l_shipdate < l_commitdate
+    AND l_receiptdate >= CAST('1994-01-01' AS date)
+    AND l_receiptdate < CAST('1995-01-01' AS date)
+GROUP BY
+    l_shipmode;
+"#;
 
 const TPCH_Q1_PGN_SQL: &str = r#"
 SELECT
@@ -1126,6 +1180,7 @@ ORDER BY
     l_returnflag
 "#;
 
+// Q2 without its LIKE and its string ORDER BY keys.
 const TPCH_Q2_TT_SQL: &str = r#"
 SELECT
     s_acctbal,
@@ -1165,13 +1220,12 @@ WHERE
             AND r_name = 'EUROPE')
 ORDER BY
     s_acctbal DESC,
-    n_name,
-    s_name,
     p_partkey
 LIMIT 100;
 "#;
 
-// Q2 with the official `p_type LIKE '%BRASS'`.
+// Q2 with its LIKE, the official `p_type LIKE '%BRASS'`, and its string
+// ORDER BY keys.
 const TPCH_Q2_TT_2_SQL: &str = r#"
 SELECT
     s_acctbal,
@@ -1218,7 +1272,48 @@ ORDER BY
 LIMIT 100;
 "#;
 
+// Q7 without its string ORDER BY keys.
 const TPCH_Q7_TT_SQL: &str = r#"
+SELECT
+    supp_nation,
+    cust_nation,
+    l_year,
+    sum(volume) AS revenue
+FROM (
+    SELECT
+        n1.n_name AS supp_nation,
+        n2.n_name AS cust_nation,
+        l_shipdate_year AS l_year,
+        l_extendedprice * (1 - l_discount) AS volume
+    FROM
+        supplier,
+        lineitem,
+        orders,
+        customer,
+        nation n1,
+        nation n2
+    WHERE
+        s_suppkey = l_suppkey
+        AND o_orderkey = l_orderkey
+        AND c_custkey = o_custkey
+        AND s_nationkey = n1.n_nationkey
+        AND c_nationkey = n2.n_nationkey
+        AND ((n1.n_name = 'FRANCE'
+                AND n2.n_name = 'GERMANY')
+            OR (n1.n_name = 'GERMANY'
+                AND n2.n_name = 'FRANCE'))
+        AND l_shipdate BETWEEN CAST('1995-01-01' AS date)
+        AND CAST('1996-12-31' AS date)) AS shipping
+GROUP BY
+    supp_nation,
+    cust_nation,
+    l_year
+ORDER BY
+    l_year;
+"#;
+
+// Q7 with its string ORDER BY keys.
+const TPCH_Q7_TT_2_SQL: &str = r#"
 SELECT
     supp_nation,
     cust_nation,
@@ -1317,7 +1412,32 @@ WHERE
     AND l_shipdate < CAST('1995-10-01' AS date);
 "#;
 
+// Q4 without its string ORDER BY key.
 const TPCH_Q4_TT_SQL: &str = r#"
+SELECT
+    o_orderpriority,
+    count(*) AS order_count
+FROM
+    orders
+INNER JOIN (
+    SELECT
+        l_orderkey
+    FROM
+        lineitem
+    WHERE
+        l_receiptdate > l_commitdate
+    GROUP BY
+        l_orderkey
+) AS late_orders ON o_orderkey = l_orderkey
+WHERE
+    o_orderdate >= CAST('1993-07-01' AS date)
+    AND o_orderdate < CAST('1993-10-01' AS date)
+GROUP BY
+    o_orderpriority;
+"#;
+
+// Q4 with its string ORDER BY key.
+const TPCH_Q4_TT_2_SQL: &str = r#"
 SELECT
     o_orderpriority,
     count(*) AS order_count
@@ -1427,7 +1547,8 @@ WHERE
 
 // Q20 flattened to inner joins, so that it goes through the join gadget
 // like the other rewritten subquery queries and not through
-// planner-generated semi-joins with null right-side provenance.
+// planner-generated semi-joins with null right-side provenance; without its
+// LIKE and its string ORDER BY key.
 const TPCH_Q20_TT_SQL: &str = r#"
 SELECT
     s_name,
@@ -1466,12 +1587,11 @@ INNER JOIN (
 ) AS candidate_suppliers
     ON s_suppkey = ps_suppkey
 WHERE
-    n_name = 'CANADA'
-ORDER BY
-    s_name;
+    n_name = 'CANADA';
 "#;
 
-// Q20 with the official `p_name LIKE 'forest%'`.
+// Q20 with its LIKE, the official `p_name LIKE 'forest%'`, and its string
+// ORDER BY key.
 const TPCH_Q20_TT_2_SQL: &str = r#"
 SELECT
     s_name,
@@ -1685,6 +1805,7 @@ ORDER BY
     o_orderdate_year;
 "#;
 
+// Q9 without its LIKE and its string ORDER BY key.
 const TPCH_Q9_TT_SQL: &str = r#"
 SELECT
     nation,
@@ -1713,11 +1834,11 @@ GROUP BY
     nation,
     o_orderdate_year
 ORDER BY
-    nation,
     o_orderdate_year DESC;
 "#;
 
-// Q9 with the official `p_name LIKE '%green%'`.
+// Q9 with its LIKE, the official `p_name LIKE '%green%'`, and its string
+// ORDER BY key.
 const TPCH_Q9_TT_2_SQL: &str = r#"
 SELECT
     nation,
@@ -1815,11 +1936,11 @@ fn cached_tpch_sql(lock: &'static OnceLock<&'static str>, number: u8) -> &'stati
 /// Which version of a TPC-H query, named by its benchmark suffix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Variant {
-    /// `_tt`: the query TruthTable proves. Some are rewritten from the
-    /// official text, and some of those rewrites drop a string predicate.
+    /// `_tt`: the query with no white-box string operation (a LIKE, a
+    /// string ORDER BY key): strings are only compared by their hashes.
     Tt,
-    /// `_tt_2`: a `_tt` rewrite with the string predicates it drops put back
-    /// ([`TT_2_QUERIES`]).
+    /// `_tt_2`: the query with its white-box string operations, for the
+    /// queries that have any ([`TT_2_QUERIES`]).
     Tt2,
     /// `_pgn`: the PoneglyphDB comparison, over the `_poneglyph` tables, for
     /// Q1, Q3, Q5, Q8, Q9 and Q18; any other query is its `_tt` variant.
@@ -1827,7 +1948,7 @@ pub enum Variant {
 }
 
 /// The queries with a `_tt_2` variant.
-pub const TT_2_QUERIES: [u8; 4] = [2, 9, 14, 20];
+pub const TT_2_QUERIES: [u8; 8] = [1, 2, 4, 7, 9, 12, 14, 20];
 
 /// The spec of TPC-H query `number` in `variant`.
 pub fn query_spec(number: u8, variant: Variant) -> TpchQuerySpec {
@@ -1838,10 +1959,10 @@ pub fn query_spec(number: u8, variant: Variant) -> TpchQuerySpec {
     let poneglyph = variant == Variant::Pgn;
     match number {
         1 => TpchQuerySpec {
-            sql: if poneglyph {
-                TPCH_Q1_PGN_SQL
-            } else {
-                cached_tpch_sql(&TPCH_Q1_TT_SQL, 1)
+            sql: match variant {
+                Variant::Pgn => TPCH_Q1_PGN_SQL,
+                Variant::Tt2 => cached_tpch_sql(&TPCH_Q1_TT_2_SQL, 1),
+                Variant::Tt => TPCH_Q1_TT_SQL,
             },
             tables: if poneglyph {
                 &["lineitem_poneglyph"]
@@ -1873,7 +1994,10 @@ pub fn query_spec(number: u8, variant: Variant) -> TpchQuerySpec {
             },
         },
         4 => TpchQuerySpec {
-            sql: TPCH_Q4_TT_SQL,
+            sql: match variant {
+                Variant::Tt2 => TPCH_Q4_TT_2_SQL,
+                Variant::Tt | Variant::Pgn => TPCH_Q4_TT_SQL,
+            },
             tables: &["orders", "lineitem"],
         },
         5 => TpchQuerySpec {
@@ -1902,7 +2026,10 @@ pub fn query_spec(number: u8, variant: Variant) -> TpchQuerySpec {
             tables: &["lineitem"],
         },
         7 => TpchQuerySpec {
-            sql: TPCH_Q7_TT_SQL,
+            sql: match variant {
+                Variant::Tt2 => TPCH_Q7_TT_2_SQL,
+                Variant::Tt | Variant::Pgn => TPCH_Q7_TT_SQL,
+            },
             tables: &["customer", "orders", "lineitem", "nation", "supplier"],
         },
         8 => TpchQuerySpec {
@@ -1957,7 +2084,10 @@ pub fn query_spec(number: u8, variant: Variant) -> TpchQuerySpec {
             tables: &["partsupp", "supplier", "nation"],
         },
         12 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q12_TT_SQL, 12),
+            sql: match variant {
+                Variant::Tt2 => cached_tpch_sql(&TPCH_Q12_TT_2_SQL, 12),
+                Variant::Tt | Variant::Pgn => TPCH_Q12_TT_SQL,
+            },
             tables: &["orders", "lineitem"],
         },
         13 => TpchQuerySpec {

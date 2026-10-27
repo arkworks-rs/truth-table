@@ -42,7 +42,7 @@ async fn required_side_columns_for(sql: &str, tables: &[&str]) -> BTreeSet<Strin
 
 /// The `_tt` and `_pgn` queries of the benchmark suite are LIKE-free, so
 /// none may load auxiliary columns; a `_tt_2` query loads them for its LIKE
-/// column only.
+/// column only, if it has one.
 #[tokio::test]
 async fn tpch_bench_queries_require_side_columns_for_like_only() {
     use tpch_data::Variant;
@@ -59,12 +59,17 @@ async fn tpch_bench_queries_require_side_columns_for_like_only() {
             );
         }
     }
-    for (number, column) in [(2, "p_type"), (9, "p_name"), (14, "p_type"), (20, "p_name")] {
+    for number in tpch_data::TT_2_QUERIES {
+        let like = match number {
+            2 | 14 => Some("p_type"),
+            9 | 20 => Some("p_name"),
+            _ => None,
+        };
         let spec = tpch_data::query_spec(number, Variant::Tt2);
         let cols = required_side_columns_for(spec.sql, spec.tables).await;
         assert_eq!(
             cols,
-            BTreeSet::from([column.to_string()]),
+            like.into_iter().map(String::from).collect::<BTreeSet<_>>(),
             "TPC-H q{number}_tt_2"
         );
     }

@@ -104,13 +104,33 @@ async fn tpch_q20() {
 }
 
 #[tokio::test]
+async fn tpch_q01_tt_2() {
+    prove_variant(1, Variant::Tt2).await;
+}
+
+#[tokio::test]
 async fn tpch_q02_tt_2() {
     prove_variant(2, Variant::Tt2).await;
 }
 
 #[tokio::test]
+async fn tpch_q04_tt_2() {
+    prove_variant(4, Variant::Tt2).await;
+}
+
+#[tokio::test]
+async fn tpch_q07_tt_2() {
+    prove_variant(7, Variant::Tt2).await;
+}
+
+#[tokio::test]
 async fn tpch_q09_tt_2() {
     prove_variant(9, Variant::Tt2).await;
+}
+
+#[tokio::test]
+async fn tpch_q12_tt_2() {
+    prove_variant(12, Variant::Tt2).await;
 }
 
 #[tokio::test]

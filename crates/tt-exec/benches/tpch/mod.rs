@@ -99,10 +99,14 @@ define_tpch_case_benches!(tpch_q18_tt, "tpch_q18_tt", 18, Tt);
 define_tpch_case_benches!(tpch_q19_tt, "tpch_q19_tt", 19, Tt);
 define_tpch_case_benches!(tpch_q20_tt, "tpch_q20_tt", 20, Tt);
 
-// The `_tt` queries whose rewrite drops a string predicate, with it put back
+// The queries with white-box string operations, with them
 // (`tpch_data::TT_2_QUERIES`).
+define_tpch_case_benches!(tpch_q1_tt_2, "tpch_q1_tt_2", 1, Tt2);
 define_tpch_case_benches!(tpch_q2_tt_2, "tpch_q2_tt_2", 2, Tt2);
+define_tpch_case_benches!(tpch_q4_tt_2, "tpch_q4_tt_2", 4, Tt2);
+define_tpch_case_benches!(tpch_q7_tt_2, "tpch_q7_tt_2", 7, Tt2);
 define_tpch_case_benches!(tpch_q9_tt_2, "tpch_q9_tt_2", 9, Tt2);
+define_tpch_case_benches!(tpch_q12_tt_2, "tpch_q12_tt_2", 12, Tt2);
 define_tpch_case_benches!(tpch_q14_tt_2, "tpch_q14_tt_2", 14, Tt2);
 define_tpch_case_benches!(tpch_q20_tt_2, "tpch_q20_tt_2", 20, Tt2);
 
