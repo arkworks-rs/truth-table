@@ -1,4 +1,6 @@
-use crate::irs::nodes::utils::field_to_usize;
+use crate::irs::nodes::utils::{
+    SnarkError, VerifierError, commit_with_tracker, field_to_usize, track_next_committed,
+};
 use std::{
     panic,
     sync::{Arc, Mutex},
@@ -15,13 +17,8 @@ use crate::{
 use arithmetic::{
     ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
-use ark_piop::{
-    SnarkBackend,
-    prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
-};
+use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 use datafusion::arrow::array::Array;
-use either::Either;
 
 use crate::irs::nodes::utils::contig_sort::{ACTIVE_ROWS_LABEL, active_rows_field};
 use indexmap::IndexMap;
@@ -31,7 +28,6 @@ pub const LEX_SORTED_LABEL: &str = "_lex_sorted_";
 const PK_METADATA_KEY: &str = "tt.pk";
 /// Prefix for the prover->verifier side channel that carries the number
 /// of active input rows for SortNoDup.
-const SORT_NODUP_ACTIVE_INPUT_ROWS_PREFIX: &str = "sort_nodup_active_input_rows";
 type GadgetPayload<T> = IndexMap<String, T>;
 
 mod bezout;
@@ -189,7 +185,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let lex_sorted_table =
             payload_value_or_panic(id, &payload, LEX_SORTED_LABEL, "No lex sorted hint found");
         let num_active_input_rows = self.cached_sort_nodup_active_rows();
-        let key = active_input_rows_misc_key(id, virtualized_ir.tree());
         let Some(tracker_rc) = lex_sorted_table
             .activator_tracked_poly()
             .map(|poly| poly.tracker())
@@ -202,20 +197,19 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        tracker_rc
-            .borrow_mut()
-            .insert_miscellaneous_field(key, B::F::from(num_active_input_rows as u64));
+        // The count fixes the public activator `C_{µ,n}`; committing it binds
+        // it to the transcript before any challenge.
+        let count = commit_with_tracker(
+            &tracker_rc,
+            0,
+            vec![B::F::from(num_active_input_rows as u64)],
+        )?;
         let contig_activator = tracker_rc
             .borrow_mut()
             .get_or_build_contig_one_poly(lex_sorted_table.log_size(), num_active_input_rows)?;
         let lex_sorted_with_activator =
             append_activator_prover(&lex_sorted_table, contig_activator);
         payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_with_activator);
-        let count = TrackedPoly::new(
-            Either::Right(B::F::from(num_active_input_rows as u64)),
-            0,
-            tracker_rc,
-        );
         payload.insert(
             ACTIVE_ROWS_LABEL.to_string(),
             TrackedTable::single_column_with_activator(active_rows_field(), count, None),
@@ -296,7 +290,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Some(lex_sorted_table) = payload.get(LEX_SORTED_LABEL) else {
             return Ok(());
         };
-        let key = active_input_rows_misc_key(id, virtualized_ir.tree());
         let Some(tracker_rc) = lex_sorted_table
             .activator_tracked_poly()
             .map(|oracle| oracle.tracker())
@@ -312,15 +305,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 id
             );
         };
-        let num_active_input_rows_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
-        let num_active_input_rows = field_to_usize(num_active_input_rows_field, "nodup contig n")?;
+        let count = track_next_committed(&tracker_rc)?;
+        let num_active_input_rows = match count.as_constant() {
+            Some(value) if count.log_size() == 0 => field_to_usize(value, "nodup contig n")?,
+            _ => {
+                return Err(SnarkError::VerifierError(
+                    VerifierError::VerifierCheckFailed(
+                        "the NoDup row count is not a committed scalar".to_string(),
+                    ),
+                ));
+            }
+        };
         let contig_activator = tracker_rc
             .borrow_mut()
             .get_or_build_contig_one_poly(lex_sorted_table.log_size(), num_active_input_rows)?;
         let lex_sorted_with_activator =
             append_activator_verifier(lex_sorted_table, contig_activator);
         payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_with_activator);
-        let count = TrackedOracle::new(Either::Right(num_active_input_rows_field), tracker_rc, 0);
         payload.insert(
             ACTIVE_ROWS_LABEL.to_string(),
             TrackedTableOracle::single_column_with_activator(active_rows_field(), count, None),
@@ -635,52 +636,6 @@ fn active_row_count_from_hint(hint: &crate::irs::nodes::hints::HintDF) -> usize 
                 .count()
         })
         .sum()
-}
-
-fn active_input_rows_misc_key<B: SnarkBackend>(
-    target_id: crate::irs::nodes::NodeId,
-    tree: &crate::irs::tree::Tree<B>,
-) -> String {
-    // Not keyed by raw NodeId: prover and verifier build separate trees and
-    // pointer-derived ids may differ. The DFS rank among NoDup nodes is the
-    // same in both trees.
-    fn dfs_rank<B: SnarkBackend>(
-        node: &Arc<Node<B>>,
-        target_id: crate::irs::nodes::NodeId,
-        rank: &mut usize,
-        found: &mut Option<usize>,
-    ) {
-        if found.is_some() {
-            return;
-        }
-
-        let is_nodup = matches!(node.as_ref(), Node::Gadget(_)) && node.name() == "NoDup";
-        if is_nodup {
-            if node.id() == target_id {
-                *found = Some(*rank);
-                return;
-            }
-            *rank += 1;
-        }
-
-        for child in node.children() {
-            dfs_rank(&child, target_id, rank, found);
-            if found.is_some() {
-                return;
-            }
-        }
-    }
-
-    let mut rank = 0usize;
-    let mut found = None;
-    dfs_rank(tree.root(), target_id, &mut rank, &mut found);
-    let nodup_rank = found.unwrap_or_else(|| {
-        panic!(
-            "NoDup node id {:?} was not found while computing misc key",
-            target_id
-        )
-    });
-    format!("{SORT_NODUP_ACTIVE_INPUT_ROWS_PREFIX}_{nodup_rank}")
 }
 
 fn append_activator_prover<B: SnarkBackend>(
