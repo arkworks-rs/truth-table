@@ -1,5 +1,5 @@
 use crate::irs::nodes::plan::compaction_dpuc;
-use crate::irs::nodes::utils::field_to_usize;
+use crate::irs::nodes::utils::{commit_with_tracker, field_to_usize, track_next_committed};
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
     utils::compaction as compaction_gadget,
@@ -11,6 +11,7 @@ use arithmetic::{
     table_oracle::TrackedTableOracle,
 };
 use ark_piop::SnarkBackend;
+use ark_piop::{errors::SnarkError, verifier::errors::VerifierError};
 use ark_std::One;
 
 use datafusion::arrow::datatypes::{Field, Schema};
@@ -26,8 +27,6 @@ use std::any::Any;
 use std::cmp::Ordering;
 use std::hash::Hasher;
 use std::sync::Arc;
-
-const COMPACTION_CONTIG_S_PREFIX: &str = "compaction_contig_s";
 
 pub struct LpNode<B>
 where
@@ -117,6 +116,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .count();
 
         let tracker_rc = input_act.tracker();
+        // `s` fixes the public activator `C_{µ,s}`; committing it binds it to
+        // the transcript before any challenge.
+        commit_with_tracker(&tracker_rc, 0, vec![B::F::from(s as u64)])?;
         let contig = tracker_rc
             .borrow_mut()
             .get_or_build_contig_one_poly(current_table.log_size(), s)?;
@@ -140,11 +142,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             id,
             Some(crate::irs::payloads::PayloadStructure::PlanPayload(updated)),
         );
-
-        let key = compaction_contig_key(virtualized_ir.tree(), id);
-        tracker_rc
-            .borrow_mut()
-            .insert_miscellaneous_field(key, B::F::from(s as u64));
         Ok(())
     }
 
@@ -357,9 +354,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             return Ok(());
         };
         let tracker_rc = input_act.tracker();
-        let key = compaction_contig_key(virtualized_ir.tree(), id);
-        let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
-        let s = field_to_usize(s_field, "compaction contig s")?;
+        let committed = track_next_committed(&tracker_rc)?;
+        let s = match committed.as_constant() {
+            Some(value) if committed.log_size() == 0 => {
+                field_to_usize(value, "compaction contig s")?
+            }
+            _ => {
+                return Err(SnarkError::VerifierError(
+                    VerifierError::VerifierCheckFailed(
+                        "the compaction row count is not a committed scalar".to_string(),
+                    ),
+                ));
+            }
+        };
 
         let contig = tracker_rc
             .borrow_mut()
@@ -688,50 +695,6 @@ fn reassign_row_id_to_natural_indices(df: DataFrame) -> DataFusionResult<DataFra
         .collect();
     projection.push(row_number_minus_one);
     df.select(projection)
-}
-
-fn compaction_contig_key<B: SnarkBackend>(
-    tree: &crate::irs::tree::Tree<B>,
-    id: crate::irs::nodes::NodeId,
-) -> String {
-    let path = structural_path_to_node(tree, id)
-        .unwrap_or_else(|| panic!("Compaction could not derive structural path for node {id}"));
-    let path = path
-        .iter()
-        .map(|index| index.to_string())
-        .collect::<Vec<_>>()
-        .join(".");
-    format!("{COMPACTION_CONTIG_S_PREFIX}_{path}")
-}
-
-fn structural_path_to_node<B: SnarkBackend>(
-    tree: &crate::irs::tree::Tree<B>,
-    target: crate::irs::nodes::NodeId,
-) -> Option<Vec<usize>> {
-    fn visit<B: SnarkBackend>(
-        node: &Arc<Node<B>>,
-        target: crate::irs::nodes::NodeId,
-        path: &mut Vec<usize>,
-    ) -> bool {
-        if node.id() == target {
-            return true;
-        }
-        for (index, child) in node.children().iter().enumerate() {
-            path.push(index);
-            if visit(child, target, path) {
-                return true;
-            }
-            path.pop();
-        }
-        false
-    }
-
-    let mut path = Vec::new();
-    if visit(tree.root(), target, &mut path) {
-        Some(path)
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]

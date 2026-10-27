@@ -20,11 +20,7 @@
 //!
 //! `R` is a committed scalar the verifier caps at `2^m + 1` (`m` the
 //! character domain's log size, which bounds every length) before tracking
-//! any projection, and also refuses when the projections could exhaust the
-//! tracker ids, which ark-piop counts in a `u16` and panics past. The guard
-//! covers this check's ids only: a later check can still exhaust them after
-//! an `R` that passes it, and the verifier then panics instead of rejecting,
-//! until ark-piop's id allocation is fallible. Soundness
+//! any projection. Soundness
 //! needs what the Character Projection Check needs of the character table,
 //! and `index` bound by the caller.
 
@@ -48,12 +44,6 @@ use crate::irs::nodes::utils::{contig_sort::rotation, field_to_usize};
 
 const GAMMA_LABEL: &[u8] = b"lex_sortedness_gamma";
 const NOZERO_LABEL: &[u8] = b"lex_sortedness_nozero";
-
-/// An upper bound, with margin, on the tracker ids the verifier spends per
-/// projection from tracking `c_k` to the end of the check, range limbs of
-/// a wide character domain included; the verifier reserves one more
-/// position's worth for the part that does not depend on `R`.
-pub(super) const IDS_PER_POSITION: usize = 128;
 
 /// The sorted column at string level; its activator is `C_{µ,n}` for the
 /// `n` of the tie it is checked under. `index[i]` is the `orig-ind` of row
@@ -367,12 +357,6 @@ pub fn verify<B: SnarkBackend>(
     if positions > (1 << chars.orig_ind.log_size()) + 1 {
         return Err(check_failed(
             "the position count exceeds the longest possible string",
-        ));
-    }
-    let free_ids = usize::from(u16::MAX) - verifier.peek_next_id().to_int();
-    if (positions + 1) * IDS_PER_POSITION > free_ids {
-        return Err(check_failed(
-            "the position count would exhaust the verifier's tracker ids",
         ));
     }
     let projections = (0..positions)

@@ -4,13 +4,10 @@
 use std::sync::Arc;
 
 use arithmetic::ACTIVATOR_FIELD;
-use ark_ff::Zero;
-use ark_piop::{
-    DefaultSnarkBackend, SnarkBackend, errors::SnarkError, verifier::errors::VerifierError,
-};
+use ark_piop::{DefaultSnarkBackend, SnarkBackend, errors::SnarkError};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
-use super::{IDS_PER_POSITION, Witness, prove_with_witness, rotate, verify, witness};
+use super::{Witness, prove_with_witness, rotate, verify, witness};
 use crate::irs::nodes::{
     Node,
     utils::{
@@ -145,11 +142,6 @@ struct Run {
     /// The character table's owners in place of the strings themselves.
     chars: Option<Vec<&'static [u8]>>,
     char_log_size: usize,
-    /// Tracker ids spent on both sides before the check.
-    ids_before: usize,
-    /// Asserts that the verifier spends at most `(R + 1)·IDS_PER_POSITION`
-    /// tracker ids on the check, for this `R`.
-    positions: Option<usize>,
 }
 
 impl Default for Run {
@@ -164,8 +156,6 @@ impl Default for Run {
             expected_same: None,
             chars: None,
             char_log_size: CHAR_NV,
-            ids_before: 0,
-            positions: None,
         }
     }
 }
@@ -197,8 +187,7 @@ fn run(strings: &[&[u8]], opts: Run) -> Result<(), SnarkError> {
         "length".to_string(),
         strings.iter().map(|s| int(s.len() as i64)).collect(),
     ));
-    let (asc, forge, ids_before, positions) =
-        (opts.asc, opts.forge, opts.ids_before, opts.positions);
+    let (asc, forge) = (opts.asc, opts.forge);
     let expected_same = opts
         .expected_same
         .map(|same| padded(same.iter().map(|v| int(*v)).collect(), ROW_NV));
@@ -206,9 +195,6 @@ fn run(strings: &[&[u8]], opts: Run) -> Result<(), SnarkError> {
 
     let gadget = InlineGadget::<B>::node(
         Box::new(move |prover, payload| {
-            while prover.peek_next_id().to_int() < ids_before {
-                prover.track_mat_mv_cnst_poly(0, F::zero());
-            }
             let (column, chars) = sortedness::columns(
                 data_polys(&payload[STRINGS]),
                 data_polys(&payload[CHARS]),
@@ -246,9 +232,6 @@ fn run(strings: &[&[u8]], opts: Run) -> Result<(), SnarkError> {
             Ok(())
         }),
         Box::new(move |verifier, payload| {
-            while verifier.peek_next_id().to_int() < ids_before {
-                verifier.track_mat_mv_cnst_oracle(0, F::zero());
-            }
             let (column, chars) = sortedness::columns(
                 data_oracles(&payload[STRINGS]),
                 data_oracles(&payload[CHARS]),
@@ -266,15 +249,7 @@ fn run(strings: &[&[u8]], opts: Run) -> Result<(), SnarkError> {
                 };
                 tie = lex::verify(verifier, &[key], tie, false)?;
             }
-            let start = verifier.peek_next_id().to_int();
             let output = verify(verifier, &column, &chars, tie, &[], asc)?;
-            if let Some(r) = positions {
-                let spent = verifier.peek_next_id().to_int() - start;
-                assert!(
-                    spent <= (r + 1) * IDS_PER_POSITION,
-                    "R = {r} cost the verifier {spent} tracker ids"
-                );
-            }
             if let Some(table) = payload.get(AFTER) {
                 let [data, next] = data_oracles(table).try_into().expect("key and next");
                 rotation::verify(verifier, &[(data.clone(), next.clone())], ROW_NV, n)?;
@@ -596,45 +571,4 @@ fn padded_positions(w: &mut Witness<F>, positions: usize) {
     let rows = w.same.len();
     w.projections.resize(positions, vec![int(-1); rows]);
     w.projections_next.resize(positions, vec![int(-1); rows]);
-}
-
-#[test]
-fn tracker_ids_per_position_within_the_bound() {
-    let measured = |positions: usize| Run {
-        positions: Some(positions),
-        ..Run::default()
-    };
-    run(&[b"xy", b"xy", b"xy"], measured(0)).expect("R = 0 verifies");
-    run(&[b"abc", b"abd"], measured(3)).expect("R = 3 verifies");
-    let wide = Run {
-        char_log_size: 16,
-        ..measured(3)
-    };
-    run(&[b"abc", b"abd"], wide).expect("R = 3 over a wide character domain verifies");
-    let most = Run {
-        forge: |w| padded_positions(w, (1 << CHAR_NV) + 1),
-        ..measured((1 << CHAR_NV) + 1)
-    };
-    run(&[b"a", b"b"], most).expect("the most positions the cap allows verify");
-}
-
-#[test]
-fn positions_exhausting_the_tracker_ids_rejected() {
-    // The check would fit, but with 2000 ids left the verifier cannot
-    // reserve `(R + 1)·IDS_PER_POSITION` of them, and refuses rather than
-    // risk ark-piop's panic on overflowing the ids.
-    let opts = Run {
-        ids_before: usize::from(u16::MAX) - 2000,
-        forge: |w| padded_positions(w, (1 << CHAR_NV) + 1),
-        ..Run::default()
-    };
-    let result = run(&[b"a", b"b"], opts);
-    assert!(
-        matches!(
-            &result,
-            Err(SnarkError::VerifierError(VerifierError::VerifierCheckFailed(message)))
-                if message.contains("tracker ids")
-        ),
-        "expected the verifier to refuse the position count, got {result:?}"
-    );
 }
