@@ -126,5 +126,3 @@ ark-piop = { path = "../ark-piop" }
 
 [workspace.metadata.cargo-alias]
 test-all = "sh tt-scripts/test.sh"
-[profile.release]
-incremental = true
