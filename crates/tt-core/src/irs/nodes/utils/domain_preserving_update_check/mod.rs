@@ -1,5 +1,5 @@
-//! Domain-Preserving Update Check (paper §4.2.2, the "Full String Validity
-//! Check"), B1 variant, for compaction.
+//! Domain-Preserving Update Check: TruthTable++ Full String Validity Check
+//! (§4.2.2, PIOP 3), B1 variant, for compaction.
 //!
 //! Compaction repacks a filtered table's active rows into a smaller hypercube
 //! and re-emits every column, including a string column's char-domain side

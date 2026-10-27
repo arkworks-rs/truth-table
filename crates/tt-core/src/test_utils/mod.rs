@@ -1,6 +1,9 @@
 #[cfg(feature = "test-utils")]
 pub mod dishonest_prover;
+#[cfg(feature = "test-utils")]
+pub mod forced_ranks;
 pub mod gadget_harness;
+pub mod inline_gadget;
 
 use std::sync::Arc;
 

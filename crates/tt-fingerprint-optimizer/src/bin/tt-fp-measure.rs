@@ -79,11 +79,14 @@ fn main() -> Result<()> {
 }
 
 fn commit(args: CommitArgs) -> Result<()> {
+    // The measured cost is the fingerprints' alone, and the queries sort by
+    // no string, so the oracle carries no ranks.
     let runner = tt_exec::commit::CommitBuilder::new()
         .with_parquet_path(args.parquet)
         .with_pk_path(args.pk)
         .with_output_path(Some(args.out))
         .with_fp_width(Some(args.bins))
+        .with_ranks(false)
         .build()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

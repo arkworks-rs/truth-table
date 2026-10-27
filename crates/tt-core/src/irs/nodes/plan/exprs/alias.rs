@@ -5,13 +5,14 @@ use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::Statistics;
 use datafusion_expr::{ExprSchemable, expr::Alias};
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
+    plan::lps::projection::forwards_side_columns,
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
@@ -21,6 +22,34 @@ pub struct ExprNode<B: SnarkBackend> {
     pub expr: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub alias: Alias,
+}
+
+/// The side columns an aliased table passes on, when column references pass
+/// theirs ([`forwards_side_columns`]): those of the aliased column `base`
+/// renamed after `alias`, the others as they are.
+fn aliased_side_cols<T>(
+    side_cols: IndexMap<FieldRef, T>,
+    base: Option<&str>,
+    alias: &str,
+) -> IndexMap<FieldRef, T> {
+    if !forwards_side_columns() {
+        return IndexMap::new();
+    }
+    side_cols
+        .into_iter()
+        .map(|(field, side)| match base {
+            Some(base) if is_segment_of(field.name(), base) => {
+                let renamed = Field::new(
+                    format!("{alias}{}", &field.name()[base.len()..]),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                )
+                .with_metadata(field.metadata().clone());
+                (Arc::new(renamed), side)
+            }
+            _ => (field, side),
+        })
+        .collect()
 }
 
 impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
@@ -123,7 +152,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
             .or_else(|| Some(Schema::new(fields)));
 
-        let aliased_table = TrackedTable::new(new_schema, tracked_polys, expr_table.log_size());
+        let side_cols =
+            aliased_side_cols(expr_table.side_cols(), primary_base.as_deref(), &alias_name);
+        let aliased_table = TrackedTable::new_with_side_cols(
+            new_schema,
+            tracked_polys,
+            expr_table.log_size(),
+            side_cols,
+        );
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(aliased_table)));
         Ok(())
     }
@@ -236,7 +272,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         let alias_name = self.alias.name.clone();
 
-        let (tracked_oracles, new_schema, log_size) =
+        let (tracked_oracles, new_schema, log_size, side_cols) =
             match virtualized_ir.payload_for_node(&self.expr.id()) {
                 Some(PayloadStructure::PlanPayload(table)) => {
                     let mut tracked_oracles = IndexMap::new();
@@ -295,12 +331,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                             Schema::new_with_metadata(fields.clone(), schema.metadata().clone())
                         })
                         .or_else(|| Some(Schema::new(fields)));
-                    (tracked_oracles, new_schema, table.log_size())
+                    let side_cols =
+                        aliased_side_cols(table.side_cols(), primary_base.as_deref(), &alias_name);
+                    (tracked_oracles, new_schema, table.log_size(), side_cols)
                 }
                 _ => return Ok(()),
             };
 
-        let aliased_table = TrackedTableOracle::new(new_schema, tracked_oracles, log_size);
+        let aliased_table = TrackedTableOracle::new_with_side_cols(
+            new_schema,
+            tracked_oracles,
+            log_size,
+            side_cols,
+        );
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(aliased_table)));
         Ok(())
     }

@@ -1,4 +1,8 @@
-use ark_piop::{SnarkBackend, verifier::ArgVerifier};
+use ark_piop::{
+    SnarkBackend,
+    errors::SnarkError,
+    verifier::{ArgVerifier, errors::VerifierError},
+};
 use datafusion::datasource::{MemTable, TableProvider};
 use datafusion_common::DataFusionError;
 use proof_planner::data_dependent_lp_optimizer::apply_optimization_hints;
@@ -47,6 +51,7 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
 
     /// `side_columns` (from `Tree::required_side_columns`) are the columns
     /// whose char-level side commitments the prover emits.
+    #[allow(clippy::too_many_arguments)]
     pub fn tracking_pass(
         &self,
         arg_verifier: ArgVerifier<B>,
@@ -54,6 +59,7 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
         output_memtable: Option<Arc<MemTable>>,
         side_columns: std::collections::BTreeSet<String>,
         fingerprint_columns: arithmetic::encoding::FingerprintSelection,
+        rank_columns: std::collections::BTreeSet<(String, String)>,
         fingerprint_openings: tt_core::prover::passes::tracking::FingerprintOpenings,
     ) -> VerifierTrackingPass<B> {
         VerifierTrackingPass::new(
@@ -62,6 +68,7 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
             output_memtable,
             side_columns,
             fingerprint_columns,
+            rank_columns,
             fingerprint_openings,
         )
     }
@@ -109,12 +116,17 @@ impl<B: SnarkBackend> TTVerifier<B> {
         // wire hint.
         let side_columns = gadget_planned_ir.tree().required_side_columns();
         let fingerprint_columns = gadget_planned_ir.tree().required_fingerprint_columns();
+        let rank_columns = gadget_planned_ir.tree().required_rank_columns();
+        self.shared_config
+            .ctx_oracles()
+            .ensure_rank_columns(gadget_planned_ir.tree(), &rank_columns)?;
         let verifier_tracking_pass = self.verifier_config.tracking_pass(
             arg_verifier.clone(),
             self.shared_config.ctx_oracles().clone(),
             output_memtable,
             side_columns,
             fingerprint_columns,
+            rank_columns,
             proof.fingerprint_openings().clone(),
         );
         let mut tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
@@ -191,6 +203,16 @@ impl<B: SnarkBackend> TTVerifier<B> {
         query: &str,
         proof: &TTProof<B>,
     ) -> TTResult<datafusion_expr::LogicalPlan> {
+        let string_order = tt_core::irs::string_order::string_order();
+        if proof.string_order() != string_order {
+            return Err(
+                SnarkError::VerifierError(VerifierError::VerifierCheckFailed(format!(
+                    "the proof orders strings in {:?} mode, the verifier in {string_order:?} mode",
+                    proof.string_order()
+                )))
+                .into(),
+            );
+        }
         let initial_lp = self.shared_config.query_to_lp(query).await;
         debug!(
             "verifier initial logical plan:\n{}",

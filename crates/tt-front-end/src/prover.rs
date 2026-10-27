@@ -91,15 +91,19 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     /// white-box string gadgets consume char-level side polys for; no other
     /// string column gets side polys. `fingerprint_columns` (from
     /// `Tree::required_fingerprint_columns`) are the table-scan columns that
-    /// carry fingerprint limbs.
+    /// carry fingerprint limbs, and `rank_columns` (from
+    /// `Tree::required_rank_columns`) the `(table, column)` pairs whose scans
+    /// carry ranks.
     pub fn arithmetization_pass(
         &self,
         side_columns: std::collections::BTreeSet<String>,
         fingerprint_columns: arithmetic::encoding::FingerprintSelection,
+        rank_columns: std::collections::BTreeSet<(String, String)>,
     ) -> ArithmetizationPass<B> {
         ArithmetizationPass::new(
             tt_core::prover::passes::arithmetization::SideColumns::Only(side_columns),
             tt_core::prover::passes::arithmetization::FingerprintColumns::Only(fingerprint_columns),
+            tt_core::prover::passes::arithmetization::RankColumns::Only(rank_columns),
         )
     }
 
@@ -230,6 +234,12 @@ impl<B: SnarkBackend> TTProver<B> {
             "optimized_initial_ir",
             optimized_initial_ir.display_graphviz(true),
         );
+        // Checked before any pass: tracking cannot report a missing rank
+        // commitment as an error.
+        let rank_columns = optimized_initial_ir.tree().required_rank_columns();
+        self.shared_config
+            .ctx_oracles()
+            .ensure_rank_columns(optimized_initial_ir.tree(), &rank_columns)?;
         let output_planned_ir = self
             .timed_ir_stage(
                 "output_planning",
@@ -278,9 +288,11 @@ impl<B: SnarkBackend> TTProver<B> {
                 "arithmetized_ir",
                 || async {
                     Ok(materialized_ir.apply_local_pass_parallel(
-                        &self
-                            .prover_config
-                            .arithmetization_pass(side_columns, fingerprint_columns),
+                        &self.prover_config.arithmetization_pass(
+                            side_columns,
+                            fingerprint_columns,
+                            rank_columns,
+                        ),
                     ))
                 },
                 |ir| ir.display_graphviz(true),
@@ -396,6 +408,7 @@ impl<B: SnarkBackend> TTProver<B> {
         TTProof::new(
             arg_proof,
             optimization_hints,
+            tt_core::irs::string_order::string_order(),
             self.fingerprint_openings.take(),
         )
     }

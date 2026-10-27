@@ -33,6 +33,8 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
+pub mod range;
+
 pub const INPUT_LABEL: &str = "__input__";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sign {

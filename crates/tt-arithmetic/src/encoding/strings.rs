@@ -39,6 +39,27 @@ pub fn fingerprint_segment_suffixes(column: Option<&str>, limbs: FingerprintLimb
         .collect()
 }
 
+/// Row-domain segment holding each string's rank ([`dense_byte_ranks`]).
+/// Only a table scan carries it, on request (TruthTable++ §3.2): the data
+/// owner commits it, and a node above a scan could only rank its own rows,
+/// which nothing would bind to the base column's ranks.
+pub const STRING_RANK_SUFFIX: &str = "__rank";
+
+/// The rank of each value (TruthTable++ §3.2): the number of distinct
+/// non-NULL values strictly smaller in byte order, which is DataFusion's
+/// order of `Utf8`, `LargeUtf8` and `Utf8View`. A NULL ranks 0 and is not
+/// counted, so NULL padding leaves the other ranks unchanged.
+pub fn dense_byte_ranks<'a>(values: impl IntoIterator<Item = Option<&'a [u8]>>) -> Vec<u32> {
+    let values: Vec<Option<&[u8]>> = values.into_iter().collect();
+    let mut distinct: Vec<&[u8]> = values.iter().flatten().copied().collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+    values
+        .iter()
+        .map(|value| value.map_or(0, |bytes| distinct.partition_point(|&d| d < bytes) as u32))
+        .collect()
+}
+
 /// Side segment of the column's characters (paper §3.2), one byte per
 /// entry: the strings' bytes concatenated in row order, then zeros up to a
 /// power of two. Its activator covers the total byte count; the other side
@@ -93,6 +114,7 @@ pub fn fingerprint_limb_of(field_name: &str) -> Option<(&str, usize)> {
 pub(super) fn string_segment_base(field_name: &str) -> Option<&str> {
     for suffix in [
         STRING_LENGTH_SUFFIX,
+        STRING_RANK_SUFFIX,
         STRING_CHARS_SUFFIX,
         STRING_ORIG_IND_SUFFIX,
         STRING_INT_IND_SUFFIX,
@@ -168,6 +190,7 @@ where
 
     let mut segments = auto_segments(hash_cols);
     segments.push(EncodedSegment::named(STRING_LENGTH_SUFFIX, length_col));
+    let num_vars = rows.max(1).trailing_zeros() as usize;
 
     // Fingerprint limbs (paper §6.2) under this column's own rule; a column
     // the table's rules do not fingerprint emits none.
@@ -176,7 +199,6 @@ where
         .filter(|(selected, _)| !selected.is_empty());
     if let Some((selected, scheme)) = selected {
         let masks = scheme.fingerprint_all(&values);
-        let num_vars = rows.max(1).trailing_zeros() as usize;
         let limbs: Vec<Vec<u8>> = map_indices(selected.len(), |k| {
             let mut col: Vec<u8> = masks.iter().map(|m| limb(m, selected[k])).collect();
             col.resize(1 << num_vars, 0);
@@ -188,6 +210,16 @@ where
                 MLE::from_u8s(col, num_vars),
             ));
         }
+    }
+
+    if options.rank {
+        let mut ranks =
+            dense_byte_ranks((0..rows).map(|idx| (!array.is_null(idx)).then_some(values[idx])));
+        ranks.resize(1 << num_vars, 0);
+        segments.push(EncodedSegment::named_mle(
+            STRING_RANK_SUFFIX,
+            MLE::from_u32s(ranks, num_vars),
+        ));
     }
 
     // Character-level side segments (paper §3.2). All four share one domain

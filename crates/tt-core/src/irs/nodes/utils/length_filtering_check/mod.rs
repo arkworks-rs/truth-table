@@ -1,4 +1,4 @@
-//! Length Filtering Check (paper §5.3, PIOP 5).
+//! TruthTable++ Length Filtering Check (§4.3, PIOP 4).
 //!
 //! Given `src, ind, l, ah, ac`, a threshold `k` and the prover's filtered
 //! activators `a'h, a'c`, proves that

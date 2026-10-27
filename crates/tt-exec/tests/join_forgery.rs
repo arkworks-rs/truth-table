@@ -22,8 +22,7 @@ use tt_exec::{
     paths::workspace_artifacts_dir,
     prove::{ProveBuilder, ProveOutputs},
     setup::DEFAULT_TEST_LOG_SIZE,
-    test_utils::{resolve_key_paths, resolve_oracle_path, resolve_parquet_path},
-    verify::VerifyBuilder,
+    test_utils::{resolve_key_paths, resolve_oracle_path, resolve_parquet_path, verify_on_thread},
 };
 
 /// Row `i` of `nation` has `n_nationkey = i`, so the pairs below are row ids.
@@ -46,36 +45,6 @@ async fn prove(pk: &Path, oracle: &Path, tag: &str) -> ProveOutputs {
         .run()
         .await
         .expect("the prover runs")
-}
-
-/// Verifies on a fresh thread so a verifier panic counts as a rejection.
-fn verifies(oracle: &Path, proof: &ProveOutputs, vk: &Path) -> Result<(), String> {
-    let (oracle, proof_path, result_path, vk) = (
-        oracle.to_path_buf(),
-        proof.proof_path.clone(),
-        proof.result_path.clone(),
-        vk.to_path_buf(),
-    );
-    std::thread::spawn(move || {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("verifier runtime")
-            .block_on(async move {
-                VerifyBuilder::new()
-                    .with_query(QUERY.to_owned())
-                    .with_oracle_paths(vec![oracle])
-                    .with_proof_path(proof_path)
-                    .with_result_path(result_path)
-                    .with_vk_path(vk)
-                    .build()?
-                    .run()
-                    .await
-            })
-    })
-    .join()
-    .map_err(|_| "verifier panicked".to_string())?
-    .map_err(|e| format!("{e:#}"))
 }
 
 fn read_pairs(path: &Path) -> (RecordBatch, Vec<(i64, i64)>) {
@@ -128,8 +97,14 @@ async fn forged_many_to_many_joins_are_rejected() {
         .expect("nation oracle");
 
     let honest = prove(&pk, &oracle, "honest").await;
-    verifies(&oracle, &honest, &vk)
-        .expect("the honest proof must verify; otherwise the rejections below prove nothing");
+    verify_on_thread(
+        QUERY,
+        vec![oracle.clone()],
+        &honest.proof_path,
+        &honest.result_path,
+        &vk,
+    )
+    .expect("the honest proof must verify; otherwise the rejections below prove nothing");
     let (template, pairs) = read_pairs(&honest.result_path);
     let first = *pairs.iter().min().unwrap();
     let last = *pairs.iter().max().unwrap();
@@ -160,7 +135,13 @@ async fn forged_many_to_many_joins_are_rejected() {
         let forged = prove(&pk, &oracle, &format!("{forgery:?}")).await;
         set_join_forgery(None);
         set_claimed_result(None);
-        match verifies(&oracle, &forged, &vk) {
+        match verify_on_thread(
+            QUERY,
+            vec![oracle.clone()],
+            &forged.proof_path,
+            &forged.result_path,
+            &vk,
+        ) {
             Ok(()) => accepted.push(forgery),
             Err(reason) => eprintln!("rejected {forgery:?}: {reason}"),
         }

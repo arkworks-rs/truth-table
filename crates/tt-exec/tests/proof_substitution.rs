@@ -17,18 +17,19 @@ use std::{
 
 use datafusion::arrow::{
     array::{ArrayRef, UInt32Array},
-    compute::{concat_batches, take},
+    compute::take,
     datatypes::Schema,
     record_batch::RecordBatch,
 };
-use datafusion::parquet::arrow::{ArrowWriter, arrow_reader::ParquetRecordBatchReaderBuilder};
+use datafusion::parquet::arrow::ArrowWriter;
 
 use tt_exec::{
     paths::workspace_artifacts_dir,
     prove::{ProveBuilder, ProveOutputs},
     setup::DEFAULT_TEST_LOG_SIZE,
-    test_utils::{resolve_key_paths, resolve_oracle_path, resolve_parquet_path},
-    verify::VerifyBuilder,
+    test_utils::{
+        read_result, resolve_key_paths, resolve_oracle_path, resolve_parquet_path, verify_on_thread,
+    },
 };
 
 const REGION_1: &str = "SELECT n_name FROM nation WHERE n_regionkey = 1";
@@ -91,41 +92,9 @@ fn verify_with_result(
     result_path: &Path,
     vk: &Path,
 ) -> Outcome {
-    let query = query.to_owned();
-    let (proof_path, result_path, vk) = (
-        proof_path.to_path_buf(),
-        result_path.to_path_buf(),
-        vk.to_path_buf(),
-    );
-    let joined = std::thread::spawn(move || {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("verifier runtime")
-            .block_on(async move {
-                VerifyBuilder::new()
-                    .with_query(query)
-                    .with_oracle_paths(oracles)
-                    .with_proof_path(proof_path)
-                    .with_result_path(result_path)
-                    .with_vk_path(vk)
-                    .build()?
-                    .run()
-                    .await
-            })
-    })
-    .join();
-    match joined {
-        Ok(Ok(())) => Outcome::Accepted,
-        Ok(Err(e)) => Outcome::Rejected(format!("error: {e:#}")),
-        Err(payload) => {
-            let msg = payload
-                .downcast_ref::<String>()
-                .map(String::as_str)
-                .or_else(|| payload.downcast_ref::<&str>().copied())
-                .unwrap_or("<non-string panic>");
-            Outcome::Rejected(format!("panic: {msg}"))
-        }
+    match verify_on_thread(query, oracles, proof_path, result_path, vk) {
+        Ok(()) => Outcome::Accepted,
+        Err(reason) => Outcome::Rejected(reason),
     }
 }
 
@@ -293,15 +262,6 @@ async fn forged_fingerprint_openings_are_rejected() {
         accepted.is_empty(),
         "verifier accepted forged fingerprint openings: {accepted:?}"
     );
-}
-
-fn read_result(path: &Path) -> RecordBatch {
-    let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(path).expect("open result"))
-        .expect("result parquet")
-        .build()
-        .expect("result reader");
-    let batches: Vec<RecordBatch> = reader.collect::<Result<_, _>>().expect("result batches");
-    concat_batches(&batches[0].schema(), &batches).expect("concat result")
 }
 
 fn write_result(batch: &RecordBatch, tag: &str) -> PathBuf {

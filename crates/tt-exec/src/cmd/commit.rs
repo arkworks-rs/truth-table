@@ -25,6 +25,11 @@ pub struct Commit {
     #[arg(long, value_name = "BINS")]
     pub fp_bins: Option<usize>,
 
+    /// Commit no string column's rank. The oracle is smaller and cheaper to
+    /// commit, but cannot serve a query that sorts by a string.
+    #[arg(long)]
+    pub no_ranks: bool,
+
     /// Print how long the command takes to execute
     #[arg(long)]
     pub timed: bool,
@@ -44,6 +49,7 @@ impl Runnable for Commit {
             .with_pk_path(self.pk_path)
             .with_output_path(self.output_path)
             .with_fp_width(self.fp_bins)
+            .with_ranks(!self.no_ranks)
             .build()?;
 
         let output = runner.run().await?;

@@ -1,13 +1,63 @@
+use std::any::Any;
+use std::collections::HashSet;
+use std::sync::Mutex;
+
 use crate::session::session_context;
-use ark_piop::SnarkBackend;
+use arithmetic::encoding::STRING_RANK_SUFFIX;
+use arithmetic::table::TrackedTable;
+use arithmetic::table_oracle::TrackedTableOracle;
+use ark_piop::{SnarkBackend, types::TrackerID};
+use datafusion::arrow::datatypes::Schema;
 use datafusion::prelude::SessionContext;
 use datafusion_expr::TableScan;
+use indexmap::IndexMap;
 
-use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps};
+use crate::irs::nodes::{
+    IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
+};
+use crate::irs::payloads::PayloadStructure;
 
 #[derive(Debug)]
 pub struct LpNode {
     table_scan: TableScan,
+    /// The rank segment of each ranked column, as `(id, num_vars)`, which
+    /// `add_virtual_witness` takes out of the scan's payload on either side.
+    /// Tracked handles are not `Send`, so a consumer rebuilds one with
+    /// `TrackedPoly::new(Either::Left(id), num_vars, tracker)` or
+    /// `TrackedOracle::new(Either::Left(id), tracker, num_vars)`, taking the
+    /// tracker from its own payload.
+    rank_polys: Mutex<IndexMap<String, (TrackerID, usize)>>,
+}
+
+impl LpNode {
+    pub fn of<B: SnarkBackend>(node: &Node<B>) -> Option<&Self> {
+        let Node::Plan(PlanNode::LpBased(lp_node)) = node else {
+            return None;
+        };
+        (lp_node.as_ref() as &dyn Any).downcast_ref::<Self>()
+    }
+
+    /// The rank segment of `column` that this scan carried; available from
+    /// the virtualization pass on.
+    pub fn rank_poly(&self, column: &str) -> Option<(TrackerID, usize)> {
+        self.rank_polys
+            .lock()
+            .expect("rank cache poisoned")
+            .get(column)
+            .copied()
+    }
+}
+
+fn schema_without(schema: Option<&Schema>, dropped: &HashSet<String>) -> Option<Schema> {
+    schema.map(|schema| {
+        let fields: Vec<_> = schema
+            .fields()
+            .iter()
+            .filter(|field| !dropped.contains(field.name()))
+            .cloned()
+            .collect();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    })
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode {
@@ -39,11 +89,40 @@ impl<B: SnarkBackend> IsNode<B> for LpNode {
 }
 
 impl<B: SnarkBackend> ProverNodeOps<B> for LpNode {
+    /// A rank is read only through [`LpNode::rank_poly`]: no operator binds
+    /// it, so it must not reach a join key, an equality fold or a
+    /// compaction above the scan. Mirrored by the verifier.
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let mut ranks = IndexMap::new();
+        if let Some(PayloadStructure::PlanPayload(table)) = virtualized_ir.payload_for_node(&id) {
+            let mut rank_fields = HashSet::new();
+            for (field, col) in table.tracked_cols_iter() {
+                if let Some(rank) = col.aux_segment(STRING_RANK_SUFFIX) {
+                    ranks.insert(field.name().clone(), (rank.data.id(), rank.data.log_size()));
+                    rank_fields.insert(format!("{}{STRING_RANK_SUFFIX}", field.name()));
+                }
+            }
+            if !rank_fields.is_empty() {
+                let polys = table
+                    .tracked_polys()
+                    .into_iter()
+                    .filter(|(field, _)| !rank_fields.contains(field.name()))
+                    .collect();
+                let stripped = TrackedTable::new_with_side_cols(
+                    schema_without(table.schema_ref(), &rank_fields),
+                    polys,
+                    table.log_size(),
+                    table.side_cols(),
+                );
+                virtualized_ir
+                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(stripped)));
+            }
+        }
+        *self.rank_polys.lock().expect("rank cache poisoned") = ranks;
         Ok(())
     }
 
@@ -163,9 +242,35 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
 impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode {
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let mut ranks = IndexMap::new();
+        if let Some(PayloadStructure::PlanPayload(table)) = virtualized_ir.payload_for_node(&id) {
+            let mut rank_fields = HashSet::new();
+            for (field, col) in table.tracked_col_oracles_iter() {
+                if let Some(rank) = col.aux_segment(STRING_RANK_SUFFIX) {
+                    ranks.insert(field.name().clone(), (rank.data.id(), rank.data.log_size()));
+                    rank_fields.insert(format!("{}{STRING_RANK_SUFFIX}", field.name()));
+                }
+            }
+            if !rank_fields.is_empty() {
+                let oracles = table
+                    .tracked_oracles()
+                    .into_iter()
+                    .filter(|(field, _)| !rank_fields.contains(field.name()))
+                    .collect();
+                let stripped = TrackedTableOracle::new_with_side_cols(
+                    schema_without(table.schema_ref(), &rank_fields),
+                    oracles,
+                    table.log_size(),
+                    table.side_cols(),
+                );
+                virtualized_ir
+                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(stripped)));
+            }
+        }
+        *self.rank_polys.lock().expect("rank cache poisoned") = ranks;
         Ok(())
     }
     fn initialize_gadgets(
@@ -195,10 +300,16 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode {
             datafusion_expr::LogicalPlan::TableScan(ts) => ts,
             _ => panic!("Expected TableScan logical plan"),
         };
-        Self { table_scan }
+        Self {
+            table_scan,
+            rank_polys: Mutex::new(IndexMap::new()),
+        }
     }
 
     fn lp(&self) -> datafusion_expr::LogicalPlan {
         datafusion_expr::LogicalPlan::TableScan(self.table_scan.clone())
     }
 }
+
+#[cfg(test)]
+mod tests;

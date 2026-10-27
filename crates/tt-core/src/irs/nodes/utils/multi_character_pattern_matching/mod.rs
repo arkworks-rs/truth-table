@@ -1,4 +1,4 @@
-//! Multi-Character Pattern Matching (paper §6.1, PIOP 6).
+//! TruthTable++ Multi-Character Pattern Matching (§5.1, PIOP 6).
 //!
 //! Given the tuple `(a^old, char-act^old, char, orig-ind, int-ind, ind, bnd,
 //! l)`, the factors `(str_1, mode_1), …, (str_t, mode_t)` and the prover's new

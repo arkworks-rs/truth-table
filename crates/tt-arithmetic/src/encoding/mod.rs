@@ -7,8 +7,9 @@ mod util;
 // Bool, integers, dates, times, durations, decimals.
 mod primitives;
 
-// Row-domain `{hash, __length}`, optional fingerprint limbs `__fp{j}`, and the
-// char-level side segments `{__chars, __orig_ind, __int_ind, __bnd}`.
+// Row-domain `{hash, __length}`, optional fingerprint limbs `__fp{j}` and rank
+// `__rank`, and the char-level side segments
+// `{__chars, __orig_ind, __int_ind, __bnd}`.
 mod strings;
 
 // Binary, null and interval arrays; rejects floats and nested types.
@@ -29,8 +30,8 @@ pub use segment::{
 };
 pub use strings::{
     STRING_BND_SUFFIX, STRING_CHARS_SUFFIX, STRING_FINGERPRINT_LIMB_PREFIX, STRING_INT_IND_SUFFIX,
-    STRING_LENGTH_SUFFIX, STRING_ORIG_IND_SUFFIX, fingerprint_limb_of, fingerprint_limb_suffix,
-    fingerprint_segment_suffixes,
+    STRING_LENGTH_SUFFIX, STRING_ORIG_IND_SUFFIX, STRING_RANK_SUFFIX, dense_byte_ranks,
+    fingerprint_limb_of, fingerprint_limb_suffix, fingerprint_segment_suffixes,
 };
 pub use util::{hash_slot_limb_widths, hash_slot_limbs, is_hashed_type};
 
@@ -205,6 +206,7 @@ mod tests {
                     side: false,
                     fingerprint: FingerprintLimbs::All,
                     column,
+                    rank: false,
                 },
             )
             .unwrap()
@@ -240,6 +242,7 @@ mod tests {
                 side: false,
                 fingerprint: FingerprintLimbs::Only(&chosen),
                 column: Some("mine"),
+                rank: false,
             },
         )
         .unwrap();
@@ -249,9 +252,128 @@ mod tests {
             [fingerprint_limb_suffix(0), fingerprint_limb_suffix(5)]
         );
 
+        // The rank follows the selected limbs.
+        let ranked = encode_arrow_array_to_field_with_options::<Fr>(
+            &array,
+            EncodeOptions {
+                side: false,
+                fingerprint: FingerprintLimbs::Only(&chosen),
+                column: Some("mine"),
+                rank: true,
+            },
+        )
+        .unwrap();
+        let suffixes: Vec<&str> = ranked.iter().map(|s| s.suffix.as_str()).collect();
+        assert_eq!(
+            suffixes,
+            [
+                "",
+                STRING_LENGTH_SUFFIX,
+                &fingerprint_limb_suffix(0),
+                &fingerprint_limb_suffix(5),
+                STRING_RANK_SUFFIX
+            ]
+        );
+
         // A column with no rule is not fingerprinted at all.
         assert_eq!(encode(Some("unruled")).len(), 2);
         reset_rules();
+    }
+
+    #[test]
+    fn ranks_follow_byte_order() {
+        let values: Vec<Option<&[u8]>> = [
+            Some("b"),
+            Some("abc"),
+            Some(""),
+            Some("ab"),
+            None,
+            Some("abc"),
+            Some("B"),
+            Some("\u{e9}"),
+        ]
+        .into_iter()
+        .map(|s| s.map(str::as_bytes))
+        .collect();
+        let ranks = dense_byte_ranks(values.iter().copied());
+        // "" < "B" < "ab" < "abc" < "b" < "é": a prefix ranks below its
+        // extensions and equal strings share a rank.
+        assert_eq!(ranks, vec![4, 3, 0, 2, 0, 3, 1, 5]);
+        for (i, a) in values.iter().enumerate() {
+            for (j, b) in values.iter().enumerate() {
+                if let (Some(a), Some(b)) = (a, b) {
+                    assert_eq!(ranks[i].cmp(&ranks[j]), a.cmp(b), "{a:?} vs {b:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn null_padding_does_not_shift_ranks() {
+        let unpadded = dense_byte_ranks([Some(&b"x"[..]), Some(&b"y"[..])]);
+        let padded = dense_byte_ranks([None, Some(&b"x"[..]), None, Some(&b"y"[..])]);
+        assert_eq!(unpadded, vec![0, 1]);
+        assert_eq!(padded, vec![0, 0, 0, 1]);
+    }
+
+    /// The rank comes after the row-domain value segments and before the
+    /// side segments, and only when asked for: no default set, nor a type's
+    /// suffix list, has it.
+    #[test]
+    fn rank_segment_is_opt_in_and_placed_after_the_values() {
+        use datafusion::arrow::array::ArrayRef;
+        use std::sync::Arc;
+
+        // NULL padding is not counted, and a column of one-byte strings
+        // (whose hash slot is the byte) is ranked too.
+        for (strings, ranks) in [
+            (
+                vec![Some("pear"), None, Some("apple"), None],
+                [1u64, 0, 0, 0],
+            ),
+            (vec![Some("b"), None, Some(""), Some("a")], [2, 0, 0, 1]),
+        ] {
+            let array: ArrayRef = Arc::new(StringArray::from(strings));
+            let encoded = encode_arrow_array_to_field_with_options::<Fr>(
+                &array,
+                EncodeOptions {
+                    side: true,
+                    fingerprint: FingerprintLimbs::None,
+                    column: Some("c"),
+                    rank: true,
+                },
+            )
+            .unwrap();
+            let suffixes: Vec<&str> = encoded.iter().map(|s| s.suffix.as_str()).collect();
+            assert_eq!(
+                suffixes,
+                [
+                    "",
+                    STRING_LENGTH_SUFFIX,
+                    STRING_RANK_SUFFIX,
+                    STRING_CHARS_SUFFIX,
+                    STRING_ORIG_IND_SUFFIX,
+                    STRING_INT_IND_SUFFIX,
+                    STRING_BND_SUFFIX
+                ]
+            );
+            let rank = &encoded[2];
+            assert!(!rank.is_side());
+            let values: Vec<Fr> = rank.iter_values().collect();
+            assert_eq!(values, ranks.map(Fr::from));
+        }
+
+        let array: ArrayRef = Arc::new(StringArray::from(vec![Some("a"), Some("b")]));
+        for options in [EncodeOptions::ALL, EncodeOptions::NONE] {
+            let encoded = encode_arrow_array_to_field_with_options::<Fr>(&array, options).unwrap();
+            assert!(encoded.iter().all(|s| s.suffix != STRING_RANK_SUFFIX));
+        }
+        assert!(
+            !segment_suffixes_for_type::<Fr>(&DataType::Utf8)
+                .iter()
+                .any(|s| s == STRING_RANK_SUFFIX)
+        );
+        assert_eq!(segment_base_name("c__rank"), Some("c"));
     }
 
     #[test]
@@ -272,6 +394,7 @@ mod tests {
                 side: false,
                 fingerprint: FingerprintLimbs::All,
                 column: None,
+                rank: false,
             },
         )
         .unwrap();

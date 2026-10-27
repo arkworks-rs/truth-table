@@ -1,4 +1,4 @@
-//! Data-Preserving Update Check (paper §5.2.1, PIOP 3).
+//! TruthTable++ Data-Preserving Update Check (§4.2.1, PIOP 2).
 //!
 //! Proves that a fresh activator pair `(char-act, a)` is a data-preserving
 //! update of the existing columns `(orig-ind, ind, l)`:

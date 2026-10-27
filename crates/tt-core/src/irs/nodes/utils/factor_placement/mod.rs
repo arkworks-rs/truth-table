@@ -1,4 +1,4 @@
-//! Factor Placement (paper §6.1, PIOP 8).
+//! TruthTable++ Factor Placement (§5.1, PIOP 8).
 //!
 //! For a fixed factor `p = (str, mode)` of length `ℓ`, proves that the
 //! prover-sent `(occurs, match, mark, start)` identify the leftmost occurrence

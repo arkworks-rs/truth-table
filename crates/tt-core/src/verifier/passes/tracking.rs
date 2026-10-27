@@ -52,6 +52,10 @@ pub struct TrackingPass<B: SnarkBackend> {
     /// `Tree::required_fingerprint_columns`). Table scans carry exactly
     /// these `__fp{j}` segments, as on the prover side.
     fingerprint_columns: arithmetic::encoding::FingerprintSelection,
+    /// The `(table, column)` string columns whose rank a sort reads (from
+    /// `Tree::required_rank_columns`). Scans of those tables carry exactly
+    /// these `__rank` segments, as on the prover side.
+    rank_columns: std::collections::BTreeSet<(String, String)>,
     /// The proof's multiproofs for the fingerprint bins it opens.
     fingerprint_openings: OpeningCursor,
 }
@@ -100,6 +104,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
         output_memtable: Option<Arc<MemTable>>,
         side_columns: std::collections::BTreeSet<String>,
         fingerprint_columns: arithmetic::encoding::FingerprintSelection,
+        rank_columns: std::collections::BTreeSet<(String, String)>,
         fingerprint_openings: FingerprintOpenings,
     ) -> Self {
         Self {
@@ -108,6 +113,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
             output_memtable,
             side_columns,
             fingerprint_columns,
+            rank_columns,
             fingerprint_openings: OpeningCursor {
                 openings: fingerprint_openings,
                 next: std::cell::Cell::new(0),
@@ -131,7 +137,8 @@ impl<B: SnarkBackend> TrackingPass<B> {
 
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         // The final output table has no side segments: no PIOP reads them.
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized, None, None);
+        let arith_table =
+            arithmetize_materialized_table::<B::F>(&materialized, None, None, &|_| false);
         let tracked_table = Self::track_output_table_oracle(&arith_table, &self.verifier);
         let gadget_id = root
             .children()
@@ -181,6 +188,13 @@ where
                         .and_then(|name| self.ctx_oracles.table_oracle_by_name(&name))
                         .or_else(|| self.ctx_oracles.table_oracle_for_schema(&base_schema));
                     if let Some(oracle) = oracle {
+                        let scanned_table = node.scanned_table();
+                        let ranked = |column: &str| {
+                            scanned_table.as_deref().is_some_and(|table| {
+                                self.rank_columns
+                                    .contains(&(table.to_string(), column.to_string()))
+                            })
+                        };
                         // Table-scan commitments are public input: they come
                         // from the oracle files, never from the proof.
                         return track_hint_df_from_oracle(
@@ -189,12 +203,16 @@ where
                             &self.verifier,
                             &self.side_columns,
                             &self.fingerprint_columns,
+                            &ranked,
                             &self.fingerprint_openings,
                         )
                         .map(TrackedPayload::PlanPayload);
                     }
                     // A table scan without an oracle: the prover emits side
-                    // commitments for `side_columns`, so consume them.
+                    // commitments for `side_columns`, so consume them. A rank
+                    // here would be a prover commitment, so the front end
+                    // refuses rank columns over such a scan
+                    // (`CtxOracles::ensure_rank_columns`).
                     return track_hint_df(
                         hint_df,
                         &self.verifier,
@@ -241,6 +259,7 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     verifier: &RefCell<ArgVerifier<B>>,
     side_columns: &std::collections::BTreeSet<String>,
     fingerprint_columns: &arithmetic::encoding::FingerprintSelection,
+    ranked: &dyn Fn(&str) -> bool,
     fingerprint_openings: &OpeningCursor,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
@@ -274,7 +293,8 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     for qualified_field in &materialized {
         let fingerprint =
             arithmetic::encoding::selected_limbs(fingerprint_columns, qualified_field.name());
-        for segment_field in segment_fields::<B>(qualified_field, fingerprint) {
+        let rank = ranked(qualified_field.name());
+        for segment_field in segment_fields::<B>(qualified_field, fingerprint, rank) {
             if let Some((column, bin)) =
                 arithmetic::encoding::fingerprint_limb_of(segment_field.name())
                 && oracle.fingerprints().contains_key(column)
@@ -416,7 +436,7 @@ fn track_hint_df<B: SnarkBackend>(
             .map_or(arithmetic::encoding::FingerprintLimbs::None, |selection| {
                 arithmetic::encoding::selected_limbs(selection, qualified_field.name())
             });
-        for segment_field in segment_fields::<B>(qualified_field, fingerprint) {
+        for segment_field in segment_fields::<B>(qualified_field, fingerprint, false) {
             // The prover commits one polynomial per segment (e.g. hash and
             // `__length` for a string); consume one proof commitment each to
             // keep the tracker ids in sync.
@@ -478,11 +498,13 @@ fn track_hint_df<B: SnarkBackend>(
 
 /// The segment fields the prover's arithmetization produces for a hint-df
 /// field (e.g. `[col, col__length]` for Utf8, then the selected
-/// `fingerprint` limbs). The first segment is the field itself; the others
-/// are named `<col>{suffix}` and keep its metadata and nullability.
+/// `fingerprint` limbs, then `col__rank` when `rank`), in encoder order. The
+/// first segment is the field itself; the others are named `<col>{suffix}`
+/// and keep its metadata and nullability.
 fn segment_fields<B: SnarkBackend>(
     field: &FieldRef,
     fingerprint: arithmetic::encoding::FingerprintLimbs,
+    rank: bool,
 ) -> Vec<FieldRef> {
     let mut suffixes = arithmetic::encoding::segment_suffixes_for_type::<B::F>(field.data_type());
     if matches!(
@@ -495,6 +517,9 @@ fn segment_fields<B: SnarkBackend>(
             Some(field.name()),
             fingerprint,
         ));
+        if rank {
+            suffixes.push(arithmetic::encoding::STRING_RANK_SUFFIX.to_string());
+        }
     }
     if suffixes.len() <= 1 {
         return vec![field.clone()];

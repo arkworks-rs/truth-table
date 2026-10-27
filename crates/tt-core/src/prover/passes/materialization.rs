@@ -343,7 +343,7 @@ pub fn pad_batches_to_power_of_two(
                 .unwrap_or_else(|| Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef);
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
-        } else if is_string_type(field.data_type()) {
+        } else if crate::irs::lineage::is_string_type(field.data_type()) {
             // A string column's padding must be null, not a repeat of the
             // last row. The encoder marks every character of a non-null row
             // active, so a repeated string would put active characters under
@@ -382,16 +382,6 @@ pub fn pad_batches_to_power_of_two(
 
     let out_batch = RecordBatch::try_new(schema_ref, output_arrays)?;
     Ok((vec![out_batch], target))
-}
-
-/// String payload types whose padding must be null (see
-/// [`pad_batches_to_power_of_two`]).
-fn is_string_type(dt: &datafusion::arrow::datatypes::DataType) -> bool {
-    use datafusion::arrow::datatypes::DataType;
-    matches!(
-        dt,
-        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
-    )
 }
 
 fn rewrap_batches_with_schema(

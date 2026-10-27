@@ -191,7 +191,7 @@ fn oracle_build_lock(parquet_path: &Path) -> std::sync::Arc<tokio::sync::Mutex<(
 /// that can change without the parquet path changing. That is the backend,
 /// [`ORACLE_LAYOUT`], the size and modification time of the parquet and of the
 /// proving key, and how the commit path encodes the table
-/// ([`hash_sample_encoding`], which covers the fingerprint columns).
+/// ([`hash_sample_encoding`], which covers the fingerprint and rank columns).
 async fn oracle_cache_key(parquet_path: &Path, pk_path: &Path) -> Result<String> {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut h = DefaultHasher::new();
@@ -214,7 +214,7 @@ async fn oracle_cache_key(parquet_path: &Path, pk_path: &Path) -> Result<String>
 
 /// Bumped when the oracle files change without the encoding of the sample
 /// changing.
-const ORACLE_LAYOUT: u32 = 5;
+const ORACLE_LAYOUT: u32 = 6;
 
 /// Rows of the table run through the commit path's padding and
 /// arithmetization for [`oracle_cache_key`]. A sample is enough to notice an
@@ -272,6 +272,7 @@ async fn hash_sample_encoding(
         &table,
         None,
         Some(&tt_core::prover::passes::arithmetization::FingerprintColumns::All),
+        &|_| true,
     );
     let mut bytes = Vec::new();
     for (field, mle) in arith.polynomials() {
@@ -384,4 +385,63 @@ fn parquet_log_size(parquet_path: &Path) -> Result<usize> {
     let total_rows = builder.metadata().file_metadata().num_rows() as usize;
     let padded_rows = total_rows.max(1).next_power_of_two();
     Ok(padded_rows.ilog2() as usize)
+}
+
+/// Verifies `proof_path` with `result_path` as the claimed result on a fresh
+/// thread with its own runtime, so that a verifier panic comes back as an
+/// `Err` starting with "verifier panicked" instead of failing the caller.
+pub fn verify_on_thread(
+    query: &str,
+    oracles: Vec<PathBuf>,
+    proof_path: &Path,
+    result_path: &Path,
+    vk: &Path,
+) -> std::result::Result<(), String> {
+    let (query, proof_path, result_path, vk) = (
+        query.to_owned(),
+        proof_path.to_path_buf(),
+        result_path.to_path_buf(),
+        vk.to_path_buf(),
+    );
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("verifier runtime")
+            .block_on(async move {
+                VerifyBuilder::new()
+                    .with_query(query)
+                    .with_oracle_paths(oracles)
+                    .with_proof_path(proof_path)
+                    .with_result_path(result_path)
+                    .with_vk_path(vk)
+                    .build()?
+                    .run()
+                    .await
+            })
+    })
+    .join()
+    .map_err(|payload| {
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or("<non-string panic>");
+        format!("verifier panicked: {message}")
+    })?
+    .map_err(|e| format!("{e:#}"))
+}
+
+/// The rows of the parquet file at `path`, in one batch.
+pub fn read_result(path: &Path) -> datafusion::arrow::record_batch::RecordBatch {
+    use datafusion::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(path).expect("open result"))
+        .expect("result parquet")
+        .build()
+        .expect("result reader");
+    let batches: Vec<_> = reader
+        .collect::<std::result::Result<_, _>>()
+        .expect("result batches");
+    datafusion::arrow::compute::concat_batches(&batches[0].schema(), &batches)
+        .expect("concat result")
 }

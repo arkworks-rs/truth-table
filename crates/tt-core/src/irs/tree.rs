@@ -106,6 +106,19 @@ where
         selection
     }
 
+    /// The `(table, column)` string columns some sort reads the rank of
+    /// (TruthTable++ §3.2). Every scan of such a table carries that column's
+    /// `__rank` segment, on both sides, and the table must commit it.
+    pub fn required_rank_columns(&self) -> BTreeSet<(String, String)> {
+        let mut cols = BTreeSet::new();
+        for node in self.arena.values() {
+            cols.extend(node.required_rank_columns());
+        }
+        #[cfg(feature = "test-utils")]
+        cols.extend(crate::test_utils::forced_ranks::forced_rank_columns());
+        cols
+    }
+
     pub fn display_graphviz(&self, _inner: bool) -> String {
         todo!()
     }

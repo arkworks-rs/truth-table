@@ -1,12 +1,15 @@
 use std::sync::{Arc, Weak};
 
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{LogicalPlan, SubqueryAlias};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
+    nodes::{
+        IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
+        plan::lps::projection::forwards_side_columns,
+    },
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -218,7 +221,8 @@ fn qualify_tracked_table<B: SnarkBackend>(table: TrackedTable<B>, alias: &str) -
                 .collect::<Vec<_>>(),
         ))
     });
-    TrackedTable::new(schema, qualified, table.log_size())
+    let side_cols = qualified_side_cols(table.side_cols(), alias);
+    TrackedTable::new_with_side_cols(schema, qualified, table.log_size(), side_cols)
 }
 
 fn qualify_tracked_table_oracle<B: SnarkBackend>(
@@ -247,7 +251,21 @@ fn qualify_tracked_table_oracle<B: SnarkBackend>(
                 .collect::<Vec<_>>(),
         ))
     });
-    TrackedTableOracle::new(schema, qualified, table.log_size())
+    let side_cols = qualified_side_cols(table.side_cols(), alias);
+    TrackedTableOracle::new_with_side_cols(schema, qualified, table.log_size(), side_cols)
+}
+
+/// The side columns a qualified table passes on, when column references pass
+/// theirs ([`forwards_side_columns`]): qualified like their columns, which
+/// they are matched to by metadata.
+fn qualified_side_cols<T>(side_cols: IndexMap<FieldRef, T>, alias: &str) -> IndexMap<FieldRef, T> {
+    if !forwards_side_columns() {
+        return IndexMap::new();
+    }
+    side_cols
+        .into_iter()
+        .map(|(field, side)| (Arc::new(qualify_field(field.as_ref(), alias)), side))
+        .collect()
 }
 
 impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
