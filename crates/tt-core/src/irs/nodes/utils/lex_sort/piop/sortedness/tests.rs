@@ -12,12 +12,13 @@ use crate::irs::nodes::{
     Node,
     utils::{
         contig_sort::{
-            ACTIVE_ROWS_LABEL, rotation,
+            ACTIVE_ROWS_LABEL,
+            piop::{self as sort, End, SortKey, Tie},
+            rotation,
             tests::{active_rows, assert_rejected},
         },
         lex_sort::{
             data_oracles, data_polys,
-            piop::{self as lex, SortKey, Tie},
             sortedness::{self, CHARS_LABEL, GadgetNode, STRINGS_LABEL},
         },
     },
@@ -210,7 +211,7 @@ fn run(strings: &[&[u8]], opts: Run) -> Result<(), SnarkError> {
                     asc: true,
                     width,
                 };
-                tie = lex::prove(prover, &[key], tie, false)?;
+                tie = sort::prove(prover, &[key], tie, End::Tied)?.expect("t_m");
             }
             let mut committed = witness(&column, &chars, &tie, &[])?;
             forge(&mut committed);
@@ -227,7 +228,7 @@ fn run(strings: &[&[u8]], opts: Run) -> Result<(), SnarkError> {
                     asc: true,
                     width,
                 };
-                lex::prove(prover, &[key], output.same, false)?;
+                sort::prove(prover, &[key], output.same, End::NonStrict)?;
             }
             Ok(())
         }),
@@ -247,7 +248,7 @@ fn run(strings: &[&[u8]], opts: Run) -> Result<(), SnarkError> {
                     asc: true,
                     width,
                 };
-                tie = lex::verify(verifier, &[key], tie, false)?;
+                tie = sort::verify(verifier, &[key], tie, End::Tied)?.expect("t_m");
             }
             let output = verify(verifier, &column, &chars, tie, &[], asc)?;
             if let Some(table) = payload.get(AFTER) {
@@ -259,7 +260,7 @@ fn run(strings: &[&[u8]], opts: Run) -> Result<(), SnarkError> {
                     asc: true,
                     width,
                 };
-                lex::verify(verifier, &[key], output.same, false)?;
+                sort::verify(verifier, &[key], output.same, End::NonStrict)?;
             }
             Ok(())
         }),

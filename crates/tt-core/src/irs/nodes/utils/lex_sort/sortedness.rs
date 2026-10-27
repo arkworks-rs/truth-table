@@ -19,11 +19,11 @@ use indexmap::IndexMap;
 use super::{
     data_oracles, data_polys,
     piop::{
-        Tie,
         character_projection::Characters,
         sortedness::{self, SortedStrings},
     },
 };
+use crate::irs::nodes::utils::contig_sort::piop::Tie;
 use crate::{
     irs::{
         nodes::{

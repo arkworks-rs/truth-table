@@ -17,9 +17,9 @@
 //!
 //! The keys are checked in order under one tie indicator `t`, starting at
 //! `C_{µ,s−1}`: a run of consecutive value keys is rotated (PIOP 26) and
-//! checked by the Lexicographic Sort Check (PIOP 27, non-strict) from `t`,
-//! which becomes its `t_m`; a string key's PIOP 10 runs from `t`, which
-//! becomes its `same`.
+//! checked by the sort check from `t` (the Lexicographic Sort Check, PIOP
+//! 27, non-strict); before a string key the run's `t_m` becomes `t`, and a
+//! string key's PIOP 10 runs from `t`, whose `same` becomes `t`.
 //!
 //! Soundness needs the input's rows indexed by `idx` as its character table's
 //! `orig-ind` indexes them, and that character table bound to the input's
@@ -44,12 +44,14 @@ use ark_piop::{
 };
 
 use super::{
-    SortKey, Tie,
     character_projection::Characters,
     sortedness::{self, SortedStrings},
 };
 use crate::irs::nodes::utils::{
-    contig_sort::rotation,
+    contig_sort::{
+        piop::{self as sort, End, SortKey, Tie},
+        rotation,
+    },
     lookup::piop::{LookupPIOP, LookupProverInput, LookupVerifierInput},
     nodup::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
 };
@@ -118,17 +120,18 @@ fn source_rows<F: ark_ff::Field>(
         .collect()
 }
 
-/// PIOP 27 (non-strict) on a run of value keys `(data, asc, width)` from
-/// `tie`, with the run's own rotation; returns its `t_m`. With fewer than
-/// two active rows there is no pair and nothing is proved.
+/// The sort check on a run of value keys `(data, asc, width)` from `tie`,
+/// with the run's own rotation; returns its `t_m` for [`End::Tied`]. With
+/// fewer than two active rows there is no pair and nothing is proved.
 fn prove_value_keys<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     run: &[(TrackedPoly<B>, bool, usize)],
     tie: Tie<TrackedPoly<B>>,
-) -> SnarkResult<Tie<TrackedPoly<B>>> {
+    end: End,
+) -> SnarkResult<Option<Tie<TrackedPoly<B>>>> {
     let (log_size, s) = (tie.log_size(), tie.active_rows());
     if run.is_empty() || s <= 1 {
-        return Ok(tie);
+        return Ok((end == End::Tied).then_some(tie));
     }
     let mut keys = Vec::with_capacity(run.len());
     for (data, asc, width) in run {
@@ -148,17 +151,18 @@ fn prove_value_keys<B: SnarkBackend>(
         .map(|key| (key.data.clone(), key.next.clone()))
         .collect();
     rotation::prove(prover, &pairs, log_size, s)?;
-    super::prove(prover, &keys, tie, false)
+    sort::prove(prover, &keys, tie, end)
 }
 
 fn verify_value_keys<B: SnarkBackend>(
     verifier: &mut ArgVerifier<B>,
     run: &[(TrackedOracle<B>, bool, usize)],
     tie: Tie<TrackedOracle<B>>,
-) -> SnarkResult<Tie<TrackedOracle<B>>> {
+    end: End,
+) -> SnarkResult<Option<Tie<TrackedOracle<B>>>> {
     let (log_size, s) = (tie.log_size(), tie.active_rows());
     if run.is_empty() || s <= 1 {
-        return Ok(tie);
+        return Ok((end == End::Tied).then_some(tie));
     }
     let mut keys = Vec::with_capacity(run.len());
     for (data, asc, width) in run {
@@ -174,7 +178,7 @@ fn verify_value_keys<B: SnarkBackend>(
         .map(|key| (key.data.clone(), key.next.clone()))
         .collect();
     rotation::verify(verifier, &pairs, log_size, s)?;
-    super::verify(verifier, &keys, tie, false)
+    sort::verify(verifier, &keys, tie, end)
 }
 
 /// Proves the check on `keys`, with `s` the active output rows.
@@ -243,7 +247,8 @@ pub(super) fn prove_with_source<B: SnarkBackend>(
                 asc,
                 ..
             } => {
-                tie = prove_value_keys(prover, &std::mem::take(&mut run), tie)?;
+                tie = prove_value_keys(prover, &std::mem::take(&mut run), tie, End::Tied)?
+                    .expect("t_m");
                 let (length, hash) = identity.split_last().expect("a string's length");
                 let strings = SortedStrings {
                     index: src.clone(),
@@ -254,7 +259,7 @@ pub(super) fn prove_with_source<B: SnarkBackend>(
             }
         }
     }
-    prove_value_keys(prover, &run, tie)?;
+    prove_value_keys(prover, &run, tie, End::NonStrict)?;
     Ok(())
 }
 
@@ -318,7 +323,8 @@ pub fn verify<B: SnarkBackend>(
                 asc,
                 ..
             } => {
-                tie = verify_value_keys(verifier, &std::mem::take(&mut run), tie)?;
+                tie = verify_value_keys(verifier, &std::mem::take(&mut run), tie, End::Tied)?
+                    .expect("t_m");
                 let (length, hash) = identity.split_last().expect("a string's length");
                 let strings = SortedStrings {
                     index: src.clone(),
@@ -329,7 +335,7 @@ pub fn verify<B: SnarkBackend>(
             }
         }
     }
-    verify_value_keys(verifier, &run, tie)?;
+    verify_value_keys(verifier, &run, tie, End::NonStrict)?;
     Ok(())
 }
 

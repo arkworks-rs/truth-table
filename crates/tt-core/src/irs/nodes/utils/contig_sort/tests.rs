@@ -148,12 +148,16 @@ fn distinct_ascending_keys_accepted() {
 }
 
 #[test]
-fn duplicate_with_zero_first_tie_rejected() {
-    // An all-zero tie_0 switches off every comparison; the gadget must use
-    // the public mask instead.
+fn committed_first_tie_refused() {
+    // An all-zero tie_0 would switch off every comparison: tie_0 is the
+    // public mask, and a single key has no committed tie.
     let keys = [("k", DataType::Int64, ints(&[1, 5, 5, 9]))];
     let ties = [("tie_0", ints(&[0, 0, 0, 0]))];
-    assert_rejected(run(distinct(), &keys, &ties));
+    let result = run(distinct(), &keys, &ties);
+    assert!(
+        matches!(result, Err(ark_piop::errors::SnarkError::VerifierError(_))),
+        "expected the extra tie to be refused, got {result:?}"
+    );
 }
 
 #[test]
@@ -339,16 +343,10 @@ fn the_last_shifted_row_is_free() {
 #[test]
 fn a_forged_shift_is_rejected() {
     // 5 > 1 at rows 0, 1. A d' that is not d shifted, chosen so every
-    // difference is non-negative, must fail the multiset equality. That
-    // equality is checked by the verifier in both builds: the harness skips
-    // the pipeline's honest-prover pass, which holds its prover-side check.
+    // difference is non-negative, must fail the multiset equality.
     let keys = [("k", DataType::Int64, ints(&[5, 1, 7, 9]))];
     let shifted = [ints(&[6, 7, 9, 0])];
-    let result = run_with(ascending(&["k"], false), &keys, &shifted, 4, &[]);
-    assert!(
-        matches!(result, Err(ark_piop::errors::SnarkError::VerifierError(_))),
-        "expected the verifier to reject, got {result:?}"
-    );
+    assert_rejected(run_with(ascending(&["k"], false), &keys, &shifted, 4, &[]));
 }
 
 /// The distinct sort of a string column whose rows hold `strings`' hash

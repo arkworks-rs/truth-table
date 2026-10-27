@@ -23,10 +23,9 @@ use datafusion::arrow::{
 };
 use datafusion::datasource::MemTable;
 use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
-use either::Either;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::utils::{field_to_usize, perm, sign};
+use crate::irs::nodes::utils::{field_to_usize, sign};
 use crate::{
     irs::{
         nodes::{
@@ -40,6 +39,7 @@ use crate::{
 };
 mod distinct;
 mod hints;
+pub mod piop;
 pub mod rotation;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -55,7 +55,6 @@ pub const ACTIVE_ROWS_LABEL: &str = "__active_rows__";
 pub fn active_rows_field() -> FieldRef {
     Arc::new(Field::new("active_rows", DataType::UInt64, false))
 }
-const FIRST_TIE_LABEL: &str = "tie_0";
 
 pub(crate) use distinct::sort_distinct;
 use distinct::{DistinctLayout, distinct_view, distinct_view_fields};
@@ -77,15 +76,15 @@ pub struct PerColumnConfig {
     pub strict: bool,
 }
 
-/// Enforces that a table is sorted according to its sort config.
+/// Enforces that a table is sorted according to its sort config: the sort
+/// check ([`piop`]) on the planned table, with the rotated keys and the tie
+/// indicators taken from the hints.
 pub struct GadgetNode<B: SnarkBackend> {
-    perm: Arc<Node<B>>,
-    bool_gadget: Arc<Node<B>>,
-    sign_gadget: Arc<Node<B>>,
     sort_config: SortConfig,
     strip_row_id: bool,
     /// The distinct mode's layout, read from the input table.
     distinct_layout: std::sync::Mutex<Option<DistinctLayout>>,
+    _backend: std::marker::PhantomData<B>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -107,11 +106,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![
-            self.perm.clone(),
-            self.bool_gadget.clone(),
-            self.sign_gadget.clone(),
-        ]
+        Vec::new()
     }
 }
 
@@ -401,7 +396,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(mut payload)) =
@@ -412,68 +407,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let Some(input) = payload.get(TABLE_LABEL).cloned() else {
             return Ok(());
         };
-        let input = &self.distinct_view_prover(input, &mut payload)?;
-        let rotated = payload
-            .get(ROTATED_INPUT_LABEL)
-            .unwrap_or_else(|| panic!("Expected rotated input payload for Sort gadget"));
-        let count = payload
-            .get(ACTIVE_ROWS_LABEL)
-            .unwrap_or_else(|| panic!("Expected active-row count for Sort gadget"));
-        let s = active_rows_prover(count)?;
-        let mask = prover.get_or_build_contig_one_poly(input.log_size(), s.saturating_sub(1))?;
-        let rotated = with_activator_prover(rotated, mask.clone());
-        let sort_specs = sort_specs_for_table_prover(&self.sort_config, input);
-
-        let shift_tables = shift_tables_prover(
-            prover,
-            &sort_columns_prover(input, &rotated, &sort_specs)?,
-            &mask,
-            s,
-        )?;
-        let mut perm_payload = match virtualized_ir.payload_for_node(&self.perm.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        perm_payload.insert(perm::LEFT_LABEL.to_string(), shift_tables.0);
-        perm_payload.insert(perm::RIGHT_LABEL.to_string(), shift_tables.1);
-        virtualized_ir.set_payload_for_node(
-            self.perm.id(),
-            Some(PayloadStructure::GadgetPayload(perm_payload)),
-        );
-
-        let committed_ties = payload.get(TIE_INDICATOR_LABEL);
-        let ties = prepend_first_tie_indicator_prover(committed_ties, mask);
-        // The committed ties must be Boolean. A single-key sort has none; the
-        // Bool gadget then checks the public `tie_0`, which always passes.
-        let bool_table = committed_ties.cloned().unwrap_or_else(|| ties.clone());
-        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        bool_payload.insert(
-            crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-            bool_table,
-        );
-        virtualized_ir.set_payload_for_node(
-            self.bool_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(bool_payload)),
-        );
-        populate_sign_payloads_prover(
-            &self.sign_gadget,
-            &self.sort_config,
-            &sort_specs,
-            &ties,
-            input,
-            &rotated,
-            virtualized_ir,
-        )?;
-        payload.insert(TIE_INDICATOR_LABEL.to_string(), ties);
-        payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated);
+        self.distinct_view_prover(input, &mut payload)?;
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
 }
-
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
@@ -492,7 +430,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(mut payload)) =
@@ -503,68 +441,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Some(input) = payload.get(TABLE_LABEL).cloned() else {
             return Ok(());
         };
-        let input = &self.distinct_view_verifier(input, &mut payload)?;
-        let rotated = payload
-            .get(ROTATED_INPUT_LABEL)
-            .unwrap_or_else(|| panic!("Expected rotated input payload for Sort gadget"));
-        let count = payload
-            .get(ACTIVE_ROWS_LABEL)
-            .unwrap_or_else(|| panic!("Expected active-row count for Sort gadget"));
-        let s = active_rows_verifier(count)?;
-        let mask = verifier.get_or_build_contig_one_poly(input.log_size(), s.saturating_sub(1))?;
-        let rotated = with_activator_verifier(rotated, mask.clone());
-        let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input);
-
-        let shift_tables = shift_tables_verifier(
-            verifier,
-            &sort_columns_verifier(input, &rotated, &sort_specs)?,
-            &mask,
-            s,
-        )?;
-        let mut perm_payload = match virtualized_ir.payload_for_node(&self.perm.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        perm_payload.insert(perm::LEFT_LABEL.to_string(), shift_tables.0);
-        perm_payload.insert(perm::RIGHT_LABEL.to_string(), shift_tables.1);
-        virtualized_ir.set_payload_for_node(
-            self.perm.id(),
-            Some(PayloadStructure::GadgetPayload(perm_payload)),
-        );
-
-        let committed_ties = payload.get(TIE_INDICATOR_LABEL);
-        let ties = prepend_first_tie_indicator_verifier(committed_ties, mask);
-        // The committed ties must be Boolean. A single-key sort has none; the
-        // Bool gadget then checks the public `tie_0`, which always passes.
-        let bool_table = committed_ties.cloned().unwrap_or_else(|| ties.clone());
-        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        bool_payload.insert(
-            crate::irs::nodes::utils::bool::TABLE_LABEL.to_string(),
-            bool_table,
-        );
-        virtualized_ir.set_payload_for_node(
-            self.bool_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(bool_payload)),
-        );
-        populate_sign_payloads_verifier(
-            &self.sign_gadget,
-            &self.sort_config,
-            &sort_specs,
-            &ties,
-            input,
-            &rotated,
-            virtualized_ir,
-        )?;
-        payload.insert(TIE_INDICATOR_LABEL.to_string(), ties);
-        payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated);
+        self.distinct_view_verifier(input, &mut payload)?;
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
 }
-
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
@@ -572,47 +453,41 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Paper PIOP 7 steps 3(c), tie monotonicity, and 3(d), `d_i = d'_i` on
-        // `ties_i`, are not checked: the checker is sound without them (paper
-        // Lemma "checker soundness"), given step 3(e) per column.
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
             return Ok(());
         };
-        let (Some(ties), Some(input), Some(rotated)) = (
-            payload.get(TIE_INDICATOR_LABEL),
+        let (Some(input), Some(rotated), Some(count)) = (
             payload.get(TABLE_LABEL),
             payload.get(ROTATED_INPUT_LABEL),
+            payload.get(ACTIVE_ROWS_LABEL),
         ) else {
             return Ok(());
         };
         if let Some(check) = payload.get(LIMBS_LABEL) {
             self.prove_limbs(prover, check)?;
         }
+        let s = active_rows_prover(count)?;
+        let log_size = input.log_size();
         let sort_specs = sort_specs_for_table_prover(&self.sort_config, input);
-        let columns = sort_columns_prover(input, rotated, &sort_specs)?;
-        let ties: Vec<_> = ties
-            .data_tracked_polys_indices()
-            .into_iter()
-            .map(|idx| ties.tracked_col_by_ind(idx).data_tracked_poly())
+        let keys = sort_keys_prover(input, rotated, &sort_specs)?;
+        let pairs: Vec<_> = keys
+            .iter()
+            .map(|key| (key.data.clone(), key.next.clone()))
             .collect();
-        let mask = rotated
-            .activator_tracked_poly()
-            .expect("the rotated table carries the mask C_{µ,s-1}");
-        if columns.len() < 2 {
-            return Ok(());
-        }
-        let c = prover.get_and_append_challenge(b"sort_tie_break")?;
-        for (k, (data, data_rotated)) in columns.iter().enumerate().take(columns.len() - 1) {
-            let breaks = &(&ties[k]
-                * &ties[k + 1]
-                    .mul_scalar_poly(-B::F::one())
-                    .add_scalar_poly(B::F::one()))
-                * &mask;
-            let lifted = &(&breaks * &(data_rotated - data))
-                + &breaks.mul_scalar_poly(-c).add_scalar_poly(c);
-            prover.add_mv_nozerocheck_claim(lifted.id())?;
-        }
+        rotation::prove(prover, &pairs, log_size, s)?;
+        let ties: Vec<_> = payload
+            .get(TIE_INDICATOR_LABEL)
+            .map(|table| {
+                table
+                    .data_tracked_polys_indices()
+                    .into_iter()
+                    .map(|idx| table.tracked_col_by_ind(idx).data_tracked_poly())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let start = piop::Tie::mask(prover, log_size, s)?;
+        piop::prove_with_ties(prover, &keys, start, self.end(), &ties)?;
         Ok(())
     }
 
@@ -635,40 +510,37 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let (Some(ties), Some(input), Some(rotated)) = (
-            payload.get(TIE_INDICATOR_LABEL),
+        let (Some(input), Some(rotated), Some(count)) = (
             payload.get(TABLE_LABEL),
             payload.get(ROTATED_INPUT_LABEL),
+            payload.get(ACTIVE_ROWS_LABEL),
         ) else {
             return Ok(());
         };
         if let Some(check) = payload.get(LIMBS_LABEL) {
             self.verify_limbs(verifier, check)?;
         }
+        let s = active_rows_verifier(count)?;
+        let log_size = input.log_size();
         let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input);
-        let columns = sort_columns_verifier(input, rotated, &sort_specs)?;
-        let ties: Vec<_> = ties
-            .data_tracked_oracles_indices()
-            .into_iter()
-            .map(|idx| ties.tracked_col_oracle_by_ind(idx).data_tracked_oracle())
+        let keys = sort_keys_verifier(input, rotated, &sort_specs)?;
+        let pairs: Vec<_> = keys
+            .iter()
+            .map(|key| (key.data.clone(), key.next.clone()))
             .collect();
-        let mask = rotated
-            .activator_tracked_poly()
-            .expect("the rotated table carries the mask C_{µ,s-1}");
-        if columns.len() < 2 {
-            return Ok(());
-        }
-        let c = verifier.get_and_append_challenge(b"sort_tie_break")?;
-        for (k, (data, data_rotated)) in columns.iter().enumerate().take(columns.len() - 1) {
-            let breaks = &(&ties[k]
-                * &ties[k + 1]
-                    .mul_scalar_oracle(-B::F::one())
-                    .add_scalar_oracle(B::F::one()))
-                * &mask;
-            let lifted = &(&breaks * &(data_rotated - data))
-                + &breaks.mul_scalar_oracle(-c).add_scalar_oracle(c);
-            verifier.add_mv_nozerocheck_claim(lifted.id());
-        }
+        rotation::verify(verifier, &pairs, log_size, s)?;
+        let ties: Vec<_> = payload
+            .get(TIE_INDICATOR_LABEL)
+            .map(|table| {
+                table
+                    .data_tracked_oracles_indices()
+                    .into_iter()
+                    .map(|idx| table.tracked_col_oracle_by_ind(idx).data_tracked_oracle())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let start = piop::Tie::mask_oracle(verifier, log_size, s)?;
+        piop::verify_with_ties(verifier, &keys, start, self.end(), &ties)?;
         Ok(())
     }
 
@@ -873,6 +745,15 @@ impl<B: SnarkBackend> GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
+    /// A distinct sort is strict: no two rows are equal.
+    fn end(&self) -> piop::End {
+        match &self.sort_config {
+            SortConfig::Distinct => piop::End::Strict,
+            SortConfig::PerColumn(config) if config.strict => piop::End::Strict,
+            SortConfig::PerColumn(_) => piop::End::NonStrict,
+        }
+    }
+
     pub fn new(sort_config: SortConfig) -> Self {
         Self::new_internal(sort_config, true)
     }
@@ -882,55 +763,16 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 
     fn new_internal(sort_config: SortConfig, strip_row_id: bool) -> Self {
-        let perm = Arc::new(Node::<B>::Gadget(Arc::new(perm::GadgetNode::new())));
-        let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::bool::GadgetNode::new(),
-        )));
-        let sign_gadget = build_sign_gadget::<B>(&sort_config);
         Self {
-            perm,
-            bool_gadget,
-            sign_gadget,
             sort_config,
             strip_row_id,
             distinct_layout: std::sync::Mutex::new(None),
+            _backend: std::marker::PhantomData,
         }
     }
 }
 
 // Use a forward-difference sign check so contig-sort only enforces monotonicity.
-fn sign_for_column(_is_asc: bool, strict_for_col: bool) -> sign::Sign {
-    if strict_for_col {
-        sign::Sign::Positive
-    } else {
-        sign::Sign::NonNegative
-    }
-}
-
-fn build_sign_gadget<B: SnarkBackend>(sort_config: &SortConfig) -> Arc<Node<B>> {
-    let sign_config = match sort_config {
-        SortConfig::Distinct => {
-            sign::SignConfig::SemiUniform(sign::Sign::NonNegative, sign::Sign::Positive)
-        }
-        SortConfig::PerColumn(config) => {
-            let last_idx = config.sort_specs.len().saturating_sub(1);
-            let signs = config
-                .sort_specs
-                .iter()
-                .enumerate()
-                .map(|(idx, (_, asc, _))| {
-                    let strict_for_col = config.strict && idx == last_idx;
-                    sign_for_column(*asc, strict_for_col)
-                })
-                .collect();
-            sign::SignConfig::PerColumn(signs)
-        }
-    };
-    Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
-        sign_config,
-    ))))
-}
-
 /// The position among `names` of each sort key, in key order. A key names
 /// exactly one column: a missing or ambiguous key is an error, never a
 /// fallback to other columns.
@@ -1028,10 +870,10 @@ fn build_verifier_tie_hint(key_count: usize) -> Option<crate::irs::nodes::hints:
     Some(build_empty_hint_df_with_fields(fields, true))
 }
 
-/// The Sign type that range-checks the adjacent difference `rotated - input`
-/// of a sort key (paper PIOP 7, step 3f). Signed values encode as field
-/// negations, so the difference is the integer one, and a non-decreasing pair
-/// gives a value in `[0, 2^w)` for the key's unsigned width `w`.
+/// The unsigned type whose width bounds the adjacent difference
+/// `rotated - input` of a sort key ([`piop::key_width`]). Signed values
+/// encode as field negations, so the difference is the integer one, and a
+/// non-decreasing pair gives a value in `[0, 2^w)` for that width `w`.
 ///
 /// `None` when the encoding does not preserve the key's order (strings,
 /// binary, floats): such a key cannot be sorted on. A string key is sorted
@@ -1197,286 +1039,59 @@ fn non_row_id_data_indices_verifier<B: SnarkBackend>(table: &TrackedTableOracle<
 }
 
 /// Each sort key's column in the input and in the rotated table, in key
-/// order.
-fn sort_columns_prover<B: SnarkBackend>(
+/// order, with its direction and the width of its adjacent difference.
+fn sort_keys_prover<B: SnarkBackend>(
     input: &TrackedTable<B>,
     rotated: &TrackedTable<B>,
     sort_specs: &[(String, bool, bool)],
-) -> SnarkResult<Vec<(TrackedPoly<B>, TrackedPoly<B>)>> {
-    Ok(ordered_data_indices_prover(input, sort_specs)?
+) -> SnarkResult<Vec<piop::SortKey<TrackedPoly<B>>>> {
+    ordered_data_indices_prover(input, sort_specs)?
         .into_iter()
         .zip(ordered_data_indices_prover(rotated, sort_specs)?)
-        .map(|(i, r)| {
-            (
-                input.tracked_col_by_ind(i).data_tracked_poly(),
-                rotated.tracked_col_by_ind(r).data_tracked_poly(),
-            )
+        .zip(sort_specs)
+        .map(|((i, r), (_, asc, _))| {
+            let col = input.tracked_col_by_ind(i);
+            let field = col.field_ref().expect("a field");
+            Ok(piop::SortKey {
+                data: col.data_tracked_poly(),
+                next: rotated.tracked_col_by_ind(r).data_tracked_poly(),
+                asc: *asc,
+                width: sort_key_width(&field)?,
+            })
         })
-        .collect())
+        .collect()
 }
 
-fn sort_columns_verifier<B: SnarkBackend>(
+fn sort_keys_verifier<B: SnarkBackend>(
     input: &TrackedTableOracle<B>,
     rotated: &TrackedTableOracle<B>,
     sort_specs: &[(String, bool, bool)],
-) -> SnarkResult<Vec<(TrackedOracle<B>, TrackedOracle<B>)>> {
-    Ok(ordered_data_indices_verifier(input, sort_specs)?
+) -> SnarkResult<Vec<piop::SortKey<TrackedOracle<B>>>> {
+    ordered_data_indices_verifier(input, sort_specs)?
         .into_iter()
         .zip(ordered_data_indices_verifier(rotated, sort_specs)?)
-        .map(|(i, r)| {
-            (
-                input.tracked_col_oracle_by_ind(i).data_tracked_oracle(),
-                rotated.tracked_col_oracle_by_ind(r).data_tracked_oracle(),
-            )
+        .zip(sort_specs)
+        .map(|((i, r), (_, asc, _))| {
+            let col = input.tracked_col_oracle_by_ind(i);
+            let field = col.field_ref().expect("a field");
+            Ok(piop::SortKey {
+                data: col.data_tracked_oracle(),
+                next: rotated.tracked_col_oracle_by_ind(r).data_tracked_oracle(),
+                asc: *asc,
+                width: sort_key_width(&field)?,
+            })
         })
-        .collect())
+        .collect()
 }
 
-/// The rotated table with the public mask `C_{µ,s-1}` as its activator: the
-/// rows it is compared on.
-fn with_activator_prover<B: SnarkBackend>(
-    table: &TrackedTable<B>,
-    activator: TrackedPoly<B>,
-) -> TrackedTable<B> {
-    let mut polys = table.tracked_polys();
-    polys.insert(ACTIVATOR_FIELD.clone(), activator);
-    TrackedTable::new(None, polys, table.log_size())
-}
-
-fn with_activator_verifier<B: SnarkBackend>(
-    table: &TrackedTableOracle<B>,
-    activator: TrackedOracle<B>,
-) -> TrackedTableOracle<B> {
-    let mut oracles = table.tracked_oracles();
-    oracles.insert(ACTIVATOR_FIELD.clone(), activator);
-    TrackedTableOracle::new(None, oracles, table.log_size())
-}
-
-fn populate_sign_payloads_prover<B: SnarkBackend>(
-    sign_gadget: &Arc<Node<B>>,
-    sort_config: &SortConfig,
-    sort_specs: &[(String, bool, bool)],
-    tie_table: &TrackedTable<B>,
-    input_table: &TrackedTable<B>,
-    rotated_table: &TrackedTable<B>,
-    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-) -> ark_piop::errors::SnarkResult<()> {
-    let tie_indices = tie_table.data_tracked_polys_indices();
-    let input_indices = ordered_data_indices_prover(input_table, sort_specs)?;
-    let rotated_indices = ordered_data_indices_prover(rotated_table, sort_specs)?;
-    debug_assert_eq!(
-        tie_indices.len(),
-        input_indices.len(),
-        "Sort sign gadget expects one tie indicator per data column."
-    );
-
-    let mut data_cols = IndexMap::new();
-
-    for (pos, (((tie_idx, input_idx), rotated_idx), (_, is_asc, _))) in tie_indices
-        .iter()
-        .copied()
-        .zip(input_indices.iter().copied())
-        .zip(rotated_indices.iter().copied())
-        .zip(sort_specs)
-        .enumerate()
-    {
-        let tie_col = tie_table.tracked_col_by_ind(tie_idx);
-        let input_col = input_table.tracked_col_by_ind(input_idx);
-        let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
-        let sign = match sort_config {
-            SortConfig::Distinct => sign_for_column(true, true),
-            SortConfig::PerColumn(config) => {
-                let strict_for_col = config.strict && pos + 1 == input_indices.len();
-                sign_for_column(*is_asc, strict_for_col)
-            }
-        };
-
-        let input_field = input_col
-            .field_ref()
-            .expect("Expected field ref for Sort sign input");
-        let sign_type = difference_sign_type(input_field.data_type()).ok_or_else(|| {
-            sort_key_error(format!(
-                "the sort key {} of type {} has no order-preserving encoding",
-                input_field.name(),
-                input_field.data_type()
-            ))
-        })?;
-        let input_poly = input_col.data_tracked_poly();
-        let rotated_poly = rotated_col.data_tracked_poly();
-        let diff_poly = if *is_asc {
-            &rotated_poly - &input_poly
-        } else {
-            &input_poly - &rotated_poly
-        };
-        let diff_field = Field::new(input_field.name(), sign_type, false);
-
-        let tie_poly = tie_col.data_tracked_poly();
-        let one_poly = TrackedPoly::new(
-            Either::Right(B::F::one()),
-            tie_poly.log_size(),
-            tie_poly.tracker(),
-        );
-        let masked_diff = match sign {
-            sign::Sign::Positive | sign::Sign::Negative => {
-                &(&diff_poly * &tie_poly) + &(&(&one_poly - &tie_poly) * &one_poly)
-            }
-            _ => &diff_poly * &tie_poly,
-        };
-        data_cols.insert(Arc::new(diff_field), masked_diff);
-    }
-
-    // Compared on the rows of the mask `C_{µ,s-1}`, the rotated table's activator.
-    if let Some(activator) = rotated_table.activator_tracked_poly() {
-        data_cols.insert(ACTIVATOR_FIELD.clone(), activator);
-    }
-
-    let sign_input = TrackedTable::new(None, data_cols, input_table.log_size());
-    let mut sign_payload = match virtualized_ir.payload_for_node(&sign_gadget.id()) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    sign_payload.insert(sign::INPUT_LABEL.to_string(), sign_input);
-    virtualized_ir.set_payload_for_node(
-        sign_gadget.id(),
-        Some(PayloadStructure::GadgetPayload(sign_payload)),
-    );
-    Ok(())
-}
-
-fn populate_sign_payloads_verifier<B: SnarkBackend>(
-    sign_gadget: &Arc<Node<B>>,
-    sort_config: &SortConfig,
-    sort_specs: &[(String, bool, bool)],
-    tie_table: &TrackedTableOracle<B>,
-    input_table: &TrackedTableOracle<B>,
-    rotated_table: &TrackedTableOracle<B>,
-    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
-) -> ark_piop::errors::SnarkResult<()> {
-    let tie_indices = tie_table.data_tracked_oracles_indices();
-    let input_indices = ordered_data_indices_verifier(input_table, sort_specs)?;
-    let rotated_indices = ordered_data_indices_verifier(rotated_table, sort_specs)?;
-    debug_assert_eq!(
-        tie_indices.len(),
-        input_indices.len(),
-        "Sort sign gadget expects one tie indicator per data column."
-    );
-
-    let mut data_cols = IndexMap::new();
-
-    for (pos, (((tie_idx, input_idx), rotated_idx), (_, is_asc, _))) in tie_indices
-        .iter()
-        .copied()
-        .zip(input_indices.iter().copied())
-        .zip(rotated_indices.iter().copied())
-        .zip(sort_specs)
-        .enumerate()
-    {
-        let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
-        let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
-        let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
-        let sign = match sort_config {
-            SortConfig::Distinct => sign_for_column(true, true),
-            SortConfig::PerColumn(config) => {
-                let strict_for_col = config.strict && pos + 1 == input_indices.len();
-                sign_for_column(*is_asc, strict_for_col)
-            }
-        };
-
-        let input_field = input_col
-            .field_ref()
-            .expect("Expected field ref for Sort sign input");
-        let sign_type = difference_sign_type(input_field.data_type()).ok_or_else(|| {
-            sort_key_error(format!(
-                "the sort key {} of type {} has no order-preserving encoding",
-                input_field.name(),
-                input_field.data_type()
-            ))
-        })?;
-        let input_oracle = input_col.data_tracked_oracle();
-        let rotated_oracle = rotated_col.data_tracked_oracle();
-        let diff_oracle = if *is_asc {
-            &rotated_oracle - &input_oracle
-        } else {
-            &input_oracle - &rotated_oracle
-        };
-        let diff_field = Field::new(input_field.name(), sign_type, false);
-
-        let tie_oracle = tie_col.data_tracked_oracle();
-        let one_oracle = TrackedOracle::new(
-            Either::Right(B::F::one()),
-            tie_oracle.tracker(),
-            tie_oracle.log_size(),
-        );
-        let masked_diff = match sign {
-            sign::Sign::Positive | sign::Sign::Negative => {
-                &(&diff_oracle * &tie_oracle) + &(&(&one_oracle - &tie_oracle) * &one_oracle)
-            }
-            _ => &diff_oracle * &tie_oracle,
-        };
-        data_cols.insert(Arc::new(diff_field), masked_diff);
-    }
-
-    // Compared on the rows of the mask `C_{µ,s-1}`, the rotated table's activator.
-    if let Some(activator) = rotated_table.activator_tracked_poly() {
-        data_cols.insert(ACTIVATOR_FIELD.clone(), activator);
-    }
-
-    let sign_input = TrackedTableOracle::new(None, data_cols, input_table.log_size());
-    let mut sign_payload = match virtualized_ir.payload_for_node(&sign_gadget.id()) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    sign_payload.insert(sign::INPUT_LABEL.to_string(), sign_input);
-    virtualized_ir.set_payload_for_node(
-        sign_gadget.id(),
-        Some(PayloadStructure::GadgetPayload(sign_payload)),
-    );
-    Ok(())
-}
-
-/// Puts the public `tie_0 = C_{µ,s-1}` in front of the committed ties
-/// `tie_1..` (paper PIOP 7, step 2: the verifier sets ties_0). It is the
-/// comparison mask: row `j` is compared with row `j + 1` for `j < s - 1`. A
-/// supplied `tie_0` is dropped: a committed one would let the prover switch
-/// every comparison off.
-fn prepend_first_tie_indicator_prover<B: SnarkBackend>(
-    committed: Option<&TrackedTable<B>>,
-    mask: TrackedPoly<B>,
-) -> TrackedTable<B> {
-    let log_size = mask.log_size();
-    let mut tracked_polys = IndexMap::new();
-    tracked_polys.insert(first_tie_field(), mask);
-    for (field, poly) in committed
-        .iter()
-        .flat_map(|table| table.tracked_polys_iter())
-    {
-        if field.name() != FIRST_TIE_LABEL {
-            tracked_polys.insert(field.clone(), poly.clone());
-        }
-    }
-    TrackedTable::new(None, tracked_polys, log_size)
-}
-
-fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
-    committed: Option<&TrackedTableOracle<B>>,
-    mask: TrackedOracle<B>,
-) -> TrackedTableOracle<B> {
-    let log_size = mask.log_size();
-    let mut tracked_oracles = IndexMap::new();
-    tracked_oracles.insert(first_tie_field(), mask);
-    for (field, oracle) in committed
-        .iter()
-        .flat_map(|table| table.tracked_oracles_iter())
-    {
-        if field.name() != FIRST_TIE_LABEL {
-            tracked_oracles.insert(field.clone(), oracle.clone());
-        }
-    }
-    TrackedTableOracle::new(None, tracked_oracles, log_size)
-}
-
-fn first_tie_field() -> FieldRef {
-    Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false))
+fn sort_key_width(field: &Field) -> SnarkResult<usize> {
+    piop::key_width(field.data_type()).ok_or_else(|| {
+        sort_key_error(format!(
+            "the sort key {} of type {} has no order-preserving encoding",
+            field.name(),
+            field.data_type()
+        ))
+    })
 }
 
 fn pad_df_to_power_of_two(

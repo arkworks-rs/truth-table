@@ -1,6 +1,5 @@
-//! The lexicographic order checks of TruthTable++ (§7, appendix §13): sorting on
-//! several keys with chained tie indicators, and the character-level checks
-//! a string order is proved with.
+//! The character-level checks of TruthTable++ (§7) a string order is proved
+//! with.
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::{
@@ -13,7 +12,7 @@ pub mod rank_certification;
 #[cfg(test)]
 pub(crate) mod sortedness;
 
-fn data_polys<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<TrackedPoly<B>> {
+pub(crate) fn data_polys<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<TrackedPoly<B>> {
     table
         .data_tracked_polys_indices()
         .into_iter()
@@ -21,7 +20,9 @@ fn data_polys<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<TrackedPoly<B>> {
         .collect()
 }
 
-fn data_oracles<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<TrackedOracle<B>> {
+pub(crate) fn data_oracles<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> Vec<TrackedOracle<B>> {
     table
         .data_tracked_oracles_indices()
         .into_iter()
