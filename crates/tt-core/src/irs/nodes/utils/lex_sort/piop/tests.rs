@@ -103,10 +103,14 @@ fn run(keys: Vec<Key>, opts: Run) -> Result<(), SnarkError> {
 
     let gadget = InlineGadget::<B>::node(
         Box::new(move |prover, payload| {
-            let pairs: Vec<_> = data_polys(&payload[KEYS])
-                .into_iter()
-                .zip(data_polys(&payload[NEXT]))
-                .collect();
+            // A run without keys has no key tables: a table needs a column.
+            let pairs: Vec<_> = match payload.get(KEYS) {
+                Some(keys) => data_polys(keys)
+                    .into_iter()
+                    .zip(data_polys(&payload[NEXT]))
+                    .collect(),
+                None => Vec::new(),
+            };
             rotation::prove(prover, &pairs, NV, s)?;
             let mask = Tie::mask(prover, NV, s)?;
             let tie = match payload.get(SAME) {
@@ -142,10 +146,14 @@ fn run(keys: Vec<Key>, opts: Run) -> Result<(), SnarkError> {
             Ok(())
         }),
         Box::new(move |verifier, payload| {
-            let pairs: Vec<_> = data_oracles(&payload[KEYS])
-                .into_iter()
-                .zip(data_oracles(&payload[NEXT]))
-                .collect();
+            // A run without keys has no key tables: a table needs a column.
+            let pairs: Vec<_> = match payload.get(KEYS) {
+                Some(keys) => data_oracles(keys)
+                    .into_iter()
+                    .zip(data_oracles(&payload[NEXT]))
+                    .collect(),
+                None => Vec::new(),
+            };
             rotation::verify(verifier, &pairs, NV, s)?;
             let mask = Tie::mask_oracle(verifier, NV, s)?;
             let tie = match payload.get(SAME) {
@@ -176,10 +184,13 @@ fn run(keys: Vec<Key>, opts: Run) -> Result<(), SnarkError> {
         }),
     );
     let id = gadget.id();
-    let mut builder = GadgetHarness::<B>::builder(16)
-        .with_gadget(gadget)
-        .with_table(id, KEYS, table("k", data))
-        .with_table(id, NEXT, table("n", next));
+    let mut builder = GadgetHarness::<B>::builder(16).with_gadget(gadget);
+    if !data.is_empty() {
+        builder =
+            builder
+                .with_table(id, KEYS, table("k", data))
+                .with_table(id, NEXT, table("n", next));
+    }
     if let Some(same) = &opts.same {
         builder = builder.with_table(id, SAME, table("same", vec![column(same)]));
     }
