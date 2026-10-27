@@ -38,10 +38,11 @@ use crate::{
         nodes::{
             IsGadgetNode, IsNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
             utils::{
-                contig_sort::{ACTIVE_ROWS_LABEL, active_rows_prover, active_rows_verifier},
+                contig_sort::{
+                    ACTIVE_ROWS_LABEL, active_rows_prover, active_rows_verifier, piop::key_width,
+                },
                 lex_sort::piop::{
                     character_projection::Characters,
-                    integer_key_width,
                     string_sort::{self, Key},
                 },
             },
@@ -74,7 +75,7 @@ fn missing(what: &str, key: &SortKey) -> SnarkError {
 }
 
 fn value_width(key: &SortKey, data_type: &DataType) -> SnarkResult<usize> {
-    integer_key_width(data_type).ok_or_else(|| {
+    key_width(data_type).ok_or_else(|| {
         SnarkError::DataTypeError(DataTypeError::NotSupported(format!(
             "ORDER BY key {} of type {data_type} has no ordered encoding",
             key.column

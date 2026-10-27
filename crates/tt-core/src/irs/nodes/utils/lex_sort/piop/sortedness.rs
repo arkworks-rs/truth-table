@@ -16,13 +16,13 @@
 //! extra columns (PIOP 12's `rk^π`) is this check's own and runs for every
 //! `R`, including `R = 0`, where nothing else reads them. It is one multiset
 //! check that also carries the rotated projections `c'_k` of step 5, so the
-//! Lexicographic Sort Check is called on pairs already bound.
+//! sort check (strict, the Lexicographic Sort Check of step 5) is called on
+//! pairs already bound.
 //!
 //! `R` is a committed scalar the verifier caps at `2^m + 1` (`m` the
 //! character domain's log size, which bounds every length) before tracking
-//! any projection. Soundness
-//! needs what the Character Projection Check needs of the character table,
-//! and `index` bound by the caller.
+//! any projection. Soundness needs what the Character Projection Check needs
+//! of the character table, and `index` bound by the caller.
 
 use std::collections::HashMap;
 
@@ -36,11 +36,17 @@ use ark_piop::{
 };
 
 use super::{
-    PROJECTION_WIDTH, SortKey, Tie,
+    PROJECTION_WIDTH,
     character_projection::{self, Characters, Strings},
     check_failed,
 };
-use crate::irs::nodes::utils::{contig_sort::rotation, field_to_usize};
+use crate::irs::nodes::utils::{
+    contig_sort::{
+        piop::{self as sort, End, SortKey, Tie},
+        rotation,
+    },
+    field_to_usize,
+};
 
 const GAMMA_LABEL: &[u8] = b"lex_sortedness_gamma";
 const NOZERO_LABEL: &[u8] = b"lex_sortedness_nozero";
@@ -284,7 +290,7 @@ pub(super) fn prove_with_witness<B: SnarkBackend>(
             width: PROJECTION_WIDTH,
         })
         .collect();
-    super::prove(prover, &keys, Tie::new(unequal, log_size, n), true)?;
+    sort::prove(prover, &keys, Tie::new(unequal, log_size, n), End::Strict)?;
     Ok(Sortedness {
         same: Tie::new(same, log_size, n),
         hash_next,
@@ -404,7 +410,7 @@ pub fn verify<B: SnarkBackend>(
             width: PROJECTION_WIDTH,
         })
         .collect();
-    super::verify(verifier, &keys, Tie::new(unequal, log_size, n), true)?;
+    sort::verify(verifier, &keys, Tie::new(unequal, log_size, n), End::Strict)?;
     Ok(Sortedness {
         same: Tie::new(same, log_size, n),
         hash_next,

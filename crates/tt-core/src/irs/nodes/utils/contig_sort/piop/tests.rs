@@ -1,16 +1,18 @@
-//! The Lexicographic Sort Check and the Rotation Check binding its rotated
-//! keys, on eight rows, through a gadget that calls them inline.
+//! The sort check and the Rotation Check binding its rotated keys, on eight
+//! rows, through a gadget that calls them inline.
 
 use std::sync::Arc;
 
 use ark_ff::One;
-use ark_piop::{DefaultSnarkBackend, SnarkBackend, errors::SnarkError};
+use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkError,
+};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
-use super::{SortKey, Tie, integer_key_width, prove, prove_with_ties, sortedness::rotate, verify};
+use super::{End, SortKey, Tie, key_width, prove, prove_with_ties, verify};
 use crate::irs::nodes::utils::{
     contig_sort::{rotation, tests::assert_rejected},
-    lex_sort::{data_oracles, data_polys},
+    lex_sort::{data_oracles, data_polys, piop::sortedness::rotate},
 };
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
 use crate::test_utils::inline_gadget::InlineGadget;
@@ -65,8 +67,18 @@ struct Run {
     /// Sorts the keys before this index non-strictly first and checks the
     /// rest from the `t_m` it returns.
     chain_at: Option<usize>,
-    /// The `t_m` the prover must return.
+    /// The `t_m` the prover must return; the check then returns it.
     expected_tie: Option<Vec<i64>>,
+}
+
+impl Run {
+    fn end(&self) -> End {
+        match (self.strict, &self.expected_tie) {
+            (true, _) => End::Strict,
+            (false, Some(_)) => End::Tied,
+            (false, None) => End::NonStrict,
+        }
+    }
 }
 
 fn table(prefix: &str, columns: Vec<Vec<F>>) -> TableSpec<F> {
@@ -93,11 +105,12 @@ fn run(keys: Vec<Key>, opts: Run) -> Result<(), SnarkError> {
         Some(next) => next.iter().map(|v| column(v)).collect(),
         None => data.iter().map(|v| rotate(v)).collect(),
     };
+    let end = opts.end();
     let forged: Option<Vec<Vec<F>>> = opts
         .ties
         .map(|ties| ties.iter().map(|t| column(t)).collect());
     let expected_tie = opts.expected_tie.map(|t| column(&t));
-    let (s, strict, split) = (opts.s, opts.strict, opts.chain_at);
+    let (s, split) = (opts.s, opts.chain_at);
     let verifier_meta = meta.clone();
     let one = F::one();
 
@@ -133,15 +146,26 @@ fn run(keys: Vec<Key>, opts: Run) -> Result<(), SnarkError> {
                 .collect();
             let (first, rest) = keys.split_at(split.unwrap_or(0));
             let tie = match split {
-                Some(_) => prove(prover, first, tie, false)?,
+                Some(_) => prove(prover, first, tie, End::Tied)?.expect("t_m"),
                 None => tie,
             };
             let output = match &forged {
-                Some(ties) => prove_with_ties(prover, rest, tie, strict, ties.clone())?,
-                None => prove(prover, rest, tie, strict)?,
+                Some(ties) => {
+                    let ties = ties
+                        .iter()
+                        .map(|t| {
+                            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+                                NV,
+                                t.clone(),
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    prove_with_ties(prover, rest, tie, end, &ties)?
+                }
+                None => prove(prover, rest, tie, end)?,
             };
             if let Some(expected) = &expected_tie {
-                assert_eq!(&output.poly().evaluations(), expected);
+                assert_eq!(&output.expect("t_m").poly().evaluations(), expected);
             }
             Ok(())
         }),
@@ -176,10 +200,10 @@ fn run(keys: Vec<Key>, opts: Run) -> Result<(), SnarkError> {
                 .collect();
             let (first, rest) = keys.split_at(split.unwrap_or(0));
             let tie = match split {
-                Some(_) => verify(verifier, first, tie, false)?,
+                Some(_) => verify(verifier, first, tie, End::Tied)?.expect("t_m"),
                 None => tie,
             };
-            verify(verifier, rest, tie, strict)?;
+            verify(verifier, rest, tie, end)?;
             Ok(())
         }),
     );
@@ -287,7 +311,7 @@ fn descending_key() {
 #[test]
 fn wide_key() {
     let wide = |values: &[i64]| Key {
-        width: integer_key_width(&DataType::UInt32).expect("UInt32 has a width"),
+        width: key_width(&DataType::UInt32).expect("UInt32 has a width"),
         ..asc(values)
     };
     let top = i64::from(u32::MAX);
@@ -393,10 +417,7 @@ fn forged_tie_on_unequal_values_rejected() {
         ties: Some(ties),
         ..Run::default()
     };
-    assert_rejected(run(
-        keys(),
-        opts(false, vec![vec![0, 1, 0, 0], vec![0, 0, 0, 0]]),
-    ));
+    assert_rejected(run(keys(), opts(false, vec![vec![0, 1, 0, 0]])));
     assert_rejected(run(keys(), opts(true, vec![vec![0, 1, 0, 0]])));
 }
 
@@ -415,11 +436,29 @@ fn forged_broken_tie_on_equal_values_rejected_in_strict_mode() {
 }
 
 #[test]
+fn forged_final_tie_rejected() {
+    // A returned `t_1` that marks rows 1 and 2 tied although 5 < 6 (3(d)),
+    // or rows 0 and 1 although `same` took them out of `t_0` (3(c)), would
+    // have a caller compare pairs the keys do not tie.
+    let tied = |same: Option<Vec<i64>>, tie: Vec<i64>| Run {
+        s: 4,
+        same,
+        ties: Some(vec![tie.clone()]),
+        expected_tie: Some(tie),
+        ..Run::default()
+    };
+    let keys = || vec![asc(&[5, 5, 6, 7])];
+    run(keys(), tied(None, vec![1, 0, 0, 0])).expect("the honest t_1");
+    assert_rejected(run(keys(), tied(None, vec![1, 1, 0, 0])));
+    assert_rejected(run(keys(), tied(Some(vec![1, 0, 0, 0]), vec![1, 0, 0, 0])));
+}
+
+#[test]
 fn non_boolean_tie_rejected() {
     let keys = vec![asc(&[1, 1, 2, 3]), asc(&[4, 5, 5, 6])];
     let opts = Run {
         s: 4,
-        ties: Some(vec![vec![2, 0, 0, 0], vec![0, 0, 0, 0]]),
+        ties: Some(vec![vec![2, 0, 0, 0]]),
         ..Run::default()
     };
     assert_rejected(run(keys, opts));

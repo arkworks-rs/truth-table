@@ -39,12 +39,12 @@ use ark_piop::{
 };
 
 use super::{
-    Tie,
     character_projection::Characters,
     check_failed,
     sortedness::{self, SortedStrings, Witness},
 };
 use crate::irs::nodes::utils::{
+    contig_sort::piop::Tie,
     field_to_usize,
     lookup::piop::{LookupPIOP, LookupProverInput, LookupVerifierInput},
     nodup::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
