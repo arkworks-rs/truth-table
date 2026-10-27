@@ -40,23 +40,33 @@ async fn required_side_columns_for(sql: &str, tables: &[&str]) -> BTreeSet<Strin
     ir.tree().required_side_columns()
 }
 
-/// Every TPC-H query in the benchmark suite (`_tt` and `_pgn` variants) is
-/// LIKE-free, so none may load auxiliary columns.
+/// The `_tt` and `_pgn` queries of the benchmark suite are LIKE-free, so
+/// none may load auxiliary columns; a `_tt_2` query loads them for its LIKE
+/// column only.
 #[tokio::test]
-async fn tpch_bench_queries_require_no_side_columns() {
-    // Mirrors the (query_nr, poneglyph) pairs in benches/tpch/mod.rs.
+async fn tpch_bench_queries_require_side_columns_for_like_only() {
+    use tpch_data::Variant;
+    // Mirrors the cases in benches/tpch/mod.rs.
     let tt_queries: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 17, 18, 19, 20];
     let pgn_queries: &[u8] = &[1, 3, 5, 8, 9, 18];
-    for &(numbers, poneglyph) in &[(tt_queries, false), (pgn_queries, true)] {
+    for &(numbers, variant) in &[(tt_queries, Variant::Tt), (pgn_queries, Variant::Pgn)] {
         for &number in numbers {
-            let spec = tpch_data::query_spec(number, poneglyph);
+            let spec = tpch_data::query_spec(number, variant);
             let cols = required_side_columns_for(spec.sql, spec.tables).await;
             assert!(
                 cols.is_empty(),
-                "TPC-H q{number} (poneglyph={poneglyph}) has no LIKE but would \
-                 load side columns {cols:?}"
+                "TPC-H q{number} ({variant:?}) has no LIKE but would load side columns {cols:?}"
             );
         }
+    }
+    for (number, column) in [(2, "p_type"), (9, "p_name"), (14, "p_type"), (20, "p_name")] {
+        let spec = tpch_data::query_spec(number, Variant::Tt2);
+        let cols = required_side_columns_for(spec.sql, spec.tables).await;
+        assert_eq!(
+            cols,
+            BTreeSet::from([column.to_string()]),
+            "TPC-H q{number}_tt_2"
+        );
     }
 }
 

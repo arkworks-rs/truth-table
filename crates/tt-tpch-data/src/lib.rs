@@ -1097,18 +1097,18 @@ fn normalize_tpch_sql(number: u8, sql: String) -> String {
     }
 }
 
-static TPCH_Q1_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q3_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q5_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q6_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q10_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q11_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q12_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q18_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q19_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q21_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q1_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q3_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q5_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q6_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q10_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q11_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q12_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q18_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q19_TT_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q21_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 
-const TPCH_Q1_PONEGLYPH_SQL: &str = r#"
+const TPCH_Q1_PGN_SQL: &str = r#"
 SELECT
     l_returnflag,
     sum(l_quantity) AS sum_qty,
@@ -1126,7 +1126,7 @@ ORDER BY
     l_returnflag
 "#;
 
-const TPCH_Q2_SQL_REWRITTEN: &str = r#"
+const TPCH_Q2_TT_SQL: &str = r#"
 SELECT
     s_acctbal,
     s_name,
@@ -1171,7 +1171,54 @@ ORDER BY
 LIMIT 100;
 "#;
 
-const TPCH_Q7_SQL_REWRITTEN: &str = r#"
+// Q2 with the official `p_type LIKE '%BRASS'`.
+const TPCH_Q2_TT_2_SQL: &str = r#"
+SELECT
+    s_acctbal,
+    s_name,
+    n_name,
+    p_partkey,
+    p_mfgr,
+    s_address,
+    s_phone,
+    s_comment
+FROM
+    part,
+    supplier,
+    partsupp,
+    nation,
+    region
+WHERE
+    p_partkey = ps_partkey
+    AND s_suppkey = ps_suppkey
+    AND p_size = 15
+    AND p_type LIKE '%BRASS'
+    AND s_nationkey = n_nationkey
+    AND n_regionkey = r_regionkey
+    AND r_name = 'EUROPE'
+    AND ps_supplycost = (
+        SELECT
+            min(ps_supplycost)
+        FROM
+            partsupp,
+            supplier,
+            nation,
+            region
+        WHERE
+            p_partkey = ps_partkey
+            AND s_suppkey = ps_suppkey
+            AND s_nationkey = n_nationkey
+            AND n_regionkey = r_regionkey
+            AND r_name = 'EUROPE')
+ORDER BY
+    s_acctbal DESC,
+    n_name,
+    s_name,
+    p_partkey
+LIMIT 100;
+"#;
+
+const TPCH_Q7_TT_SQL: &str = r#"
 SELECT
     supp_nation,
     cust_nation,
@@ -1212,7 +1259,7 @@ ORDER BY
     l_year;
 "#;
 
-const TPCH_Q13_SQL_REWRITTEN: &str = r#"
+const TPCH_Q13_TT_SQL: &str = r#"
 SELECT
     c_count,
     count(*) AS custdist
@@ -1233,7 +1280,7 @@ ORDER BY
     c_count DESC;
 "#;
 
-const TPCH_Q14_SQL_REWRITTEN: &str = r#"
+const TPCH_Q14_TT_SQL: &str = r#"
 SELECT
     CAST(100.00 AS DECIMAL(15, 2)) * sum(l_extendedprice * (1 - l_discount))
         / sum(l_extendedprice * (1 - l_discount)) AS promo_revenue
@@ -1246,7 +1293,31 @@ WHERE
     AND l_shipdate < CAST('1995-10-01' AS date);
 "#;
 
-const TPCH_Q4_SQL_REWRITTEN: &str = r#"
+// Q14 with the official `p_type LIKE 'PROMO%'`, evaluated in a projection
+// over the `part` scan: a LIKE reads the characters only its scan carries.
+const TPCH_Q14_TT_2_SQL: &str = r#"
+SELECT
+    CAST(100.00 AS DECIMAL(15, 2)) * sum(
+        CASE WHEN promo THEN
+            l_extendedprice * (1 - l_discount)
+        ELSE
+            0
+        END) / sum(l_extendedprice * (1 - l_discount)) AS promo_revenue
+FROM
+    lineitem,
+    (
+        SELECT
+            p_partkey,
+            p_type LIKE 'PROMO%' AS promo
+        FROM
+            part) AS promo_part
+WHERE
+    l_partkey = p_partkey
+    AND l_shipdate >= date '1995-09-01'
+    AND l_shipdate < CAST('1995-10-01' AS date);
+"#;
+
+const TPCH_Q4_TT_SQL: &str = r#"
 SELECT
     o_orderpriority,
     count(*) AS order_count
@@ -1271,7 +1342,7 @@ ORDER BY
     o_orderpriority;
 "#;
 
-const TPCH_Q15_SQL_REWRITTEN: &str = r#"
+const TPCH_Q15_TT_SQL: &str = r#"
 WITH revenue AS (
     SELECT
         l_suppkey AS supplier_no,
@@ -1306,7 +1377,7 @@ ORDER BY
     s_suppkey;
 "#;
 
-const TPCH_Q16_SQL_REWRITTEN: &str = r#"
+const TPCH_Q16_TT_SQL: &str = r#"
 SELECT
     p_brand,
     p_type,
@@ -1335,7 +1406,7 @@ ORDER BY
     p_size;
 "#;
 
-const TPCH_Q17_SQL_REWRITTEN: &str = r#"
+const TPCH_Q17_TT_SQL: &str = r#"
 SELECT
     sum(l_extendedprice) / CAST(7.0 AS DECIMAL(15, 2)) AS avg_yearly
 FROM
@@ -1357,7 +1428,7 @@ WHERE
 // Q20 flattened to inner joins, so that it goes through the join gadget
 // like the other rewritten subquery queries and not through
 // planner-generated semi-joins with null right-side provenance.
-const TPCH_Q20_SQL_REWRITTEN: &str = r#"
+const TPCH_Q20_TT_SQL: &str = r#"
 SELECT
     s_name,
     s_address
@@ -1400,7 +1471,52 @@ ORDER BY
     s_name;
 "#;
 
-const TPCH_Q22_SQL_REWRITTEN: &str = r#"
+// Q20 with the official `p_name LIKE 'forest%'`.
+const TPCH_Q20_TT_2_SQL: &str = r#"
+SELECT
+    s_name,
+    s_address
+FROM
+    supplier
+INNER JOIN nation
+    ON s_nationkey = n_nationkey
+INNER JOIN (
+    SELECT
+        ps_suppkey
+    FROM
+        partsupp
+    INNER JOIN part
+        ON ps_partkey = p_partkey
+    INNER JOIN (
+        SELECT
+            l_partkey,
+            l_suppkey,
+            CAST(0.5 AS DECIMAL(15, 2)) * sum(l_quantity) AS half_sum_qty
+        FROM
+            lineitem
+        WHERE
+            l_shipdate >= CAST('1994-01-01' AS date)
+            AND l_shipdate < CAST('1995-01-01' AS date)
+        GROUP BY
+            l_partkey,
+            l_suppkey
+    ) AS lineitem_half_sum
+        ON ps_partkey = l_partkey
+        AND ps_suppkey = l_suppkey
+    WHERE
+        ps_availqty > half_sum_qty
+        AND p_name LIKE 'forest%'
+    GROUP BY
+        ps_suppkey
+) AS candidate_suppliers
+    ON s_suppkey = ps_suppkey
+WHERE
+    n_name = 'CANADA'
+ORDER BY
+    s_name;
+"#;
+
+const TPCH_Q22_TT_SQL: &str = r#"
 SELECT
     cntrycode,
     count(*) AS numcust,
@@ -1435,7 +1551,7 @@ ORDER BY
     cntrycode;
 "#;
 
-const TPCH_Q3_PONEGLYPH_SQL: &str = r#"
+const TPCH_Q3_PGN_SQL: &str = r#"
 SELECT
     l_orderkey,
     sum(l_extendedprice * (1 - l_discount)) AS revenue,
@@ -1460,7 +1576,7 @@ ORDER BY
     o_orderdate
 "#;
 
-const TPCH_Q5_PONEGLYPH_SQL: &str = r#"
+const TPCH_Q5_PGN_SQL: &str = r#"
 SELECT
     n_name,
     sum(l_extendedprice * (1 - l_discount)) AS revenue
@@ -1487,7 +1603,7 @@ ORDER BY
     revenue DESC;
 "#;
 
-const TPCH_Q8_REWRITTEN_SQL: &str = r#"
+const TPCH_Q8_TT_SQL: &str = r#"
 SELECT
     o_orderdate_year,
     sum(
@@ -1528,7 +1644,7 @@ ORDER BY
     o_orderdate_year;
 "#;
 
-const TPCH_Q8_PONEGLYPH_SQL: &str = r#"
+const TPCH_Q8_PGN_SQL: &str = r#"
 SELECT
     o_orderdate_year,
     sum(
@@ -1569,7 +1685,7 @@ ORDER BY
     o_orderdate_year;
 "#;
 
-const TPCH_Q9_REWRITTEN_SQL: &str = r#"
+const TPCH_Q9_TT_SQL: &str = r#"
 SELECT
     nation,
     o_orderdate_year,
@@ -1601,7 +1717,41 @@ ORDER BY
     o_orderdate_year DESC;
 "#;
 
-const TPCH_Q9_PONEGLYPH_SQL: &str = r#"
+// Q9 with the official `p_name LIKE '%green%'`.
+const TPCH_Q9_TT_2_SQL: &str = r#"
+SELECT
+    nation,
+    o_orderdate_year,
+    sum(amount) AS sum_profit
+FROM (
+    SELECT
+        n_name AS nation,
+        o_orderdate_year,
+        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
+    FROM
+        part,
+        supplier,
+        lineitem,
+        partsupp,
+        orders,
+        nation
+    WHERE
+        s_suppkey = l_suppkey
+        AND ps_suppkey = l_suppkey
+        AND ps_partkey = l_partkey
+        AND p_partkey = l_partkey
+        AND o_orderkey = l_orderkey
+        AND s_nationkey = n_nationkey
+        AND p_name LIKE '%green%') AS profit
+GROUP BY
+    nation,
+    o_orderdate_year
+ORDER BY
+    nation,
+    o_orderdate_year DESC;
+"#;
+
+const TPCH_Q9_PGN_SQL: &str = r#"
 SELECT
     nation,
     o_orderdate_year,
@@ -1633,7 +1783,7 @@ ORDER BY
     o_orderdate_year DESC;
 "#;
 
-const TPCH_Q18_PONEGLYPH_SQL: &str = r#"
+const TPCH_Q18_PGN_SQL: &str = r#"
 SELECT
     c_name,
     c_custkey,
@@ -1662,15 +1812,36 @@ fn cached_tpch_sql(lock: &'static OnceLock<&'static str>, number: u8) -> &'stati
     })
 }
 
-/// The spec of TPC-H query `number`. With `poneglyph`, Q1, Q3, Q5, Q8, Q9
-/// and Q18 are the variants over the `_poneglyph` tables.
-pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
+/// Which version of a TPC-H query, named by its benchmark suffix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Variant {
+    /// `_tt`: the query TruthTable proves. Some are rewritten from the
+    /// official text, and some of those rewrites drop a string predicate.
+    Tt,
+    /// `_tt_2`: a `_tt` rewrite with the string predicates it drops put back
+    /// ([`TT_2_QUERIES`]).
+    Tt2,
+    /// `_pgn`: the PoneglyphDB comparison, over the `_poneglyph` tables, for
+    /// Q1, Q3, Q5, Q8, Q9 and Q18; any other query is its `_tt` variant.
+    Pgn,
+}
+
+/// The queries with a `_tt_2` variant.
+pub const TT_2_QUERIES: [u8; 4] = [2, 9, 14, 20];
+
+/// The spec of TPC-H query `number` in `variant`.
+pub fn query_spec(number: u8, variant: Variant) -> TpchQuerySpec {
+    assert!(
+        variant != Variant::Tt2 || TT_2_QUERIES.contains(&number),
+        "TPC-H Q{number} has no _tt_2 variant"
+    );
+    let poneglyph = variant == Variant::Pgn;
     match number {
         1 => TpchQuerySpec {
             sql: if poneglyph {
-                TPCH_Q1_PONEGLYPH_SQL
+                TPCH_Q1_PGN_SQL
             } else {
-                cached_tpch_sql(&TPCH_Q1_SQL, 1)
+                cached_tpch_sql(&TPCH_Q1_TT_SQL, 1)
             },
             tables: if poneglyph {
                 &["lineitem_poneglyph"]
@@ -1679,14 +1850,17 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             },
         },
         2 => TpchQuerySpec {
-            sql: TPCH_Q2_SQL_REWRITTEN,
+            sql: match variant {
+                Variant::Tt2 => TPCH_Q2_TT_2_SQL,
+                Variant::Tt | Variant::Pgn => TPCH_Q2_TT_SQL,
+            },
             tables: &["part", "supplier", "partsupp", "nation", "region"],
         },
         3 => TpchQuerySpec {
             sql: if poneglyph {
-                TPCH_Q3_PONEGLYPH_SQL
+                TPCH_Q3_PGN_SQL
             } else {
-                cached_tpch_sql(&TPCH_Q3_SQL, 3)
+                cached_tpch_sql(&TPCH_Q3_TT_SQL, 3)
             },
             tables: if poneglyph {
                 &[
@@ -1699,14 +1873,14 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             },
         },
         4 => TpchQuerySpec {
-            sql: TPCH_Q4_SQL_REWRITTEN,
+            sql: TPCH_Q4_TT_SQL,
             tables: &["orders", "lineitem"],
         },
         5 => TpchQuerySpec {
             sql: if poneglyph {
-                TPCH_Q5_PONEGLYPH_SQL
+                TPCH_Q5_PGN_SQL
             } else {
-                cached_tpch_sql(&TPCH_Q5_SQL, 5)
+                cached_tpch_sql(&TPCH_Q5_TT_SQL, 5)
             },
             tables: if poneglyph {
                 &[
@@ -1724,18 +1898,18 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             },
         },
         6 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q6_SQL, 6),
+            sql: cached_tpch_sql(&TPCH_Q6_TT_SQL, 6),
             tables: &["lineitem"],
         },
         7 => TpchQuerySpec {
-            sql: TPCH_Q7_SQL_REWRITTEN,
+            sql: TPCH_Q7_TT_SQL,
             tables: &["customer", "orders", "lineitem", "nation", "supplier"],
         },
         8 => TpchQuerySpec {
             sql: if poneglyph {
-                TPCH_Q8_PONEGLYPH_SQL
+                TPCH_Q8_PGN_SQL
             } else {
-                TPCH_Q8_REWRITTEN_SQL
+                TPCH_Q8_TT_SQL
             },
             tables: if poneglyph {
                 &[
@@ -1754,10 +1928,10 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             },
         },
         9 => TpchQuerySpec {
-            sql: if poneglyph {
-                TPCH_Q9_PONEGLYPH_SQL
-            } else {
-                TPCH_Q9_REWRITTEN_SQL
+            sql: match variant {
+                Variant::Pgn => TPCH_Q9_PGN_SQL,
+                Variant::Tt2 => TPCH_Q9_TT_2_SQL,
+                Variant::Tt => TPCH_Q9_TT_SQL,
             },
             tables: if poneglyph {
                 &[
@@ -1775,42 +1949,45 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             },
         },
         10 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q10_SQL, 10),
+            sql: cached_tpch_sql(&TPCH_Q10_TT_SQL, 10),
             tables: &["customer", "orders", "lineitem", "nation"],
         },
         11 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q11_SQL, 11),
+            sql: cached_tpch_sql(&TPCH_Q11_TT_SQL, 11),
             tables: &["partsupp", "supplier", "nation"],
         },
         12 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q12_SQL, 12),
+            sql: cached_tpch_sql(&TPCH_Q12_TT_SQL, 12),
             tables: &["orders", "lineitem"],
         },
         13 => TpchQuerySpec {
-            sql: TPCH_Q13_SQL_REWRITTEN,
+            sql: TPCH_Q13_TT_SQL,
             tables: &["customer", "orders"],
         },
         14 => TpchQuerySpec {
-            sql: TPCH_Q14_SQL_REWRITTEN,
+            sql: match variant {
+                Variant::Tt2 => TPCH_Q14_TT_2_SQL,
+                Variant::Tt | Variant::Pgn => TPCH_Q14_TT_SQL,
+            },
             tables: &["lineitem", "part"],
         },
         15 => TpchQuerySpec {
-            sql: TPCH_Q15_SQL_REWRITTEN,
+            sql: TPCH_Q15_TT_SQL,
             tables: &["lineitem", "supplier"],
         },
         16 => TpchQuerySpec {
-            sql: TPCH_Q16_SQL_REWRITTEN,
+            sql: TPCH_Q16_TT_SQL,
             tables: &["part", "partsupp", "supplier"],
         },
         17 => TpchQuerySpec {
-            sql: TPCH_Q17_SQL_REWRITTEN,
+            sql: TPCH_Q17_TT_SQL,
             tables: &["part", "lineitem"],
         },
         18 => TpchQuerySpec {
             sql: if poneglyph {
-                TPCH_Q18_PONEGLYPH_SQL
+                TPCH_Q18_PGN_SQL
             } else {
-                cached_tpch_sql(&TPCH_Q18_SQL, 18)
+                cached_tpch_sql(&TPCH_Q18_TT_SQL, 18)
             },
             tables: if poneglyph {
                 &[
@@ -1823,19 +2000,22 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             },
         },
         19 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q19_SQL, 19),
+            sql: cached_tpch_sql(&TPCH_Q19_TT_SQL, 19),
             tables: &["part", "lineitem"],
         },
         20 => TpchQuerySpec {
-            sql: TPCH_Q20_SQL_REWRITTEN,
+            sql: match variant {
+                Variant::Tt2 => TPCH_Q20_TT_2_SQL,
+                Variant::Tt | Variant::Pgn => TPCH_Q20_TT_SQL,
+            },
             tables: &["supplier", "nation", "partsupp", "lineitem", "part"],
         },
         21 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q21_SQL, 21),
+            sql: cached_tpch_sql(&TPCH_Q21_TT_SQL, 21),
             tables: &["supplier", "nation", "lineitem", "orders"],
         },
         22 => TpchQuerySpec {
-            sql: TPCH_Q22_SQL_REWRITTEN,
+            sql: TPCH_Q22_TT_SQL,
             tables: &["customer", "orders"],
         },
         _ => panic!("unsupported TPC-H query number: {number}"),

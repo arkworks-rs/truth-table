@@ -20,7 +20,7 @@ use proof_planner::data_dependent_lp_optimizer::{
     DataDependentOptimizationRule, rules as data_dependent_rules,
 };
 use proof_planner::pp_optimizer::{ProofPlanOptimizerRule, rules as pp_rules};
-use tpch_data::query_spec;
+use tpch_data::{Variant, query_spec};
 
 use crate::support::{
     B, BenchCase, build_verifier_full_state_from_proof_with_pp_rules,
@@ -75,7 +75,7 @@ macro_rules! define_optall_case_benches {
             use super::*;
 
             fn case() -> BenchCase {
-                let spec = query_spec($query_num, false);
+                let spec = query_spec($query_num, Variant::Tt);
                 BenchCase {
                     name: $name,
                     query: spec.sql,

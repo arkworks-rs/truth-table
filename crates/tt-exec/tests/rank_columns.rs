@@ -72,16 +72,19 @@ async fn queries_without_a_string_sort_load_no_rank() {
     // all numeric or that have none.
     let tt_queries: &[u8] = &[3, 5, 6, 8, 10, 14, 15, 17, 18, 19];
     let pgn_queries: &[u8] = &[3, 5, 8, 18];
-    for &(numbers, poneglyph) in &[(tt_queries, false), (pgn_queries, true)] {
+    for &(numbers, variant) in &[
+        (tt_queries, tpch_data::Variant::Tt),
+        (pgn_queries, tpch_data::Variant::Pgn),
+    ] {
         for &number in numbers {
-            let spec = tpch_data::query_spec(number, poneglyph);
+            let spec = tpch_data::query_spec(number, variant);
             let ranks = initial_ir(spec.sql, spec.tables, &[])
                 .await
                 .tree()
                 .required_rank_columns();
             assert!(
                 ranks.is_empty(),
-                "TPC-H q{number} (poneglyph={poneglyph}) would load ranks {ranks:?}"
+                "TPC-H q{number} ({variant:?}) would load ranks {ranks:?}"
             );
         }
     }

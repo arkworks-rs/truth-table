@@ -330,7 +330,10 @@ impl<B: SnarkBackend> Node<B> {
                     Arc::new_cyclic(|_weak_self| {
                         let input_tree = Tree::<B>::from_logical_plan(compaction.input());
                         let input = input_tree.root().clone();
-                        let dpuc_base = compaction::single_side_string_base(&input_tree);
+                        let dpuc_base = compaction::single_side_string_base(
+                            &input_tree,
+                            compaction.input().schema(),
+                        );
                         let node = compaction::LpNode::new(input, dpuc_base);
                         Node::Plan(PlanNode::LpBased(Arc::new(node)))
                     })

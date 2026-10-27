@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use clap::Args;
 use std::path::PathBuf;
-use tpch_data::query_spec;
+use tpch_data::{Variant, query_spec};
 
 #[derive(Args, Debug, Clone)]
 pub struct ParquetArg {
@@ -46,7 +46,7 @@ impl QueryArg {
     pub fn resolve_sql(&self) -> Result<String> {
         match (&self.query, self.tpch_query) {
             (Some(query), None) => Ok(query.clone()),
-            (None, Some(number)) => Ok(query_spec(number, false).sql.to_string()),
+            (None, Some(number)) => Ok(query_spec(number, Variant::Tt).sql.to_string()),
             _ => bail!("provide either --query or --tpch-query"),
         }
     }
