@@ -30,6 +30,8 @@ end_to_end_tests!(&["nation"] => [
 end_to_end_tests!(&["supplier"] => [
     grouped_avg => r#"SELECT s_nationkey, AVG(s_acctbal) FROM supplier GROUP BY s_nationkey"#,
     ungrouped_avg => r#"SELECT AVG(s_acctbal) FROM supplier"#,
+    ungrouped_count => r#"SELECT COUNT(s_acctbal) FROM supplier"#,
+    ungrouped_count_star => r#"SELECT COUNT(*) FROM supplier WHERE s_acctbal > 0"#,
     divide_by_negative_literal => r#"SELECT s_acctbal / CAST(-3.00 AS DECIMAL(15, 2)) FROM supplier"#,
     divide_aggregates => r#"SELECT s_nationkey, SUM(s_acctbal) / SUM(s_suppkey) AS ratio FROM supplier GROUP BY s_nationkey"#,
 ]);
