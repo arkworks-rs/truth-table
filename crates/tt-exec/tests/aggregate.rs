@@ -33,3 +33,9 @@ end_to_end_tests!(&["supplier"] => [
     divide_by_negative_literal => r#"SELECT s_acctbal / CAST(-3.00 AS DECIMAL(15, 2)) FROM supplier"#,
     divide_aggregates => r#"SELECT s_nationkey, SUM(s_acctbal) / SUM(s_suppkey) AS ratio FROM supplier GROUP BY s_nationkey"#,
 ]);
+
+// A materialized expression over an aggregate, with no alias to name it.
+end_to_end_tests!(&["supplier"] => [
+    unaliased_compare_aggregates => r#"SELECT s_nationkey, SUM(s_acctbal) > SUM(s_suppkey) FROM supplier GROUP BY s_nationkey"#,
+    unaliased_divide_aggregates => r#"SELECT s_nationkey, SUM(s_acctbal) / SUM(s_suppkey) FROM supplier GROUP BY s_nationkey"#,
+]);

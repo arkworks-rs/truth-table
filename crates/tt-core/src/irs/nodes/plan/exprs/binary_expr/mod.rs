@@ -584,15 +584,19 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
         let output_expr = Expr::BinaryExpr(self.binary_expression.clone());
         let output_expr = if self.should_materialize() {
-            // Comparison outputs should be false on inactive rows.
+            // Comparison outputs should be false on inactive rows. The masked
+            // column keeps the expression's name, which is what a parent
+            // (a projection, the result check) looks it up by.
             if let Some(activator_expr) = Self::activator_expr_for_df(&input_df) {
                 let else_expr = match output_expr.get_type(input_df.schema()).ok() {
                     Some(DataType::Boolean) => lit(false),
                     _ => lit(ScalarValue::Null),
                 };
+                let name = output_expr.schema_name().to_string();
                 when(activator_expr, output_expr)
                     .otherwise(else_expr)
                     .expect("binary expression masking case should succeed")
+                    .alias(name)
             } else {
                 output_expr
             }
@@ -651,8 +655,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
         let input_schema = scope_hint_df.data_frame().schema().as_arrow().clone();
         let output_expr = Expr::BinaryExpr(self.binary_expression.clone());
         let output_expr = if self.should_materialize() {
-            // Same activator choice as the prover, so the masked column gets
-            // the same name on both sides.
+            // Masked and named as on the prover side.
             if let Some(activator_expr) = Self::activator_expr_for_df(scope_hint_df.data_frame()) {
                 let else_expr = match output_expr
                     .get_type(scope_hint_df.data_frame().schema())
@@ -661,9 +664,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                     Some(DataType::Boolean) => lit(false),
                     _ => lit(ScalarValue::Null),
                 };
+                let name = output_expr.schema_name().to_string();
                 when(activator_expr, output_expr)
                     .otherwise(else_expr)
                     .expect("binary expression masking case should succeed")
+                    .alias(name)
             } else {
                 output_expr
             }
