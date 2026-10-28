@@ -78,6 +78,54 @@ impl<B: SnarkBackend> ExprNode<B> {
             _ => panic!("Unsupported aggregate function gadget"),
         }
     }
+
+    /// The output columns of the SUM and COUNT of this AVG's argument, which
+    /// `AddAvgSupport` adds to the same Aggregate. The planner casts each
+    /// aggregate's argument to its output type, so the arguments match up to
+    /// casts.
+    fn avg_sum_and_count_names(&self) -> [String; 2] {
+        fn uncast(expr: &Expr) -> &Expr {
+            match expr {
+                Expr::Cast(cast) => uncast(&cast.expr),
+                Expr::TryCast(cast) => uncast(&cast.expr),
+                other => other,
+            }
+        }
+        let params = &self.aggregate_function.params;
+        let arg = params.args.first().map(uncast);
+        let PlanNode::LpBased(lp_node) = self.parent() else {
+            panic!("AVG's parent must be an Aggregate");
+        };
+        let LogicalPlan::Aggregate(aggregate) = lp_node.lp() else {
+            panic!("AVG's parent must be an Aggregate");
+        };
+        let (mut sum, mut count) = (None, None);
+        for expr in &aggregate.aggr_expr {
+            let func = match expr {
+                Expr::AggregateFunction(func) => func,
+                Expr::Alias(alias) => match alias.expr.as_ref() {
+                    Expr::AggregateFunction(func) => func,
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            if func.params.args.first().map(uncast) != arg
+                || func.params.distinct != params.distinct
+                || func.params.filter != params.filter
+            {
+                continue;
+            }
+            match func.func.name() {
+                "sum" => sum = Some(expr.schema_name().to_string()),
+                "count" => count = Some(expr.schema_name().to_string()),
+                _ => {}
+            }
+        }
+        [
+            sum.expect("AVG needs the SUM that AddAvgSupport adds"),
+            count.expect("AVG needs the COUNT that AddAvgSupport adds"),
+        ]
+    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
@@ -400,6 +448,27 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                     .to_string(),
                 super_rlc,
             );
+            if self.aggregate_function.func.name() == "avg" {
+                // The columns the result check binds: with groups, COUNT is
+                // the lookup multiplicities.
+                let Some(PayloadStructure::PlanPayload(aggregate_table)) =
+                    virtualized_ir.payload_for_node(&parent_node.id())
+                else {
+                    panic!("AVG's Aggregate has no table payload");
+                };
+                let [sum, count] = self.avg_sum_and_count_names();
+                for (label, name) in [
+                    (gadget::avg::SUM_LABEL, sum),
+                    (gadget::avg::COUNT_LABEL, count),
+                ] {
+                    let idx = tracked_table_index_of_name(aggregate_table, &name)
+                        .unwrap_or_else(|| panic!("AVG's Aggregate has no column {name}"));
+                    gadget_payload.insert(
+                        label.to_string(),
+                        aggregate_table.tracked_subtable_by_indices(&[idx]),
+                    );
+                }
+            }
 
             if !gadget_payload.is_empty() {
                 virtualized_ir.set_payload_for_node(
@@ -690,6 +759,27 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                     .to_string(),
                 super_rlc,
             );
+            if self.aggregate_function.func.name() == "avg" {
+                // The columns the result check binds: with groups, COUNT is
+                // the lookup multiplicities.
+                let Some(PayloadStructure::PlanPayload(aggregate_table)) =
+                    virtualized_ir.payload_for_node(&parent_node.id())
+                else {
+                    panic!("AVG's Aggregate has no table payload");
+                };
+                let [sum, count] = self.avg_sum_and_count_names();
+                for (label, name) in [
+                    (gadget::avg::SUM_LABEL, sum),
+                    (gadget::avg::COUNT_LABEL, count),
+                ] {
+                    let idx = tracked_table_oracle_index_of_name(aggregate_table, &name)
+                        .unwrap_or_else(|| panic!("AVG's Aggregate has no column {name}"));
+                    gadget_payload.insert(
+                        label.to_string(),
+                        aggregate_table.tracked_subtable_by_indices(&[idx]),
+                    );
+                }
+            }
 
             if !gadget_payload.is_empty() {
                 virtualized_ir.set_payload_for_node(

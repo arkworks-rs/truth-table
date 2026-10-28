@@ -5,6 +5,7 @@ pub mod broadcast_check;
 pub mod compaction;
 pub mod contig_sort;
 pub mod data_preserving_update_check;
+pub mod division;
 pub mod domain_preserving_update_check;
 pub mod eq;
 pub mod factor_placement;

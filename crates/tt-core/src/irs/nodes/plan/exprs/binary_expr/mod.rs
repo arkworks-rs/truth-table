@@ -17,6 +17,7 @@ use crate::{
         NodeId,
         plan::exprs::binary_expr::gadget::{
             bin_cmp::{self, BinCmpOp},
+            bin_div,
             bin_eq::{self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL},
             bin_neq,
         },
@@ -163,7 +164,9 @@ impl<B: SnarkBackend> ExprNode<B> {
                 bin_cmp::BinCmpNode::new(BinCmpOp::Lt),
             )))),
             datafusion_expr::Operator::Multiply => None,
-            datafusion_expr::Operator::Divide => None,
+            datafusion_expr::Operator::Divide => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_div::BinDivNode::new(),
+            )))),
             datafusion_expr::Operator::Plus => None,
             datafusion_expr::Operator::Minus => None,
             datafusion_expr::Operator::And => None,
