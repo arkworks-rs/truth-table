@@ -78,10 +78,11 @@ async fn case_without_else_is_not_supported() {
 }
 
 #[tokio::test]
-async fn a_null_in_a_subquery_is_not_supported() {
+async fn a_null_in_a_derived_table_is_not_supported() {
     assert_rejected_as_null(
-        "SELECT n_name FROM nation WHERE n_regionkey IN \
-         (SELECT CASE WHEN r_regionkey < 2 THEN r_regionkey END FROM region)",
+        "SELECT n_name FROM nation JOIN \
+         (SELECT CASE WHEN r_regionkey < 2 THEN r_regionkey END AS k FROM region) r \
+         ON n_regionkey = r.k",
         &["nation", "region"],
     )
     .await;

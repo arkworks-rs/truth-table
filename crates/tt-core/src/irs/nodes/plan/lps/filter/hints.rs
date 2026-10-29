@@ -1,58 +1,12 @@
 use arithmetic::ACTIVATOR_COL_NAME;
-use datafusion::arrow::array::ArrayRef;
 use datafusion::prelude::DataFrame;
-use datafusion_common::tree_node::{Transformed, TreeNode};
-use datafusion_common::{Column, ScalarValue};
-use datafusion_expr::expr::InList;
-use datafusion_expr::{Expr, Filter, lit};
+use datafusion_common::Column;
+use datafusion_expr::{Expr, Filter};
 
 /// Build a DataFrame that preserves all rows but deactivates ones that do not
 /// satisfy the filter predicate by zeroing the activator column.
 pub(super) fn build_output_dataframe(input: &DataFrame, filter: &Filter) -> DataFrame {
-    fn rewrite_in_subquery(expr: Expr, input: &DataFrame) -> Expr {
-        let (session_state, _) = input.clone().into_parts();
-        let rewritten = expr
-            .transform(|node| {
-                if let Expr::InSubquery(in_subquery) = node {
-                    if in_subquery.subquery.outer_ref_columns.is_empty() {
-                        let plan = in_subquery.subquery.subquery.as_ref().clone();
-                        let subquery_df = DataFrame::new(session_state.clone(), plan);
-                        let batches = crate::session::block_on(subquery_df.collect())
-                            .expect("filter subquery collect");
-                        let mut values = Vec::new();
-                        for batch in batches.iter() {
-                            let array: ArrayRef = batch.column(0).clone();
-                            for idx in 0..batch.num_rows() {
-                                values.push(
-                                    ScalarValue::try_from_array(array.as_ref(), idx)
-                                        .expect("filter subquery value"),
-                                );
-                            }
-                        }
-                        let replacement = if values.is_empty() {
-                            if in_subquery.negated {
-                                lit(true)
-                            } else {
-                                lit(false)
-                            }
-                        } else {
-                            Expr::InList(InList::new(
-                                in_subquery.expr.clone(),
-                                values.into_iter().map(Expr::Literal).collect(),
-                                in_subquery.negated,
-                            ))
-                        };
-                        return Ok(Transformed::yes(replacement));
-                    }
-                    return Ok(Transformed::no(Expr::InSubquery(in_subquery)));
-                }
-                Ok(Transformed::no(node))
-            })
-            .expect("filter predicate rewrite should succeed");
-        rewritten.data
-    }
-
-    let predicate = rewrite_in_subquery(filter.predicate.clone(), input);
+    let predicate = filter.predicate.clone();
     let mut projection_exprs: Vec<Expr> = Vec::new();
     let mut activator_exprs: Vec<Expr> = Vec::new();
     let mut activator_insert_pos: Option<usize> = None;
