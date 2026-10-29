@@ -62,7 +62,9 @@ impl<B: SnarkBackend> ExprNode<B> {
     }
     fn dispatch_gadget(aggregate_function: &AggregateFunction) -> Option<Arc<Node<B>>> {
         match aggregate_function.func.name() {
-            "count" => None,
+            "count" => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                gadget::count::GadgetNode::new(),
+            )))),
             "sum" => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 gadget::sum::GadgetNode::new(),
             )))),
@@ -262,8 +264,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.aggregate_function.func.name() == "count" {
-            // COUNT is the lookup's super-multiplicity column, so the aggregate
-            // output column is not materialized.
+            // With groups, COUNT is the lookup's super-multiplicity column, so
+            // the aggregate output column is not materialized. Without, it is
+            // the Aggregate's committed column, which the count gadget checks.
             let parent_node = self
                 .parent
                 .as_ref()
@@ -279,21 +282,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                     multiplicities_table,
                     &self.output_column_name_in_parent(),
                 );
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
-                return Ok(());
-            }
-            // Without a lookup (e.g. COUNT(*) over a base table): a constant-one
-            // column under the parent's activator.
-            let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
-                |payload| match payload {
-                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                    _ => None,
-                },
-            );
-            if let Some(parent_table) = parent_payload {
-                let count_table =
-                    constant_one_table::<B>(&parent_table, &self.output_column_name_in_parent());
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
                 return Ok(());
@@ -367,7 +355,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                         panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
                     });
                 (orig_rlc, super_rlc)
-            } else if matches!(self.aggregate_function.func.name(), "sum" | "max" | "min") {
+            } else if matches!(
+                self.aggregate_function.func.name(),
+                "sum" | "max" | "min" | "count"
+            ) {
                 // Ungrouped aggregate gadgets still compare an input-domain selector
                 // with an output-domain selector, even though both keys are constant.
                 let input_table = self
@@ -408,7 +399,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             )
             };
 
-        if let Some(gadget) = &self.gadget {
+        let grouped_count = self.aggregate_function.func.name() == "count"
+            && lookup_child_from_aggregate_parent(&parent_node).is_some();
+        if let Some(gadget) = self.gadget.as_ref().filter(|_| !grouped_count) {
             let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
@@ -573,8 +566,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.aggregate_function.func.name() == "count" {
-            // COUNT is the lookup's super-multiplicity column, so the aggregate
-            // output column is not materialized.
+            // With groups, COUNT is the lookup's super-multiplicity column, so
+            // the aggregate output column is not materialized. Without, it is
+            // the Aggregate's committed column, which the count gadget checks.
             let parent_node = self
                 .parent
                 .as_ref()
@@ -588,23 +582,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             {
                 let count_table = count_table_from_multiplicities_oracle(
                     multiplicities_table,
-                    &self.output_column_name_in_parent(),
-                );
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
-                return Ok(());
-            }
-            // Without a lookup (e.g. COUNT(*) over a base table): a constant-one
-            // oracle under the parent's activator.
-            let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
-                |payload| match payload {
-                    PayloadStructure::PlanPayload(table) => Some(table),
-                    _ => None,
-                },
-            );
-            if let Some(parent_table) = parent_payload {
-                let count_table = constant_one_table_oracle::<B>(
-                    parent_table,
                     &self.output_column_name_in_parent(),
                 );
                 virtualized_ir
@@ -678,7 +655,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                         panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
                     });
                 (orig_rlc, super_rlc)
-            } else if matches!(self.aggregate_function.func.name(), "sum" | "max" | "min") {
+            } else if matches!(
+                self.aggregate_function.func.name(),
+                "sum" | "max" | "min" | "count"
+            ) {
                 // Ungrouped aggregate gadgets still compare an input-domain selector
                 // with an output-domain selector, even though both keys are constant.
                 let input_table = self
@@ -719,7 +699,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             )
             };
 
-        if let Some(gadget) = &self.gadget {
+        let grouped_count = self.aggregate_function.func.name() == "count"
+            && lookup_child_from_aggregate_parent(&parent_node).is_some();
+        if let Some(gadget) = self.gadget.as_ref().filter(|_| !grouped_count) {
             let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),

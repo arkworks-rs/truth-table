@@ -444,6 +444,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
         };
 
         let output = hints::build_output_dataframe(input_hint_df.data_frame(), &self.aggregate);
+        #[cfg(feature = "test-utils")]
+        let output = crate::test_utils::dishonest_prover::forge_counts(
+            output,
+            &count_output_names(&self.aggregate.aggr_expr),
+        );
         let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)
             .expect("aggregate output sort should succeed");
 

@@ -2,7 +2,8 @@
 //! join's matching pairs before any witness is derived from them, in both
 //! places that compute them (the output hint and the gadget's source maps),
 //! so every witness carries the same forgery. A [`SortForgery`] reverses an
-//! ORDER BY, or its last key, in the prover's plan. A claimed-result rewrite
+//! ORDER BY, or its last key, in the prover's plan. A count forgery shifts
+//! every COUNT an Aggregate outputs. A claimed-result rewrite
 //! makes the prover claim the result of the forged plan, so the result check
 //! passes and only the forged operator's own checks can reject.
 //!
@@ -48,6 +49,8 @@ pub enum SortForgery {
 
 static SORT_FORGERY: Mutex<Option<SortForgery>> = Mutex::new(None);
 
+static COUNT_FORGERY: Mutex<Option<i64>> = Mutex::new(None);
+
 pub type ResultRewrite = Box<dyn Fn(Vec<RecordBatch>) -> Vec<RecordBatch> + Send>;
 
 static CLAIMED_RESULT: Mutex<Option<ResultRewrite>> = Mutex::new(None);
@@ -85,6 +88,33 @@ pub(crate) fn forge_sort_specs(specs: Vec<(String, bool, bool)>) -> Vec<(String,
             .collect(),
         _ => specs,
     }
+}
+
+/// Adds `offset` to every COUNT the prover's Aggregates output.
+pub fn set_count_forgery(offset: Option<i64>) {
+    *COUNT_FORGERY.lock().expect("lock poisoned") = offset;
+}
+
+/// `output`, an Aggregate's output, with the installed count forgery applied
+/// to its COUNT columns `counts`.
+pub(crate) fn forge_counts(output: DataFrame, counts: &[String]) -> DataFrame {
+    let Some(offset) = *COUNT_FORGERY.lock().expect("lock poisoned") else {
+        return output;
+    };
+    let exprs = output
+        .schema()
+        .columns()
+        .into_iter()
+        .map(|column| {
+            if counts.contains(&column.name) {
+                let name = column.name.clone();
+                (Expr::Column(column) + lit(offset)).alias(name)
+            } else {
+                Expr::Column(column)
+            }
+        })
+        .collect::<Vec<_>>();
+    output.select(exprs).expect("forged counts select")
 }
 
 pub fn set_claimed_result(rewrite: Option<ResultRewrite>) {
