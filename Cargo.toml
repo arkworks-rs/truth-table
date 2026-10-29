@@ -74,7 +74,9 @@ datafusion-functions-aggregate = "46.0.1"
 datafusion-functions-window = "46.0.1"
 derivative = { version = "2", features = ["use_core"] }
 divan = { git = "https://github.com/alireza-shirzad/divan.git" }
-duckdb = { version = "1.3.2", default-features = false, features = ["bundled"] }
+# 1.10501 is DuckDB 1.5.1. A newer duckdb-rs bundles a DuckDB dev build, for
+# which `INSTALL tpch` finds no published extension.
+duckdb = { version = "~1.10501.0", default-features = false, features = ["bundled"] }
 either = "1.8.0"
 once_cell = "1.19"
 futures = "0.3"

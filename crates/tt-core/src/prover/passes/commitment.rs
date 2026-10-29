@@ -107,7 +107,19 @@ where
                 if node.name() == "TableScan"
                     && let Some(schema) = arith_table.schema()
                 {
-                    if let Some(oracle) = self.ctx_oracles.table_oracle_for_schema(&schema) {
+                    // A scan that reads no column (`COUNT(*)`) has no field
+                    // to name its table.
+                    let oracle = self
+                        .ctx_oracles
+                        .table_oracle_for_schema(&schema)
+                        .or_else(|| {
+                            node.scanned_table()
+                                .and_then(|table| self.ctx_oracles.table_oracle_by_name(&table))
+                        });
+                    #[cfg(feature = "test-utils")]
+                    let oracle =
+                        oracle.filter(|_| !crate::test_utils::dishonest_prover::scans_unowned());
+                    if let Some(oracle) = oracle {
                         // A cached table-scan commitment is reusable only on the
                         // multilinear domain of the arithmetized table.
                         if oracle.log_size() == arith_table.log_size() {
@@ -159,7 +171,12 @@ where
                             arith_table.log_size()
                         );
                     }
-                    if self.allow_table_scan_commit_without_ctx {
+                    #[cfg(feature = "test-utils")]
+                    let allow_without_ctx = self.allow_table_scan_commit_without_ctx
+                        || crate::test_utils::dishonest_prover::scans_unowned();
+                    #[cfg(not(feature = "test-utils"))]
+                    let allow_without_ctx = self.allow_table_scan_commit_without_ctx;
+                    if allow_without_ctx {
                         let commited_payloadd = arith_to_oracle::<B>(
                             arith_table,
                             &self.mv_pcs_param,

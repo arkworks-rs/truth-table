@@ -178,11 +178,11 @@ async fn assert_forgery_rejected(
         "the forged order must differ from the honest one"
     );
 
-    set_sort_forgery(Some(forgery));
-    set_claimed_result(Some(Box::new(move |_| vec![claimed.clone()])));
-    let forged = prove(&paths, query, "forged").await;
-    set_sort_forgery(None);
-    set_claimed_result(None);
+    let forged = {
+        let _forgery = set_sort_forgery(forgery);
+        let _claimed = set_claimed_result(Box::new(move |_| vec![claimed.clone()]));
+        prove(&paths, query, "forged").await
+    };
     let reason = verify_on_thread(
         query,
         vec![paths.oracle.clone()],
@@ -215,6 +215,10 @@ fn sorted_on(batch: &RecordBatch, keys: &[(usize, bool)]) -> RecordBatch {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    feature = "honest-prover",
+    ignore = "the honest prover refuses to prove a forgery"
+)]
 async fn a_wrongly_ordered_string_result_is_rejected() {
     assert_forgery_rejected("nation", QUERY, SortForgery::ReverseOutput, |result| {
         assert_eq!(result.num_rows(), 5);
@@ -228,6 +232,10 @@ async fn a_wrongly_ordered_string_result_is_rejected() {
 /// only the integer key, checked on the pairs the strings tie (PIOP 10's
 /// `same`), can reject.
 #[tokio::test]
+#[cfg_attr(
+    feature = "honest-prover",
+    ignore = "the honest prover refuses to prove a forgery"
+)]
 async fn a_wrong_order_inside_tied_strings_is_rejected() {
     assert_forgery_rejected(
         "customer",
@@ -242,6 +250,10 @@ async fn a_wrong_order_inside_tied_strings_is_rejected() {
 /// the string key, checked on the pairs the integers tie (PIOP 27's `t_m`),
 /// can reject.
 #[tokio::test]
+#[cfg_attr(
+    feature = "honest-prover",
+    ignore = "the honest prover refuses to prove a forgery"
+)]
 async fn a_wrong_string_order_inside_tied_integers_is_rejected() {
     assert_forgery_rejected(
         "nation",

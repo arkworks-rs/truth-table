@@ -3,14 +3,18 @@
 //! places that compute them (the output hint and the gadget's source maps),
 //! so every witness carries the same forgery. A [`SortForgery`] reverses an
 //! ORDER BY, or its last key, in the prover's plan. A count forgery shifts
-//! every COUNT an Aggregate outputs. A claimed-result rewrite
-//! makes the prover claim the result of the forged plan, so the result check
-//! passes and only the forged operator's own checks can reject.
+//! every COUNT an Aggregate outputs. An unowned-scan forgery commits the
+//! scanned tables itself instead of loading the owner's oracles. A
+//! claimed-result rewrite makes the prover claim the result of the forged
+//! plan, so the result check passes and only the forged operator's own
+//! checks can reject.
 //!
-//! Both are process-wide: a test that installs one must be the only test of
-//! its binary that proves meanwhile.
+//! Every hook is process-wide: a test that installs one must be the only
+//! test of its binary that proves meanwhile. A setter returns an
+//! [`Installed`] that uninstalls the hook when dropped, so a test that panics
+//! while proving does not leave it to the tests after it.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -51,21 +55,37 @@ static SORT_FORGERY: Mutex<Option<SortForgery>> = Mutex::new(None);
 
 static COUNT_FORGERY: Mutex<Option<i64>> = Mutex::new(None);
 
+static UNOWNED_SCANS: Mutex<Option<()>> = Mutex::new(None);
+
 pub type ResultRewrite = Box<dyn Fn(Vec<RecordBatch>) -> Vec<RecordBatch> + Send>;
 
 static CLAIMED_RESULT: Mutex<Option<ResultRewrite>> = Mutex::new(None);
 
-pub fn set_join_forgery(forgery: Option<JoinForgery>) {
-    *FORGERY.lock().expect("lock poisoned") = forgery;
+#[must_use = "the hook is uninstalled when this is dropped"]
+pub struct Installed<T: 'static>(&'static Mutex<Option<T>>);
+
+impl<T: 'static> Drop for Installed<T> {
+    fn drop(&mut self) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
 }
 
-pub fn set_sort_forgery(forgery: Option<SortForgery>) {
-    *SORT_FORGERY.lock().expect("lock poisoned") = forgery;
+fn install<T>(hook: &'static Mutex<Option<T>>, value: T) -> Installed<T> {
+    *hook.lock().unwrap_or_else(PoisonError::into_inner) = Some(value);
+    Installed(hook)
+}
+
+pub fn set_join_forgery(forgery: JoinForgery) -> Installed<JoinForgery> {
+    install(&FORGERY, forgery)
+}
+
+pub fn set_sort_forgery(forgery: SortForgery) -> Installed<SortForgery> {
+    install(&SORT_FORGERY, forgery)
 }
 
 /// The ORDER BY keys the prover's Sort output is sorted on.
 pub(crate) fn forge_sort_exprs(exprs: Vec<SortExpr>) -> Vec<SortExpr> {
-    match *SORT_FORGERY.lock().expect("lock poisoned") {
+    match *SORT_FORGERY.lock().unwrap_or_else(PoisonError::into_inner) {
         Some(SortForgery::ReverseLastKey) => {
             let mut exprs = exprs;
             if let Some(last) = exprs.pop() {
@@ -81,7 +101,7 @@ pub(crate) fn forge_sort_exprs(exprs: Vec<SortExpr>) -> Vec<SortExpr> {
 /// The keys the sort check's witnesses are planned on, as `(column,
 /// ascending, nulls first)`.
 pub(crate) fn forge_sort_specs(specs: Vec<(String, bool, bool)>) -> Vec<(String, bool, bool)> {
-    match *SORT_FORGERY.lock().expect("lock poisoned") {
+    match *SORT_FORGERY.lock().unwrap_or_else(PoisonError::into_inner) {
         Some(SortForgery::ReverseOutputAndWitnesses) => specs
             .into_iter()
             .map(|(name, asc, nulls_first)| (name, !asc, nulls_first))
@@ -91,14 +111,14 @@ pub(crate) fn forge_sort_specs(specs: Vec<(String, bool, bool)>) -> Vec<(String,
 }
 
 /// Adds `offset` to every COUNT the prover's Aggregates output.
-pub fn set_count_forgery(offset: Option<i64>) {
-    *COUNT_FORGERY.lock().expect("lock poisoned") = offset;
+pub fn set_count_forgery(offset: i64) -> Installed<i64> {
+    install(&COUNT_FORGERY, offset)
 }
 
 /// `output`, an Aggregate's output, with the installed count forgery applied
 /// to its COUNT columns `counts`.
 pub(crate) fn forge_counts(output: DataFrame, counts: &[String]) -> DataFrame {
-    let Some(offset) = *COUNT_FORGERY.lock().expect("lock poisoned") else {
+    let Some(offset) = *COUNT_FORGERY.lock().unwrap_or_else(PoisonError::into_inner) else {
         return output;
     };
     let exprs = output
@@ -117,14 +137,29 @@ pub(crate) fn forge_counts(output: DataFrame, counts: &[String]) -> DataFrame {
     output.select(exprs).expect("forged counts select")
 }
 
-pub fn set_claimed_result(rewrite: Option<ResultRewrite>) {
-    *CLAIMED_RESULT.lock().expect("lock poisoned") = rewrite;
+pub fn set_unowned_scans() -> Installed<()> {
+    install(&UNOWNED_SCANS, ())
+}
+
+pub(crate) fn scans_unowned() -> bool {
+    UNOWNED_SCANS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some()
+}
+
+pub fn set_claimed_result(rewrite: ResultRewrite) -> Installed<ResultRewrite> {
+    install(&CLAIMED_RESULT, rewrite)
 }
 
 /// The result the prover claims: `batches`, its executed result, through the
 /// installed rewrite.
 pub fn claimed_result(batches: Vec<RecordBatch>) -> Vec<RecordBatch> {
-    match CLAIMED_RESULT.lock().expect("lock poisoned").as_ref() {
+    match CLAIMED_RESULT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+    {
         Some(rewrite) => rewrite(batches),
         None => batches,
     }
@@ -141,7 +176,7 @@ pub(crate) fn forge(
     right_row_id: &Column,
     right_keys: &[Expr],
 ) -> DataFusionResult<DataFrame> {
-    let Some(forgery) = *FORGERY.lock().expect("lock poisoned") else {
+    let Some(forgery) = *FORGERY.lock().unwrap_or_else(PoisonError::into_inner) else {
         return Ok(joined);
     };
     let left_id = || Expr::Column(left_row_id.clone());

@@ -41,3 +41,8 @@ end_to_end_tests!(&["supplier"] => [
     unaliased_compare_aggregates => r#"SELECT s_nationkey, SUM(s_acctbal) > SUM(s_suppkey) FROM supplier GROUP BY s_nationkey"#,
     unaliased_divide_aggregates => r#"SELECT s_nationkey, SUM(s_acctbal) / SUM(s_suppkey) FROM supplier GROUP BY s_nationkey"#,
 ]);
+
+// The scan reads no column, only the table's activator.
+end_to_end_tests!(&["supplier"] => [
+    bare_count_star => r#"SELECT COUNT(*) FROM supplier"#,
+]);
