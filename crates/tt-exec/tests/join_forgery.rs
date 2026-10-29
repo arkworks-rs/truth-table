@@ -89,6 +89,10 @@ fn pairs_batch(template: &RecordBatch, pairs: &[(i64, i64)]) -> RecordBatch {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    feature = "honest-prover",
+    ignore = "the honest prover refuses to prove a forgery"
+)]
 async fn forged_many_to_many_joins_are_rejected() {
     let (pk, vk) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE).expect("keys");
     let nation = resolve_parquet_path("nation").expect("nation parquet");
@@ -130,11 +134,11 @@ async fn forged_many_to_many_joins_are_rejected() {
     let mut accepted = Vec::new();
     for (forgery, forged_pairs) in cases {
         let claimed = pairs_batch(&template, &forged_pairs);
-        set_join_forgery(Some(forgery));
-        set_claimed_result(Some(Box::new(move |_| vec![claimed.clone()])));
-        let forged = prove(&pk, &oracle, &format!("{forgery:?}")).await;
-        set_join_forgery(None);
-        set_claimed_result(None);
+        let forged = {
+            let _forgery = set_join_forgery(forgery);
+            let _claimed = set_claimed_result(Box::new(move |_| vec![claimed.clone()]));
+            prove(&pk, &oracle, &format!("{forgery:?}")).await
+        };
         match verify_on_thread(
             QUERY,
             vec![oracle.clone()],

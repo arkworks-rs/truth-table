@@ -57,6 +57,10 @@ fn count_plus_one(batch: &RecordBatch) -> RecordBatch {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    feature = "honest-prover",
+    ignore = "the honest prover refuses to prove a forgery"
+)]
 async fn forged_ungrouped_count_is_rejected() {
     let (pk, vk) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE).expect("keys");
     let nation = resolve_parquet_path("nation").expect("nation parquet");
@@ -75,11 +79,11 @@ async fn forged_ungrouped_count_is_rejected() {
     .expect("the honest proof must verify; otherwise the rejection below proves nothing");
     let claimed = count_plus_one(&read_result(&honest.result_path));
 
-    set_count_forgery(Some(1));
-    set_claimed_result(Some(Box::new(move |_| vec![claimed.clone()])));
-    let forged = prove(&pk, &oracle, "forged").await;
-    set_count_forgery(None);
-    set_claimed_result(None);
+    let forged = {
+        let _forgery = set_count_forgery(1);
+        let _claimed = set_claimed_result(Box::new(move |_| vec![claimed.clone()]));
+        prove(&pk, &oracle, "forged").await
+    };
     let verdict = verify_on_thread(
         QUERY,
         vec![oracle.clone()],

@@ -60,6 +60,10 @@ fn reversed(batch: &RecordBatch) -> RecordBatch {
 }
 
 #[tokio::test]
+#[cfg_attr(
+    feature = "honest-prover",
+    ignore = "the honest prover refuses to prove a forgery"
+)]
 async fn wrongly_ordered_string_results_are_rejected() {
     let (pk, vk) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE).expect("keys");
     let nation = resolve_parquet_path("nation").expect("nation parquet");
@@ -92,11 +96,11 @@ async fn wrongly_ordered_string_results_are_rejected() {
         (SortForgery::ReverseOutputAndWitnesses, None),
     ] {
         let claimed = claimed.clone();
-        set_sort_forgery(Some(forgery));
-        set_claimed_result(Some(Box::new(move |_| vec![claimed.clone()])));
-        let forged = prove(&pk, &oracle, &format!("{forgery:?}")).await;
-        set_sort_forgery(None);
-        set_claimed_result(None);
+        let forged = {
+            let _forgery = set_sort_forgery(forgery);
+            let _claimed = set_claimed_result(Box::new(move |_| vec![claimed.clone()]));
+            prove(&pk, &oracle, &format!("{forgery:?}")).await
+        };
         match verify_on_thread(
             QUERY,
             vec![oracle.clone()],
