@@ -58,6 +58,8 @@ pub struct TrackingPass<B: SnarkBackend> {
     rank_columns: std::collections::BTreeSet<(String, String)>,
     /// The proof's multiproofs for the fingerprint bins it opens.
     fingerprint_openings: OpeningCursor,
+    /// A scanned table with no oracle: its columns would be the prover's.
+    unowned_scan: RefCell<Option<String>>,
 }
 
 /// Walks the proof's fingerprint multiproofs in the order the scans open
@@ -119,6 +121,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
                 next: std::cell::Cell::new(0),
                 failure: RefCell::new(None),
             },
+            unowned_scan: RefCell::new(None),
         }
     }
 
@@ -126,6 +129,12 @@ impl<B: SnarkBackend> TrackingPass<B> {
         &self,
         tracked_ir: &mut crate::verifier::irs::TrackedIr<B>,
     ) -> TTResult<()> {
+        if let Some(table) = self.unowned_scan.borrow().as_ref() {
+            return Err(DataFusionError::Plan(format!(
+                "the query scans {table}, which no oracle commits"
+            ))
+            .into());
+        }
         self.fingerprint_openings.check()?;
         let Some(output_memtable) = self.output_memtable.clone() else {
             return Ok(());
@@ -184,11 +193,16 @@ where
                     let df_schema = hint_df.data_frame().schema();
                     let base_schema: Schema =
                         <DFSchema as AsRef<Schema>>::as_ref(df_schema).clone();
+                    let scanned_table = node.scanned_table();
                     let oracle = infer_table_name_from_df_schema(df_schema)
                         .and_then(|name| self.ctx_oracles.table_oracle_by_name(&name))
-                        .or_else(|| self.ctx_oracles.table_oracle_for_schema(&base_schema));
+                        .or_else(|| self.ctx_oracles.table_oracle_for_schema(&base_schema))
+                        .or_else(|| {
+                            scanned_table
+                                .as_deref()
+                                .and_then(|table| self.ctx_oracles.table_oracle_by_name(table))
+                        });
                     if let Some(oracle) = oracle {
-                        let scanned_table = node.scanned_table();
                         let ranked = |column: &str| {
                             scanned_table.as_deref().is_some_and(|table| {
                                 self.rank_columns
@@ -208,11 +222,10 @@ where
                         )
                         .map(TrackedPayload::PlanPayload);
                     }
-                    // A table scan without an oracle: the prover emits side
-                    // commitments for `side_columns`, so consume them. A rank
-                    // here would be a prover commitment, so the front end
-                    // refuses rank columns over such a scan
-                    // (`CtxOracles::ensure_rank_columns`).
+                    // Tracking goes on so that `finish` reports the scan.
+                    self.unowned_scan
+                        .borrow_mut()
+                        .get_or_insert_with(|| scanned_table.unwrap_or_default());
                     return track_hint_df(
                         hint_df,
                         &self.verifier,

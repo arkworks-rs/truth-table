@@ -3,9 +3,11 @@
 //! places that compute them (the output hint and the gadget's source maps),
 //! so every witness carries the same forgery. A [`SortForgery`] reverses an
 //! ORDER BY, or its last key, in the prover's plan. A count forgery shifts
-//! every COUNT an Aggregate outputs. A claimed-result rewrite
-//! makes the prover claim the result of the forged plan, so the result check
-//! passes and only the forged operator's own checks can reject.
+//! every COUNT an Aggregate outputs. An unowned-scan forgery commits the
+//! scanned tables itself instead of loading the owner's oracles. A
+//! claimed-result rewrite makes the prover claim the result of the forged
+//! plan, so the result check passes and only the forged operator's own
+//! checks can reject.
 //!
 //! Every hook is process-wide: a test that installs one must be the only
 //! test of its binary that proves meanwhile. A setter returns an
@@ -52,6 +54,8 @@ pub enum SortForgery {
 static SORT_FORGERY: Mutex<Option<SortForgery>> = Mutex::new(None);
 
 static COUNT_FORGERY: Mutex<Option<i64>> = Mutex::new(None);
+
+static UNOWNED_SCANS: Mutex<Option<()>> = Mutex::new(None);
 
 pub type ResultRewrite = Box<dyn Fn(Vec<RecordBatch>) -> Vec<RecordBatch> + Send>;
 
@@ -131,6 +135,17 @@ pub(crate) fn forge_counts(output: DataFrame, counts: &[String]) -> DataFrame {
         })
         .collect::<Vec<_>>();
     output.select(exprs).expect("forged counts select")
+}
+
+pub fn set_unowned_scans() -> Installed<()> {
+    install(&UNOWNED_SCANS, ())
+}
+
+pub(crate) fn scans_unowned() -> bool {
+    UNOWNED_SCANS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some()
 }
 
 pub fn set_claimed_result(rewrite: ResultRewrite) -> Installed<ResultRewrite> {
