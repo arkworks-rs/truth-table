@@ -49,6 +49,9 @@ pub fn ensure_supported(plan: &LogicalPlan) -> Result<()> {
                 Expr::Literal(value) if value.is_null() => {
                     Err(DataFusionError::NotImplemented(NULL_LITERAL.to_string()))
                 }
+                Expr::InSubquery(_) => Err(DataFusionError::NotImplemented(format!(
+                    "{IN_SUBQUERY}: {expr}"
+                ))),
                 Expr::Case(case) if case.else_expr.is_none() => Err(
                     DataFusionError::NotImplemented(CASE_WITHOUT_ELSE.to_string()),
                 ),
@@ -180,6 +183,10 @@ pub(crate) fn unsupported_join(join: &Join) -> String {
 // The proof encodes NULL as 0, so it would treat a NULL as a 0.
 pub(crate) const NULL_LITERAL: &str = "NULL is not supported: the query has a NULL literal";
 pub(crate) const CASE_WITHOUT_ELSE: &str = "NULL is not supported: CASE without ELSE yields NULL";
+
+// No check binds the membership flag to the subquery's rows: the prover
+// would choose it.
+pub(crate) const IN_SUBQUERY: &str = "IN and NOT IN over a subquery are not supported";
 
 pub(crate) const SORT_KEY_NOT_A_COLUMN: &str =
     "an ORDER BY key must be a column of the sorted input";
