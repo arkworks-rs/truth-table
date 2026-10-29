@@ -81,6 +81,22 @@ async fn left_join_is_not_supported() {
     );
 }
 
+#[tokio::test]
+async fn in_subquery_is_not_supported() {
+    for query in [
+        "SELECT n_name FROM nation WHERE n_regionkey IN (SELECT r_regionkey FROM region WHERE r_regionkey < 2)",
+        "SELECT n_name FROM nation WHERE n_regionkey NOT IN (SELECT r_regionkey FROM region WHERE r_regionkey < 2)",
+    ] {
+        let error = tt_exec::test_utils::prove_and_verify_query(query, &["nation", "region"], None)
+            .await
+            .expect_err("an IN subquery must be rejected");
+        assert!(
+            format!("{error:#}").contains("IN and NOT IN over a subquery are not supported"),
+            "{error:#}"
+        );
+    }
+}
+
 // Join keys resolved by qualifier (#145): the input that carries the key
 // also carries a same-named column of another alias, listed first.
 end_to_end_tests!(&["nation"] => [

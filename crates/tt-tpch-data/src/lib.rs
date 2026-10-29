@@ -1104,7 +1104,6 @@ static TPCH_Q6_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q10_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q11_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q12_TT_2_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q18_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q19_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q21_TT_SQL: OnceLock<&'static str> = OnceLock::new();
 
@@ -1636,6 +1635,46 @@ ORDER BY
     s_name;
 "#;
 
+// Q18 with its `IN (subquery)` as an inner join: the subquery groups by
+// `l_orderkey`, so each order matches at most once.
+const TPCH_Q18_TT_SQL: &str = r#"
+SELECT
+    c_name,
+    c_custkey,
+    o_orderkey,
+    o_orderdate,
+    o_totalprice,
+    sum(l_quantity)
+FROM
+    customer,
+    orders,
+    lineitem,
+    (
+        SELECT
+            l_orderkey AS big_orderkey
+        FROM
+            lineitem
+        GROUP BY
+            l_orderkey
+        HAVING
+            sum(l_quantity) > 300
+    ) AS big_orders
+WHERE
+    o_orderkey = big_orderkey
+    AND c_custkey = o_custkey
+    AND o_orderkey = l_orderkey
+GROUP BY
+    c_name,
+    c_custkey,
+    o_orderkey,
+    o_orderdate,
+    o_totalprice
+ORDER BY
+    o_totalprice DESC,
+    o_orderdate
+LIMIT 100;
+"#;
+
 const TPCH_Q22_TT_SQL: &str = r#"
 SELECT
     cntrycode,
@@ -2117,7 +2156,7 @@ pub fn query_spec(number: u8, variant: Variant) -> TpchQuerySpec {
             sql: if poneglyph {
                 TPCH_Q18_PGN_SQL
             } else {
-                cached_tpch_sql(&TPCH_Q18_TT_SQL, 18)
+                TPCH_Q18_TT_SQL
             },
             tables: if poneglyph {
                 &[

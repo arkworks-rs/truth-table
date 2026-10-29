@@ -24,10 +24,7 @@ use crate::{
             hints::HintDF,
             plan::{
                 compaction,
-                exprs::{
-                    aggregate_function, alias, binary_expr, cast, column, in_subquery, like,
-                    literal,
-                },
+                exprs::{aggregate_function, alias, binary_expr, cast, column, like, literal},
                 lps::{
                     aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan,
                 },
@@ -442,15 +439,6 @@ impl<B: SnarkBackend> Node<B> {
                     Node::Plan(PlanNode::ExprBased(Arc::new(node)))
                 })
             }
-            Expr::InSubquery(_) => Arc::new_cyclic(|weak_self| {
-                let node = in_subquery::ExprNode::from_expr(
-                    expr.clone(),
-                    weak_self.clone(),
-                    parent.clone(),
-                    scope.clone(),
-                );
-                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
-            }),
             Expr::Like(_) => Arc::new_cyclic(|weak_self| {
                 let node = like::ExprNode::from_expr(
                     expr.clone(),
