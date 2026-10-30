@@ -5,7 +5,7 @@ use super::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
 use crate::irs::nodes::NodeId;
 use crate::irs::nodes::cost::ProvingCost;
 use crate::irs::nodes::hints::HintDF;
-use crate::irs::nodes::utils::division::{self, Operand};
+use crate::irs::nodes::utils::division::{self, Divisor, Operand};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::{
@@ -158,11 +158,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinDivNode<B> {
                 data: &num,
                 data_type: num_field.data_type(),
             },
-            Operand {
-                data: &den,
-                data_type: den_field.data_type(),
+            Divisor::Column {
+                operand: Operand {
+                    data: &den,
+                    data_type: den_field.data_type(),
+                },
+                positive: false,
             },
-            false,
             Operand {
                 data: &quot,
                 data_type: quot_field.data_type(),
@@ -192,11 +194,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinDivNode<B> {
                 data: &num,
                 data_type: num_field.data_type(),
             },
-            Operand {
-                data: &den,
-                data_type: den_field.data_type(),
+            Divisor::Column {
+                operand: Operand {
+                    data: &den,
+                    data_type: den_field.data_type(),
+                },
+                positive: false,
             },
-            false,
             Operand {
                 data: &quot,
                 data_type: quot_field.data_type(),
@@ -227,11 +231,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinDivNode<B> {
                 data: &num,
                 data_type: num_field.data_type(),
             },
-            Operand {
-                data: &den,
-                data_type: den_field.data_type(),
+            Divisor::Column {
+                operand: Operand {
+                    data: &den,
+                    data_type: den_field.data_type(),
+                },
+                positive: false,
             },
-            false,
             Operand {
                 data: &quot,
                 data_type: quot_field.data_type(),
