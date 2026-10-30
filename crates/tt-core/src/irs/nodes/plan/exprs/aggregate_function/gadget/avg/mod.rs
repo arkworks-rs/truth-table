@@ -2,7 +2,7 @@ use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::plan::exprs::aggregate_function::gadget::OUTPUT_LABEL;
-use crate::irs::nodes::utils::division::{self, Operand};
+use crate::irs::nodes::utils::division::{self, Divisor, Operand};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
@@ -143,11 +143,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 data: &sum,
                 data_type: sum_field.data_type(),
             },
-            Operand {
-                data: &count,
-                data_type: count_field.data_type(),
+            Divisor::Column {
+                operand: Operand {
+                    data: &count,
+                    data_type: count_field.data_type(),
+                },
+                positive: true,
             },
-            true,
             Operand {
                 data: &avg,
                 data_type: avg_field.data_type(),
@@ -177,11 +179,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 data: &sum,
                 data_type: sum_field.data_type(),
             },
-            Operand {
-                data: &count,
-                data_type: count_field.data_type(),
+            Divisor::Column {
+                operand: Operand {
+                    data: &count,
+                    data_type: count_field.data_type(),
+                },
+                positive: true,
             },
-            true,
             Operand {
                 data: &avg,
                 data_type: avg_field.data_type(),
@@ -212,11 +216,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 data: &sum,
                 data_type: sum_field.data_type(),
             },
-            Operand {
-                data: &count,
-                data_type: count_field.data_type(),
+            Divisor::Column {
+                operand: Operand {
+                    data: &count,
+                    data_type: count_field.data_type(),
+                },
+                positive: true,
             },
-            true,
             Operand {
                 data: &avg,
                 data_type: avg_field.data_type(),

@@ -11,7 +11,8 @@ use datafusion_expr::{
 
 use crate::irs::lineage::{base_column, is_string_type};
 use crate::irs::nodes::{
-    plan::compaction::CompactionLogicalNode, utils::contig_sort::difference_sign_type,
+    plan::compaction::CompactionLogicalNode, plan::exprs::cast::rescale,
+    utils::contig_sort::difference_sign_type,
 };
 use crate::irs::string_order::{StringOrder, string_order};
 
@@ -52,6 +53,16 @@ pub fn ensure_supported(plan: &LogicalPlan) -> Result<()> {
                 Expr::Case(case) if case.else_expr.is_none() => Err(
                     DataFusionError::NotImplemented(CASE_WITHOUT_ELSE.to_string()),
                 ),
+                Expr::Cast(cast)
+                    if cast
+                        .expr
+                        .get_type(&input_schema)
+                        .map_or(true, |from| rescale(&from, &cast.data_type).is_none()) =>
+                {
+                    Err(DataFusionError::NotImplemented(format!(
+                        "{CAST_TYPES}: {expr}"
+                    )))
+                }
                 Expr::BinaryExpr(BinaryExpr { left, op, right })
                     if matches!(
                         op,
@@ -180,6 +191,8 @@ pub(crate) fn unsupported_join(join: &Join) -> String {
 // The proof encodes NULL as 0, so it would treat a NULL as a 0.
 pub(crate) const NULL_LITERAL: &str = "NULL is not supported: the query has a NULL literal";
 pub(crate) const CASE_WITHOUT_ELSE: &str = "NULL is not supported: CASE without ELSE yields NULL";
+pub(crate) const CAST_TYPES: &str =
+    "CAST is supported between integers and decimals, and from a boolean to an integer";
 
 pub(crate) const SORT_KEY_NOT_A_COLUMN: &str =
     "an ORDER BY key must be a column of the sorted input";

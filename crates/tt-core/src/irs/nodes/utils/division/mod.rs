@@ -15,6 +15,10 @@
 //! The widths keep `|X| + |Q|·|D| + |D|` below the modulus, so
 //! `X - Q·D = s_X·R` holds over the integers. A remainder with the sign of
 //! `X` and below `|D|` in magnitude leaves one quotient: the truncated one.
+//!
+//! A decimal rescale divides by the public `D = 10^k`, which needs neither a
+//! sign nor a range check. Arrow rounds that quotient half away from zero:
+//! `R = s_X·(X - Q·D) + D/2` in `[0, D)` leaves that one.
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{BigInteger, Field as _, One, PrimeField, Zero};
@@ -32,6 +36,34 @@ use ark_piop::{
 use datafusion::arrow::datatypes::DataType;
 
 use super::sign::range;
+
+/// What the quotient divides by.
+pub enum Divisor<'a, P> {
+    /// `positive` drops `σ_D`; pass it only when the denominator is positive
+    /// by construction (a COUNT), since `D - 1 ∈ [0, 2^wD)` is still checked
+    /// and fails otherwise.
+    Column {
+        operand: Operand<'a, P>,
+        positive: bool,
+    },
+    /// The constant 1 of scale 0, which the rescaling makes `10^k`.
+    Power10(Rounding),
+}
+
+#[derive(Clone, Copy)]
+pub enum Rounding {
+    TowardZero,
+    HalfAwayFromZero,
+}
+
+impl<P> Divisor<'_, P> {
+    fn data_type(&self) -> Option<&DataType> {
+        match self {
+            Divisor::Column { operand, .. } => Some(operand.data_type),
+            Divisor::Power10(_) => None,
+        }
+    }
+}
 
 /// Range-check widths and rescaling exponents, fixed by the operand types.
 struct Widths {
@@ -73,9 +105,13 @@ impl Widths {
     /// `wQ + wD < C`, so `|X| + |Q|·|D| + |D| < 2^(C+1) < p/4`. Capping a
     /// width only costs completeness for values the type allows but the
     /// field cannot hold.
-    fn new<F: PrimeField>(num: &DataType, den: &DataType, quot: &DataType) -> SnarkResult<Self> {
+    fn new<F: PrimeField>(
+        num: &DataType,
+        den: Option<&DataType>,
+        quot: &DataType,
+    ) -> SnarkResult<Self> {
         let (num_bits, num_scale) = magnitude_bits_and_scale(num)?;
-        let (den_bits, den_scale) = magnitude_bits_and_scale(den)?;
+        let (den_bits, den_scale) = den.map_or(Ok((1, 0)), magnitude_bits_and_scale)?;
         let (quot_bits, quot_scale) = magnitude_bits_and_scale(quot)?;
         let shift = quot_scale + den_scale - num_scale;
         let num_shift = shift.max(0) as u32;
@@ -94,6 +130,15 @@ impl Widths {
 
 fn pow10<F: PrimeField>(exp: u32) -> F {
     F::from(10u64).pow([exp as u64])
+}
+
+/// What `R` adds to `s_X·(X - Q·D)`: `D/2` makes the quotient the one
+/// rounded half away from zero.
+fn rounding_offset<F: PrimeField>(d: F, rounding: Rounding) -> F {
+    match rounding {
+        Rounding::TowardZero => F::zero(),
+        Rounding::HalfAwayFromZero => d * F::from(2u64).inverse().expect("2 is invertible"),
+    }
 }
 
 fn is_negative<F: PrimeField>(value: F) -> bool {
@@ -143,40 +188,50 @@ fn track_sign<B: SnarkBackend>(verifier: &mut ArgVerifier<B>) -> SnarkResult<Tra
         .add_scalar_oracle(B::F::one()))
 }
 
-/// `den_positive` drops `σ_D`; pass it only when the denominator is
-/// positive by construction (a COUNT), since `D - 1 ∈ [0, 2^wD)` is still
-/// checked and fails otherwise.
 pub fn prove<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     activator: Option<&TrackedPoly<B>>,
     num: Operand<'_, TrackedPoly<B>>,
-    den: Operand<'_, TrackedPoly<B>>,
-    den_positive: bool,
+    den: Divisor<'_, TrackedPoly<B>>,
     quot: Operand<'_, TrackedPoly<B>>,
 ) -> SnarkResult<()> {
-    let widths = Widths::new::<B::F>(num.data_type, den.data_type, quot.data_type)?;
+    let widths = Widths::new::<B::F>(num.data_type, den.data_type(), quot.data_type)?;
     let x = num.data.mul_scalar_poly(pow10(widths.num_shift));
-    let d = den.data.mul_scalar_poly(pow10(widths.den_shift));
     let x_sign = commit_sign(prover, &x, activator)?;
-    let d_sign = if den_positive {
-        None
-    } else {
-        Some(commit_sign(prover, &d, activator)?)
-    };
     let q = quot.data;
-    let abs_d = d_sign.as_ref().map_or_else(|| d.clone(), |s| s * &d);
-    let rem = &x_sign * &(&x - &(q * &d));
-    let abs_d_minus_one = abs_d.sub_scalar_poly(B::F::one());
-    let ranged = [
-        (&x_sign * &x, widths.num),
-        (abs_d_minus_one.clone(), widths.den),
-        (rem.clone(), widths.den),
-        (&abs_d_minus_one - &rem, widths.den),
+    let mut ranged = vec![(&x_sign * &x, widths.num)];
+    let (rem, bound) = match den {
+        Divisor::Column { operand, positive } => {
+            let d = operand.data.mul_scalar_poly(pow10(widths.den_shift));
+            let abs_d = if positive {
+                d.clone()
+            } else {
+                &commit_sign(prover, &d, activator)? * &d
+            };
+            let abs_d_minus_one = abs_d.sub_scalar_poly(B::F::one());
+            ranged.push((abs_d_minus_one.clone(), widths.den));
+            let rem = &x_sign * &(&x - &(q * &d));
+            let bound = &abs_d_minus_one - &rem;
+            (rem, bound)
+        }
+        Divisor::Power10(rounding) => {
+            let d = pow10::<B::F>(widths.den_shift);
+            let rem = (&x_sign * &(&x - &q.mul_scalar_poly(d)))
+                .add_scalar_poly(rounding_offset(d, rounding));
+            let bound = rem
+                .mul_scalar_poly(-B::F::one())
+                .add_scalar_poly(d - B::F::one());
+            (rem, bound)
+        }
+    };
+    ranged.extend([
+        (rem, widths.den),
+        (bound, widths.den),
         (
             q.add_scalar_poly(B::F::from(2u64).pow([widths.quot as u64])),
             widths.quot + 1,
         ),
-    ];
+    ]);
     for (poly, width) in ranged {
         range::prove(
             prover,
@@ -191,33 +246,46 @@ pub fn verify<B: SnarkBackend>(
     verifier: &mut ArgVerifier<B>,
     activator: Option<&TrackedOracle<B>>,
     num: Operand<'_, TrackedOracle<B>>,
-    den: Operand<'_, TrackedOracle<B>>,
-    den_positive: bool,
+    den: Divisor<'_, TrackedOracle<B>>,
     quot: Operand<'_, TrackedOracle<B>>,
 ) -> SnarkResult<()> {
-    let widths = Widths::new::<B::F>(num.data_type, den.data_type, quot.data_type)?;
+    let widths = Widths::new::<B::F>(num.data_type, den.data_type(), quot.data_type)?;
     let x = num.data.mul_scalar_oracle(pow10(widths.num_shift));
-    let d = den.data.mul_scalar_oracle(pow10(widths.den_shift));
     let x_sign = track_sign(verifier)?;
-    let d_sign = if den_positive {
-        None
-    } else {
-        Some(track_sign(verifier)?)
-    };
     let q = quot.data;
-    let abs_d = d_sign.as_ref().map_or_else(|| d.clone(), |s| s * &d);
-    let rem = &x_sign * &(&x - &(q * &d));
-    let abs_d_minus_one = abs_d.sub_scalar_oracle(B::F::one());
-    let ranged = [
-        (&x_sign * &x, widths.num),
-        (abs_d_minus_one.clone(), widths.den),
-        (rem.clone(), widths.den),
-        (&abs_d_minus_one - &rem, widths.den),
+    let mut ranged = vec![(&x_sign * &x, widths.num)];
+    let (rem, bound) = match den {
+        Divisor::Column { operand, positive } => {
+            let d = operand.data.mul_scalar_oracle(pow10(widths.den_shift));
+            let abs_d = if positive {
+                d.clone()
+            } else {
+                &track_sign(verifier)? * &d
+            };
+            let abs_d_minus_one = abs_d.sub_scalar_oracle(B::F::one());
+            ranged.push((abs_d_minus_one.clone(), widths.den));
+            let rem = &x_sign * &(&x - &(q * &d));
+            let bound = &abs_d_minus_one - &rem;
+            (rem, bound)
+        }
+        Divisor::Power10(rounding) => {
+            let d = pow10::<B::F>(widths.den_shift);
+            let rem = (&x_sign * &(&x - &q.mul_scalar_oracle(d)))
+                .add_scalar_oracle(rounding_offset(d, rounding));
+            let bound = rem
+                .mul_scalar_oracle(-B::F::one())
+                .add_scalar_oracle(d - B::F::one());
+            (rem, bound)
+        }
+    };
+    ranged.extend([
+        (rem, widths.den),
+        (bound, widths.den),
         (
             q.add_scalar_oracle(B::F::from(2u64).pow([widths.quot as u64])),
             widths.quot + 1,
         ),
-    ];
+    ]);
     for (oracle, width) in ranged {
         range::verify(
             verifier,
@@ -232,13 +300,11 @@ pub fn verify<B: SnarkBackend>(
 pub fn honest_check<B: SnarkBackend>(
     activator: Option<&TrackedPoly<B>>,
     num: Operand<'_, TrackedPoly<B>>,
-    den: Operand<'_, TrackedPoly<B>>,
-    den_positive: bool,
+    den: Divisor<'_, TrackedPoly<B>>,
     quot: Operand<'_, TrackedPoly<B>>,
 ) -> SnarkResult<()> {
-    let widths = Widths::new::<B::F>(num.data_type, den.data_type, quot.data_type)?;
+    let widths = Widths::new::<B::F>(num.data_type, den.data_type(), quot.data_type)?;
     let xs = num.data.evaluations();
-    let ds = den.data.evaluations();
     let qs = quot.data.evaluations();
     let active = activator.map(|a| a.evaluations());
     let num_scale: B::F = pow10(widths.num_shift);
@@ -250,15 +316,41 @@ pub fn honest_check<B: SnarkBackend>(
     fn sign<F: PrimeField>(v: F) -> F {
         if is_negative(v) { -F::one() } else { F::one() }
     }
+    // Each row's rescaled denominator, whether `|D| - 1` is range checked,
+    // and the remainder's offset.
+    let (ds, den_ranged, offset) = match &den {
+        Divisor::Column { operand, .. } => (
+            operand
+                .data
+                .evaluations()
+                .into_iter()
+                .map(|d| d * den_scale)
+                .collect::<Vec<_>>(),
+            true,
+            B::F::zero(),
+        ),
+        Divisor::Power10(rounding) => (
+            vec![den_scale; xs.len()],
+            false,
+            rounding_offset(den_scale, *rounding),
+        ),
+    };
+    let den_positive = !matches!(
+        den,
+        Divisor::Column {
+            positive: false,
+            ..
+        }
+    );
     for row in 0..xs.len() {
         if active.as_ref().is_some_and(|a| a[row].is_zero()) {
             continue;
         }
-        let (x, d, q) = (xs[row] * num_scale, ds[row] * den_scale, qs[row]);
+        let (x, d, q) = (xs[row] * num_scale, ds[row], qs[row]);
         let abs_d = if den_positive { d } else { sign(d) * d };
-        let rem = sign(x) * (x - q * d);
+        let rem = sign(x) * (x - q * d) + offset;
         let ok = fits(sign(x) * x, widths.num)
-            && fits(abs_d - B::F::one(), widths.den)
+            && (!den_ranged || fits(abs_d - B::F::one(), widths.den))
             && fits(rem, widths.den)
             && fits(abs_d - B::F::one() - rem, widths.den)
             && fits(q + quot_offset, widths.quot + 1);
@@ -268,7 +360,7 @@ pub fn honest_check<B: SnarkBackend>(
                 gadget = "Division",
                 row,
                 numerator = %xs[row],
-                denominator = %ds[row],
+                denominator = %d,
                 quotient = %q,
                 "honest prover division check failed"
             );

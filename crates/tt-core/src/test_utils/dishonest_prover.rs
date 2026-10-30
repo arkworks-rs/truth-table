@@ -3,7 +3,8 @@
 //! places that compute them (the output hint and the gadget's source maps),
 //! so every witness carries the same forgery. A [`SortForgery`] reverses an
 //! ORDER BY, or its last key, in the prover's plan. A count forgery shifts
-//! every COUNT an Aggregate outputs. An unowned-scan forgery commits the
+//! every COUNT an Aggregate outputs. A rescale forgery adds one to every
+//! cast output that divides by `10^k`. An unowned-scan forgery commits the
 //! scanned tables itself instead of loading the owner's oracles. A
 //! claimed-result rewrite makes the prover claim the result of the forged
 //! plan, so the result check passes and only the forged operator's own
@@ -17,6 +18,7 @@
 use std::sync::{Mutex, PoisonError};
 
 use datafusion::arrow::compute::concat_batches;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, Result as DataFusionResult, ScalarValue};
@@ -54,6 +56,8 @@ pub enum SortForgery {
 static SORT_FORGERY: Mutex<Option<SortForgery>> = Mutex::new(None);
 
 static COUNT_FORGERY: Mutex<Option<i64>> = Mutex::new(None);
+
+static RESCALE_FORGERY: Mutex<Option<()>> = Mutex::new(None);
 
 static UNOWNED_SCANS: Mutex<Option<()>> = Mutex::new(None);
 
@@ -135,6 +139,27 @@ pub(crate) fn forge_counts(output: DataFrame, counts: &[String]) -> DataFrame {
         })
         .collect::<Vec<_>>();
     output.select(exprs).expect("forged counts select")
+}
+
+pub fn set_rescale_forgery() -> Installed<()> {
+    install(&RESCALE_FORGERY, ())
+}
+
+/// `cast`, a cast to `data_type` that divides, with the installed rescale
+/// forgery applied.
+pub(crate) fn forge_rescale(cast: Expr, data_type: &DataType) -> Expr {
+    if RESCALE_FORGERY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_none()
+    {
+        return cast;
+    }
+    let name = cast.schema_name().to_string();
+    let one = ScalarValue::Int64(Some(1))
+        .cast_to(data_type)
+        .expect("one in the cast's type");
+    datafusion_expr::cast(cast + lit(one), data_type.clone()).alias(name)
 }
 
 pub fn set_unowned_scans() -> Installed<()> {
