@@ -33,8 +33,7 @@ async fn prove(pk: &Path, oracle: &Path, tag: &str) -> ProveOutputs {
         .with_oracle_paths(vec![oracle.to_path_buf()])
         .with_pk_path(pk.to_path_buf())
         .with_output_path(Some(
-            workspace_artifacts_dir()
-                .join(format!("cast_forgery.{tag}.{}.pi", std::process::id())),
+            workspace_artifacts_dir().join(format!("cast_forgery.{tag}.{}.pi", std::process::id())),
         ))
         .build()
         .expect("prove builder")
