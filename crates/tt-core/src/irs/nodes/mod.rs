@@ -25,7 +25,7 @@ use crate::{
             plan::{
                 compaction,
                 exprs::{
-                    aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
+                    aggregate_function, alias, between, binary_expr, cast, column, in_list,
                     in_subquery, like, literal, scalar_function,
                 },
                 lps::{
@@ -457,15 +457,6 @@ impl<B: SnarkBackend> Node<B> {
             }),
             Expr::InSubquery(_) => Arc::new_cyclic(|weak_self| {
                 let node = in_subquery::ExprNode::from_expr(
-                    expr.clone(),
-                    weak_self.clone(),
-                    parent.clone(),
-                    scope.clone(),
-                );
-                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
-            }),
-            Expr::Case(_) => Arc::new_cyclic(|weak_self| {
-                let node = case::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),

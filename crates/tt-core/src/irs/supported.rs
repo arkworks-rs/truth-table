@@ -63,6 +63,9 @@ pub fn ensure_supported(plan: &LogicalPlan) -> Result<()> {
                         "{CAST_TYPES}: {expr}"
                     )))
                 }
+                Expr::Case(_) => Err(DataFusionError::NotImplemented(format!(
+                    "{CASE_RESULT}: {expr}"
+                ))),
                 Expr::BinaryExpr(BinaryExpr { left, op, right })
                     if matches!(
                         op,
@@ -193,6 +196,9 @@ pub(crate) const NULL_LITERAL: &str = "NULL is not supported: the query has a NU
 pub(crate) const CASE_WITHOUT_ELSE: &str = "NULL is not supported: CASE without ELSE yields NULL";
 pub(crate) const CAST_TYPES: &str =
     "CAST is supported between integers and decimals, and from a boolean to an integer";
+// The planner rewrites a CASE with such results as arithmetic over its
+// conditions; nothing else would check a CASE's column.
+pub(crate) const CASE_RESULT: &str = "CASE is supported with integer and decimal results only";
 
 pub(crate) const SORT_KEY_NOT_A_COLUMN: &str =
     "an ORDER BY key must be a column of the sorted input";
