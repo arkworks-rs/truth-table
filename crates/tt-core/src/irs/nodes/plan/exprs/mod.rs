@@ -6,7 +6,6 @@ pub mod cast;
 pub mod column;
 pub mod exists;
 pub mod fp_prefilter;
-pub mod in_list;
 pub mod in_subquery;
 pub mod like;
 pub mod literal;
