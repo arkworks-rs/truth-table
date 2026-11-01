@@ -214,6 +214,7 @@ impl<B: SnarkBackend> TTDataOwner<B> {
                 tt_core::prover::passes::arithmetization::SideColumns::All,
                 tt_core::prover::passes::arithmetization::FingerprintColumns::All,
                 rank_columns,
+                Default::default(),
             ),
         );
         drop(materialized_ir);
@@ -240,7 +241,6 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         drop(arithmetized_ir);
         drop(committed_ir);
         debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
-        // Taken before virtualization, where the scan sets its ranks aside.
         let table_scan = self.table_scan_payload(&tracked_ir)?;
 
         // Finish the proving pipeline: the tracked-table oracle is derived

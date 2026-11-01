@@ -2,6 +2,9 @@
 //! only operators that pass a column's values through unchanged, so a column
 //! with a lineage holds values of its base column.
 
+use std::collections::BTreeSet;
+
+use datafusion::arrow::datatypes::Field;
 use datafusion_common::{Column, DFSchema};
 use datafusion_expr::{Expr, ExprSchemable, JoinType, LogicalPlan};
 
@@ -63,6 +66,71 @@ pub fn base_column(plan: &LogicalPlan, index: usize) -> Option<BaseColumn<'_>> {
         }
         _ => None,
     }
+}
+
+/// An output column that carries the rank of its base column.
+pub struct RankedOutput {
+    name: String,
+    /// The base column, as `(table, column)`.
+    pub base: (String, String),
+}
+
+/// The output columns of `plan` whose base column is in `ranked`: the
+/// columns that carry a rank segment. Prover and verifier derive them from
+/// the same plan.
+pub fn ranked_outputs(
+    plan: &LogicalPlan,
+    ranked: &BTreeSet<(String, String)>,
+) -> Vec<RankedOutput> {
+    if ranked.is_empty() {
+        return Vec::new();
+    }
+    (0..plan.schema().fields().len())
+        .filter_map(|index| {
+            let base = ranked_base(plan, index, ranked)?;
+            Some(RankedOutput {
+                name: plan.schema().field(index).name().clone(),
+                base,
+            })
+        })
+        .collect()
+}
+
+/// The ranked output that `field`, a column of the node's payload, is. It is
+/// matched by name: a verifier's payload does not always know a field's
+/// qualifier. Planning refuses a plan where the name is ambiguous
+/// ([`ambiguous_rank`]).
+pub fn ranked_output<'a>(outputs: &'a [RankedOutput], field: &Field) -> Option<&'a RankedOutput> {
+    outputs.iter().find(|output| output.name == *field.name())
+}
+
+/// A column name of `plan`'s output that two string columns share while
+/// they do not carry the same rank, if any. Payload fields are matched to
+/// ranked outputs by name, so such a name would get one rank for both.
+pub fn ambiguous_rank(plan: &LogicalPlan, ranked: &BTreeSet<(String, String)>) -> Option<String> {
+    let mut seen: Vec<(&String, Option<(String, String)>)> = Vec::new();
+    for (index, field) in plan.schema().fields().iter().enumerate() {
+        if !is_string_type(field.data_type()) {
+            continue;
+        }
+        let base = ranked_base(plan, index, ranked);
+        match seen.iter().find(|(name, _)| *name == field.name()) {
+            Some((_, other)) if *other != base => return Some(field.name().clone()),
+            Some(_) => {}
+            None => seen.push((field.name(), base)),
+        }
+    }
+    None
+}
+
+fn ranked_base(
+    plan: &LogicalPlan,
+    index: usize,
+    ranked: &BTreeSet<(String, String)>,
+) -> Option<(String, String)> {
+    let base = base_column(plan, index)?;
+    let base = (base.table, base.column);
+    ranked.contains(&base).then_some(base)
 }
 
 /// The input column `expr` copies: a column, under aliases and casts that

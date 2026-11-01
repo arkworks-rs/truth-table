@@ -1,11 +1,12 @@
 use ark_ff::PrimeField;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use datafusion::arrow::array::{Array, LargeStringArray, StringArray, StringViewArray};
+use datafusion::arrow::datatypes::DataType;
 
 use crate::errors::EncodeError;
 use crate::fingerprint::{NUM_LIMBS, limb, scheme_for_column};
 
-use super::encodable::{Encodable, EncodeOptions, FingerprintLimbs};
+use super::encodable::{BaseRanks, Encodable, EncodeOptions, FingerprintLimbs, RankSource};
 use super::segment::{EncodedSegment, auto_segments, auto_suffixes};
 use super::util::{encode_hashed_bytes, hash_slot_count, map_indices};
 
@@ -39,10 +40,11 @@ pub fn fingerprint_segment_suffixes(column: Option<&str>, limbs: FingerprintLimb
         .collect()
 }
 
-/// Row-domain segment holding each string's rank ([`dense_byte_ranks`]).
-/// Only a table scan carries it, on request (TruthTable++ §3.2): the data
-/// owner commits it, and a node above a scan could only rank its own rows,
-/// which nothing would bind to the base column's ranks.
+/// Row-domain segment holding each string's rank in its base column
+/// ([`dense_byte_ranks`], TruthTable++ §3.2). The data owner commits it with
+/// the base table. It travels with the string like `__length`: a node that
+/// commits a copy of the string commits its rank too, taken from the base
+/// column ([`RankSource::Base`]), and the node's check binds it.
 pub const STRING_RANK_SUFFIX: &str = "__rank";
 
 /// The rank of each value (TruthTable++ §3.2): the number of distinct
@@ -58,6 +60,40 @@ pub fn dense_byte_ranks<'a>(values: impl IntoIterator<Item = Option<&'a [u8]>>) 
         .iter()
         .map(|value| value.map_or(0, |bytes| distinct.partition_point(|&d| d < bytes) as u32))
         .collect()
+}
+
+/// Each value of a base column with its rank, NULLs left out.
+pub fn base_ranks<'a>(values: impl IntoIterator<Item = Option<&'a [u8]>>) -> BaseRanks {
+    let values: Vec<Option<&[u8]>> = values.into_iter().collect();
+    let ranks = dense_byte_ranks(values.iter().copied());
+    values
+        .into_iter()
+        .zip(ranks)
+        .filter_map(|(value, rank)| Some((value?.to_vec(), rank)))
+        .collect()
+}
+
+/// The bytes of each value of a string array; `None` for another type.
+pub fn string_values(array: &dyn Array) -> Option<Vec<Option<&[u8]>>> {
+    let any = array.as_any();
+    Some(match array.data_type() {
+        DataType::Utf8 => any
+            .downcast_ref::<StringArray>()?
+            .iter()
+            .map(|value| value.map(str::as_bytes))
+            .collect(),
+        DataType::LargeUtf8 => any
+            .downcast_ref::<LargeStringArray>()?
+            .iter()
+            .map(|value| value.map(str::as_bytes))
+            .collect(),
+        DataType::Utf8View => any
+            .downcast_ref::<StringViewArray>()?
+            .iter()
+            .map(|value| value.map(str::as_bytes))
+            .collect(),
+        _ => return None,
+    })
 }
 
 /// Side segment of the column's characters (paper §3.2), one byte per
@@ -212,9 +248,23 @@ where
         }
     }
 
-    if options.rank {
-        let mut ranks =
-            dense_byte_ranks((0..rows).map(|idx| (!array.is_null(idx)).then_some(values[idx])));
+    let non_null = |idx: usize| (!array.is_null(idx)).then_some(values[idx]);
+    let ranks = match options.rank {
+        RankSource::None => None,
+        RankSource::Own => Some(dense_byte_ranks((0..rows).map(non_null))),
+        // A NULL ranks 0, as among the base column's own values.
+        RankSource::Base(base) => Some(
+            (0..rows)
+                .map(|idx| match non_null(idx) {
+                    None => Ok(0),
+                    Some(value) => base.get(value).copied().ok_or_else(|| {
+                        EncodeError::UnrankedValue(String::from_utf8_lossy(value).into_owned())
+                    }),
+                })
+                .collect::<Result<Vec<u32>, _>>()?,
+        ),
+    };
+    if let Some(mut ranks) = ranks {
         ranks.resize(1 << num_vars, 0);
         segments.push(EncodedSegment::named_mle(
             STRING_RANK_SUFFIX,

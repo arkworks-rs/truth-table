@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ark_ff::PrimeField;
 
@@ -41,6 +41,19 @@ pub fn selected_limbs<'a>(
         .map_or(FingerprintLimbs::None, FingerprintLimbs::Only)
 }
 
+/// Each value's rank in its base column ([`dense_byte_ranks`](super::dense_byte_ranks)).
+pub type BaseRanks = HashMap<Vec<u8>, u32>;
+
+/// Where a string encoder takes the rank segment (`__rank`) from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RankSource<'a> {
+    None,
+    /// The array is the base column: ranks among its own values.
+    Own,
+    /// The array copies values of a base column with these ranks.
+    Base(&'a BaseRanks),
+}
+
 /// Which optional segments an encoder emits besides a column's row-domain
 /// value segments. Only string encoders have optional segments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +68,7 @@ pub struct EncodeOptions<'a> {
     /// limbs are emitted.
     pub column: Option<&'a str>,
     /// The rank segment (`__rank`) of a string column.
-    pub rank: bool,
+    pub rank: RankSource<'a>,
 }
 
 impl EncodeOptions<'_> {
@@ -66,14 +79,14 @@ impl EncodeOptions<'_> {
         side: true,
         fingerprint: FingerprintLimbs::All,
         column: None,
-        rank: false,
+        rank: RankSource::None,
     };
     /// Row-domain value segments only.
     pub const NONE: Self = Self {
         side: false,
         fingerprint: FingerprintLimbs::None,
         column: None,
-        rank: false,
+        rank: RankSource::None,
     };
 }
 

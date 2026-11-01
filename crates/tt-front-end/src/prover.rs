@@ -92,18 +92,20 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     /// string column gets side polys. `fingerprint_columns` (from
     /// `Tree::required_fingerprint_columns`) are the table-scan columns that
     /// carry fingerprint limbs, and `rank_columns` (from
-    /// `Tree::required_rank_columns`) the `(table, column)` pairs whose scans
-    /// carry ranks.
+    /// `Tree::required_rank_columns`) the `(table, column)` base columns
+    /// whose copies carry ranks, which `base_ranks` holds.
     pub fn arithmetization_pass(
         &self,
         side_columns: std::collections::BTreeSet<String>,
         fingerprint_columns: arithmetic::encoding::FingerprintSelection,
         rank_columns: std::collections::BTreeSet<(String, String)>,
+        base_ranks: std::collections::BTreeMap<(String, String), arithmetic::encoding::BaseRanks>,
     ) -> ArithmetizationPass<B> {
         ArithmetizationPass::new(
             tt_core::prover::passes::arithmetization::SideColumns::Only(side_columns),
             tt_core::prover::passes::arithmetization::FingerprintColumns::Only(fingerprint_columns),
             tt_core::prover::passes::arithmetization::RankColumns::Only(rank_columns),
+            base_ranks,
         )
     }
 
@@ -282,6 +284,8 @@ impl<B: SnarkBackend> TTProver<B> {
         let side_columns = materialized_ir.tree().required_side_columns();
         info!(?side_columns, "columns receiving char-level side polys");
         let fingerprint_columns = materialized_ir.tree().required_fingerprint_columns();
+        let base_ranks =
+            tt_core::prover::passes::arithmetization::base_ranks(&materialized_ir, &rank_columns);
         let arithmetized_ir = self
             .timed_ir_stage(
                 "arithmetization",
@@ -292,6 +296,7 @@ impl<B: SnarkBackend> TTProver<B> {
                             side_columns,
                             fingerprint_columns,
                             rank_columns,
+                            base_ranks,
                         ),
                     ))
                 },

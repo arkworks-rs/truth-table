@@ -9,7 +9,9 @@ use datafusion_expr::{
     expr::{AggregateFunction, ScalarFunction},
 };
 
-use crate::irs::lineage::{base_column, is_string_type};
+use std::collections::BTreeSet;
+
+use crate::irs::lineage::{ambiguous_rank, base_column, is_string_type};
 use crate::irs::nodes::{
     plan::compaction::CompactionLogicalNode, plan::exprs::cast::rescale,
     utils::contig_sort::difference_sign_type,
@@ -101,7 +103,39 @@ pub fn ensure_supported(plan: &LogicalPlan) -> Result<()> {
             })
         })
     })
-    .map(|_| ())
+    .map(|_| ())?;
+    if string_order() == StringOrder::Rank {
+        let ranked = rank_sorted_columns(plan);
+        plan.apply_with_subqueries(|node| match ambiguous_rank(node, &ranked) {
+            Some(name) => Err(DataFusionError::NotImplemented(format!(
+                "{name}: {AMBIGUOUS_RANK}"
+            ))),
+            None => Ok(TreeNodeRecursion::Continue),
+        })?;
+    }
+    Ok(())
+}
+
+/// The base columns of the string ORDER BY keys, as `(table, column)`:
+/// the columns whose copies carry a rank.
+fn rank_sorted_columns(plan: &LogicalPlan) -> BTreeSet<(String, String)> {
+    let mut ranked = BTreeSet::new();
+    let _ = plan.apply_with_subqueries(|node| {
+        if let LogicalPlan::Sort(sort) = node {
+            for index in 0..sort.expr.len() {
+                let Ok(position) = sort_key_position(sort, index) else {
+                    continue;
+                };
+                if is_string_type(sort.input.schema().field(position).data_type())
+                    && let Some(base) = base_column(&sort.input, position)
+                {
+                    ranked.insert((base.table, base.column));
+                }
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    ranked
 }
 
 fn is_string_expr(expr: &Expr, schema: &DFSchema) -> bool {
@@ -205,6 +239,7 @@ pub(crate) const SORT_KEY_NOT_A_COLUMN: &str =
 pub(crate) const STRING_KEY_WITHOUT_LINEAGE: &str = "a string ORDER BY key must be a copy of a base-table column (through projections, aliases, filters, joins and GROUP BY keys), whose committed rank orders it";
 pub(crate) const LEXICOGRAPHIC_KEY_PATH: &str = "in the lexicographic string order, a string ORDER BY key must be read from its table scan through filters, column projections and subquery aliases only, which keep its characters";
 pub(crate) const LEXICOGRAPHIC_COMPACTION: &str = "the lexicographic string order does not support compaction: a compaction's character columns are bound for a single LIKE column only";
+pub(crate) const AMBIGUOUS_RANK: &str = "two string columns of this name meet in one operator and only one carries the rank of a string ORDER BY key, which the proof cannot tell apart";
 pub(crate) const UNORDERED_SORT_KEY: &str = "an ORDER BY key needs an order-preserving encoding";
 // These would need the TruthTable++ Lexicographic Sortedness Check (§7.2,
 // PIOP 10); a string's hash does not preserve its order.

@@ -1,8 +1,9 @@
 #![cfg(feature = "test-utils")]
-//! Table scans that load ranks no node reads ([`force_rank_columns`]): each
-//! scan sets its ranks aside, so the nodes above it prove and verify as
-//! without them, and a table committed without ranks is refused on both
-//! sides with a clear error.
+//! Table scans that load ranks no sort reads ([`force_rank_columns`]): the
+//! ranks travel through every operator above the scan, which commits them
+//! with its copies of the strings and leaves them out of value comparisons,
+//! and a table committed without ranks is refused on both sides with a clear
+//! error.
 //!
 //! The forced columns are process-wide, so these tests stay in their own
 //! binary; every test forces the same set.
@@ -26,8 +27,8 @@ const RANKED: [(&str, &str); 5] = [
     ("orders", "o_comment"),
 ];
 
-/// A rank must not reach a filter, an equality fold, a group key, either
-/// side of a join or a sort above its scan.
+/// A rank travels through a filter, a group key, either side of a join and
+/// a sort, and stays out of an equality and a join key.
 #[tokio::test]
 async fn queries_over_ranked_scans_prove_and_verify() {
     force_rank_columns(&RANKED);

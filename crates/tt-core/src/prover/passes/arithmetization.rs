@@ -15,7 +15,12 @@ use crate::{
     },
     prover::payloads::{ArithPayload, MaterializedPayload, MaterializedTable},
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+use arithmetic::encoding::{BaseRanks, RankSource};
+
+use crate::irs::lineage::ranked_output;
+use crate::prover::irs::MaterializedIr;
 /// Which fingerprint limb columns table-scan string columns carry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FingerprintColumns {
@@ -58,7 +63,8 @@ impl SideColumns {
     }
 }
 
-/// Which table-scan string columns carry their rank segment (`__rank`).
+/// Which base string columns carry their rank segment (`__rank`): at their
+/// table scans, and in every column above that copies them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RankColumns {
     None,
@@ -81,14 +87,56 @@ impl RankColumns {
     }
 }
 
+/// The ranks of each base column in `ranked`, read from its table scans in
+/// `ir`. A node that commits a copy of a ranked string encodes its rank
+/// segment from these.
+pub fn base_ranks<B: SnarkBackend>(
+    ir: &MaterializedIr<B>,
+    ranked: &BTreeSet<(String, String)>,
+) -> BTreeMap<(String, String), BaseRanks> {
+    let mut out = BTreeMap::new();
+    for (id, node) in ir.tree().arena() {
+        let Some(table) = node.scanned_table() else {
+            continue;
+        };
+        let Some(MaterializedPayload::PlanPayload(mat)) = ir.payload_for_node(id) else {
+            continue;
+        };
+        let batches = mat
+            .batches()
+            .expect("failed to read batches from a materialized scan");
+        let Some(first) = batches.first() else {
+            continue;
+        };
+        let batch = concat_batches(&first.schema(), &batches)
+            .expect("failed to concatenate a scan's record batches");
+        for (index, field) in batch.schema().fields().iter().enumerate() {
+            let base = (table.clone(), field.name().clone());
+            if !ranked.contains(&base) || out.contains_key(&base) {
+                continue;
+            }
+            let values = arithmetic::encoding::string_values(batch.column(index))
+                .expect("a ranked column is a string column");
+            let ranks = arithmetic::encoding::base_ranks(values);
+            #[cfg(feature = "test-utils")]
+            let ranks = crate::test_utils::dishonest_prover::forge_base_ranks(ranks);
+            out.insert(base, ranks);
+        }
+    }
+    out
+}
+
 /// Encodes each column of the materialized tables as multilinear extensions
 /// over the field.
 pub struct ArithmetizationPass<B> {
     side_columns: SideColumns,
     /// Table-scan string columns that get fingerprint limb segments.
     fingerprint_columns: FingerprintColumns,
-    /// Table-scan string columns that get their rank segment.
+    /// The base string columns whose copies get their rank segment.
     rank_columns: RankColumns,
+    /// The ranks of each base column in `rank_columns`, for the nodes above
+    /// a scan ([`base_ranks`]).
+    base_ranks: BTreeMap<(String, String), BaseRanks>,
     _phantom: std::marker::PhantomData<B>,
 }
 
@@ -97,11 +145,13 @@ impl<B> ArithmetizationPass<B> {
         side_columns: SideColumns,
         fingerprint_columns: FingerprintColumns,
         rank_columns: RankColumns,
+        base_ranks: BTreeMap<(String, String), BaseRanks>,
     ) -> Self {
         Self {
             side_columns,
             fingerprint_columns,
             rank_columns,
+            base_ranks,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -113,6 +163,7 @@ impl<B> Default for ArithmetizationPass<B> {
             SideColumns::Only(BTreeSet::new()),
             FingerprintColumns::Only(Default::default()),
             RankColumns::None,
+            BTreeMap::new(),
         )
     }
 }
@@ -138,13 +189,24 @@ where
         // scans carry them, and only for pre-filtered columns (the
         // pre-filter is planned directly over a scan).
         let fingerprint_filter = (node.name() == "TableScan").then_some(&self.fingerprint_columns);
-        // Ranks are owner-committed base-table data too
-        // (`STRING_RANK_SUFFIX`), selected per scanned table.
+        // A scan encodes the ranks of its own columns, which the data owner
+        // committed. Above it, a node encodes the rank of each column that
+        // copies a ranked base column, from that column's ranks.
         let scanned_table = node.scanned_table();
-        let rank_filter = |column: &str| {
-            scanned_table
-                .as_deref()
-                .is_some_and(|table| self.rank_columns.contains(table, column))
+        let ranked_outputs = match (&self.rank_columns, &scanned_table) {
+            (RankColumns::Only(ranked), None) => node.ranked_outputs(ranked),
+            _ => Vec::new(),
+        };
+        let rank_filter = |field: &Field| match &scanned_table {
+            Some(table) if self.rank_columns.contains(table, field.name()) => RankSource::Own,
+            Some(_) => RankSource::None,
+            None => ranked_output(&ranked_outputs, field).map_or(RankSource::None, |output| {
+                RankSource::Base(
+                    self.base_ranks
+                        .get(&output.base)
+                        .expect("the ranks of every ranked base column are read"),
+                )
+            }),
         };
         match payload? {
             MaterializedPayload::PlanPayload(mat) => {
@@ -164,7 +226,7 @@ where
                         mat,
                         side_filter,
                         fingerprint_filter,
-                        &rank_filter,
+                        &|_| RankSource::None,
                     );
                     tracing::debug!( node = %node.name(), typ= "plan", key = %k, num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), side_cols= arithmetized_table.side_cols().len(), "Arithmetized");
                     out.insert(k.clone(), arithmetized_table);
@@ -186,12 +248,12 @@ where
 /// `side_columns` selects the columns that get char-level side polys; `None`
 /// (intermediate operators, output table) gives none.
 /// `fingerprint_columns` gates fingerprint limb segments the same way, and
-/// `ranked` names the columns that get their rank segment.
-pub fn arithmetize_materialized_table<F: PrimeField>(
+/// `rank` says where each column's rank segment comes from, if it has one.
+pub fn arithmetize_materialized_table<'a, F: PrimeField>(
     mat: &MaterializedTable,
     side_columns: Option<&SideColumns>,
     fingerprint_columns: Option<&FingerprintColumns>,
-    ranked: &dyn Fn(&str) -> bool,
+    rank: &dyn Fn(&Field) -> RankSource<'a>,
 ) -> ArithTable<F> {
     let batches = mat
         .batches()
@@ -236,7 +298,7 @@ pub fn arithmetize_materialized_table<F: PrimeField>(
                 }),
             // The encoder fingerprints under this column's own rule.
             column: Some(base_field.name()),
-            rank: ranked(base_field.name()),
+            rank: rank(&base_field),
         };
         let encoded = arithmetic::encoding::encode_arrow_array_to_field_with_options::<F>(
             combined_batch.column(col_idx),

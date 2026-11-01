@@ -22,16 +22,17 @@ pub use dispatch::{
     scalar_to_fields,
 };
 pub use encodable::{
-    Encodable, EncodeOptions, FingerprintLimbs, FingerprintSelection, selected_limbs,
+    BaseRanks, Encodable, EncodeOptions, FingerprintLimbs, FingerprintSelection, RankSource,
+    selected_limbs,
 };
 pub use segment::{
-    EncodedSegment, SideColData, SideSegmentInfo, is_segment_of, segment_base_name,
-    segment_suffixes_for_type, side_segment_suffixes_for_type,
+    EncodedSegment, SideColData, SideSegmentInfo, is_rank_segment, is_segment_of,
+    segment_base_name, segment_suffixes_for_type, side_segment_suffixes_for_type,
 };
 pub use strings::{
     STRING_BND_SUFFIX, STRING_CHARS_SUFFIX, STRING_FINGERPRINT_LIMB_PREFIX, STRING_INT_IND_SUFFIX,
-    STRING_LENGTH_SUFFIX, STRING_ORIG_IND_SUFFIX, STRING_RANK_SUFFIX, dense_byte_ranks,
-    fingerprint_limb_of, fingerprint_limb_suffix, fingerprint_segment_suffixes,
+    STRING_LENGTH_SUFFIX, STRING_ORIG_IND_SUFFIX, STRING_RANK_SUFFIX, base_ranks, dense_byte_ranks,
+    fingerprint_limb_of, fingerprint_limb_suffix, fingerprint_segment_suffixes, string_values,
 };
 pub use util::{hash_slot_limb_widths, hash_slot_limbs, is_hashed_type};
 
@@ -206,7 +207,7 @@ mod tests {
                     side: false,
                     fingerprint: FingerprintLimbs::All,
                     column,
-                    rank: false,
+                    rank: RankSource::None,
                 },
             )
             .unwrap()
@@ -242,7 +243,7 @@ mod tests {
                 side: false,
                 fingerprint: FingerprintLimbs::Only(&chosen),
                 column: Some("mine"),
-                rank: false,
+                rank: RankSource::None,
             },
         )
         .unwrap();
@@ -259,7 +260,7 @@ mod tests {
                 side: false,
                 fingerprint: FingerprintLimbs::Only(&chosen),
                 column: Some("mine"),
-                rank: true,
+                rank: RankSource::Own,
             },
         )
         .unwrap();
@@ -340,7 +341,7 @@ mod tests {
                     side: true,
                     fingerprint: FingerprintLimbs::None,
                     column: Some("c"),
-                    rank: true,
+                    rank: RankSource::Own,
                 },
             )
             .unwrap();
@@ -394,7 +395,7 @@ mod tests {
                 side: false,
                 fingerprint: FingerprintLimbs::All,
                 column: None,
-                rank: false,
+                rank: RankSource::None,
             },
         )
         .unwrap();
