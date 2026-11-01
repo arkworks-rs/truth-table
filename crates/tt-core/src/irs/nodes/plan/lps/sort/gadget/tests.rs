@@ -223,8 +223,13 @@ fn strings_sorted_on_their_ranks_are_accepted() {
 fn a_rank_of_another_string_is_rejected() {
     // GERMANY before FRANCE, each holding the other's rank: the ranks sort,
     // but the output is not a permutation of the input's (string, rank)
-    // rows.
-    assert_rejected(run_rank(true, [1, 0, 2, 3], [0, 1, 2, 3]));
+    // rows. The permutation PIOP leaves its claim to the honest-prover pass,
+    // which the harness does not run, so the verifier rejects in either mode.
+    let result = run_rank(true, [1, 0, 2, 3], [0, 1, 2, 3]);
+    assert!(
+        matches!(result, Err(SnarkError::VerifierError(_))),
+        "{result:?}"
+    );
 }
 
 #[test]
