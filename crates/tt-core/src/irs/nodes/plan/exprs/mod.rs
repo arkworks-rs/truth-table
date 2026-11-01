@@ -1,6 +1,5 @@
 pub mod aggregate_function;
 pub mod alias;
-pub mod between;
 pub mod binary_expr;
 pub mod cast;
 pub mod column;
@@ -9,4 +8,3 @@ pub mod fp_prefilter;
 pub mod in_subquery;
 pub mod like;
 pub mod literal;
-pub mod scalar_function;

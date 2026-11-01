@@ -25,8 +25,8 @@ use crate::{
             plan::{
                 compaction,
                 exprs::{
-                    aggregate_function, alias, between, binary_expr, cast, column, in_subquery,
-                    like, literal, scalar_function,
+                    aggregate_function, alias, binary_expr, cast, column, in_subquery, like,
+                    literal,
                 },
                 lps::{
                     aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan,
@@ -429,15 +429,6 @@ impl<B: SnarkBackend> Node<B> {
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
-            Expr::Between(_) => Arc::new_cyclic(|weak_self| {
-                let node = between::ExprNode::from_expr(
-                    expr.clone(),
-                    weak_self.clone(),
-                    parent.clone(),
-                    scope.clone(),
-                );
-                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
-            }),
             Expr::ScalarFunction(ref f)
                 if f.name() == plan::exprs::fp_prefilter::TT_PREFILTER_UDF_NAME =>
             {
@@ -451,15 +442,6 @@ impl<B: SnarkBackend> Node<B> {
                     Node::Plan(PlanNode::ExprBased(Arc::new(node)))
                 })
             }
-            Expr::ScalarFunction(_) => Arc::new_cyclic(|weak_self| {
-                let node = scalar_function::ExprNode::from_expr(
-                    expr.clone(),
-                    weak_self.clone(),
-                    parent.clone(),
-                    scope.clone(),
-                );
-                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
-            }),
             Expr::InSubquery(_) => Arc::new_cyclic(|weak_self| {
                 let node = in_subquery::ExprNode::from_expr(
                     expr.clone(),

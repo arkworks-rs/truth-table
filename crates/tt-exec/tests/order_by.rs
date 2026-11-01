@@ -119,11 +119,6 @@ async fn greatest_and_least_over_strings_are_not_supported() {
         "SELECT n_name FROM nation WHERE greatest(n_name, 'M') = n_name",
         "SELECT least(n_name, 'M') AS l FROM nation",
     ] {
-        assert_not_supported(
-            query,
-            &["nation"],
-            "GREATEST and LEAST over strings are not supported",
-        )
-        .await;
+        assert_not_supported(query, &["nation"], "scalar functions are not supported").await;
     }
 }
