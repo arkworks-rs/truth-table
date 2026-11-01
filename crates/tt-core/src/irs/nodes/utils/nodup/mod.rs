@@ -30,19 +30,23 @@ const PK_METADATA_KEY: &str = "tt.pk";
 /// of active input rows for SortNoDup.
 type GadgetPayload<T> = IndexMap<String, T>;
 
+#[cfg(test)]
 mod bezout;
-mod binary_check;
-mod compaction_check;
-mod compactor;
 pub(crate) mod perm_check;
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
+    /// Bézout's NoDupcheck, for gadget tests whose harness skips the
+    /// planning that `SortBased` needs.
+    #[cfg(test)]
     BezoutBased,
     SortBased,
 }
 pub enum Gadgets<B: SnarkBackend> {
-    BezoutNoDup,
+    #[cfg(test)]
+    BezoutNoDup(bezout::BezoutGadgets<B>),
     SortNoDup(SortNoDupGadgets<B>),
 }
 
@@ -84,7 +88,8 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             return vec![];
         }
         match &self.gadgets {
-            Gadgets::BezoutNoDup => vec![],
+            #[cfg(test)]
+            Gadgets::BezoutNoDup(g) => vec![g.rotation.clone()],
             Gadgets::SortNoDup(g) => vec![g.perm_gadget.clone(), g.sort_gadget.clone()],
         }
     }
@@ -112,7 +117,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     }
 
     // SortNoDup is the only mode that uses planner hints/virtual witnesses.
-    let Gadgets::SortNoDup(_) = &node.gadgets else {
+    let Some(_) = node.sort_gadgets() else {
         return Ok(());
     };
     if !is_verifier {
@@ -133,7 +138,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     // activator stays virtual so that prover and verifier rebuild it from the
     // active-row count.
     let lex_sorted_virtual_hint = lex_sorted_hint.as_virtual_view();
-    let Gadgets::SortNoDup(gadgets) = &node.gadgets else {
+    let Some(gadgets) = node.sort_gadgets() else {
         return Ok(());
     };
     let sort_id = gadgets.sort_gadget.id();
@@ -174,7 +179,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         if self.is_pk() {
             return Ok(());
         }
-        let Gadgets::SortNoDup(_) = &self.gadgets else {
+        let Some(_) = self.sort_gadgets() else {
             return Ok(());
         };
         let Some(PayloadStructure::GadgetPayload(mut payload)) =
@@ -227,7 +232,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         if self.is_pk() {
             return Ok(());
         }
-        let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
+        #[cfg(test)]
+        if let Gadgets::BezoutNoDup(gadgets) = &self.gadgets {
+            return Self::prove_nodup_bezout(_prover, virtualized_ir, id, gadgets);
+        }
+        let Some(gadgets) = self.sort_gadgets() else {
             return Ok(());
         };
         let payload = match virtualized_ir.payload_for_node(&id).cloned() {
@@ -280,7 +289,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         if self.is_pk() {
             return Ok(());
         }
-        let Gadgets::SortNoDup(_) = &self.gadgets else {
+        let Some(_) = self.sort_gadgets() else {
             return Ok(());
         };
         let mut payload = match virtualized_ir.payload_for_node(&id).cloned() {
@@ -338,7 +347,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         if self.is_pk() {
             return Ok(());
         }
-        let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
+        #[cfg(test)]
+        if let Gadgets::BezoutNoDup(gadgets) = &self.gadgets {
+            return Self::verify_nodup_bezout(_verifier, virtualized_ir, id, gadgets);
+        }
+        let Some(gadgets) = self.sort_gadgets() else {
             return Ok(());
         };
         let payload = match virtualized_ir.payload_for_node(&id) {
@@ -377,17 +390,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
-        prover: &mut ArgProver<B>,
-        gadget_ready_ir: &mut GadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _prover: &mut ArgProver<B>,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if self.is_pk() {
-            return Ok(());
-        }
-        match self.gadgets {
-            Gadgets::BezoutNoDup => Self::prove_nodup_bezout(prover, gadget_ready_ir, id),
-            Gadgets::SortNoDup(_) => Ok(()),
-        }
+        Ok(())
     }
 
     fn honest_prover_check(
@@ -401,16 +408,17 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn verify(
         &self,
-        verifier: &mut ArgVerifier<B>,
-        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _verifier: &mut ArgVerifier<B>,
+        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.is_pk() {
             return Ok(());
         }
-        match self.gadgets {
-            Gadgets::BezoutNoDup => Self::verify_nodup_bezout(verifier, gadget_ready_ir, id),
+        match &self.gadgets {
             Gadgets::SortNoDup(_) => Ok(()),
+            #[cfg(test)]
+            Gadgets::BezoutNoDup(gadgets) => gadgets.check_identity(_verifier),
         }
     }
 
@@ -432,9 +440,10 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(mode: Mode) -> Self {
         match mode {
+            #[cfg(test)]
             Mode::BezoutBased => Self {
                 is_pk: Mutex::new(false),
-                gadgets: Gadgets::BezoutNoDup,
+                gadgets: Gadgets::BezoutNoDup(bezout::BezoutGadgets::new()),
                 sort_nodup_active_input_rows: Mutex::new(None),
             },
             Mode::SortBased => Self {
@@ -452,6 +461,64 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 sort_nodup_active_input_rows: Mutex::new(None),
             },
         }
+    }
+
+    fn sort_gadgets(&self) -> Option<&SortNoDupGadgets<B>> {
+        match &self.gadgets {
+            Gadgets::SortNoDup(gadgets) => Some(gadgets),
+            #[cfg(test)]
+            Gadgets::BezoutNoDup(_) => None,
+        }
+    }
+
+    fn honest_check_no_dup_active(
+        _prover: &mut ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            panic!("Expected gadget payload for NoDup gadget node");
+        };
+
+        let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
+            panic!("Expected input table for NoDup gadget");
+        };
+
+        let data_indices = input_table.data_tracked_polys_indices();
+        let data_evals: Vec<Vec<B::F>> = data_indices
+            .iter()
+            .copied()
+            .map(|idx| {
+                input_table
+                    .tracked_col_by_ind(idx)
+                    .data_tracked_poly()
+                    .evaluations()
+            })
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        let num_rows = input_table.size();
+        let activator = input_table
+            .activator_tracked_poly()
+            .map(|poly| poly.evaluations());
+
+        for row in 0..num_rows {
+            if let Some(act) = activator.as_ref()
+                && ark_ff::Zero::is_zero(&act[row])
+            {
+                continue;
+            }
+            let tuple: Vec<B::F> = data_evals.iter().map(|col| col[row]).collect();
+            if !seen.insert(tuple) {
+                return Err(SnarkError::ProverError(
+                    ark_piop::prover::errors::ProverError::HonestProverError(
+                        ark_piop::prover::errors::HonestProverError::FalseClaim,
+                    ),
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     fn cache_is_pk(&self, is_pk: bool) {

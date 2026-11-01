@@ -2,7 +2,7 @@
 //!
 //! Prefix fixture: two strings `"ab"` laid out contiguously (chars 0..=1 and
 //! 2..=3, n_char = 4), factor `"ab"` (ℓ = 2). Both match, which gives two
-//! marks: Bezout NoDup degenerates on a single active row.
+//! marks.
 
 use std::sync::Arc;
 

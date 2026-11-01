@@ -1,247 +1,297 @@
-use super::GadgetNode;
-use crate::irs::nodes::ProverGadgetReadyIr;
-use crate::irs::nodes::utils::nodup::compactor::Compactor;
+//! Bézout's NoDupcheck (paper PIOP 24, Appendix B.1). Only tests select it;
+//! production proves NoDup by sorting.
+//!
+//! With `c` the input folded into one column and `a` its activator, the
+//! leaves `a·(Y − c) + (1 − a)` multiply to `z(Y) = ∏_{a = 1} (Y − c)`. The
+//! active entries of `c` are distinct iff `z` has no repeated root, iff
+//! `t·z + s·z' = 1` for some `t`, `s`.
+//! 1. P commits the univariate `t` and `s`; V then samples `r`. Sending them
+//!    after `r` would let P answer with `t = 1/z(r)`, `s = 0`.
+//! 2. P commits the running product `P[i] = ∏_{j ≤ i} L_j` of the leaves
+//!    `L = a·(r − c) + (1 − a)`, its derivative `Q[i]` in `Y`, and both
+//!    rotated down by one row. A rotation check binds the rotated copies,
+//!    and two zerochecks the recurrences, with `P↑`, `Q↑` the previous row's
+//!    values (`1` and `0` on row 0):
+//!    `P = L·P↑` and `Q = L·Q↑ + a·P↑`.
+//! 3. V checks `t(r)·P(1, …, 1) + s(r)·Q(1, …, 1) = 1`.
+//!
+//! The running products stand in for the paper's product trees (Eqs. 3, 4),
+//! whose zerochecks read `f` with shifted variables. An inactive leaf is `1`
+//! with derivative `0`, so inactive rows need no random padding.
+
+use std::sync::{Arc, Mutex};
+
+use super::{GadgetNode, INPUT_LABEL};
+use crate::irs::nodes::{Node, utils::rotation_check};
 use crate::irs::payloads::PayloadStructure;
+use crate::irs::{ir::Ir, tree::Payload};
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::One;
-use ark_ff::UniformRand;
-use ark_ff::Zero;
-use ark_ff::{FftField, PrimeField};
-use ark_piop::arithmetic::index;
+use ark_ff::{FftField, One, PrimeField, Zero};
 use ark_piop::arithmetic::mat_poly::lde::LDE;
 use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{ArgVerifier, errors::VerifierError},
+    types::TrackerID,
+    verifier::{ArgVerifier, errors::VerifierError, structs::oracle::TrackedOracle},
 };
 use ark_poly::DenseUVPolynomial;
 use ark_poly::Polynomial;
 use ark_poly::univariate::DenseOrSparsePolynomial;
 use ark_std::cfg_iter;
-use ark_std::rand::RngCore;
+use datafusion::arrow::datatypes::{DataType, Field as ArrowField, FieldRef, Schema};
+use indexmap::IndexMap;
+#[cfg(feature = "parallel")]
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+
+pub struct BezoutGadgets<B: SnarkBackend> {
+    /// Binds `P↑`, `Q↑` to `P`, `Q`.
+    pub(super) rotation: Arc<Node<B>>,
+    /// Set by the verifier's `initialize_gadgets` for the check of step 3.
+    identity: Mutex<Option<IdentityQuery<B::F>>>,
+}
+
+struct IdentityQuery<F> {
+    product: TrackerID,
+    derivative: TrackerID,
+    t: TrackerID,
+    s: TrackerID,
+    r: F,
+    log_size: usize,
+}
+
+impl<B: SnarkBackend> BezoutGadgets<B> {
+    pub(super) fn new() -> Self {
+        Self {
+            rotation: Arc::new(Node::Gadget(Arc::new(rotation_check::GadgetNode::new(
+                1,
+                rotation_check::Direction::Right,
+            )))),
+            identity: Mutex::new(None),
+        }
+    }
+
+    /// Step 3: `t(r)·P(1, …, 1) + s(r)·Q(1, …, 1) = 1`.
+    pub(super) fn check_identity(&self, verifier: &mut ArgVerifier<B>) -> SnarkResult<()> {
+        let query = self
+            .identity
+            .lock()
+            .expect("Bezout identity lock should not be poisoned")
+            .take()
+            .expect("the verifier's initialize_gadgets sets the Bezout query");
+        let last_row = vec![B::F::one(); query.log_size];
+        let z_at_r = verifier.query_mv(query.product, last_row.clone())?;
+        let z_prime_at_r = verifier.query_mv(query.derivative, last_row)?;
+        let t_at_r = verifier.query_uv(query.t, query.r)?;
+        let s_at_r = verifier.query_uv(query.s, query.r)?;
+        if !(t_at_r * z_at_r + s_at_r * z_prime_at_r).is_one() {
+            return Err(SnarkError::VerifierError(
+                VerifierError::VerifierCheckFailed("Bezout identity check failed".to_string()),
+            ));
+        }
+        Ok(())
+    }
+}
+
+thread_local! {
+    /// Makes the prover set the last running product to the value that
+    /// passes the Bézout identity, as a prover with duplicates would.
+    pub(super) static FORGE_PRODUCT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn running_fields() -> [FieldRef; 2] {
+    ["product", "derivative"].map(|name| Arc::new(ArrowField::new(name, DataType::UInt64, false)))
+}
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub(super) fn prove_nodup_bezout(
         prover: &mut ArgProver<B>,
-        gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
+        ir: &mut crate::prover::irs::VirtualizedIr<B>,
         id: crate::irs::nodes::NodeId,
+        gadgets: &BezoutGadgets<B>,
     ) -> SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
+        let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
             panic!("Expected gadget payload for NoDup gadget node");
         };
-
-        let Some(input_table) = payload.get(super::INPUT_LABEL).cloned() else {
+        let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
             panic!("Expected input table for NoDup gadget");
         };
         let col = Self::single_col_from_table(prover, &input_table)?;
-        let compacted_in_col = Compactor::compact_col(prover, &col)?;
-        // The number of variables of every multivariate polynomial in this protocol.
-        let num_vars = compacted_in_col.data_tracked_poly().log_size();
+        let c = col.data_tracked_poly();
+        let a = col.activator_tracked_poly();
+        let log_size = c.log_size();
+        let c_evals = c.evaluations();
+        let a_evals = a.as_ref().map(|a| a.evaluations());
+        let a_at = |i: usize| a_evals.as_ref().map_or(B::F::one(), |a| a[i]);
 
-        // The query point of f and f': x_1 = 0 and every other variable 1.
-        let f_query_point: Vec<B::F> = if num_vars == 0 {
-            Vec::new()
-        } else {
-            std::iter::once(B::F::zero())
-                .chain((0..num_vars - 1).map(|_| B::F::one()))
-                .collect()
+        let roots: Vec<B::F> = (0..c_evals.len())
+            .filter(|&i| a_at(i).is_one())
+            .map(|i| c_evals[i])
+            .collect();
+        let z = build_root_products(&roots);
+        let (t, s) = bez_polys(&z, &d_dx(&z));
+        let t = prover.track_and_commit_mat_uv_poly(t)?;
+        let s = prover.track_and_commit_mat_uv_poly(s)?;
+
+        let r: B::F = prover.get_and_append_challenge(b"bezout")?;
+
+        let mut product = Vec::with_capacity(c_evals.len());
+        let mut derivative = Vec::with_capacity(c_evals.len());
+        let (mut p_up, mut q_up) = (B::F::one(), B::F::zero());
+        for (i, c_i) in c_evals.iter().enumerate() {
+            let a_i = a_at(i);
+            let leaf = a_i * (r - c_i) + B::F::one() - a_i;
+            q_up = q_up * leaf + p_up * a_i;
+            p_up *= leaf;
+            product.push(p_up);
+            derivative.push(q_up);
+        }
+        #[cfg(test)]
+        if FORGE_PRODUCT.get() {
+            // The value of `z(r)` that makes the identity of step 3 hold.
+            let last = product.len() - 1;
+            let t_at_r = t.evaluate_uv(&r).expect("t is univariate");
+            let s_at_r = s.evaluate_uv(&r).expect("s is univariate");
+            product[last] = (B::F::one() - s_at_r * derivative[last]) / t_at_r;
+        }
+        let mut commit = |evals: Vec<B::F>| {
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, evals))
         };
+        let p = commit(product.clone())?;
+        let q = commit(derivative.clone())?;
+        let p_prev = commit(rotated_down(&product))?;
+        let q_prev = commit(rotated_down(&derivative))?;
 
-        // The column with its inactive entries replaced by random values; the
-        // zerocheck ties it to the input on the active rows.
-        // TODO: Make sure the randomness is provided safely
-        let dedup_mle = if let Some(activator_tracked_poly) =
-            compacted_in_col.activator_tracked_poly()
-        {
-            let mut rng = ark_std::test_rng();
-            let dedup_mle: MLE<B::F> = p_prep(&mut rng, &compacted_in_col)?;
-            let dedup_tr_p: TrackedPoly<B> = prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
-            let dedup_wit_tr_p: TrackedPoly<B> =
-                &(&dedup_tr_p - &compacted_in_col.data_tracked_poly()) * &activator_tracked_poly;
-            prover.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
-            dedup_mle
-        } else {
-            MLE::from_evaluations_vec(
-                compacted_in_col.log_size(),
-                compacted_in_col.data_tracked_poly().evaluations(),
+        let first = prover.get_or_build_contig_one_poly(log_size, 1)?;
+        let not_first = first
+            .mul_scalar_poly(-B::F::one())
+            .add_scalar_poly(B::F::one());
+        let p_up = &(&p_prev * &not_first) + &first;
+        let q_up = &q_prev * &not_first;
+        let (leaf, leaf_derivative_times_p_up) = match &a {
+            Some(a) => (
+                (a * &c
+                    .mul_scalar_poly(-B::F::one())
+                    .add_scalar_poly(r - B::F::one()))
+                    .add_scalar_poly(B::F::one()),
+                a * &p_up,
+            ),
+            None => (
+                c.mul_scalar_poly(-B::F::one()).add_scalar_poly(r),
+                p_up.clone(),
+            ),
+        };
+        prover.add_mv_zerocheck_claim((&p - &(&leaf * &p_up)).id())?;
+        prover.add_mv_zerocheck_claim(
+            (&(&q - &(&leaf * &q_up)) - &leaf_derivative_times_p_up).id(),
+        )?;
+
+        let last_row = vec![B::F::one(); log_size];
+        prover.add_mv_eval_claim(p.id(), &last_row)?;
+        prover.add_mv_eval_claim(q.id(), &last_row)?;
+        prover.add_uv_eval_claim(t.id(), r)?;
+        prover.add_uv_eval_claim(s.id(), r)?;
+
+        let table = |polys: [TrackedPoly<B>; 2]| {
+            TrackedTable::new(
+                Some(running_schema()),
+                running_fields()
+                    .into_iter()
+                    .zip(polys)
+                    .collect::<IndexMap<_, _>>(),
+                log_size,
             )
         };
-
-        let chall: B::F = prover.get_and_append_challenge(b"bezout")?;
-
-        // f is the product tree over `chall - c_i`; it gives z(chall).
-        // TODO: Pass around iterators instead of slices
-        let chall_minus_ci_evals: Vec<B::F> = dedup_mle
-            .evaluations()
-            .iter()
-            .map(|ci| chall - ci)
-            .collect();
-
-        let f_poly = compute_product_poly(&chall_minus_ci_evals, dedup_mle.num_vars())?;
-        let f_p_tr = prover.track_and_commit_mat_mv_poly(&f_poly)?;
-
-        // f' is the derivative of that tree; it gives z'(chall).
-        let f_prime_poly = compute_derivative_poly(
-            &chall_minus_ci_evals,
-            &f_poly.evaluations(),
-            dedup_mle.num_vars(),
-        )?;
-        let f_prime_p_tr = prover.track_and_commit_mat_mv_poly(&f_prime_poly)?;
-
-        // z(x) = prod (x - c_i), z'(x) = d/dx z(x), and the Bezout polynomials
-        // t, s with t * z + s * z' = 1.
-        let z_p = build_root_products(&dedup_mle.evaluations());
-        let z_p_prime = d_dx(&z_p);
-        let (t_p, s_p) = bez_polys(&z_p, &z_p_prime);
-        let t_p_tr = prover.track_and_commit_mat_uv_poly(t_p)?;
-        let s_p_tr = prover.track_and_commit_mat_uv_poly(s_p)?;
-
-        #[cfg(feature = "honest-prover")]
-        {
-            let poly_size = 2_i32.pow(num_vars as u32) as usize;
-            let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
-            let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
-            if f_poly.evaluations().len() >= 2 && f_prime_poly.evaluations().len() >= 2 {
-                let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
-                let f_eval = f_poly.evaluations()[poly_size - 2];
-                if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
-                    use ark_piop::prover;
-
-                    return Err(SnarkError::ProverError(
-                        prover::errors::ProverError::HonestProverError(
-                            prover::errors::HonestProverError::FalseClaim,
-                        ),
-                    ));
-                }
-            }
-        }
-
-        prover.add_mv_eval_claim(f_p_tr.id(), &f_query_point)?;
-        prover.add_mv_eval_claim(f_prime_p_tr.id(), &f_query_point)?;
-        prover.add_uv_eval_claim(t_p_tr.id(), chall)?;
-        prover.add_uv_eval_claim(s_p_tr.id(), chall)?;
-
-        // TODO: prove that f and f' are well formed; no claim ties them to
-        // the deduplicated column.
-
+        set_rotation_payload(
+            ir,
+            &gadgets.rotation,
+            table([p, q]),
+            table([p_prev, q_prev]),
+        );
         Ok(())
     }
 
     pub(super) fn verify_nodup_bezout(
         verifier: &mut ArgVerifier<B>,
-        gadget_ready_ir: &mut crate::irs::nodes::VerifierGadgetReadyIr<B>,
+        ir: &mut crate::verifier::irs::VirtualizedIr<B>,
         id: crate::irs::nodes::NodeId,
+        gadgets: &BezoutGadgets<B>,
     ) -> SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
+        let Some(PayloadStructure::GadgetPayload(payload)) = ir.payload_for_node(&id) else {
             panic!("Expected gadget payload for NoDup gadget node");
         };
-
-        let Some(input_table) = payload.get(super::INPUT_LABEL).cloned() else {
+        let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
             panic!("Expected input table for NoDup gadget");
         };
+        let col = Self::single_col_from_table_oracle(verifier, &input_table)?;
+        let c = col.data_tracked_oracle();
+        let a = col.activator_tracked_oracle();
+        let log_size = c.log_size();
 
-        let tracked_col_oracle = Self::single_col_from_table_oracle(verifier, &input_table)?;
-        let compacted_in_tracked_col_oracle =
-            Compactor::compact_tracked_col_oracle(verifier, &tracked_col_oracle)?;
+        let t = verifier.track_next_uv_com()?;
+        let s = verifier.track_next_uv_com()?;
 
-        let num_vars = compacted_in_tracked_col_oracle.log_size();
-        let f_query_point: Vec<B::F> = if num_vars == 0 {
-            Vec::new()
-        } else {
-            std::iter::once(B::F::zero())
-                .chain((0..num_vars - 1).map(|_| B::F::one()))
-                .collect()
+        let r: B::F = verifier.get_and_append_challenge(b"bezout")?;
+
+        let p = verifier.track_next_mv_com()?;
+        let q = verifier.track_next_mv_com()?;
+        let p_prev = verifier.track_next_mv_com()?;
+        let q_prev = verifier.track_next_mv_com()?;
+
+        let first = verifier.get_or_build_contig_one_poly(log_size, 1)?;
+        let not_first = first
+            .mul_scalar_oracle(-B::F::one())
+            .add_scalar_oracle(B::F::one());
+        let p_up = &(&p_prev * &not_first) + &first;
+        let q_up = &q_prev * &not_first;
+        let (leaf, leaf_derivative_times_p_up) = match &a {
+            Some(a) => (
+                (a * &c
+                    .mul_scalar_oracle(-B::F::one())
+                    .add_scalar_oracle(r - B::F::one()))
+                    .add_scalar_oracle(B::F::one()),
+                a * &p_up,
+            ),
+            None => (
+                c.mul_scalar_oracle(-B::F::one()).add_scalar_oracle(r),
+                p_up.clone(),
+            ),
         };
+        verifier.add_mv_zerocheck_claim((&p - &(&leaf * &p_up)).id());
+        verifier
+            .add_mv_zerocheck_claim((&(&q - &(&leaf * &q_up)) - &leaf_derivative_times_p_up).id());
 
-        if let Some(compacted_activator_tracked_col_oracle) =
-            compacted_in_tracked_col_oracle.activator_tracked_oracle()
-        {
-            let dedup_tr_cm = verifier.track_next_mv_com()?;
-            let dedup_wit_tr_cm = &(&dedup_tr_cm
-                - &compacted_in_tracked_col_oracle.data_tracked_oracle())
-                * &compacted_activator_tracked_col_oracle;
-            verifier.add_mv_zerocheck_claim(dedup_wit_tr_cm.id());
-        }
+        *gadgets
+            .identity
+            .lock()
+            .expect("Bezout identity lock should not be poisoned") = Some(IdentityQuery {
+            product: p.id(),
+            derivative: q.id(),
+            t: t.id(),
+            s: s.id(),
+            r,
+            log_size,
+        });
 
-        let chall: B::F = verifier.get_and_append_challenge(b"bezout")?;
-
-        let f_p_cm = verifier.track_next_mv_com()?;
-        let f_prime_p_cm = verifier.track_next_mv_com()?;
-        let t_p_tr = verifier.track_next_uv_com()?;
-        let s_p_tr = verifier.track_next_uv_com()?;
-
-        if num_vars > 0 {
-            let f_eval = verifier
-                .query_mv(f_p_cm.id(), f_query_point.clone())
-                .unwrap();
-            let f_prime_eval = verifier.query_mv(f_prime_p_cm.id(), f_query_point).unwrap();
-            let t_eval = verifier.query_uv(t_p_tr.id(), chall).unwrap();
-            let s_eval = verifier.query_uv(s_p_tr.id(), chall).unwrap();
-
-            if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
-                return Err(SnarkError::VerifierError(
-                    VerifierError::VerifierCheckFailed("Bezout identity check failed".to_string()),
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    pub(super) fn honest_check_no_dup_active(
-        _prover: &mut ArgProver<B>,
-        gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
-    ) -> SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for NoDup gadget node");
+        let table = |oracles: [TrackedOracle<B>; 2]| {
+            TrackedTableOracle::new(
+                Some(running_schema()),
+                running_fields()
+                    .into_iter()
+                    .zip(oracles)
+                    .collect::<IndexMap<_, _>>(),
+                log_size,
+            )
         };
-
-        let Some(input_table) = payload.get(super::INPUT_LABEL).cloned() else {
-            panic!("Expected input table for NoDup gadget");
-        };
-
-        let data_indices = input_table.data_tracked_polys_indices();
-        let data_evals: Vec<Vec<B::F>> = data_indices
-            .iter()
-            .copied()
-            .map(|idx| {
-                input_table
-                    .tracked_col_by_ind(idx)
-                    .data_tracked_poly()
-                    .evaluations()
-            })
-            .collect();
-        let mut seen = std::collections::HashSet::new();
-        let num_rows = input_table.size();
-        let activator = input_table
-            .activator_tracked_poly()
-            .map(|poly| poly.evaluations());
-
-        for row in 0..num_rows {
-            if let Some(act) = activator.as_ref()
-                && act[row].is_zero()
-            {
-                continue;
-            }
-            let tuple: Vec<B::F> = data_evals.iter().map(|col| col[row]).collect();
-            if !seen.insert(tuple) {
-                return Err(SnarkError::ProverError(
-                    ark_piop::prover::errors::ProverError::HonestProverError(
-                        ark_piop::prover::errors::HonestProverError::FalseClaim,
-                    ),
-                ));
-            }
-        }
-
+        set_rotation_payload(
+            ir,
+            &gadgets.rotation,
+            table([p, q]),
+            table([p_prev, q_prev]),
+        );
         Ok(())
     }
 
@@ -276,131 +326,55 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
-fn p_prep<B: SnarkBackend>(
-    rng: &mut dyn RngCore,
-    in_col: &TrackedCol<B>,
-) -> SnarkResult<MLE<B::F>> {
-    // TODO: Fix this
-    let mut evals = in_col.data_tracked_poly().evaluations();
-    let random_values: Vec<B::F> = (0..evals.len()).map(|_| B::F::rand(rng)).collect();
-
-    if let Some(activator_tracked_poly) = in_col.activator_tracked_poly() {
-        evals = in_col
-            .data_tracked_poly()
-            .evaluations()
-            .par_iter()
-            .zip(activator_tracked_poly.evaluations().par_iter())
-            .enumerate()
-            .map(|(i, (eval, is_activator))| {
-                if is_activator.is_zero() {
-                    random_values[i]
-                } else {
-                    *eval
-                }
-            })
-            .collect();
-    }
-
-    Ok(MLE::from_evaluations_vec(
-        in_col.data_tracked_poly().log_size(),
-        evals,
-    ))
+/// `values` moved down one row, the last value wrapping to row 0.
+fn rotated_down<F: Copy>(values: &[F]) -> Vec<F> {
+    let mut rotated = Vec::with_capacity(values.len());
+    rotated.extend(values.last().copied());
+    rotated.extend_from_slice(&values[..values.len().saturating_sub(1)]);
+    rotated
 }
 
-/// The product polynomial `prod` of `p` (given by `evals`) on the boolean
-/// hypercube:
-///
-/// `prod(x_1, ..., x_n) :=
-///   [(1-x1)*p(x2, ..., xn, 0) + x1*prod(x2, ..., xn, 0)] *
-///   [(1-x1)*p(x2, ..., xn, 1) + x1*prod(x2, ..., xn, 1)]`
-///
-/// with `prod(1, ..., 1) := 0`. Linear in the number of evaluations.
-pub(super) fn compute_product_poly<F: PrimeField>(
-    evals: &[F],
-    num_vars: usize,
-) -> SnarkResult<MLE<F>> {
-    // The formula is applied 2^n - 1 times; at each step its right-hand side
-    // is available from `evals` or from the entries of `prod` computed so far.
-    let mut prod_x_evals = vec![];
-    for x in 0..(1 << num_vars) - 1 {
-        // `sign` says whether to look the factors up in `evals` or in `prod`;
-        // the two indices are those of (x_2, ..., x_n, 0) and (x_2, ..., x_n, 1).
-        let (x_zero_index, x_one_index, sign) = index(x, num_vars);
-        if !sign {
-            prod_x_evals.push(evals[x_zero_index] * evals[x_one_index]);
-        } else {
-            // An entry of `prod` must exist before it is looked up.
-            if x_zero_index >= prod_x_evals.len() || x_one_index >= prod_x_evals.len() {
-                return Err(SnarkError::Artifact(format!(
-                    "compute_product_poly: index out of bounds at x={x} (x_zero={x_zero_index}, x_one={x_one_index}, len={})",
-                    prod_x_evals.len()
-                )));
-            }
-            prod_x_evals.push(prod_x_evals[x_zero_index] * prod_x_evals[x_one_index]);
-        }
-    }
-
-    prod_x_evals.push(F::zero());
-    Ok(MLE::from_evaluations_vec(num_vars, prod_x_evals))
+fn running_schema() -> Schema {
+    Schema::new(
+        running_fields()
+            .into_iter()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>(),
+    )
 }
 
-/// The derivative of the product tree of `compute_product_poly` (`f_evals`,
-/// over the leaves `p_evals`), in the same layout: the sum of two leaves, and
-/// the product rule `f0 * f1' + f0' * f1` above them. The last entry is 0.
-/// Linear in the number of evaluations.
-pub(super) fn compute_derivative_poly<F: PrimeField>(
-    p_evals: &[F],
-    f_evals: &[F],
-    num_vars: usize,
-) -> SnarkResult<MLE<F>> {
-    // TODO: Check the sizes
-    let mut f_prime_evals = vec![];
-    for x in 0..(1 << num_vars) - 1 {
-        let (x_zero_index, x_one_index, sign) = index(x, num_vars);
-        if !sign {
-            f_prime_evals.push(p_evals[x_zero_index] + p_evals[x_one_index]);
-        } else {
-            // An entry of `f'` must exist before it is looked up.
-            if x_zero_index >= f_prime_evals.len() || x_one_index >= f_prime_evals.len() {
-                return Err(SnarkError::Artifact(format!(
-                    "compute_derivative_poly: index out of bounds at x={x} (x_zero={x_zero_index}, x_one={x_one_index}, len={})",
-                    f_prime_evals.len()
-                )));
-            }
-            f_prime_evals.push(
-                f_evals[x_zero_index] * f_prime_evals[x_one_index]
-                    + f_prime_evals[x_zero_index] * f_evals[x_one_index],
-            );
-        }
-    }
-
-    f_prime_evals.push(F::zero());
-
-    Ok(MLE::from_evaluations_vec(num_vars, f_prime_evals))
+fn set_rotation_payload<B: SnarkBackend, T: Clone>(
+    ir: &mut Ir<B, PayloadStructure<T>>,
+    rotation: &Arc<Node<B>>,
+    left: T,
+    right: T,
+) where
+    PayloadStructure<T>: Payload,
+{
+    let mut payload = match ir.payload_for_node(&rotation.id()) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    payload.insert(rotation_check::LEFT_LABEL.to_string(), left);
+    payload.insert(rotation_check::RIGHT_LABEL.to_string(), right);
+    ir.set_payload_for_node(
+        rotation.id(),
+        Some(PayloadStructure::GadgetPayload(payload)),
+    );
 }
 
-/// The polynomial `prod (x - root)` over `roots`.
+/// The polynomial `∏ (Y − root)` over `roots`.
 pub fn build_root_products<F: FftField>(roots: &[F]) -> LDE<F> {
-    let l = roots.len();
-
-    if l == 1 {
-        return LDE::from_coefficients_vec(vec![-roots[0], F::one()]);
+    match roots {
+        [] => LDE::from_coefficients_vec(vec![F::one()]),
+        [root] => LDE::from_coefficients_vec(vec![-*root, F::one()]),
+        _ => {
+            let (left, right) = roots.split_at(roots.len() / 2);
+            let (left, right) =
+                rayon::join(|| build_root_products(left), || build_root_products(right));
+            left * right
+        }
     }
-
-    let mid = l / 2;
-    let (left, right) = roots.split_at(mid);
-
-    #[cfg(not(feature = "parallel"))]
-    {
-        let left_poly = build_root_products(left);
-        let right_poly = build_root_products(right);
-    }
-
-    #[cfg(feature = "parallel")]
-    let (left_poly, right_poly) =
-        rayon::join(|| build_root_products(left), || build_root_products(right));
-
-    left_poly * right_poly
 }
 
 pub fn d_dx<F: PrimeField>(poly: &LDE<F>) -> LDE<F> {
