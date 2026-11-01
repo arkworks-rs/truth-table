@@ -6,7 +6,7 @@ use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion_common::{DFSchema, DataFusionError, Result};
 use datafusion_expr::{
     BinaryExpr, Expr, ExprSchemable, Join, JoinType, LogicalPlan, Operator, Sort,
-    expr::{AggregateFunction, ScalarFunction},
+    expr::AggregateFunction,
 };
 
 use std::collections::BTreeSet;
@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use crate::irs::lineage::{ambiguous_rank, base_column, is_string_type};
 use crate::irs::nodes::{
     plan::compaction::CompactionLogicalNode, plan::exprs::cast::rescale,
-    utils::contig_sort::difference_sign_type,
+    plan::exprs::fp_prefilter::TT_PREFILTER_UDF_NAME, utils::contig_sort::difference_sign_type,
 };
 use crate::irs::string_order::{StringOrder, string_order};
 
@@ -91,14 +91,12 @@ pub fn ensure_supported(plan: &LogicalPlan) -> Result<()> {
                         "{STRING_EXTREMUM}: {expr}"
                     )))
                 }
-                Expr::ScalarFunction(ScalarFunction { func, args })
-                    if ["greatest", "least"].contains(&func.name().to_lowercase().as_str())
-                        && args.iter().any(|arg| is_string_expr(arg, &input_schema)) =>
-                {
-                    Err(DataFusionError::NotImplemented(format!(
-                        "{STRING_GREATEST_LEAST}: {expr}"
-                    )))
-                }
+                Expr::ScalarFunction(function) if function.name() != TT_PREFILTER_UDF_NAME => Err(
+                    DataFusionError::NotImplemented(format!("{SCALAR_FUNCTION}: {expr}")),
+                ),
+                Expr::Between(_) => Err(DataFusionError::NotImplemented(format!(
+                    "{BETWEEN_NOT_REWRITTEN}: {expr}"
+                ))),
                 _ => Ok(TreeNodeRecursion::Continue),
             })
         })
@@ -245,4 +243,31 @@ pub(crate) const UNORDERED_SORT_KEY: &str = "an ORDER BY key needs an order-pres
 // PIOP 10); a string's hash does not preserve its order.
 pub(crate) const STRING_COMPARISON: &str = "comparing strings with <, <=, > or >= is not supported";
 pub(crate) const STRING_EXTREMUM: &str = "MIN and MAX over strings are not supported";
-pub(crate) const STRING_GREATEST_LEAST: &str = "GREATEST and LEAST over strings are not supported";
+pub(crate) const SCALAR_FUNCTION: &str = "scalar functions are not supported";
+/// The optimizer's `SimplifyExpressions` rewrites every `BETWEEN` into the
+/// comparisons that prove it.
+pub(crate) const BETWEEN_NOT_REWRITTEN: &str =
+    "BETWEEN is proved as the comparisons it is rewritten into, and this one was not rewritten";
+
+#[cfg(test)]
+mod tests {
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion_expr::{col, lit, logical_plan::builder::table_scan};
+
+    use super::{BETWEEN_NOT_REWRITTEN, ensure_supported};
+
+    /// A plan that skipped the optimizer keeps its BETWEEN, which no node
+    /// proves.
+    #[test]
+    fn a_between_left_unrewritten_is_refused() {
+        let schema = Schema::new(vec![Field::new("a", DataType::Int64, false)]);
+        let plan = table_scan(Some("t"), &schema, None)
+            .unwrap()
+            .filter(col("a").between(lit(1i64), lit(3i64)))
+            .unwrap()
+            .build()
+            .unwrap();
+        let error = ensure_supported(&plan).expect_err("BETWEEN has no check of its own");
+        assert!(error.to_string().contains(BETWEEN_NOT_REWRITTEN), "{error}");
+    }
+}
