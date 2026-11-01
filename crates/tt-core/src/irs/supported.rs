@@ -52,6 +52,9 @@ pub fn ensure_supported(plan: &LogicalPlan) -> Result<()> {
                 Expr::Literal(value) if value.is_null() => {
                     Err(DataFusionError::NotImplemented(NULL_LITERAL.to_string()))
                 }
+                Expr::InSubquery(_) => Err(DataFusionError::NotImplemented(format!(
+                    "{IN_SUBQUERY}: {expr}"
+                ))),
                 Expr::Case(case) if case.else_expr.is_none() => Err(
                     DataFusionError::NotImplemented(CASE_WITHOUT_ELSE.to_string()),
                 ),
@@ -231,6 +234,10 @@ pub(crate) const CAST_TYPES: &str =
 // The planner rewrites a CASE with such results as arithmetic over its
 // conditions; nothing else would check a CASE's column.
 pub(crate) const CASE_RESULT: &str = "CASE is supported with integer and decimal results only";
+
+// No check binds the membership flag to the subquery's rows: the prover
+// would choose it.
+pub(crate) const IN_SUBQUERY: &str = "IN and NOT IN over a subquery are not supported";
 
 pub(crate) const SORT_KEY_NOT_A_COLUMN: &str =
     "an ORDER BY key must be a column of the sorted input";
