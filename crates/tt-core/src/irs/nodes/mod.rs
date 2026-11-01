@@ -280,6 +280,20 @@ impl<B: SnarkBackend> Node<B> {
         }
     }
 
+    /// The output columns of this plan node that carry a rank segment:
+    /// those that copy a base column in `ranked`.
+    pub fn ranked_outputs(
+        &self,
+        ranked: &std::collections::BTreeSet<(String, String)>,
+    ) -> Vec<crate::irs::lineage::RankedOutput> {
+        match self {
+            Node::Plan(PlanNode::LpBased(node)) if !ranked.is_empty() => {
+                crate::irs::lineage::ranked_outputs(&node.lp(), ranked)
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// A hash of the node's address.
     pub fn id(&self) -> NodeId {
         let mut hasher = DefaultHasher::new();

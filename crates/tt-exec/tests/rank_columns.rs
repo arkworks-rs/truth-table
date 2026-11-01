@@ -14,6 +14,7 @@ use arithmetic::encoding::STRING_RANK_SUFFIX;
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE, pcs::PCS, prover::ArgProver};
 use ark_serialize::CanonicalDeserialize;
+use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::ParquetReadOptions;
 use front_end::shared::TTSharedConfig;
 use front_end::structs::{Artifact, TTPk};
@@ -23,7 +24,9 @@ use tt_core::irs::nodes::IsNode;
 use tt_core::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths;
 use tt_core::irs::shared_ir::EmptyIr;
 use tt_core::prover::passes::{
-    arithmetization::{ArithmetizationPass, FingerprintColumns, RankColumns, SideColumns},
+    arithmetization::{
+        ArithmetizationPass, FingerprintColumns, RankColumns, SideColumns, base_ranks,
+    },
     gadget_planning::GadgetPlanningPass,
     materialization::MaterializationPass,
     output_planning::OutputPlanningPass,
@@ -37,9 +40,13 @@ use tt_exec::test_utils::{resolve_key_paths, resolve_oracle_path, resolve_parque
 type B = BenchBackend;
 type F = <B as SnarkBackend>::F;
 
-/// The query's IR after the planning the prover and the verifier share.
+/// The query's plan after the planning the prover and the verifier share.
 /// Each `(name, table)` of `copies` registers `table`'s data as table `name`.
-async fn initial_ir(sql: &str, tables: &[&str], copies: &[(&str, &str)]) -> EmptyIr<B> {
+async fn planned_lp(
+    sql: &str,
+    tables: &[&str],
+    copies: &[(&str, &str)],
+) -> (TTSharedConfig<B>, LogicalPlan) {
     let ctx = session_context();
     let mut paths = Vec::new();
     let registrations = tables.iter().map(|table| (*table, *table));
@@ -59,6 +66,12 @@ async fn initial_ir(sql: &str, tables: &[&str], copies: &[(&str, &str)]) -> Empt
     let lp = shared.query_to_lp(sql).await;
     let lp = shared.analyze_lp(lp).await;
     let lp = shared.optimize_lp(lp).await;
+    (shared, lp)
+}
+
+/// The query's IR after the planning the prover and the verifier share.
+async fn initial_ir(sql: &str, tables: &[&str], copies: &[(&str, &str)]) -> EmptyIr<B> {
+    let (shared, lp) = planned_lp(sql, tables, copies).await;
     shared
         .pp_optimizer()
         .optimize(EmptyIr::<B>::from_logical_plan(&lp))
@@ -150,18 +163,17 @@ async fn a_rank_over_a_scan_without_an_oracle_is_refused() {
     );
 }
 
+/// A sort on `nation.n_name` joined with a same-named column of another
+/// table.
+const SAME_NAMED_COPY: &str = "SELECT a.n_name, b.n_name AS other FROM nation a \
+     JOIN nation_copy b ON a.n_nationkey = b.n_nationkey ORDER BY a.n_name";
+
 /// A rank belongs to its table: a sort on one table's string column needs
 /// no rank of a same-named column of another table, which may be committed
 /// without ranks or have no oracle at all.
 #[tokio::test]
 async fn a_rank_is_required_of_the_sorted_table_only() {
-    let ir = initial_ir(
-        "SELECT a.n_name, b.n_name AS other FROM nation a \
-         JOIN nation_copy b ON a.n_nationkey = b.n_nationkey ORDER BY a.n_name",
-        &["nation"],
-        &[("nation_copy", "nation")],
-    )
-    .await;
+    let ir = initial_ir(SAME_NAMED_COPY, &["nation"], &[("nation_copy", "nation")]).await;
     let required = ir.tree().required_rank_columns();
     assert_eq!(
         required,
@@ -184,6 +196,22 @@ async fn a_rank_is_required_of_the_sorted_table_only() {
     .expect("only nation's rank is needed, and its oracle commits it");
 }
 
+/// Payload columns are matched to the ranks they carry by name, so two
+/// string columns of one name in one operator, only one of them ranked, are
+/// refused at planning.
+#[tokio::test]
+async fn same_named_columns_with_different_ranks_are_refused() {
+    let (_, lp) = planned_lp(SAME_NAMED_COPY, &["nation"], &[("nation_copy", "nation")]).await;
+    let refused = tt_core::irs::supported::ensure_supported(&lp)
+        .expect_err("a.n_name carries a rank and b.n_name does not");
+    assert!(
+        refused
+            .to_string()
+            .contains("n_name: two string columns of this name meet in one operator"),
+        "{refused}"
+    );
+}
+
 /// The rank segments a table scan of `sql` encodes when it loads the ranks
 /// of `columns`, by segment name.
 async fn scan_ranks(sql: &str, table: &str, columns: &[&str]) -> IndexMap<String, Arc<MLE<F>>> {
@@ -192,15 +220,16 @@ async fn scan_ranks(sql: &str, table: &str, columns: &[&str]) -> IndexMap<String
     let gadget_planned =
         output_planned.apply_local_pass_sequential(&GadgetPlanningPass::new(&output_planned));
     let materialized = gadget_planned.apply_local_pass_parallel(&MaterializationPass::new());
+    let ranked: BTreeSet<(String, String)> = columns
+        .iter()
+        .map(|c| (table.to_string(), c.to_string()))
+        .collect();
+    let base_ranks = base_ranks(&materialized, &ranked);
     let arithmetized = materialized.apply_local_pass_parallel(&ArithmetizationPass::<B>::new(
         SideColumns::Only(BTreeSet::new()),
         FingerprintColumns::Only(Default::default()),
-        RankColumns::Only(
-            columns
-                .iter()
-                .map(|c| (table.to_string(), c.to_string()))
-                .collect(),
-        ),
+        RankColumns::Only(ranked),
+        base_ranks,
     ));
     let (scan_id, _) = arithmetized
         .tree()

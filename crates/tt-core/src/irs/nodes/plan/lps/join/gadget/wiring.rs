@@ -422,8 +422,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
 
 /// The field among `fields` that the join key `col` names, followed by its
 /// value segments: a string's further hash slots and `__length`, which the
-/// key union encodes too (fingerprint limbs are left out: the union has
-/// none). The key is resolved by qualifier, and so are its segments: a
+/// key union encodes too (fingerprint limbs and the rank are left out: the
+/// union has none, and a rank orders one column only). The key is resolved by qualifier, and so are its segments: a
 /// self-join puts same-named columns of two aliases on one side. A bare name
 /// decides only when no field matches by qualifier and the name is unique.
 pub(super) fn key_fields<'a>(
@@ -462,6 +462,7 @@ pub(super) fn key_fields<'a>(
                     && arithmetic::encoding::is_segment_of(field.name(), key.name())
                     && !field.name()[key.name().len()..]
                         .starts_with(arithmetic::encoding::STRING_FINGERPRINT_LIMB_PREFIX)
+                    && !arithmetic::encoding::is_rank_segment(field.name())
                     && !matches!(
                         (qualifier, field.metadata().get(QUALIFIER_METADATA_KEY)),
                         (Some(key_q), Some(seg_q)) if key_q != seg_q

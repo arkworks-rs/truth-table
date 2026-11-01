@@ -17,6 +17,8 @@ pub enum EncodeError {
         "Value of size `{0}` cannot be converted to a PrimeField element. (The conversion for this type for smaller sized are supported though)"
     )]
     SizeNotSupported(String),
+    #[error("`{0}` is not a value of the base column its rank is taken from")]
+    UnrankedValue(String),
 }
 
 #[derive(Error, Debug)]

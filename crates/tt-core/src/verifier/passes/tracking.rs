@@ -7,12 +7,13 @@ use ark_piop::{
     verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 use datafusion::{
-    arrow::datatypes::{FieldRef, Schema},
+    arrow::datatypes::{Field as ArrowField, FieldRef, Schema},
     datasource::{MemTable, TableProvider},
 };
 use datafusion_common::{DFSchema, DataFusionError};
 use indexmap::IndexMap;
 
+use crate::irs::lineage::ranked_output;
 use crate::irs::nodes::IsNode;
 use crate::{
     ctx_oracles::CtxOracles,
@@ -147,7 +148,9 @@ impl<B: SnarkBackend> TrackingPass<B> {
         let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         // The final output table has no side segments: no PIOP reads them.
         let arith_table =
-            arithmetize_materialized_table::<B::F>(&materialized, None, None, &|_| false);
+            arithmetize_materialized_table::<B::F>(&materialized, None, None, &|_| {
+                arithmetic::encoding::RankSource::None
+            });
         let tracked_table = Self::track_output_table_oracle(&arith_table, &self.verifier);
         let gadget_id = root
             .children()
@@ -231,24 +234,37 @@ where
                         &self.verifier,
                         Some(&self.side_columns),
                         Some(&self.fingerprint_columns),
+                        &|_| false,
                     )
                     .map(TrackedPayload::PlanPayload);
                 }
+                // The columns that copy a ranked base column carry its rank.
+                let ranked_outputs = node.ranked_outputs(&self.rank_columns);
+                let ranked = |field: &ArrowField| ranked_output(&ranked_outputs, field).is_some();
                 if node.name() == "Compaction" {
                     // A Compaction output re-emits side segments for
                     // `side_columns` (see ArithmetizationPass); consume
                     // their commitments in the prover's order.
-                    return track_hint_df(hint_df, &self.verifier, Some(&self.side_columns), None)
-                        .map(TrackedPayload::PlanPayload);
+                    return track_hint_df(
+                        hint_df,
+                        &self.verifier,
+                        Some(&self.side_columns),
+                        None,
+                        &ranked,
+                    )
+                    .map(TrackedPayload::PlanPayload);
                 }
                 // An intermediate operator: the prover emits no side segments
                 // (see ArithmetizationPass), so expect none.
-                track_hint_df(hint_df, &self.verifier, None, None).map(TrackedPayload::PlanPayload)
+                track_hint_df(hint_df, &self.verifier, None, None, &ranked)
+                    .map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (key, hint_df) in map.iter() {
-                    if let Some(table) = track_hint_df(hint_df, &self.verifier, None, None) {
+                    if let Some(table) =
+                        track_hint_df(hint_df, &self.verifier, None, None, &|_| false)
+                    {
                         out.insert(key.clone(), table);
                     }
                 }
@@ -420,6 +436,7 @@ fn track_hint_df<B: SnarkBackend>(
     verifier: &RefCell<ArgVerifier<B>>,
     side_columns: Option<&std::collections::BTreeSet<String>>,
     fingerprint_columns: Option<&arithmetic::encoding::FingerprintSelection>,
+    ranked: &dyn Fn(&ArrowField) -> bool,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
@@ -449,7 +466,9 @@ fn track_hint_df<B: SnarkBackend>(
             .map_or(arithmetic::encoding::FingerprintLimbs::None, |selection| {
                 arithmetic::encoding::selected_limbs(selection, qualified_field.name())
             });
-        for segment_field in segment_fields::<B>(qualified_field, fingerprint, false) {
+        for segment_field in
+            segment_fields::<B>(qualified_field, fingerprint, ranked(qualified_field))
+        {
             // The prover commits one polynomial per segment (e.g. hash and
             // `__length` for a string); consume one proof commitment each to
             // keep the tracker ids in sync.

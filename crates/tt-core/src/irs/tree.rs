@@ -108,7 +108,8 @@ where
 
     /// The `(table, column)` string columns some sort reads the rank of
     /// (TruthTable++ §3.2). Every scan of such a table carries that column's
-    /// `__rank` segment, on both sides, and the table must commit it.
+    /// `__rank` segment, on both sides, and so does every column above that
+    /// copies it ([`Node::ranked_outputs`]); the table must commit it.
     pub fn required_rank_columns(&self) -> BTreeSet<(String, String)> {
         let mut cols = BTreeSet::new();
         for node in self.arena.values() {

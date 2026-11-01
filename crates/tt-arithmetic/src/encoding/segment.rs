@@ -198,6 +198,14 @@ fn auto_suffix_at(i: usize) -> String {
 
 /// The source column of a non-primary segment name (`"col__length"` →
 /// `Some("col")`). `None` for a primary segment and for any other name.
+/// Whether `field_name` is a string column's rank segment. A rank orders
+/// the values of one base column only, so a check that compares values,
+/// possibly of two columns or of a column and a constant, leaves it out.
+pub fn is_rank_segment(field_name: &str) -> bool {
+    string_segment_base(field_name)
+        .is_some_and(|base| field_name[base.len()..] == *super::STRING_RANK_SUFFIX)
+}
+
 pub fn segment_base_name(field_name: &str) -> Option<&str> {
     if let Some(base) = string_segment_base(field_name) {
         return Some(base);

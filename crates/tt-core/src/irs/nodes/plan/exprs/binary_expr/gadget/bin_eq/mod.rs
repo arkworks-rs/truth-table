@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
+use arithmetic::{
+    ACTIVATOR_FIELD, encoding::is_rank_segment, is_system_column, table::TrackedTable,
+};
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
@@ -98,7 +100,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
         let build_table_with_activator = |table: &TrackedTable<B>, activator: &TrackedPoly<B>| {
             let mut polys = IndexMap::new();
             for (field, poly) in table.tracked_polys_iter() {
-                if is_system_column(field.name()) {
+                if is_system_column(field.name()) || is_rank_segment(field.name()) {
                     continue;
                 }
                 polys.insert(field.clone(), poly.clone());
@@ -218,7 +220,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
                              activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
                                 let mut oracles = IndexMap::new();
                                 for (field, oracle) in table.tracked_oracles_iter() {
-                                    if is_system_column(field.name()) {
+                                    if is_system_column(field.name()) || is_rank_segment(field.name()) {
                                         continue;
                                     }
                                     oracles.insert(field.clone(), oracle.clone());

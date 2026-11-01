@@ -39,7 +39,7 @@ pub mod gadget;
 pub(crate) mod output;
 mod rank;
 use datafusion::logical_expr::Sort;
-use gadget::{KeyOrder, SortKey, rank_super_label, sort_key_name, sorts_on_characters};
+use gadget::{KeyOrder, SortKey, sort_key_name, sorts_on_characters};
 
 pub struct LpNode<B>
 where
@@ -65,7 +65,8 @@ struct RankKey<B: SnarkBackend> {
     table: String,
     column: String,
     /// The table scan of the base column on the key's lineage, in the
-    /// input's subtree: the lookup's base side.
+    /// input's subtree, whose rows the prover ranks to plan the sort
+    /// check's witnesses.
     scan: Arc<Node<B>>,
 }
 
@@ -166,7 +167,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     }
 
     /// The gadget takes the input and output tables, without the row-id
-    /// column, and the base side of each rank key's lookup.
+    /// column.
     fn initialize_gadgets(
         &self,
         _id: NodeId,
@@ -189,12 +190,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        for key in &self.rank_keys {
-            gadget_payload.insert(
-                rank_super_label(key.index),
-                key.base_side_prover(virtualized_ir)?,
-            );
-        }
         if let Some(input) = input_table {
             gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input);
         }
@@ -382,12 +377,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        for key in &self.rank_keys {
-            gadget_payload.insert(
-                rank_super_label(key.index),
-                key.base_side_verifier(virtualized_ir)?,
-            );
-        }
         if let Some(input) = input_table {
             gadget_payload.insert(gadget::INPUT_LABEL.to_string(), input);
         }
@@ -680,70 +669,6 @@ fn missing_scan<B: SnarkBackend>(key: &RankKey<B>) -> SnarkError {
         "the scan of the base column {} of ORDER BY key {} has no table",
         key.column, key.index
     )))
-}
-
-impl<B: SnarkBackend> RankKey<B> {
-    /// The scan's hash slots, `__length` and rank of the base column, under
-    /// the scan's activator: the lookup's base side.
-    fn base_side_prover(
-        &self,
-        virtualized_ir: &ProverVirtualizedIr<B>,
-    ) -> SnarkResult<TrackedTable<B>> {
-        let (rank_id, num_vars) = self.cached_rank()?;
-        let Some(PayloadStructure::PlanPayload(scan)) =
-            virtualized_ir.payload_for_node(&self.scan.id())
-        else {
-            return Err(missing_scan(self));
-        };
-        let (field, column) = scan
-            .tracked_cols_iter()
-            .find(|(field, _)| field.name() == &self.column)
-            .ok_or_else(|| missing_scan(self))?;
-        let mut columns = gadget::string_identity_prover(column, field.data_type())?;
-        let tracker = columns[0].tracker();
-        columns.push(TrackedPoly::new(Either::Left(rank_id), num_vars, tracker));
-        Ok(gadget::lookup_table_prover(
-            columns,
-            scan.activator_tracked_poly(),
-            scan.log_size(),
-        ))
-    }
-
-    fn base_side_verifier(
-        &self,
-        virtualized_ir: &VerifierVirtualizedIr<B>,
-    ) -> SnarkResult<TrackedTableOracle<B>> {
-        let (rank_id, num_vars) = self.cached_rank()?;
-        let Some(PayloadStructure::PlanPayload(scan)) =
-            virtualized_ir.payload_for_node(&self.scan.id())
-        else {
-            return Err(missing_scan(self));
-        };
-        let (field, column) = scan
-            .tracked_col_oracles_iter()
-            .find(|(field, _)| field.name() == &self.column)
-            .ok_or_else(|| missing_scan(self))?;
-        let mut columns = gadget::string_identity_verifier(column, field.data_type())?;
-        let tracker = columns[0].tracker();
-        columns.push(TrackedOracle::new(Either::Left(rank_id), tracker, num_vars));
-        Ok(gadget::lookup_table_verifier(
-            columns,
-            scan.activator_tracked_poly(),
-            scan.log_size(),
-        ))
-    }
-
-    /// The rank segment the scan took out of its payload.
-    fn cached_rank(&self) -> SnarkResult<(ark_piop::types::TrackerID, usize)> {
-        table_scan::LpNode::of(&self.scan)
-            .and_then(|scan| scan.rank_poly(&self.column))
-            .ok_or_else(|| {
-                SnarkError::DataTypeError(DataTypeError::NotSupported(format!(
-                    "the table scan carries no rank of {}",
-                    self.column
-                )))
-            })
-    }
 }
 
 impl<B: SnarkBackend> LpNode<B> {

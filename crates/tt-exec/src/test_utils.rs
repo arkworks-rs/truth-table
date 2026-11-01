@@ -272,7 +272,7 @@ async fn hash_sample_encoding(
         &table,
         None,
         Some(&tt_core::prover::passes::arithmetization::FingerprintColumns::All),
-        &|_| true,
+        &|_| arithmetic::encoding::RankSource::Own,
     );
     let mut bytes = Vec::new();
     for (field, mle) in arith.polynomials() {

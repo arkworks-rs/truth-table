@@ -687,9 +687,9 @@ fn build_verifier_nodup_input_hint() -> crate::irs::nodes::hints::HintDF {
 /// provenance lookups; the output carries both sides' keys, so they are
 /// zerochecked equal. Keys are resolved by qualifier ([`wiring::key_fields`]):
 /// a self-join puts same-named columns of two aliases on one side, and
-/// pairing the wrong one would check a different join. Fingerprint limbs are
-/// left out: their bins depend on the column, and equal hashes already mean
-/// equal strings.
+/// pairing the wrong one would check a different join. Fingerprint limbs and
+/// ranks are left out: they depend on the column, and equal hashes already
+/// mean equal strings.
 fn key_segment_pairs<T>(
     join: &datafusion_expr::Join,
     left_cols: &IndexMap<FieldRef, T>,

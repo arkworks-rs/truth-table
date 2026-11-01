@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use arithmetic::{
     ACTIVATOR_FIELD,
-    encoding::{STRING_LENGTH_SUFFIX, encode_arrow_array_to_field},
+    encoding::{STRING_LENGTH_SUFFIX, STRING_RANK_SUFFIX, encode_arrow_array_to_field},
 };
 use ark_piop::{
     DefaultSnarkBackend, SnarkBackend, arithmetic::errors::DataTypeError, errors::SnarkError,
@@ -16,9 +16,7 @@ use datafusion::arrow::array::{ArrayRef, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion_common::Column;
 
-use super::{
-    GadgetNode, INPUT_LABEL, KeyOrder, OUTPUT_LABEL, SortKey, rank_super_label, sort_key_name,
-};
+use super::{GadgetNode, INPUT_LABEL, KeyOrder, OUTPUT_LABEL, SortKey, sort_key_name};
 use crate::{
     irs::nodes::{
         IsNode, Node,
@@ -61,20 +59,19 @@ fn rotate(values: [u64; 4]) -> [u64; 4] {
 }
 
 /// An ORDER BY on one key over `input`, whose output is `output`, with the
-/// sort check's committed table `committed` and rotation hint `rotated`
-/// (both of key 0), and `extra` tables for the root.
+/// sort check's table hint `committed` and rotation hint `rotated` (both of
+/// key 0).
 fn run(
     key: SortKey,
     input: TableSpec<F>,
     output: TableSpec<F>,
     committed: (Field, Vec<F>),
     rotated: (Field, Vec<F>),
-    extra: Vec<(String, TableSpec<F>)>,
 ) -> Result<(), SnarkError> {
     let gadget = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(vec![key]))));
     let root = gadget.id();
     let sort_check = gadget.children()[0].id();
-    let mut builder = GadgetHarness::<B>::builder(16)
+    let builder = GadgetHarness::<B>::builder(16)
         .with_gadget(gadget)
         .with_table(root, INPUT_LABEL, input)
         .with_table(root, OUTPUT_LABEL, output)
@@ -89,9 +86,6 @@ fn run(
             contig_sort::ROTATED_INPUT_LABEL,
             spec(vec![rotated], false),
         );
-    for (label, table) in extra {
-        builder = builder.with_table(root, &label, table);
-    }
     run_gadget_pipeline(builder.build())
 }
 
@@ -118,7 +112,6 @@ fn run_int(
         spec(vec![ints("key", DataType::Int64, output)], true),
         ints(&key, DataType::Int64, helper),
         ints(&key, DataType::Int64, rotated),
-        Vec::new(),
     )
 }
 
@@ -155,7 +148,6 @@ fn a_key_that_is_not_an_output_column_is_not_supported() {
         spec(vec![ints("key", DataType::Int64, sorted)], true),
         ints(&key, DataType::Int64, sorted),
         ints(&key, DataType::Int64, rotate(sorted)),
-        Vec::new(),
     );
     assert!(
         matches!(
@@ -180,42 +172,33 @@ fn encoded_base() -> (Vec<F>, Vec<F>) {
     )
 }
 
-/// A table of one string column holding the base strings of `ranks`.
-fn strings(ranks: [usize; 4]) -> TableSpec<F> {
+/// A table of one string column holding the base strings at `rows`, whose
+/// rank segment holds `ranks`.
+fn strings(rows: [usize; 4], ranks: [u64; 4]) -> TableSpec<F> {
     let (hashes, lengths) = encoded_base();
     spec(
         vec![
             (
                 Field::new("name", DataType::Utf8, false),
-                ranks.iter().map(|&r| hashes[r]).collect(),
+                rows.iter().map(|&r| hashes[r]).collect(),
             ),
             (
                 Field::new(format!("name{STRING_LENGTH_SUFFIX}"), DataType::Utf8, false),
-                ranks.iter().map(|&r| lengths[r]).collect(),
+                rows.iter().map(|&r| lengths[r]).collect(),
             ),
-        ],
-        true,
-    )
-}
-
-/// The base table's side of the rank lookup: hash slot, length and rank.
-fn base_side() -> TableSpec<F> {
-    let (hashes, lengths) = encoded_base();
-    let ranks = (0..4u64).map(F::from).collect();
-    spec(
-        vec![
-            (Field::new("rank_lookup_0", DataType::Int64, true), hashes),
-            (Field::new("rank_lookup_1", DataType::Int64, true), lengths),
-            (Field::new("rank_lookup_2", DataType::Int64, true), ranks),
+            (
+                Field::new(format!("name{STRING_RANK_SUFFIX}"), DataType::Utf8, false),
+                ranks.into_iter().map(F::from).collect(),
+            ),
         ],
         true,
     )
 }
 
 /// `ORDER BY name` (`asc` or descending) over a string sorted on its rank:
-/// the output holds the base strings of `output`, and the sort check sorts
-/// `rk_out`.
-fn run_rank(asc: bool, output: [usize; 4], rk_out: [u64; 4]) -> Result<(), SnarkError> {
+/// the input holds each base string with its own rank, and the output the
+/// base strings at `output` with the ranks `ranks`.
+fn run_rank(asc: bool, output: [usize; 4], ranks: [u64; 4]) -> Result<(), SnarkError> {
     let key = sort_key_name(0);
     run(
         SortKey {
@@ -223,11 +206,10 @@ fn run_rank(asc: bool, output: [usize; 4], rk_out: [u64; 4]) -> Result<(), Snark
             asc,
             order: KeyOrder::Rank,
         },
-        strings([2, 0, 3, 1]),
-        strings(output),
-        ints(&key, DataType::UInt32, rk_out),
-        ints(&key, DataType::UInt32, rotate(rk_out)),
-        vec![(rank_super_label(0), base_side())],
+        strings([2, 0, 3, 1], [2, 0, 3, 1]),
+        strings(output, ranks),
+        ints(&key, DataType::UInt32, ranks),
+        ints(&key, DataType::UInt32, rotate(ranks)),
     )
 }
 
@@ -240,7 +222,8 @@ fn strings_sorted_on_their_ranks_are_accepted() {
 #[test]
 fn a_rank_of_another_string_is_rejected() {
     // GERMANY before FRANCE, each holding the other's rank: the ranks sort,
-    // but (GERMANY, 0) is not a row of the base table.
+    // but the output is not a permutation of the input's (string, rank)
+    // rows.
     assert_rejected(run_rank(true, [1, 0, 2, 3], [0, 1, 2, 3]));
 }
 

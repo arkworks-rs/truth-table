@@ -17,6 +17,8 @@
 
 use std::sync::{Mutex, PoisonError};
 
+use arithmetic::encoding::BaseRanks;
+
 use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -46,6 +48,12 @@ pub enum SortForgery {
     /// The output and the sort check's witnesses alike: they agree with each
     /// other, and only the order of the sorted keys is wrong.
     ReverseOutputAndWitnesses,
+    /// The output, and every rank the prover encodes above a table scan,
+    /// reversed so that the reversed output is in order on them. The sort
+    /// check and its witnesses agree; only the binding of the ranks to the
+    /// owner's, at the first node above the scans that commits them, can
+    /// reject.
+    ReverseOutputAndRanks,
     /// Only the last ORDER BY key of the output is sorted against its
     /// direction, the earlier keys keep theirs; the sort check's witnesses
     /// stay those of the honest order. The wrong order is then only inside
@@ -112,6 +120,21 @@ pub(crate) fn forge_sort_specs(specs: Vec<(String, bool, bool)>) -> Vec<(String,
             .collect(),
         _ => specs,
     }
+}
+
+/// `ranks`, a base column's ranks as the prover encodes them above its
+/// table scans, with the installed sort forgery applied.
+pub(crate) fn forge_base_ranks(ranks: BaseRanks) -> BaseRanks {
+    if *SORT_FORGERY.lock().unwrap_or_else(PoisonError::into_inner)
+        != Some(SortForgery::ReverseOutputAndRanks)
+    {
+        return ranks;
+    }
+    let top = ranks.values().copied().max().unwrap_or(0);
+    ranks
+        .into_iter()
+        .map(|(value, rank)| (value, top - rank))
+        .collect()
 }
 
 /// Adds `offset` to every COUNT the prover's Aggregates output.

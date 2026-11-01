@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use arithmetic::{
-    ACTIVATOR_FIELD, col::TrackedCol, col_oracle::TrackedColOracle,
-    encoding::segment_suffixes_for_type, is_system_column, table::TrackedTable,
+    ACTIVATOR_FIELD,
+    col::TrackedCol,
+    col_oracle::TrackedColOracle,
+    encoding::{STRING_RANK_SUFFIX, segment_suffixes_for_type},
+    is_system_column,
+    table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
 use ark_piop::{
@@ -23,7 +27,7 @@ use crate::{
         nodes::{
             IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
             hints::{HintDF, QUALIFIER_METADATA_KEY},
-            utils::{compaction, contig_sort, lookup},
+            utils::{compaction, contig_sort},
         },
         payloads::PayloadStructure,
     },
@@ -44,12 +48,6 @@ pub const INPUT_SORT_EXPRS: &str = "__input_sort_exprs__";
 /// its own, so two keys over same-named columns stay apart.
 pub fn sort_key_name(index: usize) -> String {
     format!("__sort_key_{index}")
-}
-
-/// The label of the base-table side of rank key `index`'s lookup: the scan's
-/// hash slots, `__length` and rank, under the scan's activator.
-pub fn rank_super_label(index: usize) -> String {
-    format!("__rank_super_{index}__")
 }
 
 #[derive(Clone, Debug)]
@@ -145,19 +143,10 @@ pub(crate) fn column_qualifier(
 /// chain; otherwise it is the following.
 ///
 /// A string key is sorted on its rank, as in the TruthTable++ Rank-Based
-/// String Sort Check (§7.3, PIOP 13). No operator carries the rank, so its
-/// provenance is taken against the base column instead of inherited: the
-/// sorted rank column `rk_out`, which the sort check commits, is looked up
-/// as (output hash slots, `__length`, `rk_out`) in (hash slots, `__length`,
-/// rank) of the base table scan, one lookup child per rank key. Each output
-/// string is a base string (upstream checks bind it), so collision
-/// resistance of (hash, length) pins `rk_out` to the owner-committed rank of
-/// that very string; lineage only picks a scan that makes the lookup
-/// complete. The multi-key sort is the sort check's, with one-way ties, on
-/// ranks in place of strings. So a string key costs an integer key plus a
-/// lookup into the base table with a base-sized multiplicity column, more
-/// than PIOP 13's integer-sort cost; carrying the rank through the
-/// operators would remove the lookup.
+/// String Sort Check (§7.3, PIOP 13): the output's `__rank` segment of the
+/// key. The permutation check ties it to the input's, and every operator
+/// below ties its copy to its own input's, down to the rank the data owner
+/// committed for that string.
 pub struct GadgetNode<B: SnarkBackend> {
     sort_check: SortCheck<B>,
     compaction_gadget: Arc<Node<B>>,
@@ -165,44 +154,25 @@ pub struct GadgetNode<B: SnarkBackend> {
 }
 
 enum SortCheck<B: SnarkBackend> {
-    OnValues {
-        sort_gadget: Arc<Node<B>>,
-        /// One per rank key, in key order.
-        rank_lookups: Vec<Arc<Node<B>>>,
-    },
+    OnValues(Arc<Node<B>>),
     OnCharacters(Arc<Node<B>>),
 }
 
 /// The sort check's table hint: the key columns of the input rows, which the
-/// sort check sorts to plan its witnesses. Only the rank columns are
-/// committed, here, in sorted order: they are `rk_out`. The other key
-/// columns are the output's own, which `initialize_gadgets` puts in.
+/// sort check sorts to plan its witnesses. Nothing is committed here: the
+/// key columns are the output's own, which `initialize_gadgets` puts in.
 fn populate_sort_gadget_table<B: SnarkBackend>(
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     sort_gadget_node_id: crate::irs::nodes::NodeId,
     key_hint: &HintDF,
-    keys: &[SortKey],
 ) {
-    let rank_names: Vec<String> = keys
-        .iter()
-        .enumerate()
-        .filter(|(_, key)| key.order == KeyOrder::Rank)
-        .map(|(index, _)| sort_key_name(index))
-        .collect();
-    let df = key_hint.data_frame().clone();
-    let should_materialize = df
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| (field.clone(), rank_names.contains(field.name())))
-        .collect();
     let mut payload = match planned_ir.payload_for_node(&sort_gadget_node_id) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
     };
     payload.insert(
         contig_sort::TABLE_LABEL.to_string(),
-        HintDF::new(df, should_materialize),
+        HintDF::new_virtual(key_hint.data_frame().clone()),
     );
     planned_ir.set_payload_for_node(
         sort_gadget_node_id,
@@ -230,15 +200,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         match &self.sort_check {
-            SortCheck::OnValues {
-                sort_gadget,
-                rank_lookups,
-            } => {
-                let mut children = vec![sort_gadget.clone(), self.compaction_gadget.clone()];
-                children.extend(rank_lookups.iter().cloned());
-                children
+            SortCheck::OnValues(check) | SortCheck::OnCharacters(check) => {
+                vec![check.clone(), self.compaction_gadget.clone()]
             }
-            SortCheck::OnCharacters(chain) => vec![chain.clone(), self.compaction_gadget.clone()],
         }
     }
 }
@@ -258,13 +222,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let SortCheck::OnValues { sort_gadget, .. } = &self.sort_check else {
+        let SortCheck::OnValues(sort_gadget) = &self.sort_check else {
             return Ok(());
         };
         // Row-id was only needed for ordering: drop it from the input payload.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
-        populate_sort_gadget_table(planned_ir, sort_gadget.id(), &input_hint, &self.keys);
+        populate_sort_gadget_table(planned_ir, sort_gadget.id(), &input_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
     }
@@ -306,11 +270,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             );
         }
 
-        let (sort_gadget, rank_lookups) = match &self.sort_check {
-            SortCheck::OnValues {
-                sort_gadget,
-                rank_lookups,
-            } => (sort_gadget, rank_lookups),
+        let sort_gadget = match &self.sort_check {
+            SortCheck::OnValues(sort_gadget) => sort_gadget,
             SortCheck::OnCharacters(chain) => {
                 virtualized_ir.set_payload_for_node(
                     chain.id(),
@@ -324,20 +285,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
             };
-            let (table, lookups) = self.sort_check_tables_prover(
-                output,
-                sort_payload.get(contig_sort::TABLE_LABEL),
-                &payload,
-            )?;
-            for (lookup_node, (included, super_table)) in rank_lookups.iter().zip(lookups) {
-                virtualized_ir.set_payload_for_node(
-                    lookup_node.id(),
-                    Some(PayloadStructure::GadgetPayload(IndexMap::from([
-                        (lookup::INCLUDED_LABEL.to_string(), included),
-                        (lookup::SUPER_LABEL.to_string(), super_table),
-                    ]))),
-                );
-            }
+            let table = self.sort_check_table_prover(output)?;
             sort_payload.insert(contig_sort::TABLE_LABEL.to_string(), table);
             if let Some(count) = payload.get(contig_sort::ACTIVE_ROWS_LABEL) {
                 sort_payload.insert(contig_sort::ACTIVE_ROWS_LABEL.to_string(), count.clone());
@@ -366,8 +314,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        if let SortCheck::OnValues { sort_gadget, .. } = &self.sort_check {
-            populate_sort_gadget_table(planned_ir, sort_gadget.id(), &input_hint, &self.keys);
+        if let SortCheck::OnValues(sort_gadget) = &self.sort_check {
+            populate_sort_gadget_table(planned_ir, sort_gadget.id(), &input_hint);
         }
         Ok(())
     }
@@ -408,11 +356,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             );
         }
 
-        let (sort_gadget, rank_lookups) = match &self.sort_check {
-            SortCheck::OnValues {
-                sort_gadget,
-                rank_lookups,
-            } => (sort_gadget, rank_lookups),
+        let sort_gadget = match &self.sort_check {
+            SortCheck::OnValues(sort_gadget) => sort_gadget,
             SortCheck::OnCharacters(chain) => {
                 virtualized_ir.set_payload_for_node(
                     chain.id(),
@@ -426,20 +371,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
             };
-            let (table, lookups) = self.sort_check_tables_verifier(
-                output,
-                sort_payload.get(contig_sort::TABLE_LABEL),
-                &payload,
-            )?;
-            for (lookup_node, (included, super_table)) in rank_lookups.iter().zip(lookups) {
-                virtualized_ir.set_payload_for_node(
-                    lookup_node.id(),
-                    Some(PayloadStructure::GadgetPayload(IndexMap::from([
-                        (lookup::INCLUDED_LABEL.to_string(), included),
-                        (lookup::SUPER_LABEL.to_string(), super_table),
-                    ]))),
-                );
-            }
+            let table = self.sort_check_table_verifier(output)?;
             sort_payload.insert(contig_sort::TABLE_LABEL.to_string(), table);
             if let Some(count) = payload.get(contig_sort::ACTIVE_ROWS_LABEL) {
                 sort_payload.insert(contig_sort::ACTIVE_ROWS_LABEL.to_string(), count.clone());
@@ -524,34 +456,17 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(contig_sort::GadgetNode::new(
             contig_sort::SortConfig::PerColumn(contig_sort::PerColumnConfig { sort_specs, strict }),
         ))));
-        let rank_lookups = keys
-            .iter()
-            .filter(|key| key.order == KeyOrder::Rank)
-            .map(|_| Arc::new(Node::<B>::Gadget(Arc::new(lookup::GadgetNode::new()))))
-            .collect();
         Self {
-            sort_check: SortCheck::OnValues {
-                sort_gadget,
-                rank_lookups,
-            },
+            sort_check: SortCheck::OnValues(sort_gadget),
             compaction_gadget,
             keys,
         }
     }
 
     /// The sort check's table (paper PIOP 14, step 3): key `i` under
-    /// [`sort_key_name`], the output's own column, or `rk_out` from the sort
-    /// check's committed table for a rank key; then the output activator.
-    /// Also each rank key's (INCLUDED, SUPER) lookup tables. INCLUDED holds
-    /// the very polynomials of the output and of the sort check's table, so
-    /// the lookup constrains the columns the sort check sorts.
-    #[allow(clippy::type_complexity)]
-    fn sort_check_tables_prover(
-        &self,
-        output: &TrackedTable<B>,
-        committed: Option<&TrackedTable<B>>,
-        payload: &IndexMap<String, TrackedTable<B>>,
-    ) -> SnarkResult<(TrackedTable<B>, Vec<(TrackedTable<B>, TrackedTable<B>)>)> {
+    /// [`sort_key_name`], the output's own column, or its `__rank` segment
+    /// for a rank key; then the output activator.
+    fn sort_check_table_prover(&self, output: &TrackedTable<B>) -> SnarkResult<TrackedTable<B>> {
         let activator = output
             .activator_tracked_poly()
             .expect("the sort output's activator is C_{µ,s}");
@@ -560,7 +475,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
             .filter(|(field, _)| !is_system_column(field.name()))
             .collect();
         let mut table = IndexMap::new();
-        let mut lookups = Vec::new();
         for (index, key) in self.keys.iter().enumerate() {
             let (field, column) = columns[key.index_in(
                 columns
@@ -568,46 +482,31 @@ impl<B: SnarkBackend> GadgetNode<B> {
                     .map(|(field, _)| (column_qualifier(None, field), field.name().as_str())),
             )?];
             let name = sort_key_name(index);
-            if key.order != KeyOrder::Rank {
-                table.insert(
+            let (field, poly) = if key.order == KeyOrder::Rank {
+                let rank = column
+                    .aux_segment(STRING_RANK_SUFFIX)
+                    .ok_or_else(|| missing_segment(STRING_RANK_SUFFIX))?;
+                (rank_field(&name), rank.data.clone())
+            } else {
+                (
                     Arc::new(Field::new(&name, field.data_type().clone(), true)),
                     single_segment(column.num_segments(), key, column.data_tracked_poly())?,
-                );
-                continue;
-            }
-            let rank = committed
-                .and_then(|table| table.tracked_col_by_name(&name))
-                .map(|column| column.data_tracked_poly())
-                .ok_or_else(|| missing_rank(&name))?;
-            table.insert(rank_field(&name), rank.clone());
-            let mut included = string_identity_prover(column, field.data_type())?;
-            included.push(rank);
-            let super_table = payload
-                .get(&rank_super_label(index))
-                .cloned()
-                .ok_or_else(|| missing_rank(&rank_super_label(index)))?;
-            lookups.push((
-                lookup_table_prover(included, Some(activator.clone()), output.log_size()),
-                super_table,
-            ));
+                )
+            };
+            table.insert(field, poly);
         }
         table.insert(ACTIVATOR_FIELD.clone(), activator);
-        Ok((
-            TrackedTable::new(Some(schema_of(table.keys())), table, output.log_size()),
-            lookups,
+        Ok(TrackedTable::new(
+            Some(schema_of(table.keys())),
+            table,
+            output.log_size(),
         ))
     }
 
-    #[allow(clippy::type_complexity)]
-    fn sort_check_tables_verifier(
+    fn sort_check_table_verifier(
         &self,
         output: &TrackedTableOracle<B>,
-        committed: Option<&TrackedTableOracle<B>>,
-        payload: &IndexMap<String, TrackedTableOracle<B>>,
-    ) -> SnarkResult<(
-        TrackedTableOracle<B>,
-        Vec<(TrackedTableOracle<B>, TrackedTableOracle<B>)>,
-    )> {
+    ) -> SnarkResult<TrackedTableOracle<B>> {
         let activator = output
             .activator_tracked_poly()
             .expect("the sort output's activator is C_{µ,s}");
@@ -616,7 +515,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
             .filter(|(field, _)| !is_system_column(field.name()))
             .collect();
         let mut table = IndexMap::new();
-        let mut lookups = Vec::new();
         for (index, key) in self.keys.iter().enumerate() {
             let (field, column) = columns[key.index_in(
                 columns
@@ -624,33 +522,24 @@ impl<B: SnarkBackend> GadgetNode<B> {
                     .map(|(field, _)| (column_qualifier(None, field), field.name().as_str())),
             )?];
             let name = sort_key_name(index);
-            if key.order != KeyOrder::Rank {
-                table.insert(
+            let (field, oracle) = if key.order == KeyOrder::Rank {
+                let rank = column
+                    .aux_segment(STRING_RANK_SUFFIX)
+                    .ok_or_else(|| missing_segment(STRING_RANK_SUFFIX))?;
+                (rank_field(&name), rank.data.clone())
+            } else {
+                (
                     Arc::new(Field::new(&name, field.data_type().clone(), true)),
                     single_segment(column.num_segments(), key, column.data_tracked_oracle())?,
-                );
-                continue;
-            }
-            let rank = committed
-                .and_then(|table| table.tracked_col_oracle_by_name(&name))
-                .map(|column| column.data_tracked_oracle())
-                .ok_or_else(|| missing_rank(&name))?;
-            table.insert(rank_field(&name), rank.clone());
-            let mut included = string_identity_verifier(column, field.data_type())?;
-            included.push(rank);
-            let super_table = payload
-                .get(&rank_super_label(index))
-                .cloned()
-                .ok_or_else(|| missing_rank(&rank_super_label(index)))?;
-            lookups.push((
-                lookup_table_verifier(included, Some(activator.clone()), output.log_size()),
-                super_table,
-            ));
+                )
+            };
+            table.insert(field, oracle);
         }
         table.insert(ACTIVATOR_FIELD.clone(), activator);
-        Ok((
-            TrackedTableOracle::new(Some(schema_of(table.keys())), table, output.log_size()),
-            lookups,
+        Ok(TrackedTableOracle::new(
+            Some(schema_of(table.keys())),
+            table,
+            output.log_size(),
         ))
     }
 }
@@ -666,12 +555,6 @@ fn single_segment<T>(segments: usize, key: &SortKey, data: T) -> SnarkResult<T> 
             ),
         )))
     }
-}
-
-fn missing_rank(name: &str) -> SnarkError {
-    SnarkError::DataTypeError(DataTypeError::NotSupported(format!(
-        "the ORDER BY gadget has no {name}"
-    )))
 }
 
 fn missing_segment(suffix: &str) -> SnarkError {
@@ -718,43 +601,6 @@ pub(crate) fn string_identity_verifier<B: SnarkBackend>(
                 .ok_or_else(|| missing_segment(suffix)),
         })
         .collect()
-}
-
-fn lookup_field(index: usize) -> FieldRef {
-    Arc::new(Field::new(
-        format!("rank_lookup_{index}"),
-        DataType::Int64,
-        true,
-    ))
-}
-
-/// A lookup table whose data columns are `columns`, in order.
-pub(crate) fn lookup_table_prover<B: SnarkBackend>(
-    columns: Vec<TrackedPoly<B>>,
-    activator: Option<TrackedPoly<B>>,
-    log_size: usize,
-) -> TrackedTable<B> {
-    let mut polys: IndexMap<FieldRef, TrackedPoly<B>> = columns
-        .into_iter()
-        .enumerate()
-        .map(|(index, poly)| (lookup_field(index), poly))
-        .collect();
-    polys.extend(activator.map(|poly| (ACTIVATOR_FIELD.clone(), poly)));
-    TrackedTable::new(Some(schema_of(polys.keys())), polys, log_size)
-}
-
-pub(crate) fn lookup_table_verifier<B: SnarkBackend>(
-    columns: Vec<TrackedOracle<B>>,
-    activator: Option<TrackedOracle<B>>,
-    log_size: usize,
-) -> TrackedTableOracle<B> {
-    let mut oracles: IndexMap<FieldRef, TrackedOracle<B>> = columns
-        .into_iter()
-        .enumerate()
-        .map(|(index, oracle)| (lookup_field(index), oracle))
-        .collect();
-    oracles.extend(activator.map(|oracle| (ACTIVATOR_FIELD.clone(), oracle)));
-    TrackedTableOracle::new(Some(schema_of(oracles.keys())), oracles, log_size)
 }
 
 fn schema_of<'a>(fields: impl Iterator<Item = &'a FieldRef>) -> Schema {
