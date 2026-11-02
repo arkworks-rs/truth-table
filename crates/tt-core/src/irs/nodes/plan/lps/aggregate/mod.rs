@@ -379,11 +379,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .map(|s| s.metadata().clone())
             .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
             .unwrap_or_default();
-        let fields = merged_polys
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
 
         // The planned aggregate output size wins even when it is 0 (a single-row
         // aggregate); the input size is used only when the payload is missing.
@@ -393,6 +388,25 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             input_table.log_size()
         };
 
+        // Without GROUP BY the output is one row, whatever the input: the
+        // public activator makes the first row the only active one.
+        if self.aggregate.group_expr.is_empty() {
+            let tracker = input_table
+                .tracked_polys_iter()
+                .next()
+                .expect("Aggregate inputs must have at least one tracked poly")
+                .1
+                .tracker();
+            let representative = tracker
+                .borrow_mut()
+                .get_or_build_contig_one_poly(log_size, 1)?;
+            merged_polys.insert(ACTIVATOR_FIELD.clone(), representative);
+        }
+        let fields = merged_polys
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
         let updated_table = TrackedTable::new(schema, merged_polys, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
@@ -449,6 +463,20 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
             output,
             &count_output_names(&self.aggregate.aggr_expr),
         );
+        #[cfg(feature = "test-utils")]
+        let output = if self.aggregate.group_expr.is_empty() {
+            crate::test_utils::dishonest_prover::forge_split_ungrouped(
+                output,
+                &self
+                    .aggregate
+                    .aggr_expr
+                    .iter()
+                    .map(|expr| expr.schema_name().to_string())
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            output
+        };
         let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)
             .expect("aggregate output sort should succeed");
 
@@ -466,7 +494,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
             .map(|field| {
                 (
                     field.clone(),
-                    field.name() == ACTIVATOR_COL_NAME
+                    (field.name() == ACTIVATOR_COL_NAME && !self.aggregate.group_expr.is_empty())
                         || aggregate_field_names.contains(field.name()),
                 )
             })
@@ -520,7 +548,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .map(|field| {
                 (
                     field.clone(),
-                    field.name() == ACTIVATOR_COL_NAME
+                    (field.name() == ACTIVATOR_COL_NAME && !self.aggregate.group_expr.is_empty())
                         || aggregate_field_names.contains(field.name()),
                 )
             })
@@ -707,11 +735,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             .map(|s| s.metadata().clone())
             .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
             .unwrap_or_default();
-        let fields = merged_oracles
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
 
         // As on the prover side, the planned output size wins even when it is 0.
         let log_size = if current_table_opt.is_some() {
@@ -722,6 +745,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             input_table.log_size()
         };
 
+        if self.aggregate.group_expr.is_empty() {
+            let tracker = input_table
+                .tracked_oracles_iter()
+                .next()
+                .expect("Aggregate inputs must have at least one tracked oracle")
+                .1
+                .tracker();
+            let representative = tracker
+                .borrow_mut()
+                .get_or_build_contig_one_poly(log_size, 1)?;
+            merged_oracles.insert(ACTIVATOR_FIELD.clone(), representative);
+        }
+        let fields = merged_oracles
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
         let updated_table = TrackedTableOracle::new(schema, merged_oracles, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())

@@ -87,3 +87,12 @@ async fn a_null_in_a_derived_table_is_not_supported() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn a_sum_over_no_rows_is_not_supported() {
+    assert_rejected_as_null(
+        "SELECT SUM(n_nationkey) AS s FROM nation WHERE n_nationkey > 100",
+        &["nation"],
+    )
+    .await;
+}

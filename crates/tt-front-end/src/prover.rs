@@ -450,6 +450,7 @@ impl<B: SnarkBackend> TTProver<B> {
         let df = DataFrame::new(state, optimized_lp);
         let logical_schema = df.schema().as_arrow().clone();
         let batches = df.collect().await?;
+        crate::shared::ensure_no_nulls_in_result(&batches)?;
         #[cfg(feature = "test-utils")]
         let batches = tt_core::test_utils::dishonest_prover::claimed_result(batches);
         let mem_table = MemTable::try_new(Arc::new(logical_schema), vec![batches])?;

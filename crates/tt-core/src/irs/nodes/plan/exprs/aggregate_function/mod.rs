@@ -323,14 +323,28 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             .and_then(|weak_ref| weak_ref.upgrade())
             .expect("AggregateFunction node must have a parent");
 
-        let aggr_expr_table = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            Some(PayloadStructure::GadgetPayload(map)) => {
-                map.get(INPUT_AGGR_EXPR_LABEL).cloned().unwrap_or_else(|| {
-                    panic!("AggregateFunction payload missing INPUT_AGGR_EXPR_LABEL")
-                })
+        // The virtualization pass is post-order, so this node's payload was cut
+        // from the Aggregate's table before the Aggregate added the public
+        // activator of an output without GROUP BY: read the column again.
+        let column_name = self.output_column_name_in_parent();
+        let aggr_expr_table = match virtualized_ir.payload_for_node(&parent_node.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => {
+                tracked_table_index_of_name(table, &column_name)
+                    .map(|idx| table.tracked_subtable_by_indices(&[idx]))
             }
-            _ => panic!("AggregateFunction payload missing"),
+            _ => None,
+        };
+        let aggr_expr_table = match aggr_expr_table {
+            Some(table) => table,
+            None => match virtualized_ir.payload_for_node(&id) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                Some(PayloadStructure::GadgetPayload(map)) => {
+                    map.get(INPUT_AGGR_EXPR_LABEL).cloned().unwrap_or_else(|| {
+                        panic!("AggregateFunction payload missing INPUT_AGGR_EXPR_LABEL")
+                    })
+                }
+                _ => panic!("AggregateFunction payload missing"),
+            },
         };
 
         let (orig_rlc, super_rlc) =
@@ -624,14 +638,28 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             .and_then(|weak_ref| weak_ref.upgrade())
             .expect("AggregateFunction node must have a parent");
 
-        let aggr_expr_table = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            Some(PayloadStructure::GadgetPayload(map)) => {
-                map.get(INPUT_AGGR_EXPR_LABEL).cloned().unwrap_or_else(|| {
-                    panic!("AggregateFunction payload missing INPUT_AGGR_EXPR_LABEL")
-                })
+        // The virtualization pass is post-order, so this node's payload was cut
+        // from the Aggregate's table before the Aggregate added the public
+        // activator of an output without GROUP BY: read the column again.
+        let column_name = self.output_column_name_in_parent();
+        let aggr_expr_table = match virtualized_ir.payload_for_node(&parent_node.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => {
+                tracked_table_oracle_index_of_name(table, &column_name)
+                    .map(|idx| table.tracked_subtable_by_indices(&[idx]))
             }
-            _ => panic!("AggregateFunction payload missing"),
+            _ => None,
+        };
+        let aggr_expr_table = match aggr_expr_table {
+            Some(table) => table,
+            None => match virtualized_ir.payload_for_node(&id) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                Some(PayloadStructure::GadgetPayload(map)) => {
+                    map.get(INPUT_AGGR_EXPR_LABEL).cloned().unwrap_or_else(|| {
+                        panic!("AggregateFunction payload missing INPUT_AGGR_EXPR_LABEL")
+                    })
+                }
+                _ => panic!("AggregateFunction payload missing"),
+            },
         };
         let (orig_rlc, super_rlc) =
             if let Some(supp_node) = supp_child_from_aggregate_parent(&parent_node) {

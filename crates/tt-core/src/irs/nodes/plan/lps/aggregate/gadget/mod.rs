@@ -4,7 +4,7 @@ use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field};
-use datafusion_expr::{Aggregate, Expr};
+use datafusion_expr::Aggregate;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::utils::{bool, supp};
@@ -16,9 +16,6 @@ use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
 const PREDICATE_COL_NAME: &str = "predicate";
-
-#[cfg(test)]
-mod tests;
 
 pub struct GadgetNode<B: SnarkBackend> {
     supp_gadget: Option<Arc<Node<B>>>,
@@ -105,7 +102,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if !self.has_groups() && !self.needs_ungrouped_extremum_check() {
+        if !self.has_groups() {
             return Ok(());
         }
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
@@ -204,7 +201,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if !self.has_groups() && !self.needs_ungrouped_extremum_check() {
+        if !self.has_groups() {
             return Ok(());
         }
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
@@ -277,20 +274,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     .add_scalar_poly(B::F::one());
             prover.add_mv_zerocheck_claim(outside_input.id())?;
         }
-        if !self.needs_ungrouped_extremum_check() {
-            return Ok(());
-        }
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for ungrouped extremum aggregate");
-        };
-        let output = payload
-            .get(OUTPUT_LABEL)
-            .expect("Ungrouped extremum aggregate missing output table");
-        let output_activator = output
-            .activator_tracked_poly()
-            .expect("Ungrouped extremum aggregate output must carry an activator");
-        prover.add_mv_sumcheck_claim(output_activator.id(), B::F::one())?;
         Ok(())
     }
 
@@ -328,20 +311,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     .add_scalar_oracle(B::F::one());
             verifier.add_mv_zerocheck_claim(outside_input.id());
         }
-        if !self.needs_ungrouped_extremum_check() {
-            return Ok(());
-        }
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for ungrouped extremum aggregate");
-        };
-        let output = payload
-            .get(OUTPUT_LABEL)
-            .expect("Ungrouped extremum aggregate missing output table");
-        let output_activator = output
-            .activator_tracked_poly()
-            .expect("Ungrouped extremum aggregate output must carry an activator");
-        verifier.add_mv_sumcheck_claim(output_activator.id(), B::F::one());
         Ok(())
     }
 
@@ -356,14 +325,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(aggregate: Aggregate) -> Self {
         let has_groups = !aggregate.group_expr.is_empty();
-        let needs_ungrouped_extremum_check =
-            !has_groups && aggregate.aggr_expr.iter().any(is_extremum_expr);
         let supp_gadget = has_groups.then(|| {
             Arc::new(Node::<B>::Gadget(Arc::new(
                 crate::irs::nodes::utils::supp::GadgetNode::new(),
             )))
         });
-        let bool_gadget = (has_groups || needs_ungrouped_extremum_check).then(|| {
+        let bool_gadget = has_groups.then(|| {
             Arc::new(Node::<B>::Gadget(Arc::new(
                 crate::irs::nodes::utils::bool::GadgetNode::<B>::new(),
             )))
@@ -377,21 +344,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
 
     fn has_groups(&self) -> bool {
         !self.aggregate.group_expr.is_empty()
-    }
-
-    /// Without GROUP BY there is no Support check, so for MAX/MIN the output
-    /// activator is proved Boolean with sum 1: the extremum lookups need exactly
-    /// one representative. An empty input, where SQL returns NULL, fails this.
-    fn needs_ungrouped_extremum_check(&self) -> bool {
-        !self.has_groups() && self.aggregate.aggr_expr.iter().any(is_extremum_expr)
-    }
-}
-
-fn is_extremum_expr(expr: &Expr) -> bool {
-    match expr {
-        Expr::Alias(alias) => is_extremum_expr(&alias.expr),
-        Expr::AggregateFunction(function) => matches!(function.func.name(), "max" | "min"),
-        _ => false,
     }
 }
 
