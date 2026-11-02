@@ -10,7 +10,9 @@ use tt_core::irs::{
     string_order::{StringOrder, string_order},
 };
 
-use super::{DataDependentOptimizationRule, OptimizationHint, row_count};
+use super::{
+    DataDependentOptimizationRule, OptimizationHint, proved_empty::is_proved_empty, row_count,
+};
 
 /// Wraps a Filter or Aggregate in a `CompactionLogicalNode` when its output
 /// fits a strictly smaller power-of-two hypercube than its input, unless the
@@ -58,6 +60,18 @@ fn collect_compaction_hints(
     path: &mut Vec<usize>,
     hints: &mut Vec<OptimizationHint>,
 ) -> DataFusionResult<()> {
+    if is_proved_empty(plan) {
+        // Compacting the witness would permute rows nothing above reads.
+        let witness = plan.inputs()[0];
+        path.push(0);
+        for (idx, input) in witness.inputs().into_iter().enumerate() {
+            path.push(idx);
+            collect_compaction_hints(session_state, input, false, path, hints)?;
+            path.pop();
+        }
+        path.pop();
+        return Ok(());
+    }
     if !in_result_tail && !follows_order_by(plan)? && should_compact(session_state, plan)? {
         hints.push(OptimizationHint::Compaction {
             target_path: path.clone(),
