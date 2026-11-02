@@ -24,7 +24,7 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, Result as DataFusionResult, ScalarValue};
-use datafusion_expr::{Expr, JoinType, SortExpr, lit, not};
+use datafusion_expr::{Expr, ExprFunctionExt, JoinType, SortExpr, lit, not};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JoinForgery {
@@ -162,6 +162,60 @@ pub(crate) fn forge_counts(output: DataFrame, counts: &[String]) -> DataFrame {
         })
         .collect::<Vec<_>>();
     output.select(exprs).expect("forged counts select")
+}
+
+static SPLIT_UNGROUPED: Mutex<Option<()>> = Mutex::new(None);
+
+/// Makes every Aggregate without GROUP BY output its values on two active
+/// rows: the first row holds each value minus one, the second row one.
+pub fn set_split_ungrouped_forgery() -> Installed<()> {
+    install(&SPLIT_UNGROUPED, ())
+}
+
+/// `output`, the output of an Aggregate without GROUP BY whose value
+/// columns are `values`, with the installed split forgery applied.
+pub(crate) fn forge_split_ungrouped(output: DataFrame, values: &[String]) -> DataFrame {
+    if SPLIT_UNGROUPED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_none()
+    {
+        return output;
+    }
+    let row_id = output
+        .schema()
+        .columns()
+        .into_iter()
+        .find(|column| column.name == arithmetic::ROW_ID_COL_NAME)
+        .expect("the aggregate output carries a row id");
+    let position = datafusion::functions_window::expr_fn::row_number()
+        .order_by(vec![Expr::Column(row_id).sort(true, true)])
+        .build()
+        .expect("row number window")
+        .alias("__split_position__");
+    let output = output.window(vec![position]).expect("row number");
+    let row = |index: i64| datafusion_expr::col("__split_position__").eq(lit(index + 1));
+    let exprs = output
+        .schema()
+        .columns()
+        .into_iter()
+        .map(|column| {
+            let name = column.name.clone();
+            if values.contains(&name) {
+                datafusion_expr::when(row(0), Expr::Column(column.clone()) - lit(1i64))
+                    .when(row(1), lit(1i64))
+                    .otherwise(Expr::Column(column))
+                    .unwrap()
+                    .alias(name)
+            } else if name == arithmetic::ACTIVATOR_COL_NAME {
+                row(0).or(row(1)).alias(name)
+            } else {
+                Expr::Column(column)
+            }
+        })
+        .filter(|expr| expr.schema_name().to_string() != "__split_position__")
+        .collect::<Vec<_>>();
+    output.select(exprs).expect("forged split select")
 }
 
 pub fn set_rescale_forgery() -> Installed<()> {

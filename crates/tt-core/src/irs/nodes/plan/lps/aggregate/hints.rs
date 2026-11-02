@@ -10,6 +10,9 @@ use datafusion_expr::{
 /// - all rows keep their row-level detail, with aggregate values duplicated
 /// - exactly one active row per group is marked as the representative (activator = true)
 /// - all other rows (including originally inactive ones) have activator = false
+///
+/// Without GROUP BY the representative is the first row, active or not: the
+/// output is one row even over no active rows, and its activator is public.
 pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -> DataFrame {
     let row_id_sort_exprs: Vec<SortExpr> = input
         .schema()
@@ -68,20 +71,29 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
 
     // The representative of a group is its first row in (active first, row id)
     // order: new activator = orig_activator && row_number == 1.
+    let ungrouped = aggregate.group_expr.is_empty();
     let mut row_number_builder = row_number().partition_by(aggregate.group_expr.clone());
-    let mut row_number_sort_exprs = vec![col("__activator_orig__").sort(false, true)];
-    if !row_id_sort_exprs.is_empty() {
-        row_number_sort_exprs.extend(row_id_sort_exprs.clone());
+    let mut row_number_sort_exprs = Vec::new();
+    if !ungrouped {
+        row_number_sort_exprs.push(col("__activator_orig__").sort(false, true));
     }
-    row_number_builder = row_number_builder.order_by(row_number_sort_exprs);
+    row_number_sort_exprs.extend(row_id_sort_exprs.clone());
+    if !row_number_sort_exprs.is_empty() {
+        row_number_builder = row_number_builder.order_by(row_number_sort_exprs);
+    }
     let window_expr = row_number_builder
         .build()
         .expect("partitioned row_number window should build")
         .alias("__row_number__");
     let with_rownum = joined.window(vec![window_expr]).unwrap();
 
+    let first = col("__row_number__").eq(lit(1_i64));
     let new_activator_expr = when(
-        col("__activator_orig__").and(col("__row_number__").eq(lit(1_i64))),
+        if ungrouped {
+            first
+        } else {
+            col("__activator_orig__").and(first)
+        },
         lit(true),
     )
     .otherwise(lit(false))

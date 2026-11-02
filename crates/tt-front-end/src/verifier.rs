@@ -179,6 +179,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let ctx = session_context();
         let df = ctx.read_table(result.clone())?;
         let batches = df.collect().await?;
+        crate::shared::ensure_no_nulls_in_result(&batches)?;
         let base_schema = batches
             .first()
             .map(|batch| batch.schema().as_ref().clone())

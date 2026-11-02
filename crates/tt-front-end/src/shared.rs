@@ -275,3 +275,21 @@ impl ExtensionPlanner for TTNoOpExtensionPlanner {
         Ok(Some(Arc::clone(input)))
     }
 }
+
+/// The proof encodes NULL as 0, so a NULL in the result would be proved as a
+/// 0. An aggregate other than COUNT over no rows yields one.
+pub(crate) fn ensure_no_nulls_in_result(
+    batches: &[datafusion::arrow::record_batch::RecordBatch],
+) -> DataFusionResult<()> {
+    let nulls: usize = batches
+        .iter()
+        .flat_map(|batch| batch.columns())
+        .map(|column| column.null_count())
+        .sum();
+    if nulls > 0 {
+        return Err(DataFusionError::Plan(format!(
+            "NULL is not supported: the result holds {nulls} NULLs"
+        )));
+    }
+    Ok(())
+}
