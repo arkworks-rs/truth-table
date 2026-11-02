@@ -84,8 +84,8 @@ where
     /// The string columns some white-box string gadget (e.g. `Like`) reads
     /// char-level side polys for. Arithmetization (prover) and tracking
     /// (verifier) carry side polys only for these; every other string column
-    /// has its hash and length encoding only (paper: "Dropping Auxiliary
-    /// Columns"). Both sides derive the set from the same tree.
+    /// has its hash and length encoding only (TruthTable++ §3.2,
+    /// "Dropping Auxiliary Columns"). Both sides derive the set from the same tree.
     pub fn required_side_columns(&self) -> BTreeSet<String> {
         let mut cols = BTreeSet::new();
         for node in self.arena.values() {

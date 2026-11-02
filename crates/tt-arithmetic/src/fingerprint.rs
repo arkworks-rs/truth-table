@@ -1,4 +1,4 @@
-//! String fingerprints (paper §6.1).
+//! String fingerprints (TruthTable++ §6.1, features §6.2).
 //!
 //! A fingerprint is a bit vector of up to [`NUM_BINS`] bits: bit `b` is set
 //! iff the string has a feature assigned to bin `b`. Pre-filtering reduces
@@ -753,7 +753,7 @@ impl FingerprintScheme {
     }
 
     /// Fingerprint `φ` of a pattern from its literal factors, in pattern
-    /// order (paper §6.2). Characters and n-grams come from each factor
+    /// order: the bins `F_ζ` of TruthTable++ §6.3. Characters and n-grams come from each factor
     /// alone: a wildcard can match anything, so n-grams never cross factors.
     /// Precedence pairs come from the factors read in sequence: a match
     /// keeps its factors in order, so every pair the sequence orders is

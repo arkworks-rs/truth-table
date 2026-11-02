@@ -1,4 +1,4 @@
-//! Fingerprint pre-filter insertion (paper §7.1).
+//! Fingerprint pre-filter insertion (TruthTable++ §6.4).
 //!
 //! Rewrites every `Filter(col LIKE 'pattern')` directly over a table scan
 //! whose pattern sets some fingerprint bin into

@@ -39,7 +39,7 @@ where
     // active rows (BoolCheck + Permutation over the row-domain data columns).
     // It does not bind the char-domain side segments of a string column.
     gadget: Arc<Node<B>>,
-    // The Domain-Preserving Update Check (paper §4.2.2), which binds the
+    // The Domain-Preserving Update Check (TruthTable++ §4.2.2), which binds the
     // char-domain segments the permutation leaves open. Present iff
     // `single_side_string_base` names a column, kept in `dpuc_base`. See
     // `compaction_dpuc`.

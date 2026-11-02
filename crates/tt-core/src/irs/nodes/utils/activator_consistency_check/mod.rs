@@ -1,4 +1,5 @@
-//! Activator consistency check (paper §4.2).
+//! Activator consistency: step 2 of the TruthTable++ Data-Preserving Update
+//! Check (§4.2.1, PIOP 2).
 //!
 //! Given a char-level column `src` with activator `ac`, and a string-level
 //! column `ind` with activator `ah` and a length column `l`, proves for

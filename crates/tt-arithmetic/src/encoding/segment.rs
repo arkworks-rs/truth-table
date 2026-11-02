@@ -32,7 +32,7 @@ pub struct SideSegmentInfo {
     pub active_len: usize,
 }
 
-/// Native storage of a side-domain segment (paper §3.2): `char` and `bnd`
+/// Native storage of a side-domain segment (TruthTable++ §3.2): `char` and `bnd`
 /// are `Bytes`, `orig-ind` and `int-ind` are `U32`. The commit and tracking
 /// passes lift them to `F`.
 #[derive(Debug, Clone, PartialEq, Eq)]
