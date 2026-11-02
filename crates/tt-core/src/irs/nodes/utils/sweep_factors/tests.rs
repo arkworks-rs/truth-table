@@ -7,7 +7,8 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{
-    CHAR_INPUT_LABEL, GadgetNode, Mode, STR_INPUT_LABEL, factor_label, parse_like_pattern,
+    CHAR_INPUT_LABEL, GadgetNode, Mode, STR_INPUT_LABEL, factor_label, like_pattern_literal,
+    parse_like_pattern,
 };
 use crate::irs::nodes::Node;
 use crate::irs::nodes::utils::nodup;
@@ -619,6 +620,25 @@ fn parse_like_collapses_adjacent_wildcards() {
 #[test]
 fn parse_like_escaped_percent_is_literal() {
     assert_factors(r"foo\%bar%", &[(b"foo%bar", Mode::Prefix)]);
+}
+
+#[test]
+fn parse_like_escaped_underscore_and_backslash_are_literal() {
+    assert_factors(r"a\_b%", &[(b"a_b", Mode::Prefix)]);
+    assert_factors(r"%a\\b", &[(br"a\b", Mode::Suffix)]);
+    assert_factors(r"%\x%", &[(b"x", Mode::Infix)]);
+    assert_factors(r"%a\", &[(br"a\", Mode::Suffix)]);
+}
+
+#[test]
+fn like_pattern_literal_is_the_unescaped_wildcard_free_pattern() {
+    assert_eq!(
+        like_pattern_literal(r"a\_b\%").as_deref(),
+        Some(&b"a_b%"[..])
+    );
+    assert_eq!(like_pattern_literal(r"a\\").as_deref(), Some(&br"a\"[..]));
+    assert_eq!(like_pattern_literal("a%"), None);
+    assert_eq!(like_pattern_literal("a_"), None);
 }
 
 #[test]

@@ -28,6 +28,10 @@ end_to_end_tests!(&["nation"] => [
     // Suffix on the last string, whose successor slot is padding.
     like_suffix_last_string_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%be'"#,
     like_prefix_and_suffix_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE 'y%be'"#,
+    // `\a` is a literal `a`.
+    like_escaped_byte_nation => r#"SELECT n_name FROM nation WHERE n_comment LIKE '%h\aggle%'"#,
+    // No unescaped wildcard: the planner proves it as `n_name = 'CHINA'`.
+    like_without_wildcard_nation => r#"SELECT n_name FROM nation WHERE n_name LIKE 'CHIN\A'"#,
 ]);
 
 // Equality filter at a small scale (`part`, nv=14).
