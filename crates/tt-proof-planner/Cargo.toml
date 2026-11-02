@@ -34,6 +34,10 @@ tokio = { workspace = true }
 indexmap = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+
+[features]
+test-utils = ["tt-core/test-utils"]
+
 [dev-dependencies]
 ark-test-curves = { workspace = true }
 datafusion-functions-aggregate = { workspace = true }

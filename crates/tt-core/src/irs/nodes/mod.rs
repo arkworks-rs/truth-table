@@ -351,6 +351,16 @@ impl<B: SnarkBackend> Node<B> {
                 } else if extension
                     .node
                     .as_any()
+                    .is::<plan::proved_empty::ProvedEmptyLogicalNode>()
+                {
+                    Arc::new_cyclic(|weak_self| {
+                        let node =
+                            plan::proved_empty::LpNode::from_lp(plan.clone(), weak_self.clone());
+                        Node::Plan(PlanNode::LpBased(Arc::new(node)))
+                    })
+                } else if extension
+                    .node
+                    .as_any()
                     .downcast_ref::<result_check::ResultCheckLogicalNode>()
                     .is_some()
                 {

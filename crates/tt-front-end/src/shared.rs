@@ -6,7 +6,7 @@ use datafusion::{
     config::ConfigOptions,
     execution::{context::QueryPlanner, session_state::SessionState},
     optimizer::{Analyzer, Optimizer, OptimizerContext, OptimizerRule},
-    physical_plan::ExecutionPlan,
+    physical_plan::{ExecutionPlan, empty::EmptyExec},
     physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},
     prelude::SessionContext,
 };
@@ -21,7 +21,8 @@ use proof_planner::data_dependent_pp_optimizer::{
 use proof_planner::pp_optimizer::{ProofPlanOptimizer, rules as pp_rules};
 use tt_core::ctx_oracles::CtxOracles;
 use tt_core::irs::nodes::plan::{
-    compaction::CompactionLogicalNode, result_check::ResultCheckLogicalNode,
+    compaction::CompactionLogicalNode, proved_empty::ProvedEmptyLogicalNode,
+    result_check::ResultCheckLogicalNode,
 };
 
 /// Configuration the prover, the verifier and the data owner share: the
@@ -246,6 +247,11 @@ impl ExtensionPlanner for TTNoOpExtensionPlanner {
         physical_inputs: &[Arc<dyn ExecutionPlan>],
         _session_state: &SessionState,
     ) -> DataFusionResult<Option<Arc<dyn ExecutionPlan>>> {
+        if node.as_any().is::<ProvedEmptyLogicalNode>() {
+            return Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+                node.schema().as_arrow().clone(),
+            )))));
+        }
         // Compaction and ResultCheck affect proof construction, not query
         // execution: each is a wrapper over a single input execution plan.
         let is_supported_noop = node.as_any().is::<CompactionLogicalNode>()

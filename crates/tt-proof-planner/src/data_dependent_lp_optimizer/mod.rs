@@ -9,14 +9,18 @@ use datafusion_common::{
     DataFusionError, Result as DataFusionResult,
     tree_node::{Transformed, TreeNode, TreeNodeRecursion},
 };
-use datafusion_expr::LogicalPlan;
+use datafusion_expr::{LogicalPlan, logical_plan::EmptyRelation};
 use serde::{Deserialize, Serialize};
-use tt_core::irs::nodes::plan::compaction::CompactionLogicalNode;
+use tt_core::irs::nodes::plan::{
+    compaction::CompactionLogicalNode, proved_empty::ProvedEmptyLogicalNode,
+};
 
 mod compaction;
 mod prefilter_bins;
+mod proved_empty;
 pub use compaction::CompactionRule;
 pub use prefilter_bins::PrefilterBinsRule;
+pub use proved_empty::{EmptySubtreeRule, propagate_empty};
 
 /// A data-dependent decision the verifier replays. Each rule emits one
 /// variant.
@@ -31,6 +35,10 @@ pub enum OptimizationHint {
     },
     /// Wrap the LP subtree at `target_path` in a `CompactionLogicalNode`.
     Compaction { target_path: Vec<usize> },
+    /// Replace the LP subtree at `target_path` by an empty table that it
+    /// proves empty, then prune what only passes that emptiness on
+    /// ([`propagate_empty`]).
+    ProvedEmpty { target_path: Vec<usize> },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,9 +109,11 @@ impl DataDependentOptimizer {
 /// `DataDependentOptimizer` from a subset to disable specific rules.
 pub fn rules() -> Vec<Arc<dyn DataDependentOptimizationRule>> {
     // The pre-filter rule comes first: compaction decisions depend on how much the
-    // pre-filters drop.
+    // pre-filters drop. Compaction comes after the pruning of empty subtrees,
+    // which removes nodes it would otherwise compact.
     vec![
         Arc::new(PrefilterBinsRule::new()),
+        Arc::new(EmptySubtreeRule::new()),
         Arc::new(CompactionRule::new()),
     ]
 }
@@ -116,9 +126,9 @@ pub fn collect_data_dependent_hints(
     DataDependentOptimizer::with_rules(rules()).collect_hints(session_ctx, plan)
 }
 
-/// Applies the pre-filter bin hints, then the compaction hints: removing a
-/// pre-filter shifts the paths below it, and compaction hints were collected
-/// on the plan after the bins were chosen.
+/// Applies the pre-filter bin hints, then the empty-subtree hints, then the
+/// compaction hints, in the order of [`rules`]: each kind was collected on
+/// the plan with the earlier kinds applied, which shift the paths.
 pub fn apply_optimization_hints(
     plan: LogicalPlan,
     hints: &OptimizationHints,
@@ -130,6 +140,7 @@ pub fn apply_optimization_hints(
     }
 
     let mut compaction_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
+    let mut empty_paths: BTreeSet<Vec<usize>> = BTreeSet::new();
     let mut prefilter_bins: BTreeMap<Vec<usize>, Vec<Bin>> = BTreeMap::new();
     for hint in &hints.hints {
         match hint {
@@ -138,6 +149,9 @@ pub fn apply_optimization_hints(
             }
             OptimizationHint::Compaction { target_path } => {
                 compaction_paths.insert(target_path.clone());
+            }
+            OptimizationHint::ProvedEmpty { target_path } => {
+                empty_paths.insert(target_path.clone());
             }
         }
     }
@@ -152,6 +166,20 @@ pub fn apply_optimization_hints(
             return Err(DataFusionError::Plan(format!(
                 "Unapplied pre-filter bin hints at paths: {:?}",
                 prefilter_bins.keys().collect::<Vec<_>>()
+            )));
+        }
+        rewritten
+    };
+
+    let plan = if empty_paths.is_empty() {
+        plan
+    } else {
+        let rewritten =
+            proved_empty::apply_proved_empty_hints(plan, &mut Vec::new(), &mut empty_paths)?;
+        if !empty_paths.is_empty() {
+            return Err(DataFusionError::Plan(format!(
+                "Unapplied empty-subtree hints at paths: {:?}",
+                empty_paths
             )));
         }
         rewritten
@@ -172,35 +200,41 @@ pub fn apply_optimization_hints(
 }
 
 /// Counts the rows `plan` produces by executing it through DataFusion, with
-/// compaction wrappers stripped.
+/// compaction wrappers stripped and proved-empty tables made empty.
 pub(crate) fn row_count(
     session_state: &SessionState,
     plan: &LogicalPlan,
 ) -> DataFusionResult<usize> {
-    let plan = strip_compaction(plan)?;
+    let plan = executable(plan)?;
     let df = DataFrame::new(session_state.clone(), plan);
     let batches = tt_core::session::block_on(df.collect())?;
     Ok(batches.iter().map(|batch| batch.num_rows()).sum())
 }
 
-fn strip_compaction(plan: &LogicalPlan) -> DataFusionResult<LogicalPlan> {
+fn executable(plan: &LogicalPlan) -> DataFusionResult<LogicalPlan> {
     let transformed = plan.clone().transform_down(|node| {
         let LogicalPlan::Extension(extension) = &node else {
             return Ok(Transformed::no(node));
         };
-        if !extension.node.as_any().is::<CompactionLogicalNode>() {
-            return Ok(Transformed::no(node));
+        let node_any = extension.node.as_any();
+        if let Some(compaction) = node_any.downcast_ref::<CompactionLogicalNode>() {
+            return Ok(Transformed::new(
+                compaction.input().clone(),
+                true,
+                TreeNodeRecursion::Continue,
+            ));
         }
-        let compaction = extension
-            .node
-            .as_any()
-            .downcast_ref::<CompactionLogicalNode>()
-            .expect("compaction extension node");
-        Ok(Transformed::new(
-            compaction.input().clone(),
-            true,
-            TreeNodeRecursion::Continue,
-        ))
+        if node_any.is::<ProvedEmptyLogicalNode>() {
+            return Ok(Transformed::new(
+                LogicalPlan::EmptyRelation(EmptyRelation {
+                    produce_one_row: false,
+                    schema: node.schema().clone(),
+                }),
+                true,
+                TreeNodeRecursion::Jump,
+            ));
+        }
+        Ok(Transformed::no(node))
     })?;
     Ok(transformed.data)
 }

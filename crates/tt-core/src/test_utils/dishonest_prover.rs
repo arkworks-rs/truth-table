@@ -196,6 +196,38 @@ pub(crate) fn scans_unowned() -> bool {
         .is_some()
 }
 
+static EMPTY_FIRST_FILTER: Mutex<Option<()>> = Mutex::new(None);
+
+/// Makes the prover mark the plan's first Filter as proved empty, whatever
+/// its output.
+pub fn set_empty_first_filter() -> Installed<()> {
+    install(&EMPTY_FIRST_FILTER, ())
+}
+
+/// The path of the first Filter of `plan` in pre-order, when the installed
+/// forgery marks it as proved empty.
+pub fn forged_empty_path(plan: &datafusion_expr::LogicalPlan) -> Option<Vec<usize>> {
+    fn first_filter(plan: &datafusion_expr::LogicalPlan, path: &mut Vec<usize>) -> bool {
+        if matches!(plan, datafusion_expr::LogicalPlan::Filter(_)) {
+            return true;
+        }
+        for (index, input) in plan.inputs().into_iter().enumerate() {
+            path.push(index);
+            if first_filter(input, path) {
+                return true;
+            }
+            path.pop();
+        }
+        false
+    }
+    EMPTY_FIRST_FILTER
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()?;
+    let mut path = Vec::new();
+    first_filter(plan, &mut path).then_some(path)
+}
+
 pub fn set_claimed_result(rewrite: ResultRewrite) -> Installed<ResultRewrite> {
     install(&CLAIMED_RESULT, rewrite)
 }
