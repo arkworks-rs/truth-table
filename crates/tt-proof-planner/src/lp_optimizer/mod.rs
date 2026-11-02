@@ -24,6 +24,7 @@ pub use fetch_safe_push_down_filter::FetchSafePushDownFilter;
 mod in_list_as_comparisons;
 mod lift_join_filter;
 mod like_prefilter;
+mod like_without_wildcard_as_equality;
 pub use like_prefilter::insert_like_prefilters;
 mod merge_filters;
 mod merge_limits;
@@ -65,6 +66,7 @@ pub fn rules(_session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send 
         // After the last SimplifyExpressions, which would merge the
         // comparisons back into an IN list.
         Arc::new(in_list_as_comparisons::InListAsComparisons::new()),
+        Arc::new(like_without_wildcard_as_equality::LikeWithoutWildcardAsEquality::new()),
         // Compaction is not in this list: it is data-dependent, so the prover
         // emits hints and the verifier replays them.
         Arc::new(AddResultCheck::new()),

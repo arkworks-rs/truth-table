@@ -69,12 +69,13 @@ pub const STR_INPUT_LABEL: &str = "__str_input__";
 /// empty pattern and `"%"` give an empty list, which callers special-case
 /// (they match every string).
 ///
-/// `\%` is a literal `%`. The `_` wildcard is not supported: a pattern with
-/// an unescaped `_` is rejected.
+/// `\` escapes the next byte, as in arrow's `like` kernel. The `_` wildcard
+/// is not supported: a pattern with an unescaped `_` is rejected.
 ///
-/// A pattern without wildcards (`"abc"`) parses to `[(abc, Prefix)]`, which
-/// with the LFC threshold means `LIKE 'abc%'`, not equality. A caller that
-/// wants `col = 'abc'` must lower to an equality expression instead.
+/// A pattern without an unescaped wildcard (`'abc'`, `'a\_b'`) parses to a
+/// single `Prefix` factor, which with the LFC threshold means `LIKE 'abc%'`,
+/// not equality. The planner rewrites such a LIKE as the equality with
+/// [`like_pattern_literal`].
 pub fn parse_like_pattern<F: ark_ff::PrimeField>(
     pattern: &str,
 ) -> Result<Vec<(Vec<F>, Mode)>, String> {
@@ -90,41 +91,7 @@ pub fn parse_like_pattern<F: ark_ff::PrimeField>(
 /// [`parse_like_pattern`] with the factors left as bytes, for callers such as
 /// the fingerprint pre-filter that hash the factor bytes.
 pub fn parse_like_pattern_bytes(pattern: &str) -> Result<Vec<(Vec<u8>, Mode)>, String> {
-    if pattern.is_empty() {
-        return Ok(Vec::new());
-    }
-    let bytes = pattern.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'_' {
-            return Err("LIKE `_` (single-char wildcard) is not supported yet".to_string());
-        }
-        if bytes[i] == b'\\' && i + 1 < bytes.len() {
-            // An escaped byte is not a wildcard.
-            i += 2;
-            continue;
-        }
-        i += 1;
-    }
-
-    // Split on unescaped `%`, treating `\%` as a literal.
-    let mut segments: Vec<Vec<u8>> = Vec::new();
-    let mut current: Vec<u8> = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'%' {
-            current.push(b'%');
-            i += 2;
-        } else if bytes[i] == b'%' {
-            segments.push(std::mem::take(&mut current));
-            i += 1;
-        } else {
-            current.push(bytes[i]);
-            i += 1;
-        }
-    }
-    segments.push(current);
-
+    let segments = like_segments(pattern)?;
     let starts_with_wild = segments.first().map(|s| s.is_empty()).unwrap_or(true);
     let ends_with_wild = segments.last().map(|s| s.is_empty()).unwrap_or(true);
 
@@ -147,6 +114,33 @@ pub fn parse_like_pattern_bytes(pattern: &str) -> Result<Vec<(Vec<u8>, Mode)>, S
         factors.push((seg, mode));
     }
     Ok(factors)
+}
+
+/// The string a LIKE pattern without an unescaped wildcard matches exactly,
+/// or `None` if the pattern has a wildcard.
+pub fn like_pattern_literal(pattern: &str) -> Option<Vec<u8>> {
+    match like_segments(pattern) {
+        Ok(mut segments) if segments.len() == 1 => segments.pop(),
+        _ => None,
+    }
+}
+
+/// The pattern split on unescaped `%` and un-escaped. A trailing `\` is a
+/// literal `\`, as in arrow's `like` kernel.
+fn like_segments(pattern: &str) -> Result<Vec<Vec<u8>>, String> {
+    let mut segments = Vec::new();
+    let mut current = Vec::new();
+    let mut bytes = pattern.bytes();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'\\' => current.push(bytes.next().unwrap_or(b'\\')),
+            b'%' => segments.push(std::mem::take(&mut current)),
+            b'_' => return Err("LIKE `_` (single-char wildcard) is not supported yet".to_string()),
+            _ => current.push(byte),
+        }
+    }
+    segments.push(current);
+    Ok(segments)
 }
 
 /// Payload label of slot `name` of factor `j` (0-indexed). The slots are
