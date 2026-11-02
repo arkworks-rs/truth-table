@@ -790,7 +790,7 @@ fn regroup_flat_into_tracked_cols<B: SnarkBackend>(
 }
 
 /// A side-domain polynomial: one of the char-level polynomials of a string
-/// column (paper §3.2: `__chars`, `__orig_ind`, `__int_ind`, `__bnd`). It
+/// column (TruthTable++ §3.2: `__chars`, `__orig_ind`, `__int_ind`, `__bnd`). It
 /// has its own `log_size`, and its activator is the contiguous-one
 /// polynomial of weight `active_len`. The data stays in native form; the
 /// commit and tracking passes build `MLE<F>` views from it.
@@ -1069,7 +1069,7 @@ impl<F: PrimeField> ArithTable<F> {
         B: SnarkBackend,
     {
         let schema = table.schema();
-        let size = table.size();
+        let log_size = table.log_size();
         let tracked_polys = table
             .tracked_polys()
             .into_iter()
@@ -1084,7 +1084,7 @@ impl<F: PrimeField> ArithTable<F> {
         // (`__chars`, `__bnd` → Bytes; `__orig_ind`, `__int_ind` → U32).
         let side_cols: IndexMap<FieldRef, ArithSideCol> = IndexMap::new();
         let _ = table.side_cols(); // touch to keep it live if reactivated
-        ArithTable::new_with_side_cols(schema, tracked_polys, size, side_cols)
+        ArithTable::new_with_side_cols(schema, tracked_polys, log_size, side_cols)
     }
 
     pub fn activator_polynomial(&self) -> Option<&Arc<MLE<F>>> {
@@ -1131,7 +1131,7 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             }
         }
 
-        (self.size() as u64).serialize_with_mode(&mut writer, compress)?;
+        (self.log_size as u64).serialize_with_mode(&mut writer, compress)?;
 
         // Side-domain columns follow: the count, then per column its field,
         // log_size, active_len, element-type tag and data. `active_len`
@@ -1179,7 +1179,7 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             }
         }
 
-        size += (self.size() as u64).serialized_size(compress);
+        size += (self.log_size as u64).serialized_size(compress);
 
         size += (self.side_cols.len() as u64).serialized_size(compress);
         for (field_ref, side) in &self.side_cols {
@@ -1244,8 +1244,9 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
             polynomials.insert(field_ref, mle);
         }
 
-        let size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
-        let size = usize::try_from(size_raw).map_err(|_| SerializationError::InvalidData)?;
+        let log_size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
+        let log_size =
+            usize::try_from(log_size_raw).map_err(|_| SerializationError::InvalidData)?;
 
         let side_count_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
         let side_count =
@@ -1293,7 +1294,7 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
             );
         }
 
-        let table = Self::new_with_side_cols(schema, polynomials, size, side_cols);
+        let table = Self::new_with_side_cols(schema, polynomials, log_size, side_cols);
         table.check()?;
         Ok(table)
     }
@@ -1308,10 +1309,77 @@ impl<F: PrimeField> Valid for ArithTable<F> {
         }
 
         for (_, mle) in &self.polynomials {
-            if self.size() != 0 && (1usize << mle.num_vars()) != self.size() {
+            if mle.num_vars() != self.log_size {
                 return Err(SerializationError::InvalidData);
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    use ark_test_curves::bls12_381::Fr;
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use indexmap::IndexMap;
+
+    use super::{ArithSideCol, ArithTable, MLE};
+    use crate::encoding::SideColData;
+
+    fn round_trip(table: &ArithTable<Fr>) -> ArithTable<Fr> {
+        let mut bytes = Vec::new();
+        table.serialize_compressed(&mut bytes).unwrap();
+        assert_eq!(bytes.len(), table.compressed_size());
+        ArithTable::deserialize_compressed(bytes.as_slice()).unwrap()
+    }
+
+    #[test]
+    fn a_table_survives_a_round_trip() {
+        let log_size = 3;
+        let fields = [
+            Field::new("a", DataType::Int64, false),
+            Field::new("s", DataType::Utf8, false),
+        ];
+        let polynomials: IndexMap<_, _> = fields
+            .iter()
+            .enumerate()
+            .map(|(column, field)| {
+                let evals = (0..1u64 << log_size)
+                    .map(|row| Fr::from(10 * column as u64 + row))
+                    .collect();
+                (
+                    Arc::new(field.clone()),
+                    Arc::new(MLE::from_evaluations_vec(log_size, evals)),
+                )
+            })
+            .collect();
+        let schema = Some(Schema::new(fields.to_vec()));
+
+        let table = ArithTable::new(schema.clone(), polynomials.clone(), log_size);
+        assert_eq!(round_trip(&table), table);
+
+        let side_cols = IndexMap::from([
+            (
+                Arc::new(Field::new("s__chars", DataType::UInt8, false)),
+                ArithSideCol {
+                    data: SideColData::Bytes(vec![1, 2, 3, 0]),
+                    log_size: 2,
+                    active_len: 3,
+                },
+            ),
+            (
+                Arc::new(Field::new("s__int_ind", DataType::UInt32, false)),
+                ArithSideCol {
+                    data: SideColData::U32(vec![0, 0, 1, 0]),
+                    log_size: 2,
+                    active_len: 3,
+                },
+            ),
+        ]);
+        let table = ArithTable::new_with_side_cols(schema, polynomials, log_size, side_cols);
+        assert_eq!(round_trip(&table), table);
     }
 }
