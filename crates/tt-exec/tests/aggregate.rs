@@ -46,3 +46,9 @@ end_to_end_tests!(&["supplier"] => [
 end_to_end_tests!(&["supplier"] => [
     bare_count_star => r#"SELECT COUNT(*) FROM supplier"#,
 ]);
+
+// One row reaches the aggregate, so its compacted input and output each fit
+// a one-row domain.
+end_to_end_tests!(&["nation"] => [
+    group_by_one_row => r#"SELECT n_regionkey, COUNT(*) FROM nation WHERE n_nationkey = 3 GROUP BY n_regionkey ORDER BY n_regionkey"#,
+]);
