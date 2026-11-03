@@ -170,12 +170,9 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
         "multiplicity hint: values/active length mismatch"
     );
     let row_count = multiplicities.len();
-    // Pad to a power-of-two so downstream MLE construction has a clean domain.
-    let target = if row_count <= 1 {
-        2
-    } else {
-        row_count.next_power_of_two()
-    };
+    // The multiplicity column must have the super table's domain, a one-row
+    // domain included.
+    let target = row_count.next_power_of_two();
     let pad = target - row_count;
     let mut m_vals = multiplicities;
     m_vals.extend(std::iter::repeat_n(0i64, pad));

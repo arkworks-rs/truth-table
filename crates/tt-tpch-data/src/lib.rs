@@ -37,6 +37,9 @@ use tpchgen_arrow::*;
 
 const ROW_ID_COL_NAME: &str = "__row_id__";
 const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
+/// Poneglyph's benchmark data scales only `lineitem`; every other table is
+/// its SF 0.01 one. The `_poneglyph` tables follow it, so `lineitem_poneglyph`
+/// names orders and parts that exist only when the run's scale is this one.
 const FIXED_PONEGLYPH_SCALE: f64 = 0.01;
 const NORMAL_DECIMAL_PRECISION: u8 = 18;
 const NORMAL_DECIMAL_SCALE: i8 = 3;
@@ -71,7 +74,7 @@ struct ForeignKeySpec {
     ref_columns: Vec<String>,
 }
 
-fn tpch_constraints_manifest() -> ConstraintManifest {
+fn tpch_constraints_manifest(scale: f64) -> ConstraintManifest {
     let mut tables = vec![
         TableConstraintSpec {
             table: "region".to_string(),
@@ -168,6 +171,9 @@ fn tpch_constraints_manifest() -> ConstraintManifest {
             for fk in &mut table.foreign_keys {
                 fk.ref_table = format!("{}_poneglyph", fk.ref_table);
             }
+            if table.table == "lineitem_poneglyph" && scale != FIXED_PONEGLYPH_SCALE {
+                table.foreign_keys.clear();
+            }
             table
         })
         .collect();
@@ -180,11 +186,11 @@ fn tpch_constraints_manifest() -> ConstraintManifest {
     }
 }
 
-fn write_constraints_manifest<P: AsRef<Path>>(out_dir: P) {
+fn write_constraints_manifest<P: AsRef<Path>>(out_dir: P, scale: f64) {
     let out_dir = out_dir.as_ref();
     create_dir_all(out_dir).expect("create output dir for constraints");
     let out_path = out_dir.join(CONSTRAINTS_FILE_NAME);
-    let payload = serde_json::to_string_pretty(&tpch_constraints_manifest())
+    let payload = serde_json::to_string_pretty(&tpch_constraints_manifest(scale))
         .expect("serialize tpch constraints manifest");
     let mut file = File::create(&out_path).expect("create constraints manifest file");
     file.write_all(payload.as_bytes())
@@ -1002,7 +1008,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = LineItemGenerator::new(scale, 1, 1);
         let mut it_raw = LineItemArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = LineItemGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
+        let generator_poneglyph = LineItemGenerator::new(scale, 1, 1);
         let mut it_poneglyph =
             LineItemArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
@@ -1018,7 +1024,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         );
     }
 
-    write_constraints_manifest(out);
+    write_constraints_manifest(out, scale);
 }
 
 /// Rewrite an existing Parquet file in the shape [`write_parquet`]
