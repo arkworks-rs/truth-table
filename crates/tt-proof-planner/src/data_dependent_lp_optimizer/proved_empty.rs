@@ -42,7 +42,7 @@ impl DataDependentOptimizationRule for EmptySubtreeRule {
         plan: &LogicalPlan,
     ) -> DataFusionResult<Vec<OptimizationHint>> {
         let mut hints = Vec::new();
-        collect(session_state, plan, &mut Vec::new(), &mut hints)?;
+        collect(session_state, plan, false, &mut Vec::new(), &mut hints)?;
         #[cfg(feature = "test-utils")]
         if let Some(target_path) = tt_core::test_utils::dishonest_prover::forged_empty_path(plan) {
             hints.push(OptimizationHint::ProvedEmpty { target_path });
@@ -51,24 +51,38 @@ impl DataDependentOptimizationRule for EmptySubtreeRule {
     }
 }
 
+/// Counting a node executes its whole subtree, so only nodes not already
+/// known to be non-empty are counted: when a node is non-empty, so are the
+/// inputs whose emptiness would propagate to it.
 fn collect(
     session_state: &SessionState,
     plan: &LogicalPlan,
+    known_non_empty: bool,
     path: &mut Vec<usize>,
     hints: &mut Vec<OptimizationHint>,
 ) -> DataFusionResult<()> {
-    if !is_result_check(plan)
-        && !matches!(plan, LogicalPlan::TableScan(_))
-        && row_count(session_state, plan)? == 0
-    {
+    let counted =
+        !known_non_empty && !is_result_check(plan) && !matches!(plan, LogicalPlan::TableScan(_));
+    if counted && row_count(session_state, plan)? == 0 {
         let mut target_path = path.clone();
         lowest_empty(session_state, plan, &mut target_path)?;
         hints.push(OptimizationHint::ProvedEmpty { target_path });
         return Ok(());
     }
+    let non_empty_inputs = if known_non_empty || counted {
+        empty_inputs_that_propagate(plan)
+    } else {
+        Vec::new()
+    };
     for (index, input) in plan.inputs().into_iter().enumerate() {
         path.push(index);
-        collect(session_state, input, path, hints)?;
+        collect(
+            session_state,
+            input,
+            non_empty_inputs.contains(&index),
+            path,
+            hints,
+        )?;
         path.pop();
     }
     Ok(())
@@ -195,12 +209,22 @@ fn is_result_check(plan: &LogicalPlan) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, sync::Arc};
 
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::{
+        arrow::{
+            array::Int64Array,
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        datasource::MemTable,
+    };
     use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, col, lit, logical_plan::table_scan};
 
-    use super::{apply_proved_empty_hints, is_proved_empty, proved_empty_witness};
+    use super::super::{DataDependentOptimizationRule, OptimizationHint};
+    use super::{
+        EmptySubtreeRule, apply_proved_empty_hints, is_proved_empty, proved_empty_witness,
+    };
 
     fn scan(name: &str) -> LogicalPlanBuilder {
         let schema = Schema::new(vec![
@@ -240,17 +264,9 @@ mod tests {
         assert!(matches!(witness, LogicalPlan::Filter(_)), "{witness}");
     }
 
-    /// The filter under the join is the lowest empty node, and its
-    /// emptiness reaches the root.
-    #[tokio::test]
-    async fn the_rule_proves_the_lowest_empty_node() {
-        use std::sync::Arc;
-
-        use datafusion::{arrow::record_batch::RecordBatch, datasource::MemTable};
-
-        use super::super::{DataDependentOptimizationRule, OptimizationHint};
-        use super::EmptySubtreeRule;
-
+    /// The rule's hints for `sql` over two three-row tables `t` and `u`
+    /// with columns `k` and `v`, and the plan they target.
+    async fn rule_hints(sql: &str) -> (LogicalPlan, Vec<OptimizationHint>) {
         let ctx = tt_core::session::session_context();
         for name in ["t", "u"] {
             let schema = Arc::new(Schema::new(vec![
@@ -260,8 +276,8 @@ mod tests {
             let batch = RecordBatch::try_new(
                 schema.clone(),
                 vec![
-                    Arc::new(datafusion::arrow::array::Int64Array::from(vec![1, 2, 3])),
-                    Arc::new(datafusion::arrow::array::Int64Array::from(vec![4, 5, 6])),
+                    Arc::new(Int64Array::from(vec![1, 2, 3])),
+                    Arc::new(Int64Array::from(vec![4, 5, 6])),
                 ],
             )
             .unwrap();
@@ -271,15 +287,19 @@ mod tests {
             )
             .unwrap();
         }
-        let plan = ctx
-            .sql("SELECT t.k, u.v FROM t JOIN u ON t.k = u.k WHERE t.v > 100")
-            .await
-            .unwrap()
-            .into_optimized_plan()
-            .unwrap();
+        let plan = ctx.sql(sql).await.unwrap().into_optimized_plan().unwrap();
         let hints = EmptySubtreeRule::new()
             .collect_hints(&ctx.state(), &plan)
             .unwrap();
+        (plan, hints)
+    }
+
+    /// The filter under the join is the lowest empty node, and its
+    /// emptiness reaches the root.
+    #[tokio::test]
+    async fn the_rule_proves_the_lowest_empty_node() {
+        let (plan, hints) =
+            rule_hints("SELECT t.k, u.v FROM t JOIN u ON t.k = u.k WHERE t.v > 100").await;
         let [OptimizationHint::ProvedEmpty { target_path }] = hints.as_slice() else {
             panic!("{hints:?}\n{plan}");
         };
@@ -287,6 +307,20 @@ mod tests {
         assert!(is_proved_empty(&rewritten), "{rewritten}");
         let witness = proved_empty_witness(&rewritten).unwrap();
         assert!(matches!(witness, LogicalPlan::Filter(_)), "{witness}");
+    }
+
+    /// An aggregate without GROUP BY is non-empty over an empty input, so
+    /// that input is counted on its own.
+    #[tokio::test]
+    async fn the_rule_finds_an_empty_input_under_a_non_empty_node() {
+        let (plan, hints) =
+            rule_hints("SELECT COUNT(*) FROM t JOIN u ON t.k = u.k WHERE t.v > 100").await;
+        let [OptimizationHint::ProvedEmpty { target_path }] = hints.as_slice() else {
+            panic!("{hints:?}\n{plan}");
+        };
+        let rewritten = apply(plan.clone(), target_path.clone()).unwrap();
+        assert!(!is_proved_empty(&rewritten), "{rewritten}");
+        assert!(rewritten.to_string().contains("ProvedEmpty"), "{rewritten}");
     }
 
     /// An aggregate without GROUP BY outputs a row over no rows.
