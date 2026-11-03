@@ -617,9 +617,12 @@ fn qualify_fields(df_schema: &DFSchema) -> IndexMap<FieldRef, FieldRef> {
     let mut out = IndexMap::new();
     for (qualifier, field) in df_schema.iter() {
         let mut updated = field.as_ref().clone();
-        if updated.name() == arithmetic::ACTIVATOR_COL_NAME
-            || updated.name() == arithmetic::ROW_ID_COL_NAME
-        {
+        // The prover's canonical activator field.
+        if updated.name() == arithmetic::ACTIVATOR_COL_NAME {
+            out.insert(field.clone(), arithmetic::ACTIVATOR_FIELD.clone());
+            continue;
+        }
+        if updated.name() == arithmetic::ROW_ID_COL_NAME {
             out.insert(field.clone(), Arc::new(updated));
             continue;
         }

@@ -253,9 +253,13 @@ fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
         .iter()
         .map(|(qualifier, field)| {
             let mut updated = field.as_ref().clone();
-            if updated.name() == arithmetic::ACTIVATOR_COL_NAME
-                || updated.name() == arithmetic::ROW_ID_COL_NAME
-            {
+            // Tables are keyed by field, so a materialized activator must be
+            // the field every node inserts and looks up, whatever nullability
+            // its hint expression has.
+            if updated.name() == arithmetic::ACTIVATOR_COL_NAME {
+                return arithmetic::ACTIVATOR_FIELD.as_ref().clone();
+            }
+            if updated.name() == arithmetic::ROW_ID_COL_NAME {
                 return updated;
             }
             if let Some(qualifier) = qualifier {
