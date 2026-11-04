@@ -2,8 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
+use ark_piop::errors::SnarkResult;
 use datafusion::arrow::datatypes::{DataType, FieldRef, Schema};
-use datafusion_common::ScalarValue;
+use datafusion_common::{DFSchema, ScalarValue};
 use datafusion_expr::{BinaryExpr, Expr, ExprSchemable, expr_fn::when, lit};
 use indexmap::IndexMap;
 
@@ -13,9 +14,11 @@ use crate::irs::{
     tree::Tree,
 };
 use crate::{
+    irs::nodes::utils::bounds,
     irs::nodes::{
         NodeId,
         plan::exprs::binary_expr::gadget::{
+            bin_arith,
             bin_cmp::{self, BinCmpOp},
             bin_div,
             bin_eq::{self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL},
@@ -34,6 +37,7 @@ pub struct ExprNode<B: SnarkBackend> {
     pub left: Arc<Node<B>>,
     pub right: Arc<Node<B>>,
     pub scope: Vec<std::sync::Weak<Node<B>>>,
+    parent: Option<std::sync::Weak<Node<B>>>,
     pub gadget: Option<Arc<Node<B>>>,
     /// Output data field, cached to avoid repeated recursive `output()` calls
     /// during virtualization.
@@ -129,8 +133,28 @@ impl<B: SnarkBackend> ExprNode<B> {
         field
     }
 
+    /// Whether the gadget proves anything: `+`, `-` and `*` range-check their
+    /// output only where `bounds::plan` asks. Refuses an operation, or a
+    /// comparison, that could leave the field.
+    fn gadget_needed(&self, log_rows: usize, schema: &DFSchema) -> SnarkResult<bool> {
+        let checked = bounds::plan::output_is_checked::<B>(
+            &Expr::BinaryExpr(self.binary_expression.clone()),
+            self.parent.as_ref(),
+            log_rows,
+            schema,
+        )?;
+        let arithmetic = matches!(
+            self.binary_expression.op,
+            datafusion_expr::Operator::Plus
+                | datafusion_expr::Operator::Minus
+                | datafusion_expr::Operator::Multiply
+        );
+        Ok(self.gadget.is_some() && (checked || !arithmetic))
+    }
+
     /// Comparisons and division are materialized; the other operators stay
-    /// virtual (`virtual_ops`).
+    /// virtual (`virtual_ops`), with `+`, `-` and `*` range-checked
+    /// (`bin_arith`).
     fn should_materialize(&self) -> bool {
         matches!(
             self.binary_expression.op,
@@ -143,8 +167,8 @@ impl<B: SnarkBackend> ExprNode<B> {
                 | datafusion_expr::Operator::Divide
         )
     }
-    fn dispatch_gadget(op: datafusion_expr::Operator) -> Option<Arc<Node<B>>> {
-        match op {
+    fn dispatch_gadget(expr: &BinaryExpr) -> Option<Arc<Node<B>>> {
+        match expr.op {
             datafusion_expr::Operator::Eq => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_eq::BinEqNode::new(),
             )))),
@@ -163,12 +187,18 @@ impl<B: SnarkBackend> ExprNode<B> {
             datafusion_expr::Operator::Lt => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_cmp::BinCmpNode::new(BinCmpOp::Lt),
             )))),
-            datafusion_expr::Operator::Multiply => None,
+            datafusion_expr::Operator::Multiply => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_arith::BinArithNode::new(expr.op),
+            )))),
             datafusion_expr::Operator::Divide => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_div::BinDivNode::new(),
             )))),
-            datafusion_expr::Operator::Plus => None,
-            datafusion_expr::Operator::Minus => None,
+            datafusion_expr::Operator::Plus => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_arith::BinArithNode::new(expr.op),
+            )))),
+            datafusion_expr::Operator::Minus => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_arith::BinArithNode::new(expr.op),
+            )))),
             datafusion_expr::Operator::And => None,
             datafusion_expr::Operator::Or => None,
             _ => panic!("Unsupported operator for binary expression gadget"),
@@ -347,7 +377,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if self.gadget.is_none() {
+        let log_rows = match virtualized_ir.payload_for_node(&_id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.log_size(),
+            _ => 0,
+        };
+        if !self.gadget_needed(log_rows, &bounds::plan::prover_scope_schema(&self.scope))? {
             return Ok(());
         }
         let extract_plan_payload =
@@ -508,7 +542,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if self.gadget.is_none() {
+        let log_rows = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.log_size(),
+            _ => 0,
+        };
+        if !self.gadget_needed(log_rows, &bounds::plan::verifier_scope_schema(&self.scope))? {
             return Ok(());
         }
         let extract_plan_payload = |node_id: &NodeId| {
@@ -721,7 +759,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
     fn from_expr(
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
-        _parent: Option<std::sync::Weak<Node<B>>>,
+        parent: Option<std::sync::Weak<Node<B>>>,
         scope: Vec<std::sync::Weak<Node<B>>>,
     ) -> Self
     where
@@ -746,12 +784,13 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         )
         .root()
         .clone();
-        let gadget = Self::dispatch_gadget(binary_expression.op);
+        let gadget = Self::dispatch_gadget(&binary_expression);
         Self {
             binary_expression,
             left,
             right,
             scope,
+            parent,
             gadget,
             output_data_field_cache: Mutex::new(None),
         }

@@ -599,6 +599,27 @@ impl<B: SnarkBackend> SignNode<B> {
         verifier.add_mv_lookup_claim(range_oracle.id(), col_activated_oracle.id())
     }
 
+    /// Refuses a type whose non-negativity proof spans more bits than the
+    /// field allows (`range`): past that, the proof holds for `x` and `-x`
+    /// alike. The widths are the limb widths of `prove_sign_inner` added up.
+    fn ensure_width_fits(data_type: &DataType) -> SnarkResult<()> {
+        let width = match data_type {
+            DataType::UInt8 => 8,
+            DataType::Int8 => 7,
+            DataType::UInt16 => 16,
+            DataType::Int16 => 15,
+            DataType::UInt32 | DataType::UInt64 => 64,
+            DataType::Int32 | DataType::Date32 | DataType::Int64 => 63,
+            DataType::Decimal128(..) => 127,
+            other => {
+                return Err(ark_piop::errors::SnarkError::DataTypeError(
+                    ark_piop::arithmetic::errors::DataTypeError::NotSupported(other.to_string()),
+                ));
+            }
+        };
+        range::ensure_width::<B::F>(width)
+    }
+
     fn prove_sign_inner(
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
@@ -606,6 +627,7 @@ impl<B: SnarkBackend> SignNode<B> {
     ) -> SnarkResult<()> {
         let field_ref = col.field_ref().expect("Expected field ref for Sign gadget");
         let data_type = field_ref.data_type();
+        Self::ensure_width_fits(data_type)?;
         match data_type {
             DataType::UInt8 => {
                 Self::add_range_inclusion(prover, col, 8)?;
@@ -655,12 +677,6 @@ impl<B: SnarkBackend> SignNode<B> {
                     Self::add_range_inclusion(prover, segment, 16)?;
                 }
             }
-            DataType::Utf8View => {
-                let segments = Self::prove_non_neg_uint256(prover, col)?;
-                for segment in segments {
-                    Self::add_range_inclusion(prover, &segment, 16)?;
-                }
-            }
             _ => {
                 return Err(ark_piop::errors::SnarkError::DataTypeError(
                     ark_piop::arithmetic::errors::DataTypeError::NotSupported(
@@ -679,6 +695,7 @@ impl<B: SnarkBackend> SignNode<B> {
     ) -> SnarkResult<()> {
         let field_ref = col.field_ref().expect("Expected field ref for Sign gadget");
         let data_type = field_ref.data_type();
+        Self::ensure_width_fits(data_type)?;
         match data_type {
             DataType::UInt8 => {
                 Self::add_range_inclusion_oracle(verifier, col, 8)?;
@@ -730,12 +747,6 @@ impl<B: SnarkBackend> SignNode<B> {
                 Self::add_range_inclusion_oracle(verifier, top, 15)?;
                 for segment in rest {
                     Self::add_range_inclusion_oracle(verifier, segment, 16)?;
-                }
-            }
-            DataType::Utf8View => {
-                let segments = Self::verify_non_neg_uint256(verifier, col)?;
-                for segment in segments {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             _ => {
@@ -1004,86 +1015,6 @@ impl<B: SnarkBackend> SignNode<B> {
         Ok(tracked_cols)
     }
 
-    #[allow(clippy::complexity)]
-    fn prove_non_neg_uint256(
-        prover: &mut ArgProver<B>,
-        col: &TrackedCol<B>,
-    ) -> SnarkResult<Vec<TrackedCol<B>>> {
-        let evaluations = col.data_tracked_poly().evaluations();
-        let activator_evals = col.activator_tracked_poly().map(|a| a.evaluations());
-        let log_size = col.log_size();
-        let mut chunk_values: Vec<Vec<u32>> = (0..16)
-            .map(|_| Vec::with_capacity(evaluations.len()))
-            .collect();
-
-        for (idx, &eval) in evaluations.iter().enumerate() {
-            if activator_evals.as_ref().is_some_and(|a| a[idx].is_zero()) {
-                for target in chunk_values.iter_mut() {
-                    target.push(0);
-                }
-                continue;
-            }
-            let chunks = Self::split_field_into_u16_limbs::<16>(eval);
-            for (target, chunk) in chunk_values.iter_mut().zip(chunks.iter()) {
-                target.push(*chunk as u32);
-            }
-        }
-
-        let mut chunk_polys = Vec::with_capacity(16);
-        for values in chunk_values {
-            let poly = prover.track_and_commit_mat_mv_poly(&MLE::from_u32s(values, log_size))?;
-            chunk_polys.push(poly);
-        }
-
-        let recomposed = Self::recompose_tracked_polys(&chunk_polys);
-        let combined = &col.data_tracked_poly() - &recomposed;
-        let zero_poly = match &col.activator_tracked_poly() {
-            Some(activator) => &combined * activator,
-            None => combined,
-        };
-        prover.add_mv_zerocheck_claim(zero_poly.id())?;
-
-        let activator = col.activator_tracked_poly();
-        let field_ref = col.field_ref().clone();
-        let tracked_cols = chunk_polys
-            .into_iter()
-            .map(|poly| TrackedCol::new(poly, activator.clone(), field_ref.clone()))
-            .collect();
-
-        Ok(tracked_cols)
-    }
-
-    #[allow(clippy::complexity)]
-    fn verify_non_neg_uint256(
-        verifier: &mut ArgVerifier<B>,
-        tracked_col_oracle: &TrackedColOracle<B>,
-    ) -> SnarkResult<Vec<TrackedColOracle<B>>> {
-        let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
-        let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
-
-        let mut chunk_polys = Vec::with_capacity(16);
-        for _ in 0..16 {
-            let chunk_poly = verifier.track_next_mv_com()?;
-            chunk_polys.push(chunk_poly);
-        }
-
-        let recomposed = Self::recompose_tracked_oracles(&chunk_polys);
-        let combined = &col_inner - &recomposed;
-        let zero_poly = match &col_activator {
-            Some(activator) => &combined * activator,
-            None => combined,
-        };
-        verifier.add_mv_zerocheck_claim(zero_poly.id());
-
-        let field_ref = tracked_col_oracle.field_ref().clone();
-        let tracked_cols = chunk_polys
-            .into_iter()
-            .map(|poly| TrackedColOracle::new(poly, col_activator.clone(), field_ref.clone()))
-            .collect();
-
-        Ok(tracked_cols)
-    }
-
     fn recompose_tracked_polys(chunks: &[TrackedPoly<B>]) -> TrackedPoly<B> {
         debug_assert!(!chunks.is_empty());
         let base = B::F::from(1u64 << 16);
@@ -1165,37 +1096,6 @@ impl<B: SnarkBackend> SignNode<B> {
         Self::split_u128_into_u16s(bits)
     }
 
-    fn split_field_into_u16_limbs<const N: usize>(value: B::F) -> [u16; N] {
-        let bigint = value.into_bigint();
-        let limbs = bigint.as_ref();
-        let mut little_endian_chunks = Vec::with_capacity(N);
-        let mut limb_index = 0usize;
-        let mut shift = 0usize;
-
-        while little_endian_chunks.len() < N {
-            if limb_index >= limbs.len() {
-                little_endian_chunks.push(0u16);
-            } else {
-                let limb = limbs[limb_index];
-                let chunk = ((limb >> shift) & 0xFFFF) as u16;
-                little_endian_chunks.push(chunk);
-                shift += 16;
-                if shift >= 64 {
-                    shift -= 64;
-                    limb_index += 1;
-                }
-            }
-        }
-
-        let mut big_endian_chunks = vec![0u16; N];
-        for (idx, val) in little_endian_chunks.into_iter().enumerate() {
-            big_endian_chunks[N - 1 - idx] = val;
-        }
-        big_endian_chunks
-            .try_into()
-            .expect("chunk count must match the specified output size")
-    }
-
     fn field_low_bits_unsigned(value: B::F, bits: usize) -> u128 {
         debug_assert!(bits <= 128);
         if bits == 0 {
@@ -1254,12 +1154,6 @@ impl<B: SnarkBackend> SignNode<B> {
             DataType::Int32 | DataType::Date32 => Self::eval_signed_sign(value, 32, sign),
             DataType::Int64 => Self::eval_signed_sign(value, 64, sign),
             DataType::Decimal128(..) => Self::eval_signed_sign(value, 128, sign),
-            DataType::Utf8View => match sign {
-                Sign::NonNegative => true,
-                Sign::Positive => !value.is_zero(),
-                Sign::NonPositive => value.is_zero(),
-                Sign::Negative => false,
-            },
             _ => false,
         }
     }
@@ -1330,12 +1224,28 @@ impl<B: SnarkBackend> SignNode<B> {
                 None,
                 Some(128),
             ),
-            DataType::Utf8View => (
-                None,
-                Some(Self::field_low_bits_unsigned(value, 128)),
-                Some(128),
-            ),
             _ => (None, None, None),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ark_piop::DefaultSnarkBackend;
+    use datafusion::arrow::datatypes::DataType;
+
+    use super::SignNode;
+
+    #[test]
+    fn a_string_has_no_sign_check() {
+        assert!(SignNode::<DefaultSnarkBackend>::ensure_width_fits(&DataType::Utf8View).is_err());
+        for data_type in [
+            DataType::Int64,
+            DataType::UInt64,
+            DataType::Decimal128(38, 2),
+        ] {
+            SignNode::<DefaultSnarkBackend>::ensure_width_fits(&data_type)
+                .unwrap_or_else(|e| panic!("{data_type} fits the default field: {e:?}"));
         }
     }
 }

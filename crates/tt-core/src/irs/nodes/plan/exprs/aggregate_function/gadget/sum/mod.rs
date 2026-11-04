@@ -1,19 +1,62 @@
 use std::sync::Arc;
 
-use ark_piop::SnarkBackend;
+use ark_piop::{SnarkBackend, errors::SnarkResult};
+use datafusion::arrow::datatypes::DataType;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::plan::exprs::aggregate_function::gadget::{
     INPUT_RLC_LABEL, OUTPUT_LABEL, OUTPUT_RLC_LABEL, input_label,
 };
+use crate::irs::nodes::utils::bounds::{Bound, check};
 use crate::irs::nodes::utils::keyed_sumcheck;
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
+/// The keyed sumcheck proves the sums; this range-checks each against the
+/// output type (`bounds::check`), so a SUM is as safe an operand as a
+/// column.
 pub struct GadgetNode<B: SnarkBackend> {
     keyed_sumcheck: Arc<Node<B>>,
+}
+
+/// The input type and domain size, and the output's activator, column and
+/// type.
+macro_rules! sum_operands {
+    ($payload:expr, $polys:ident, $col_by_ind:ident, $data:ident) => {{
+        let table = |label: &str| {
+            $payload
+                .get(label)
+                .unwrap_or_else(|| panic!("Sum Aggregate Function missing payload {label}"))
+        };
+        let input = table(&input_label(0));
+        let output = table(OUTPUT_LABEL);
+        let input_col = input.$col_by_ind(input.$polys()[0]);
+        let out_col = output.$col_by_ind(output.$polys()[0]);
+        let field_type = |field: Option<datafusion::arrow::datatypes::FieldRef>| {
+            field
+                .expect("SUM operand should carry a data field")
+                .data_type()
+                .clone()
+        };
+        (
+            field_type(input_col.field_ref()),
+            input.log_size(),
+            output.activator_tracked_poly(),
+            out_col.$data(),
+            field_type(out_col.field_ref()),
+        )
+    }};
+}
+
+/// Bounds the sum by the argument's type. An argument past its type is one
+/// `bounds::plan` left unchecked, which it does only when its own bound
+/// passes this test.
+fn ensure_fits_field<B: SnarkBackend>(input_type: &DataType, log_size: usize) -> SnarkResult<()> {
+    Bound::of_type(input_type)?
+        .sum(log_size)
+        .ensure_fits_field::<B::F>(&format!("SUM of {input_type} over 2^{log_size} rows"))
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -175,30 +218,62 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        // TODO: implement gadget proof
-        Ok(())
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let (input_type, log_size, activator, out, out_type) = sum_operands!(
+            payload,
+            data_tracked_polys_indices,
+            tracked_col_by_ind,
+            data_tracked_poly
+        );
+        ensure_fits_field::<B>(&input_type, log_size)?;
+        check::prove(prover, activator.as_ref(), &out, &out_type)
     }
 
     fn honest_prover_check(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let (input_type, log_size, activator, out, out_type) = sum_operands!(
+            payload,
+            data_tracked_polys_indices,
+            tracked_col_by_ind,
+            data_tracked_poly
+        );
+        ensure_fits_field::<B>(&input_type, log_size)?;
+        check::honest_check(activator.as_ref(), &out, &out_type, &self.name())
     }
 
     fn verify(
         &self,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let (input_type, log_size, activator, out, out_type) = sum_operands!(
+            payload,
+            data_tracked_oracles_indices,
+            tracked_col_oracle_by_ind,
+            data_tracked_oracle
+        );
+        ensure_fits_field::<B>(&input_type, log_size)?;
+        check::verify(verifier, activator.as_ref(), &out, &out_type)
     }
 
     fn prover_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -226,3 +301,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

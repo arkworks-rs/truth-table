@@ -392,7 +392,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
     }
 
     fn expr(&self) -> datafusion_expr::Expr {
-        todo!()
+        datafusion_expr::Expr::Alias(self.alias.clone())
     }
 
     fn parent(&self) -> crate::irs::nodes::PlanNode<B>
