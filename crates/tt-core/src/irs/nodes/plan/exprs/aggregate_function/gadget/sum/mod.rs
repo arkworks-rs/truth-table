@@ -15,14 +15,17 @@ use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
 /// The keyed sumcheck proves the sums; this range-checks each against the
-/// output type (`bounds::check`), so a SUM is as safe an operand as a
-/// column.
+/// output type (`bounds::check`) where `bounds::plan` asks, so a SUM is as
+/// safe an operand as a column.
 pub struct GadgetNode<B: SnarkBackend> {
     keyed_sumcheck: Arc<Node<B>>,
 }
 
-/// The input type and domain size, and the output's activator, column and
-/// type.
+/// The output, given only where it is range-checked.
+pub const CHECKED_OUTPUT_LABEL: &str = "__checked-output__";
+
+/// The input type and domain size, and the checked output's activator,
+/// column and type.
 macro_rules! sum_operands {
     ($payload:expr, $polys:ident, $col_by_ind:ident, $data:ident) => {{
         let table = |label: &str| {
@@ -31,22 +34,22 @@ macro_rules! sum_operands {
                 .unwrap_or_else(|| panic!("Sum Aggregate Function missing payload {label}"))
         };
         let input = table(&input_label(0));
-        let output = table(OUTPUT_LABEL);
         let input_col = input.$col_by_ind(input.$polys()[0]);
-        let out_col = output.$col_by_ind(output.$polys()[0]);
         let field_type = |field: Option<datafusion::arrow::datatypes::FieldRef>| {
             field
                 .expect("SUM operand should carry a data field")
                 .data_type()
                 .clone()
         };
-        (
-            field_type(input_col.field_ref()),
-            input.log_size(),
-            output.activator_tracked_poly(),
-            out_col.$data(),
-            field_type(out_col.field_ref()),
-        )
+        let checked = $payload.get(CHECKED_OUTPUT_LABEL).map(|output| {
+            let out_col = output.$col_by_ind(output.$polys()[0]);
+            (
+                output.activator_tracked_poly(),
+                out_col.$data(),
+                field_type(out_col.field_ref()),
+            )
+        });
+        (field_type(input_col.field_ref()), input.log_size(), checked)
     }};
 }
 
@@ -226,13 +229,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let (input_type, log_size, activator, out, out_type) = sum_operands!(
+        let (input_type, log_size, checked) = sum_operands!(
             payload,
             data_tracked_polys_indices,
             tracked_col_by_ind,
             data_tracked_poly
         );
         ensure_fits_field::<B>(&input_type, log_size)?;
+        let Some((activator, out, out_type)) = checked else {
+            return Ok(());
+        };
         check::prove(prover, activator.as_ref(), &out, &out_type)
     }
 
@@ -246,13 +252,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let (input_type, log_size, activator, out, out_type) = sum_operands!(
+        let (input_type, log_size, checked) = sum_operands!(
             payload,
             data_tracked_polys_indices,
             tracked_col_by_ind,
             data_tracked_poly
         );
         ensure_fits_field::<B>(&input_type, log_size)?;
+        let Some((activator, out, out_type)) = checked else {
+            return Ok(());
+        };
         check::honest_check(activator.as_ref(), &out, &out_type, &self.name())
     }
 
@@ -266,13 +275,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let (input_type, log_size, activator, out, out_type) = sum_operands!(
+        let (input_type, log_size, checked) = sum_operands!(
             payload,
             data_tracked_oracles_indices,
             tracked_col_oracle_by_ind,
             data_tracked_oracle
         );
         ensure_fits_field::<B>(&input_type, log_size)?;
+        let Some((activator, out, out_type)) = checked else {
+            return Ok(());
+        };
         check::verify(verifier, activator.as_ref(), &out, &out_type)
     }
 

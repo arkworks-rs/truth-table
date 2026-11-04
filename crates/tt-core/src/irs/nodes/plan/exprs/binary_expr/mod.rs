@@ -381,7 +381,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => table.log_size(),
             _ => 0,
         };
-        if !self.gadget_needed(log_rows, &bounds::plan::prover_scope_schema(&self.scope))? {
+        if !self.gadget_needed(log_rows, &bounds::plan::scope_schema(&self.scope))? {
             return Ok(());
         }
         let extract_plan_payload =
@@ -546,7 +546,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => table.log_size(),
             _ => 0,
         };
-        if !self.gadget_needed(log_rows, &bounds::plan::verifier_scope_schema(&self.scope))? {
+        if !self.gadget_needed(log_rows, &bounds::plan::scope_schema(&self.scope))? {
             return Ok(());
         }
         let extract_plan_payload = |node_id: &NodeId| {

@@ -97,10 +97,57 @@ fn a_sum_argument_stays_unchecked_while_the_sum_fits() {
             .is_checked(&revenue, &Consumer::Sum { log_rows: 23 })
             .unwrap()
     );
+    // 192 bits past Int64: summed over 2^60 rows they pass 2^S, and the
+    // check brings them back to 64.
+    let xyz = col("x") * col("y") * col("z");
     assert!(
-        plan.is_checked(&revenue, &Consumer::Sum { log_rows: 200 })
+        !plan
+            .is_checked(&xyz, &Consumer::Sum { log_rows: 23 })
             .unwrap()
     );
+    assert!(
+        plan.is_checked(&xyz, &Consumer::Sum { log_rows: 60 })
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_root_within_its_type_is_not_checked() {
+    let schema = schema();
+    let plan = Plan::<F>::new(&schema);
+    // AVG's widening cast: |v| ≤ 2^50 · 10^4 < 2^64, the range of Decimal(19).
+    let widened = cast(col("price"), DataType::Decimal128(19, 6));
+    assert!(!plan.is_checked(&widened, &Consumer::Root).unwrap());
+    let narrow = cast(col("price"), DataType::Decimal128(16, 6));
+    assert!(plan.is_checked(&narrow, &Consumer::Root).unwrap());
+    // 2^50 · (1 + 2^50) is within the product's Decimal128(31+).
+    let revenue = col("price") * (lit(1i64) - col("discount"));
+    assert!(!plan.is_checked(&revenue, &Consumer::Root).unwrap());
+    // 2^128 is not within Int64.
+    assert!(
+        plan.is_checked(&(col("x") * col("y")), &Consumer::Root)
+            .unwrap()
+    );
+    // Nor is any operation on unsigned values, which could be negative.
+    assert!(
+        plan.is_checked(&(col("a") + col("b")), &Consumer::Root)
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_sum_output_within_its_type_is_not_checked() {
+    let schema = schema();
+    let checked = |arg: Expr, log_rows, output_type| {
+        super::sum_output_is_checked::<DefaultSnarkBackend>(&arg, log_rows, &output_type, &schema)
+            .unwrap()
+    };
+    // Decimal(15, 2) summed into Decimal(25, 2), checked to 2^84.
+    let sum_type = DataType::Decimal128(25, 2);
+    assert!(!checked(col("price"), 19, sum_type.clone()));
+    assert!(checked(col("price"), 40, sum_type));
+    // Int64 sums into Int64: no room for the rows.
+    assert!(checked(col("x"), 1, DataType::Int64));
 }
 
 #[test]

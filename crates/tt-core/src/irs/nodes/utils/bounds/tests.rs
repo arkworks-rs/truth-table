@@ -3,7 +3,7 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
 use datafusion_expr::{Expr, col, expr::Cast, lit};
 
-use super::{Bound, Numeric, numeric, safe_bits};
+use super::{Bound, Numeric, numeric, pow2, safe_bits};
 
 type F = <DefaultSnarkBackend as SnarkBackend>::F;
 
@@ -40,39 +40,49 @@ fn type_bounds() {
 
 #[test]
 fn literal_bounds_follow_the_value() {
-    let of = |expr: Expr| Bound::of_literal(&expr).map(Bound::bits);
-    assert_eq!(of(lit(0i64)), Some(0));
-    assert_eq!(of(lit(255u8)), Some(8));
-    assert_eq!(of(lit(-256i64)), Some(9));
-    // 100.00 cast to scale 4 is the integer 1_000_000 < 2^20.
+    let of = |expr: Expr| Bound::of_literal(&expr).map(|b| b.max);
+    assert_eq!(of(lit(0i64)), Some(0u8.into()));
+    assert_eq!(of(lit(255u8)), Some(255u8.into()));
+    assert_eq!(of(lit(-256i64)), Some(256u16.into()));
+    // 100.00 cast to scale 4 is the integer 1_000_000.
     let hundred = Expr::Cast(Cast::new(
         Box::new(lit(ScalarValue::Decimal128(Some(10_000), 5, 2))),
         DataType::Decimal128(38, 4),
     ));
-    assert_eq!(of(hundred), Some(20));
+    assert_eq!(of(hundred), Some(1_000_000u32.into()));
     assert_eq!(of(col("a")), None);
     assert_eq!(of(lit(1.5f64)), None);
 }
 
+fn exactly(max: u128) -> Bound {
+    Bound { max: max.into() }
+}
+
 #[test]
-fn operation_bounds() {
-    let b = |bits| Bound { bits };
-    assert_eq!(b(8).add(b(16)).bits(), 17);
-    assert_eq!(b(8).mul(b(16)).bits(), 24);
-    assert_eq!(b(50).sum(23).bits(), 73);
-    // 10^3 < 2^10.
-    assert_eq!(b(50).scale_pow10(3).bits(), 60);
+fn operation_bounds_are_exact() {
+    assert_eq!(exactly(255).add(&exactly(65_535)), exactly(65_790));
+    assert_eq!(exactly(255).mul(&exactly(255)), exactly(65_025));
+    assert_eq!(exactly(3).sum(4), exactly(48));
+    assert_eq!(exactly(7).scale_pow10(3), exactly(7_000));
+}
+
+#[test]
+fn bits_round_up_to_a_power_of_two() {
+    assert_eq!(exactly(0).bits(), 0);
+    assert_eq!(exactly(1).bits(), 0);
+    assert_eq!(exactly(1 << 20).bits(), 20);
+    assert_eq!(exactly((1 << 20) + 1).bits(), 21);
 }
 
 #[test]
 fn the_field_rule_follows_the_field() {
     let s = safe_bits::<F>();
     assert_eq!(s, 250);
-    Bound { bits: s }
-        .ensure_fits_field::<F>("test")
-        .expect("2^S fits");
+    let pow2 = |bits| Bound { max: pow2(bits) };
+    pow2(s).ensure_fits_field::<F>("test").expect("2^S fits");
     assert!(
-        Bound { bits: s + 1 }
+        pow2(s)
+            .add(&exactly(1))
             .ensure_fits_field::<F>("test")
             .is_err()
     );

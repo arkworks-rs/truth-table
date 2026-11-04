@@ -25,6 +25,7 @@ use ark_piop::{
 use datafusion::arrow::datatypes::DataType;
 use datafusion_common::ScalarValue;
 use datafusion_expr::{Expr, expr::Cast};
+use num_bigint::BigUint;
 
 pub(crate) fn safe_bits<F: PrimeField>() -> usize {
     F::MODULUS_BIT_SIZE as usize - 4
@@ -83,15 +84,24 @@ fn unsupported(data_type: &DataType) -> SnarkError {
     )))
 }
 
-/// `|v| ≤ 2^bits`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `|v| ≤ max`, exact: rounding a bound to bits loses whether `10^19` fits
+/// a range of `2^64`.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Bound {
-    bits: usize,
+    max: BigUint,
+}
+
+fn pow2(exp: usize) -> BigUint {
+    BigUint::from(1u8) << exp
 }
 
 impl Bound {
-    pub(crate) fn bits(self) -> usize {
-        self.bits
+    /// The fewest bits with `|v| ≤ 2^bits`.
+    pub(crate) fn bits(&self) -> usize {
+        if self.max <= BigUint::from(1u8) {
+            return 0;
+        }
+        (&self.max - 1u8).bits() as usize
     }
 
     /// The bound every value of the type meets. A boolean is 0 or 1.
@@ -102,7 +112,7 @@ impl Bound {
             (_, Some(Numeric::Decimal { precision, .. })) => pow10_bits(precision.into()),
             (_, None) => return Err(unsupported(data_type)),
         };
-        Ok(Self { bits })
+        Ok(Self { max: pow2(bits) })
     }
 
     /// A constant operand's bound, from its value. The Cast node proves a
@@ -129,44 +139,48 @@ impl Bound {
             _ => return None,
         };
         Some(Self {
-            bits: 128 - raw.unsigned_abs().leading_zeros() as usize,
+            max: raw.unsigned_abs().into(),
         })
     }
 
     /// `a ± b`.
-    pub(crate) fn add(self, other: Self) -> Self {
+    pub(crate) fn add(&self, other: &Self) -> Self {
         Self {
-            bits: self.bits.max(other.bits) + 1,
+            max: &self.max + &other.max,
         }
     }
 
-    pub(crate) fn mul(self, other: Self) -> Self {
+    pub(crate) fn mul(&self, other: &Self) -> Self {
         Self {
-            bits: self.bits + other.bits,
+            max: &self.max * &other.max,
         }
     }
 
     /// A sum over a domain of `2^log_rows` rows: a public bound on how many
     /// are active.
-    pub(crate) fn sum(self, log_rows: usize) -> Self {
+    pub(crate) fn sum(&self, log_rows: usize) -> Self {
         Self {
-            bits: self.bits + log_rows,
+            max: &self.max << log_rows,
         }
     }
 
     /// `v · 10^exp`.
-    pub(crate) fn scale_pow10(self, exp: u32) -> Self {
+    pub(crate) fn scale_pow10(&self, exp: u32) -> Self {
         Self {
-            bits: self.bits + pow10_bits(exp),
+            max: &self.max * BigUint::from(10u8).pow(exp),
         }
+    }
+
+    pub(crate) fn fits_field<F: PrimeField>(&self) -> bool {
+        self.max <= pow2(safe_bits::<F>())
     }
 
     /// Refuses a value beyond `2^S`, where the field no longer names one
     /// integer for it; `what` names the value in the error.
-    pub(crate) fn ensure_fits_field<F: PrimeField>(self, what: &str) -> SnarkResult<()> {
-        if self.bits > safe_bits::<F>() {
+    pub(crate) fn ensure_fits_field<F: PrimeField>(&self, what: &str) -> SnarkResult<()> {
+        if !self.fits_field::<F>() {
             return Err(SnarkError::DataTypeError(DataTypeError::NotSupported(
-                format!("{what}: a {}-bit value does not fit the field", self.bits),
+                format!("{what}: a {}-bit value does not fit the field", self.bits()),
             )));
         }
         Ok(())

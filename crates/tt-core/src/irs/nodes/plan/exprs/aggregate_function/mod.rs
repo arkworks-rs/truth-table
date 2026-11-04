@@ -17,6 +17,7 @@ use indexmap::IndexMap;
 use crate::irs::{
     nodes::{
         IsExprNode, IsNode, IsPlanNode, Node, NodeId, PlanNode, ProverNodeOps, VerifierNodeOps,
+        utils::bounds,
     },
     payloads::PayloadStructure,
     tree::Tree,
@@ -440,6 +441,26 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                 );
             }
 
+            if self.aggregate_function.func.name() == "sum" {
+                let out_type = aggr_expr_table
+                    .tracked_col_by_ind(aggr_expr_table.data_tracked_polys_indices()[0])
+                    .field_ref()
+                    .expect("SUM output should carry a data field")
+                    .data_type()
+                    .clone();
+                let log_rows = gadget_payload[&gadget::input_label(0)].log_size();
+                if bounds::plan::sum_output_is_checked::<B>(
+                    &self.aggregate_function.params.args[0],
+                    log_rows,
+                    &out_type,
+                    &bounds::plan::scope_schema(&self.scope),
+                )? {
+                    gadget_payload.insert(
+                        gadget::sum::CHECKED_OUTPUT_LABEL.to_string(),
+                        aggr_expr_table.clone(),
+                    );
+                }
+            }
             gadget_payload.insert(
                 crate::irs::nodes::plan::exprs::aggregate_function::gadget::OUTPUT_LABEL
                     .to_string(),
@@ -754,6 +775,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 );
             }
 
+            if self.aggregate_function.func.name() == "sum" {
+                let out_type = aggr_expr_table
+                    .tracked_col_oracle_by_ind(aggr_expr_table.data_tracked_oracles_indices()[0])
+                    .field_ref()
+                    .expect("SUM output should carry a data field")
+                    .data_type()
+                    .clone();
+                let log_rows = gadget_payload[&gadget::input_label(0)].log_size();
+                if bounds::plan::sum_output_is_checked::<B>(
+                    &self.aggregate_function.params.args[0],
+                    log_rows,
+                    &out_type,
+                    &bounds::plan::scope_schema(&self.scope),
+                )? {
+                    gadget_payload.insert(
+                        gadget::sum::CHECKED_OUTPUT_LABEL.to_string(),
+                        aggr_expr_table.clone(),
+                    );
+                }
+            }
             gadget_payload.insert(
                 crate::irs::nodes::plan::exprs::aggregate_function::gadget::OUTPUT_LABEL
                     .to_string(),

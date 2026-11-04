@@ -137,3 +137,25 @@ fn inactive_rows_are_not_checked() {
     result.expect("inactive rows are masked out");
     assert!(honest);
 }
+
+#[test]
+fn admits_exactly_the_range_the_check_enforces() {
+    use num_bigint::BigUint;
+
+    use super::admits;
+    use crate::irs::nodes::utils::bounds::Bound;
+
+    let within = |max: BigUint, data_type: DataType| admits(&Bound { max }, &data_type);
+    let pow = |base: u32, exp: u32| BigUint::from(base).pow(exp);
+    // Decimal128(19, _) is checked to [-2^64, 2^64): 10^19 - 1 fits, the
+    // bound 2^64 rounding up to bits would give does not.
+    assert!(within(pow(10, 19) - 1u8, DataType::Decimal128(19, 6)));
+    assert!(!within(pow(2, 64), DataType::Decimal128(19, 6)));
+    // Int64 is checked to [-2^63, 2^63).
+    assert!(within(pow(2, 63) - 1u8, DataType::Int64));
+    assert!(!within(pow(2, 63), DataType::Int64));
+    // An unsigned range admits no negative value.
+    assert!(within(BigUint::ZERO, DataType::UInt8));
+    assert!(!within(BigUint::from(1u8), DataType::UInt64));
+    assert!(!within(BigUint::ZERO, DataType::Utf8));
+}
