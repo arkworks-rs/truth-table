@@ -11,8 +11,11 @@
 //! as operands checked, which brings them back to their types.
 //!
 //! Every other consumer reads a value by its type (a column, a key, the
-//! result, a division), so an operation it consumes is always checked. That
-//! keeps every column within its type, and a column's bound is its type's.
+//! result, a division), so an operation it consumes is checked, unless its
+//! bound already lies in the range the check admits ([`check::admits`]).
+//! That keeps every column within its type, and a column's bound is its
+//! type's. A SUM's output is checked on the same terms
+//! ([`sum_output_is_checked`]).
 //!
 //! Prover and verifier run this on the same expressions and decide alike.
 
@@ -29,9 +32,9 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion_common::DFSchema;
 use datafusion_expr::{BinaryExpr, Expr, ExprSchemable, Operator, expr::Cast};
 
-use super::{Bound, Numeric, numeric, safe_bits};
+use super::{Bound, Numeric, check, numeric};
 use crate::irs::nodes::plan::exprs::cast::{Rescale, rescale};
-use crate::irs::nodes::{IsProverPlanNode, IsVerifierPlanNode, Node, PlanNode};
+use crate::irs::nodes::{Node, PlanNode};
 
 /// How an expression's value is consumed.
 pub(crate) enum Consumer<'a> {
@@ -124,9 +127,9 @@ impl<'a, F: PrimeField> Plan<'a, F> {
                     return Ok(None);
                 };
                 match op {
-                    Operator::Multiply => Some(l.mul(r)),
+                    Operator::Multiply => Some(l.mul(&r)),
                     Operator::Plus | Operator::Minus | Operator::Eq | Operator::NotEq => {
-                        Some(l.add(r))
+                        Some(l.add(&r))
                     }
                     // `bin_cmp` rescales decimal operands to the larger scale.
                     Operator::Lt | Operator::LtEq | Operator::Gt | Operator::GtEq => {
@@ -141,7 +144,7 @@ impl<'a, F: PrimeField> Plan<'a, F> {
                         let target = ls.max(rs);
                         Some(
                             l.scale_pow10((target - ls) as u32)
-                                .add(r.scale_pow10((target - rs) as u32)),
+                                .add(&r.scale_pow10((target - rs) as u32)),
                         )
                     }
                     _ => None,
@@ -181,7 +184,7 @@ impl<'a, F: PrimeField> Plan<'a, F> {
     /// operands checked: its bound with them unchecked passes `2^S`.
     fn checks_operands(&self, parent: &Expr) -> SnarkResult<bool> {
         let bound = self.operation(parent, |operand| self.unchecked(operand))?;
-        Ok(bound.is_some_and(|b| b.bits() > safe_bits::<F>()))
+        Ok(bound.is_some_and(|b| !b.fits_field::<F>()))
     }
 
     pub(crate) fn is_checked(&self, expr: &Expr, consumer: &Consumer) -> SnarkResult<bool> {
@@ -189,7 +192,7 @@ impl<'a, F: PrimeField> Plan<'a, F> {
         if !self.is_checkable(expr)? {
             return Ok(false);
         }
-        Ok(match consumer {
+        let needs_type = match consumer {
             Consumer::Root => true,
             Consumer::Operand(parent) => {
                 let parent = strip_alias(parent);
@@ -198,8 +201,16 @@ impl<'a, F: PrimeField> Plan<'a, F> {
             }
             Consumer::Sum { log_rows } => self
                 .unchecked(expr)?
-                .is_none_or(|b| b.sum(*log_rows).bits() > safe_bits::<F>()),
-        })
+                .is_none_or(|b| !b.sum(*log_rows).fits_field::<F>()),
+        };
+        if !needs_type {
+            return Ok(false);
+        }
+        // A bound the check already admits makes the check redundant.
+        let data_type = self.data_type(expr)?;
+        Ok(!self
+            .unchecked(expr)?
+            .is_some_and(|bound| check::admits(&bound, &data_type)))
     }
 
     fn is_comparison(&self, expr: &Expr) -> bool {
@@ -251,27 +262,12 @@ pub(crate) fn parent_expr<B: SnarkBackend>(parent: Option<&Weak<Node<B>>>) -> Op
 }
 
 /// The schema an expression node's operands are typed in: its scope's
-/// output, as the prover plans it.
-pub(crate) fn prover_scope_schema<B: SnarkBackend>(scope: &[Weak<Node<B>>]) -> DFSchema {
+/// logical plan's, the same for prover and verifier.
+pub(crate) fn scope_schema<B: SnarkBackend>(scope: &[Weak<Node<B>>]) -> DFSchema {
     let scope = scope[0].upgrade().expect("an expression's scope is alive");
     match scope.as_ref() {
-        Node::Plan(plan) => <PlanNode<B> as IsProverPlanNode<B>>::output(plan)
-            .data_frame()
-            .schema()
-            .clone(),
-        Node::Gadget(_) => panic!("an expression's scope is a plan node"),
-    }
-}
-
-/// [`prover_scope_schema`], as the verifier plans it.
-pub(crate) fn verifier_scope_schema<B: SnarkBackend>(scope: &[Weak<Node<B>>]) -> DFSchema {
-    let scope = scope[0].upgrade().expect("an expression's scope is alive");
-    match scope.as_ref() {
-        Node::Plan(plan) => <PlanNode<B> as IsVerifierPlanNode<B>>::output(plan)
-            .data_frame()
-            .schema()
-            .clone(),
-        Node::Gadget(_) => panic!("an expression's scope is a plan node"),
+        Node::Plan(PlanNode::LpBased(node)) => node.lp().schema().as_ref().clone(),
+        _ => panic!("an expression's scope is a relational plan node"),
     }
 }
 
@@ -288,6 +284,21 @@ pub(crate) fn output_is_checked<B: SnarkBackend>(
     plan.ensure_fits_field(expr)?;
     let parent = parent_expr(parent);
     plan.is_checked(expr, &Consumer::of_parent(parent.as_ref(), log_rows))
+}
+
+/// Whether a SUM of `arg` over a domain of `2^log_rows` rows range-checks
+/// its output against `output_type`: not when the argument's bound, as
+/// summed, already lies in the range the check admits.
+pub(crate) fn sum_output_is_checked<B: SnarkBackend>(
+    arg: &Expr,
+    log_rows: usize,
+    output_type: &DataType,
+    schema: &DFSchema,
+) -> SnarkResult<bool> {
+    let plan = Plan::<B::F>::new(schema);
+    Ok(!plan
+        .consumed(arg, &Consumer::Sum { log_rows })?
+        .is_some_and(|bound| check::admits(&bound.sum(log_rows), output_type)))
 }
 
 #[cfg(test)]

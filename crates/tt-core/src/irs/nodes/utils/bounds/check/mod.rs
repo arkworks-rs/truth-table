@@ -25,7 +25,9 @@ use ark_piop::{
 };
 use datafusion::arrow::datatypes::DataType;
 
-use super::{Numeric, numeric, pow10_bits};
+use num_bigint::BigUint;
+
+use super::{Bound, Numeric, numeric, pow10_bits};
 use crate::irs::nodes::utils::sign::range;
 
 /// The exponent of the offset (none for unsigned) and the range width.
@@ -46,6 +48,18 @@ fn offset_and_width(data_type: &DataType) -> SnarkResult<(Option<usize>, usize)>
             )));
         }
     })
+}
+
+/// Whether every value within `bound` lies in the range the check of
+/// `data_type` admits, `[-offset, 2^width - offset)`; an unsigned range
+/// admits no negative value, so only `bound = 0`. A type without a check
+/// admits nothing.
+pub(crate) fn admits(bound: &Bound, data_type: &DataType) -> bool {
+    let Ok((exp, width)) = offset_and_width(data_type) else {
+        return false;
+    };
+    let offset = exp.map_or(BigUint::ZERO, |e| BigUint::from(1u8) << e);
+    bound.max <= offset && bound.max < (BigUint::from(1u8) << width) - &offset
 }
 
 fn offset<F: PrimeField>(exp: Option<usize>) -> F {

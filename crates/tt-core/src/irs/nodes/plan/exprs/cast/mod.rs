@@ -233,7 +233,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             .expect("a cast's input is typed")
             .data_type()
             .clone();
-        let schema = crate::irs::nodes::utils::bounds::plan::prover_scope_schema(&self.scope);
+        let schema = crate::irs::nodes::utils::bounds::plan::scope_schema(&self.scope);
         if self.gadget_needed(&input_type, output.log_size(), &schema)? {
             virtualized_ir.set_payload_for_node(
                 self.gadget.id(),
@@ -471,7 +471,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             .expect("a cast's input is typed")
             .data_type()
             .clone();
-        let schema = crate::irs::nodes::utils::bounds::plan::verifier_scope_schema(&self.scope);
+        let schema = crate::irs::nodes::utils::bounds::plan::scope_schema(&self.scope);
         if self.gadget_needed(&input_type, output.log_size(), &schema)? {
             virtualized_ir.set_payload_for_node(
                 self.gadget.id(),

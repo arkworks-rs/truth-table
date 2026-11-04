@@ -8,7 +8,7 @@ use ark_ff::Field as _;
 use ark_piop::{DefaultSnarkBackend, SnarkBackend, errors::SnarkError};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
-use super::{GadgetNode, ensure_fits_field};
+use super::{CHECKED_OUTPUT_LABEL, GadgetNode, ensure_fits_field};
 use crate::irs::nodes::Node;
 use crate::irs::nodes::plan::exprs::aggregate_function::gadget::{
     INPUT_RLC_LABEL, OUTPUT_LABEL, OUTPUT_RLC_LABEL, input_label,
@@ -32,7 +32,8 @@ fn table(name: &str, values: Vec<F>, activator: Vec<F>) -> TableSpec<F> {
     }
 }
 
-/// Proves that `sum` is the SUM of `inputs`, both as field elements.
+/// Proves that `sum` is the SUM of `inputs`, both as field elements; an
+/// Int64 SUM has no room for its rows, so its output is checked.
 fn run(inputs: [F; 4], sum: F) -> Result<(), SnarkError> {
     let gadget = Arc::new(Node::<B>::Gadget(Arc::new(GadgetNode::<B>::new())));
     let id = gadget.id();
@@ -48,7 +49,8 @@ fn run(inputs: [F; 4], sum: F) -> Result<(), SnarkError> {
                 table("x", inputs.to_vec(), all.clone()),
             )
             .with_table(id, INPUT_RLC_LABEL, table("key", all.clone(), all))
-            .with_table(id, OUTPUT_LABEL, table("s", output, first.clone()))
+            .with_table(id, OUTPUT_LABEL, table("s", output.clone(), first.clone()))
+            .with_table(id, CHECKED_OUTPUT_LABEL, table("s", output, first.clone()))
             .with_table(id, OUTPUT_RLC_LABEL, table("key", first.clone(), first))
             .build(),
     )
