@@ -1,3 +1,4 @@
+pub mod bin_arith;
 pub mod bin_cmp;
 pub mod bin_div;
 pub mod bin_eq;

@@ -125,3 +125,14 @@ fn inactive_rows_are_not_checked() {
         run(values, activator.clone(), width).expect("inactive rows are masked out");
     }
 }
+
+#[test]
+fn widths_past_the_field_are_refused() {
+    use crate::irs::nodes::utils::bounds::tests::SmallF;
+    super::ensure_width::<F>(250).expect("250 bits fit BN254");
+    assert!(super::ensure_width::<F>(251).is_err());
+    // Sign spans 63 bits for a signed 64-bit integer, 64 for an unsigned one.
+    super::ensure_width::<SmallF>(16).expect("16 bits fit a 64-bit field");
+    assert!(super::ensure_width::<SmallF>(63).is_err());
+    assert!(super::ensure_width::<SmallF>(64).is_err());
+}

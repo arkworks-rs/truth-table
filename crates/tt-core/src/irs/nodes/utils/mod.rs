@@ -1,6 +1,7 @@
 pub mod activator_consistency_check;
 pub mod bitwise_and;
 pub mod bool;
+pub mod bounds;
 pub mod broadcast_check;
 pub mod compaction;
 pub mod contig_sort;

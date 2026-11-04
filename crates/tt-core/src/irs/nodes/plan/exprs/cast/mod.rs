@@ -4,9 +4,8 @@
 //! column scaled, with nothing committed; a quotient is committed and goes
 //! through the division check (`rescale`).
 //!
-//! A narrower type keeps the value: one that does not fit fails the
-//! execution, and a gadget that bounds a column range checks the bound it
-//! uses.
+//! A product is range-checked against the target type (`bounds::check`)
+//! where `bounds::plan` asks.
 
 mod rescale;
 
@@ -80,6 +79,27 @@ pub struct ExprNode<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> ExprNode<B> {
+    /// Whether the rescale gadget proves anything: a cast that divides always
+    /// does, one that scales up or narrows where `bounds::plan` asks, and a
+    /// cast to its own type never. Refuses a cast that could leave the field.
+    fn gadget_needed(
+        &self,
+        input_type: &DataType,
+        log_rows: usize,
+        schema: &datafusion_common::DFSchema,
+    ) -> ark_piop::errors::SnarkResult<bool> {
+        Ok(match self.rescale(input_type) {
+            Rescale::Down(_) => true,
+            Rescale::Up(_) if *input_type == self.cast.data_type => false,
+            Rescale::Up(_) => crate::irs::nodes::utils::bounds::plan::output_is_checked::<B>(
+                &datafusion_expr::Expr::Cast(self.cast.clone()),
+                self.parent.as_ref(),
+                log_rows,
+                schema,
+            )?,
+        })
+    }
+
     fn rescale(&self, from: &DataType) -> Rescale {
         rescale(from, &self.cast.data_type).unwrap_or_else(|| {
             panic!(
@@ -213,7 +233,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             .expect("a cast's input is typed")
             .data_type()
             .clone();
-        if let Rescale::Down(_) = self.rescale(&input_type) {
+        let schema = crate::irs::nodes::utils::bounds::plan::prover_scope_schema(&self.scope);
+        if self.gadget_needed(&input_type, output.log_size(), &schema)? {
             virtualized_ir.set_payload_for_node(
                 self.gadget.id(),
                 Some(PayloadStructure::GadgetPayload(IndexMap::from([
@@ -450,7 +471,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             .expect("a cast's input is typed")
             .data_type()
             .clone();
-        if let Rescale::Down(_) = self.rescale(&input_type) {
+        let schema = crate::irs::nodes::utils::bounds::plan::verifier_scope_schema(&self.scope);
+        if self.gadget_needed(&input_type, output.log_size(), &schema)? {
             virtualized_ir.set_payload_for_node(
                 self.gadget.id(),
                 Some(PayloadStructure::GadgetPayload(IndexMap::from([
@@ -500,7 +522,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
     }
 
     fn expr(&self) -> datafusion_expr::Expr {
-        todo!()
+        datafusion_expr::Expr::Cast(self.cast.clone())
     }
 
     fn parent(&self) -> crate::irs::nodes::PlanNode<B>

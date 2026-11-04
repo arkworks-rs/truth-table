@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use crate::irs::nodes::NodeId;
 use crate::irs::nodes::cost::ProvingCost;
 use crate::irs::nodes::hints::HintDF;
+use crate::irs::nodes::utils::bounds::{Numeric, numeric};
 use crate::irs::nodes::{
     IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
     utils::{bool, sign},
@@ -92,20 +93,6 @@ impl<B: SnarkBackend> BinCmpNode<B> {
         }
     }
 
-    fn integer_width_and_signed(data_type: &DataType) -> Option<(u8, bool)> {
-        match data_type {
-            DataType::UInt8 => Some((8, false)),
-            DataType::UInt16 => Some((16, false)),
-            DataType::UInt32 => Some((32, false)),
-            DataType::UInt64 => Some((64, false)),
-            DataType::Int8 => Some((8, true)),
-            DataType::Int16 => Some((16, true)),
-            DataType::Int32 | DataType::Date32 => Some((32, true)),
-            DataType::Int64 => Some((64, true)),
-            _ => None,
-        }
-    }
-
     fn merged_sign_data_type(left: &DataType, right: &DataType) -> DataType {
         if left == right {
             return left.clone();
@@ -118,10 +105,17 @@ impl<B: SnarkBackend> BinCmpNode<B> {
             (DataType::Decimal128(lp, ls), _) => DataType::Decimal128(*lp, *ls),
             (_, DataType::Decimal128(rp, rs)) => DataType::Decimal128(*rp, *rs),
             _ => {
-                if let (Some((lb, lsigned)), Some((rb, rsigned))) = (
-                    Self::integer_width_and_signed(left),
-                    Self::integer_width_and_signed(right),
-                ) {
+                if let (
+                    Some(Numeric::Int {
+                        bits: lb,
+                        signed: lsigned,
+                    }),
+                    Some(Numeric::Int {
+                        bits: rb,
+                        signed: rsigned,
+                    }),
+                ) = (numeric(left), numeric(right))
+                {
                     let width = lb.max(rb);
                     let signed = lsigned || rsigned;
                     match (width, signed) {

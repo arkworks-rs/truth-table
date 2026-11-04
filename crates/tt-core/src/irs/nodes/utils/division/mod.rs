@@ -35,6 +35,7 @@ use ark_piop::{
 };
 use datafusion::arrow::datatypes::DataType;
 
+use super::bounds::{self, Bound, pow10_bits};
 use super::sign::range;
 
 /// What the quotient divides by.
@@ -74,34 +75,8 @@ struct Widths {
     quot: usize,
 }
 
-/// Bits that hold `10^exp`.
-fn pow10_bits(exp: u32) -> usize {
-    (exp as f64 * std::f64::consts::LOG2_10).ceil() as usize
-}
-
-/// A bound `|v| < 2^bits` on every value of the type, and its decimal scale.
-fn magnitude_bits_and_scale(data_type: &DataType) -> SnarkResult<(usize, i32)> {
-    let bits = match data_type {
-        DataType::Int8 | DataType::UInt8 => 8,
-        DataType::Int16 | DataType::UInt16 => 16,
-        DataType::Int32 | DataType::UInt32 => 32,
-        DataType::Int64 | DataType::UInt64 => 64,
-        DataType::Decimal128(precision, scale) => {
-            return Ok((pow10_bits(*precision as u32), *scale as i32));
-        }
-        other => {
-            return Err(SnarkError::DataTypeError(
-                ark_piop::arithmetic::errors::DataTypeError::NotSupported(format!(
-                    "division over {other}"
-                )),
-            ));
-        }
-    };
-    Ok((bits, 0))
-}
-
 impl Widths {
-    /// With `C = MODULUS_BIT_SIZE - 4`: `wX ≤ C`, `wD ≤ C/2` and
+    /// With `C = bounds::safe_bits`: `wX ≤ C`, `wD ≤ C/2` and
     /// `wQ + wD < C`, so `|X| + |Q|·|D| + |D| < 2^(C+1) < p/4`. Capping a
     /// width only costs completeness for values the type allows but the
     /// field cannot hold.
@@ -110,13 +85,16 @@ impl Widths {
         den: Option<&DataType>,
         quot: &DataType,
     ) -> SnarkResult<Self> {
-        let (num_bits, num_scale) = magnitude_bits_and_scale(num)?;
-        let (den_bits, den_scale) = den.map_or(Ok((1, 0)), magnitude_bits_and_scale)?;
-        let (quot_bits, quot_scale) = magnitude_bits_and_scale(quot)?;
+        let bits_and_scale = |data_type: &DataType| -> SnarkResult<(usize, i32)> {
+            Ok((Bound::of_type(data_type)?.bits(), bounds::scale(data_type)?))
+        };
+        let (num_bits, num_scale) = bits_and_scale(num)?;
+        let (den_bits, den_scale) = den.map_or(Ok((1, 0)), bits_and_scale)?;
+        let (quot_bits, quot_scale) = bits_and_scale(quot)?;
         let shift = quot_scale + den_scale - num_scale;
         let num_shift = shift.max(0) as u32;
         let den_shift = (-shift).max(0) as u32;
-        let cap = F::MODULUS_BIT_SIZE as usize - 4;
+        let cap = bounds::safe_bits::<F>();
         let den = (den_bits + pow10_bits(den_shift)).min(cap / 2);
         Ok(Self {
             num_shift,

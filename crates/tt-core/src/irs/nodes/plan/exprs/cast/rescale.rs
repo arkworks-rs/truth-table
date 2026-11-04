@@ -6,6 +6,7 @@ use super::Rescale;
 use crate::irs::nodes::NodeId;
 use crate::irs::nodes::cost::ProvingCost;
 use crate::irs::nodes::hints::HintDF;
+use crate::irs::nodes::utils::bounds::check;
 use crate::irs::nodes::utils::division::{self, Divisor, Operand};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
@@ -17,8 +18,10 @@ use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 pub(super) const INPUT_LABEL: &str = "__input__";
 pub(super) const OUTPUT_LABEL: &str = "__output__";
 
-/// The committed output of a cast that divides by `10^k`. A cast that does
-/// not gives this gadget no payload.
+/// The check of a cast's output. A cast that divides by `10^k` commits its
+/// output and goes through the division check; one that multiplies, or only
+/// retypes, range-checks its virtual output against the target type, given a
+/// payload only where `bounds::plan` asks.
 pub struct RescaleNode<B: SnarkBackend> {
     phantom: std::marker::PhantomData<B>,
 }
@@ -50,11 +53,8 @@ macro_rules! rescale_operands {
     }};
 }
 
-fn rounding(input: &DataType, output: &DataType) -> division::Rounding {
-    match super::rescale(input, output) {
-        Some(Rescale::Down(rounding)) => rounding,
-        _ => panic!("only a cast that divides has a rescale payload"),
-    }
+fn rescale(input: &DataType, output: &DataType) -> Rescale {
+    super::rescale(input, output).expect("planning refuses a cast the proof has no check for")
 }
 
 impl<B: SnarkBackend> IsNode<B> for RescaleNode<B> {
@@ -151,19 +151,23 @@ impl<B: SnarkBackend> IsGadgetNode<B> for RescaleNode<B> {
             tracked_col_by_ind,
             data_tracked_poly
         );
-        division::prove(
-            prover,
-            activator.as_ref(),
-            Operand {
-                data: &input,
-                data_type: input_field.data_type(),
-            },
-            Divisor::Power10(rounding(input_field.data_type(), output_field.data_type())),
-            Operand {
-                data: &output,
-                data_type: output_field.data_type(),
-            },
-        )
+        let (input_type, output_type) = (input_field.data_type(), output_field.data_type());
+        match rescale(input_type, output_type) {
+            Rescale::Down(rounding) => division::prove(
+                prover,
+                activator.as_ref(),
+                Operand {
+                    data: &input,
+                    data_type: input_type,
+                },
+                Divisor::Power10(rounding),
+                Operand {
+                    data: &output,
+                    data_type: output_type,
+                },
+            ),
+            Rescale::Up(_) => check::prove(prover, activator.as_ref(), &output, output_type),
+        }
     }
 
     fn honest_prover_check(
@@ -182,18 +186,24 @@ impl<B: SnarkBackend> IsGadgetNode<B> for RescaleNode<B> {
             tracked_col_by_ind,
             data_tracked_poly
         );
-        division::honest_check(
-            activator.as_ref(),
-            Operand {
-                data: &input,
-                data_type: input_field.data_type(),
-            },
-            Divisor::Power10(rounding(input_field.data_type(), output_field.data_type())),
-            Operand {
-                data: &output,
-                data_type: output_field.data_type(),
-            },
-        )
+        let (input_type, output_type) = (input_field.data_type(), output_field.data_type());
+        match rescale(input_type, output_type) {
+            Rescale::Down(rounding) => division::honest_check(
+                activator.as_ref(),
+                Operand {
+                    data: &input,
+                    data_type: input_type,
+                },
+                Divisor::Power10(rounding),
+                Operand {
+                    data: &output,
+                    data_type: output_type,
+                },
+            ),
+            Rescale::Up(_) => {
+                check::honest_check(activator.as_ref(), &output, output_type, &self.name())
+            }
+        }
     }
 
     fn verify(
@@ -212,19 +222,23 @@ impl<B: SnarkBackend> IsGadgetNode<B> for RescaleNode<B> {
             tracked_col_oracle_by_ind,
             data_tracked_oracle
         );
-        division::verify(
-            verifier,
-            activator.as_ref(),
-            Operand {
-                data: &input,
-                data_type: input_field.data_type(),
-            },
-            Divisor::Power10(rounding(input_field.data_type(), output_field.data_type())),
-            Operand {
-                data: &output,
-                data_type: output_field.data_type(),
-            },
-        )
+        let (input_type, output_type) = (input_field.data_type(), output_field.data_type());
+        match rescale(input_type, output_type) {
+            Rescale::Down(rounding) => division::verify(
+                verifier,
+                activator.as_ref(),
+                Operand {
+                    data: &input,
+                    data_type: input_type,
+                },
+                Divisor::Power10(rounding),
+                Operand {
+                    data: &output,
+                    data_type: output_type,
+                },
+            ),
+            Rescale::Up(_) => check::verify(verifier, activator.as_ref(), &output, output_type),
+        }
     }
 
     fn prover_hints(&self) -> IndexMap<String, HintDF> {
@@ -235,3 +249,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for RescaleNode<B> {
         IndexMap::new()
     }
 }
+
+#[cfg(test)]
+mod tests;

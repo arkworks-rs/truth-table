@@ -6,26 +6,33 @@
 //! residual, `16k + β = w` with `1 ≤ β ≤ 16`: the prover commits the limbs
 //! (little-endian), a zerocheck pins `a·d` to their recomposition, and each
 //! limb is looked up in `range_16` (the residual in `range_β`).
-//! `w + 1 < MODULUS_BIT_SIZE − 2` keeps `[0, 2^w)` apart from the negations
+//! `w ≤ S` (`bounds::safe_bits`) keeps `[0, 2^w)` apart from the negations
 //! of `[1, 2^w]` in the field, which a sign check built on this relies on.
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
+    arithmetic::errors::DataTypeError,
     arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{ArgVerifier, errors::VerifierError, structs::oracle::TrackedOracle},
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 
 use super::SignNode;
+use crate::irs::nodes::utils::bounds::safe_bits;
 
 const LIMB_BITS: usize = 16;
 
-/// Whether the field holds `[0, 2^width)` with room to spare.
-fn width_fits<F: PrimeField>(width: usize) -> bool {
-    width + 1 < (F::MODULUS_BIT_SIZE as usize).saturating_sub(2)
+/// Refuses a width past `bounds::safe_bits`.
+pub(crate) fn ensure_width<F: PrimeField>(width: usize) -> SnarkResult<()> {
+    if width > safe_bits::<F>() {
+        return Err(SnarkError::DataTypeError(DataTypeError::NotSupported(
+            format!("a range check of width {width} does not fit the field"),
+        )));
+    }
+    Ok(())
 }
 
 /// The limb widths of `width > 16`, least significant first.
@@ -41,10 +48,7 @@ pub fn prove<B: SnarkBackend>(
     col: &TrackedCol<B>,
     width: usize,
 ) -> SnarkResult<()> {
-    assert!(
-        width_fits::<B::F>(width),
-        "a range check of width {width} does not fit the field"
-    );
+    ensure_width::<B::F>(width)?;
     if width <= LIMB_BITS {
         return SignNode::<B>::add_range_inclusion(prover, col, width);
     }
@@ -87,13 +91,7 @@ pub fn verify<B: SnarkBackend>(
     col: &TrackedColOracle<B>,
     width: usize,
 ) -> SnarkResult<()> {
-    if !width_fits::<B::F>(width) {
-        return Err(SnarkError::VerifierError(
-            VerifierError::VerifierCheckFailed(format!(
-                "a range check of width {width} does not fit the field"
-            )),
-        ));
-    }
+    ensure_width::<B::F>(width)?;
     if width <= LIMB_BITS {
         return SignNode::<B>::add_range_inclusion_oracle(verifier, col, width);
     }
