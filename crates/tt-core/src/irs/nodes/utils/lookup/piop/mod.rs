@@ -3,7 +3,6 @@
 //! active row of every included column counted once, against one advice
 //! multiplicity for `super_col`: the count over all included columns
 //! together.
-mod multiplicity_count;
 pub(crate) mod utils;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{

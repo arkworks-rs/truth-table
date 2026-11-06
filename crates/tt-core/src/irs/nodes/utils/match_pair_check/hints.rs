@@ -8,12 +8,14 @@ use datafusion::{
         compute::{concat, concat_batches, take},
         datatypes::Schema,
         record_batch::RecordBatch,
+        row::{RowConverter, SortField},
     },
     prelude::DataFrame,
 };
-use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
+use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, col, lit};
-use std::{collections::HashSet, sync::Arc};
+use rayon::prelude::*;
+use std::sync::Arc;
 
 use crate::irs::nodes::hints::sort_by_row_id_if_present;
 
@@ -175,19 +177,31 @@ fn deduplicate_key_rows(
         .map(|key| batch.schema().index_of(key))
         .collect::<Result<_, _>>()?;
 
-    let mut seen = HashSet::with_capacity(batch.num_rows());
-    let mut keep = Vec::with_capacity(batch.num_rows());
-    for row in 0..batch.num_rows() {
-        let tuple = key_indices
+    // The union hint is a set over full key tuples. Keep the first active
+    // occurrence of each tuple and drop any later duplicate from either side.
+    // Row-format bytes are equal exactly when the ScalarValue tuples are.
+    let key_columns: Vec<ArrayRef> = key_indices
+        .iter()
+        .map(|idx| batch.column(*idx).clone())
+        .collect();
+    let converter = RowConverter::new(
+        key_columns
             .iter()
-            .map(|idx| ScalarValue::try_from_array(batch.column(*idx), row))
-            .collect::<DataFusionResult<Vec<_>>>()?;
-        // The union hint is a set over full key tuples. Keep the first active
-        // occurrence and drop any later duplicate tuple from either side.
-        if seen.insert(tuple) {
-            keep.push(row as u32);
-        }
-    }
+            .map(|column| SortField::new(column.data_type().clone()))
+            .collect(),
+    )?;
+    let rows = converter.convert_columns(&key_columns)?;
+    let mut by_key: Vec<u32> = (0..batch.num_rows() as u32).collect();
+    by_key.par_sort_unstable_by_key(|&row| (rows.row(row as usize), row));
+    let mut keep: Vec<u32> = by_key
+        .par_iter()
+        .enumerate()
+        .filter(|&(pos, &row)| {
+            pos == 0 || rows.row(by_key[pos - 1] as usize) != rows.row(row as usize)
+        })
+        .map(|(_, &row)| row)
+        .collect();
+    keep.par_sort_unstable();
 
     if keep.len() == batch.num_rows() {
         return Ok(batch.clone());

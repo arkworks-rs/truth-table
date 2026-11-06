@@ -36,7 +36,7 @@ use arithmetic::{
     table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
     errors::{SnarkError, SnarkResult},
@@ -52,6 +52,7 @@ use datafusion::datasource::MemTable;
 use datafusion_common::{Result as DataFusionResult, ScalarValue, Statistics};
 use datafusion_expr::{Expr, Like};
 use indexmap::IndexMap;
+use rayon::prelude::*;
 
 use crate::irs::nodes::utils::{commit_with_tracker, track_next_committed};
 use crate::irs::{
@@ -217,7 +218,7 @@ impl<B: SnarkBackend> ExprNode<B> {
         let tracker_rc = chars_side.data.tracker();
 
         let witness = self.scan_and_compute_witness_prover(&scope_table, &chars_side);
-        let a_new = commit_with_tracker(&tracker_rc, str_domain, witness.a_new.clone())?;
+        let a_new = commit_with_tracker(&tracker_rc, str_domain, witness.a_new)?;
 
         // Own PlanPayload = a_new + activator + row_id (so Filter sees it).
         let mut merged: IndexMap<FieldRef, TrackedPoly<B>> = IndexMap::new();
@@ -271,27 +272,25 @@ impl<B: SnarkBackend> ExprNode<B> {
             .map(|(f, p)| (f.clone(), p.clone()))
             .expect("Like: missing __length row-domain segment");
 
-        let char_evals = chars_side.data.evaluations().to_vec();
-        let orig_ind_evals = orig_ind_side.data.evaluations().to_vec();
-        let int_ind_evals = int_ind_side.data.evaluations().to_vec();
-        let bnd_evals = bnd_side.data.evaluations().to_vec();
+        let char_evals = chars_side.data.evaluations();
+        let orig_ind_evals = orig_ind_side.data.evaluations();
+        let int_ind_evals = int_ind_side.data.evaluations();
+        let bnd_evals = bnd_side.data.evaluations();
         let char_act_evals = chars_side
             .activator
             .as_ref()
             .expect("side segment must carry activator")
-            .evaluations()
-            .to_vec();
-        let l_evals = length_poly.evaluations().to_vec();
+            .evaluations();
+        let l_evals = length_poly.evaluations();
         let a_evals = scope_table
             .activator_tracked_poly()
             .expect("Like: scope must carry a string-level activator")
-            .evaluations()
-            .to_vec();
+            .evaluations();
         let n_strs = 1usize << str_domain;
         let ind_evals: Vec<B::F> = scope_table
             .tracked_polys_iter()
             .find(|(f, _)| f.name() == ROW_ID_COL_NAME)
-            .map(|(_, p)| p.evaluations().to_vec())
+            .map(|(_, p)| p.evaluations())
             .unwrap_or_else(|| (0..n_strs).map(|i| B::F::from(i as u64)).collect());
         let tables = ScannedTables::<B::F> {
             char: char_evals,
@@ -358,43 +357,7 @@ impl<B: SnarkBackend> ExprNode<B> {
         // A scope poly's tracker is the `ArgProver`'s.
         let tracker_rc = chars_side.data.tracker();
 
-        let char_evals = chars_side.data.evaluations().to_vec();
-        let orig_ind_evals = orig_ind_side.data.evaluations().to_vec();
-        let int_ind_evals = int_ind_side.data.evaluations().to_vec();
-        let bnd_evals = bnd_side.data.evaluations().to_vec();
-        let char_act_evals = chars_side
-            .activator
-            .as_ref()
-            .expect("side segment must carry activator")
-            .evaluations()
-            .to_vec();
-        let l_evals = length_poly.evaluations().to_vec();
-        let a_evals = scope_table
-            .activator_tracked_poly()
-            .expect("Like: scope must carry a string-level activator")
-            .evaluations()
-            .to_vec();
-        let n_strs = 1usize << str_domain;
-        let ind_evals: Vec<B::F> = scope_table
-            .tracked_polys_iter()
-            .find(|(f, _)| f.name() == ROW_ID_COL_NAME)
-            .map(|(_, p)| p.evaluations().to_vec())
-            .unwrap_or_else(|| (0..n_strs).map(|i| B::F::from(i as u64)).collect());
-
-        let tables = ScannedTables::<B::F> {
-            char: char_evals,
-            orig_ind: orig_ind_evals,
-            int_ind: int_ind_evals,
-            bnd: bnd_evals,
-            char_act: char_act_evals,
-            char_domain,
-            ind: ind_evals,
-            a: a_evals,
-            l: l_evals,
-            str_domain,
-        };
-
-        let witness: McpmWitness<B::F> = compute_mcpm_witness(&tables, &self.factors);
+        let witness = self.scan_and_compute_witness_prover(&scope_table, &chars_side);
 
         // `a_new` was committed first, in `add_virtual_witness`; recover it.
         let own_payload = match virtualized_ir.payload_for_node(&id) {
@@ -409,11 +372,9 @@ impl<B: SnarkBackend> ExprNode<B> {
 
         // The verifier tracks the rest in exactly this commit order.
         let char_act_old_prime =
-            commit_with_tracker(&tracker_rc, char_domain, witness.char_act_old_prime.clone())?;
-        let a_old_prime =
-            commit_with_tracker(&tracker_rc, str_domain, witness.a_old_prime.clone())?;
-        let char_act_new =
-            commit_with_tracker(&tracker_rc, char_domain, witness.char_act_new.clone())?;
+            commit_with_tracker(&tracker_rc, char_domain, witness.char_act_old_prime)?;
+        let a_old_prime = commit_with_tracker(&tracker_rc, str_domain, witness.a_old_prime)?;
+        let char_act_new = commit_with_tracker(&tracker_rc, char_domain, witness.char_act_new)?;
 
         struct FactorPolys<B: SnarkBackend> {
             rotated_chars: Vec<TrackedPoly<B>>,
@@ -435,44 +396,42 @@ impl<B: SnarkBackend> ExprNode<B> {
         // The sharing saves no proving time: an extra factor costs its own
         // gadget proofs in `FactorPlacement`, not its commitments.
         let mut shared_rotated_chars = Vec::with_capacity(witness.rotated_chars.len());
-        for col in witness.rotated_chars.iter() {
-            shared_rotated_chars.push(commit_with_tracker(&tracker_rc, char_domain, col.clone())?);
+        for col in witness.rotated_chars {
+            shared_rotated_chars.push(commit_with_tracker(&tracker_rc, char_domain, col)?);
         }
         let mut shared_rotated_bnd = Vec::with_capacity(witness.rotated_bnd.len());
-        for col in witness.rotated_bnd.iter() {
-            shared_rotated_bnd.push(commit_with_tracker(&tracker_rc, char_domain, col.clone())?);
+        for col in witness.rotated_bnd {
+            shared_rotated_bnd.push(commit_with_tracker(&tracker_rc, char_domain, col)?);
         }
 
         let mut per_factor_polys: Vec<FactorPolys<B>> = Vec::with_capacity(self.factors.len());
-        for ((pat, mode), fw) in self.factors.iter().zip(witness.per_factor.iter()) {
+        for ((pat, mode), fw) in self.factors.iter().zip(witness.per_factor) {
             let k = pat.len();
             let rotated_chars = shared_rotated_chars[..k].to_vec();
-            let occurs = commit_with_tracker(&tracker_rc, char_domain, fw.occurs.clone())?;
-            let match_str = commit_with_tracker(&tracker_rc, str_domain, fw.match_str.clone())?;
-            let mark = commit_with_tracker(&tracker_rc, char_domain, fw.mark.clone())?;
-            let start = commit_with_tracker(&tracker_rc, str_domain, fw.start.clone())?;
+            let occurs = commit_with_tracker(&tracker_rc, char_domain, fw.occurs)?;
+            let match_str = commit_with_tracker(&tracker_rc, str_domain, fw.match_str)?;
+            let mark = commit_with_tracker(&tracker_rc, char_domain, fw.mark)?;
+            let start = commit_with_tracker(&tracker_rc, str_domain, fw.start)?;
             let match_broadcast =
-                commit_with_tracker(&tracker_rc, char_domain, fw.match_broadcast.clone())?;
+                commit_with_tracker(&tracker_rc, char_domain, fw.match_broadcast)?;
             let start_broadcast =
-                commit_with_tracker(&tracker_rc, char_domain, fw.start_broadcast.clone())?;
-            let leftmost_mask =
-                commit_with_tracker(&tracker_rc, char_domain, fw.leftmost_mask.clone())?;
+                commit_with_tracker(&tracker_rc, char_domain, fw.start_broadcast)?;
+            let leftmost_mask = commit_with_tracker(&tracker_rc, char_domain, fw.leftmost_mask)?;
             let rotated_bnd = match mode {
                 Mode::Infix | Mode::Suffix if k >= 2 => Some(shared_rotated_bnd[..k - 1].to_vec()),
                 _ => None,
             };
-            let rotated_int_ind = match &fw.rotated_int_ind {
-                Some(col) => Some(commit_with_tracker(&tracker_rc, char_domain, col.clone())?),
+            let rotated_int_ind = match fw.rotated_int_ind {
+                Some(col) => Some(commit_with_tracker(&tracker_rc, char_domain, col)?),
                 None => None,
             };
-            let end = match &fw.end {
-                Some(col) => Some(commit_with_tracker(&tracker_rc, char_domain, col.clone())?),
+            let end = match fw.end {
+                Some(col) => Some(commit_with_tracker(&tracker_rc, char_domain, col)?),
                 None => None,
             };
-            let past = if let Some(p) = &fw.past {
-                Some(commit_with_tracker(&tracker_rc, char_domain, p.clone())?)
-            } else {
-                None
+            let past = match fw.past {
+                Some(col) => Some(commit_with_tracker(&tracker_rc, char_domain, col)?),
+                None => None,
             };
             per_factor_polys.push(FactorPolys {
                 rotated_chars,
@@ -1158,13 +1117,7 @@ impl<B: SnarkBackend> ExprNode<B> {
 /// The low 8 bytes of a field element as `i64`. SortNoDup's inputs
 /// (mark/orig_ind bytes and indices) always fit.
 fn field_to_i64_like<F: PrimeField>(value: F) -> i64 {
-    let big = value.into_bigint();
-    let bytes = big.to_bytes_le();
-    let mut out: u64 = 0;
-    for (i, byte) in bytes.iter().take(8).enumerate() {
-        out |= (*byte as u64) << (8 * i);
-    }
-    out as i64
+    value.into_bigint().as_ref()[0] as i64
 }
 
 /// A virtual char-domain HintDF `{ name: Int64, __row_id__: Int64 }` for one
@@ -1180,7 +1133,7 @@ fn build_virtual_char_domain_hint<F: PrimeField>(
     } else {
         row_count.next_power_of_two()
     };
-    let mut vals: Vec<i64> = values.into_iter().map(field_to_i64_like::<F>).collect();
+    let mut vals: Vec<i64> = values.into_par_iter().map(field_to_i64_like::<F>).collect();
     vals.resize(target, 0);
 
     let data_field = Field::new(name, DataType::Int64, false);
@@ -1307,54 +1260,24 @@ impl<B: SnarkBackend> ExprNode<B> {
             .and_then(|seg| seg.mle.as_ref())
             .map(|mle| mle.evaluations())?;
 
-        let chars_bytes: Vec<u8> = segments
-            .iter()
-            .find(|seg| seg.suffix == STRING_CHARS_SUFFIX)
-            .and_then(|seg| seg.side.as_ref())
-            .and_then(|s| match &s.data {
-                SideColData::Bytes(v) => Some(v.clone()),
-                _ => None,
-            })?;
-        let orig_ind_u32: Vec<u32> = segments
-            .iter()
-            .find(|seg| seg.suffix == STRING_ORIG_IND_SUFFIX)
-            .and_then(|seg| seg.side.as_ref())
-            .and_then(|s| match &s.data {
-                SideColData::U32(v) => Some(v.clone()),
-                _ => None,
-            })?;
-        let int_ind_u32: Vec<u32> = segments
-            .iter()
-            .find(|seg| seg.suffix == STRING_INT_IND_SUFFIX)
-            .and_then(|seg| seg.side.as_ref())
-            .and_then(|s| match &s.data {
-                SideColData::U32(v) => Some(v.clone()),
-                _ => None,
-            })?;
-        let bnd_bytes: Vec<u8> = segments
-            .iter()
-            .find(|seg| seg.suffix == STRING_BND_SUFFIX)
-            .and_then(|seg| seg.side.as_ref())
-            .and_then(|s| match &s.data {
-                SideColData::Bytes(v) => Some(v.clone()),
-                _ => None,
-            })?;
+        let side_to_field = |suffix: &str| -> Option<Vec<B::F>> {
+            let seg = segments.iter().find(|seg| seg.suffix == suffix)?;
+            Some(match &seg.side.as_ref()?.data {
+                SideColData::Bytes(v) => v.par_iter().map(|&b| B::F::from(b as u64)).collect(),
+                SideColData::U32(v) => v.par_iter().map(|&x| B::F::from(x as u64)).collect(),
+            })
+        };
+        let char = side_to_field(STRING_CHARS_SUFFIX)?;
+        let orig_ind = side_to_field(STRING_ORIG_IND_SUFFIX)?;
+        let int_ind = side_to_field(STRING_INT_IND_SUFFIX)?;
+        let bnd = side_to_field(STRING_BND_SUFFIX)?;
 
-        let char: Vec<B::F> = chars_bytes.iter().map(|b| B::F::from(*b as u64)).collect();
-        let orig_ind: Vec<B::F> = orig_ind_u32.iter().map(|v| B::F::from(*v as u64)).collect();
-        let int_ind: Vec<B::F> = int_ind_u32.iter().map(|v| B::F::from(*v as u64)).collect();
-        let bnd: Vec<B::F> = bnd_bytes.iter().map(|b| B::F::from(*b as u64)).collect();
-
-        let padded_char_len = chars_bytes.len().max(1);
+        let padded_char_len = char.len().max(1);
         let char_domain = padded_char_len.trailing_zeros() as usize;
-        let mut char_act: Vec<B::F> = Vec::with_capacity(padded_char_len);
-        for i in 0..padded_char_len {
-            if i < active_len {
-                char_act.push(B::F::from(1u64));
-            } else {
-                char_act.push(B::F::from(0u64));
-            }
-        }
+        let char_act: Vec<B::F> = (0..padded_char_len)
+            .into_par_iter()
+            .map(|i| B::F::from(i < active_len))
+            .collect();
 
         // `ind` from `__row_id__` and `a` from the activator. Both have
         // `n_rows` entries, the string-domain size.
@@ -1476,17 +1399,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         };
         let witness: McpmWitness<B::F> = compute_mcpm_witness(&scanned, &self.factors);
 
-        let orig_ind_hint =
-            build_virtual_char_domain_hint::<B::F>("orig_ind", scanned.orig_ind.clone())
-                .map_err(|e| SnarkError::Artifact(format!("like plan hint: orig_ind: {e}")))?;
+        let orig_ind_hint = build_virtual_char_domain_hint::<B::F>("orig_ind", scanned.orig_ind)
+            .map_err(|e| SnarkError::Artifact(format!("like plan hint: orig_ind: {e}")))?;
 
         let mut mcpm_payload = match planned_ir.payload_for_node(&mcpm_node.id()) {
             Some(PayloadStructure::GadgetPayload(m)) => m.clone(),
             _ => IndexMap::new(),
         };
         mcpm_payload.insert("__like_orig_ind_plan_hint__".to_string(), orig_ind_hint);
-        for (j, fw) in witness.per_factor.iter().enumerate() {
-            let mark_hint = build_virtual_char_domain_hint::<B::F>("mark", fw.mark.clone())
+        for (j, fw) in witness.per_factor.into_iter().enumerate() {
+            let mark_hint = build_virtual_char_domain_hint::<B::F>("mark", fw.mark)
                 .map_err(|e| SnarkError::Artifact(format!("like plan hint: mark[{j}]: {e}")))?;
             mcpm_payload.insert(format!("__like_f{j}_mark_plan_hint__"), mark_hint);
         }

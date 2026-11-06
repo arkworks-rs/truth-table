@@ -1,10 +1,10 @@
-use super::multiplicity_count::vec_multiplicity_count;
 use arithmetic::col::TrackedCol;
-use ark_ff::Zero;
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
-use indexmap::IndexMap;
 
-// TODO: Check if it can be optimized. Also, put in the paper
+use crate::irs::nodes::utils::lookup::{
+    active_mask_from_optional, expected_lookup_multiplicities_from_values,
+};
+
 /// The MLE of the multiplicities of the super column's elements in the
 /// claimed included columns, counted over all of them together. A value's
 /// count sits on its first active super row; later duplicates get 0.
@@ -15,46 +15,34 @@ pub fn calc_inclusion_multiplicity<B>(
 where
     B: SnarkBackend,
 {
-    let super_col_evals = super_col.data_tracked_poly().evaluations();
-
-    let super_col_nv = super_col.log_size();
-    let super_col_len = super_col_evals.len();
-
-    let super_col_activator_evals = super_col
-        .activator_tracked_poly()
-        .as_ref()
-        .map(|sel| sel.evaluations());
-
-    let mut included_col_mults_map = IndexMap::<B::F, u64>::new();
-    for included_col in included_cols {
-        let included_col_evals = included_col.data_tracked_poly().evaluations();
-        let activator_evals = included_col
+    let super_evals = super_col.data_tracked_poly().evaluations();
+    let super_active = active_mask_from_optional(
+        super_col
             .activator_tracked_poly()
-            .map(|sel| sel.evaluations());
-        for (val, count) in
-            vec_multiplicity_count::<B::F>(&included_col_evals, activator_evals.as_deref())
-        {
-            *included_col_mults_map.entry(val).or_insert(0) += count;
-        }
+            .map(|sel| sel.evaluations())
+            .as_ref(),
+        super_evals.len(),
+    );
+
+    let mut included_evals = Vec::new();
+    let mut included_active = Vec::new();
+    for included_col in included_cols {
+        let evals = included_col.data_tracked_poly().evaluations();
+        included_active.extend(active_mask_from_optional(
+            included_col
+                .activator_tracked_poly()
+                .map(|sel| sel.evaluations())
+                .as_ref(),
+            evals.len(),
+        ));
+        included_evals.extend(evals);
     }
 
-    let mut super_col_mult_evals = Vec::with_capacity(super_col_len);
-
-    for (i, &val) in super_col_evals.iter().enumerate() {
-        if let Some(ref activator_evals) = super_col_activator_evals
-            && activator_evals[i] == B::F::zero()
-        {
-            super_col_mult_evals.push(0);
-            continue;
-        }
-
-        if let Some(&included_col_mult) = included_col_mults_map.get(&val) {
-            super_col_mult_evals.push(included_col_mult);
-            included_col_mults_map.insert(val, 0);
-        } else {
-            super_col_mult_evals.push(0);
-        }
-    }
-
-    MLE::from_u64s(super_col_mult_evals, super_col_nv)
+    let counts = expected_lookup_multiplicities_from_values::<B>(
+        &[super_evals],
+        &[included_evals],
+        &super_active,
+        &included_active,
+    );
+    MLE::from_u64s(counts, super_col.log_size())
 }

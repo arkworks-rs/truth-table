@@ -30,7 +30,7 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-            utils::contig_sort::hints::{populate_rotated, populate_ties},
+            utils::contig_sort::hints::populate_rotated_and_ties,
         },
         payloads::PayloadStructure,
     },
@@ -262,7 +262,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
             &sort_specs,
         )
         .expect("contig sort ordering should succeed");
-        let padded_df =
+        let (padded_df, padded_batches) =
             pad_df_to_power_of_two(sorted_df).expect("contig sort input padding should succeed");
         let mut should_materialize = IndexMap::new();
         for field in padded_df.schema().fields() {
@@ -273,7 +273,15 @@ fn initialize_gadget_plans<B: SnarkBackend>(
                 .unwrap_or(true);
             should_materialize.insert(field.clone(), materialized);
         }
-        crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
+        let padded_hint = crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize);
+        populate_rotated_and_ties(
+            &mut gadget_payload,
+            padded_hint.data_frame(),
+            &padded_batches,
+            &sort_specs,
+        )
+        .expect("sort rotation and tie planning should succeed");
+        padded_hint
     };
     if is_verifier {
         let key_count = hint_key_positions(&sorted_input_hint, &sort_specs)
@@ -286,9 +294,6 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         if let Some(tie_hint) = build_verifier_tie_hint(key_count) {
             gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
         }
-    } else {
-        populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs, false);
-        populate_ties(&mut gadget_payload, &sorted_input_hint, &sort_specs);
     }
     if let Some((layout, _)) = &layout
         && !layout.slots.is_empty()
@@ -1094,9 +1099,10 @@ fn sort_key_width(field: &Field) -> SnarkResult<usize> {
     })
 }
 
+/// The padded table and the batches it stores.
 fn pad_df_to_power_of_two(
     df: datafusion::prelude::DataFrame,
-) -> datafusion_common::Result<datafusion::prelude::DataFrame> {
+) -> datafusion_common::Result<(datafusion::prelude::DataFrame, Vec<RecordBatch>)> {
     let schema_ref = df.schema();
     let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(schema_ref).clone();
     let arrow_schema = Schema::new_with_metadata(
@@ -1117,13 +1123,13 @@ fn pad_df_to_power_of_two(
             "contig sort padding produced empty batches".to_string(),
         ));
     }
-    let mem_table = MemTable::try_new(Arc::new(arrow_schema), vec![batches])
+    let mem_table = MemTable::try_new(Arc::new(arrow_schema), vec![batches.clone()])
         .map_err(|e| DataFusionError::Execution(e.to_string()))?;
     let ctx = session_context();
     let padded_df = ctx
         .read_table(Arc::new(mem_table))
         .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-    Ok(padded_df)
+    Ok((padded_df, batches))
 }
 
 fn pad_batches_to_power_of_two(

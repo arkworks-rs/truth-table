@@ -20,6 +20,7 @@ use crate::session::session_context;
 use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
+use datafusion::arrow::row::{RowConverter, Rows, SortField};
 use datafusion::arrow::{
     array::{Array, ArrayRef, BooleanArray, Int64Array},
     datatypes::{DataType, Field, FieldRef, Schema},
@@ -29,7 +30,9 @@ use datafusion::datasource::MemTable;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use rayon::prelude::*;
+
+use super::first_occurrence_counts;
 
 use crate::irs::nodes::hints::HintDF;
 
@@ -38,7 +41,7 @@ use crate::irs::nodes::hints::HintDF;
 /// eagerly and wraps the result in a MemTable-backed DataFrame.
 ///
 /// Fails if an input DataFrame cannot be collected or if the two disagree
-/// on the number of data columns.
+/// on the number or types of data columns.
 pub fn build_multiplicity_hint(
     super_hint: &HintDF,
     included_hint: &HintDF,
@@ -46,8 +49,8 @@ pub fn build_multiplicity_hint(
     let super_df = super_hint.data_frame().clone();
     let included_df = included_hint.data_frame().clone();
 
-    let super_data_cols = data_column_names(&super_df);
-    let included_data_cols = data_column_names(&included_df);
+    let (super_data_cols, super_types) = data_columns(&super_df);
+    let (included_data_cols, included_types) = data_columns(&included_df);
     if super_data_cols.len() != included_data_cols.len() {
         return Err(DataFusionError::Plan(format!(
             "lookup multiplicity hint: super has {} data columns but included has {}",
@@ -55,36 +58,42 @@ pub fn build_multiplicity_hint(
             included_data_cols.len()
         )));
     }
+    if super_types != included_types {
+        return Err(DataFusionError::Plan(format!(
+            "lookup multiplicity hint: super key types {super_types:?} differ from included {included_types:?}"
+        )));
+    }
 
-    let super_batches = crate::session::block_on(super_df.clone().collect())?;
-    let included_batches = crate::session::block_on(included_df.clone().collect())?;
+    let (super_batches, included_batches) = rayon::join(
+        || crate::session::block_on(super_df.collect()),
+        || crate::session::block_on(included_df.collect()),
+    );
+    let (super_batches, included_batches) = (super_batches?, included_batches?);
 
     let super_active = active_mask_from_batches(&super_batches);
     let included_active = active_mask_from_batches(&included_batches);
-    let super_keys = key_tuples_from_batches(&super_batches, &super_data_cols)?;
-    let included_keys = key_tuples_from_batches(&included_batches, &included_data_cols)?;
-
-    // Same result as `expected_lookup_multiplicities_from_values`, but over
-    // ScalarValue tuples: at plan time the values are not field elements.
-    let mut included_counts: HashMap<Vec<ScalarValue>, i64> = HashMap::new();
-    for (row, active) in included_active.iter().enumerate() {
-        if *active {
-            *included_counts
-                .entry(included_keys[row].clone())
-                .or_insert(0) += 1;
+    let multiplicities = if super_data_cols.is_empty() {
+        first_occurrence_counts(|_| (), &super_active, |_| (), &included_active)
+    } else {
+        // Row-format bytes are equal exactly when the ScalarValue tuples are
+        // (NULL equals NULL, floats compare by bits), provided both sides
+        // share one converter and so one key type per column.
+        let converter = RowConverter::new(super_types.into_iter().map(SortField::new).collect())?;
+        let super_rows = key_rows(&super_batches, &super_data_cols, &converter)?;
+        let included_rows = key_rows(&included_batches, &included_data_cols, &converter)?;
+        fn flatten(rows: &[Rows]) -> Vec<&[u8]> {
+            rows.iter()
+                .flat_map(|r| r.iter().map(|row| row.data()))
+                .collect()
         }
-    }
-    let mut seen_active_super: HashMap<Vec<ScalarValue>, ()> = HashMap::new();
-    let mut multiplicities: Vec<i64> = vec![0; super_active.len()];
-    for row in 0..super_active.len() {
-        if !super_active[row] {
-            continue;
-        }
-        let key = super_keys[row].clone();
-        if seen_active_super.insert(key.clone(), ()).is_none() {
-            multiplicities[row] = included_counts.get(&key).copied().unwrap_or(0);
-        }
-    }
+        let (super_keys, included_keys) = (flatten(&super_rows), flatten(&included_rows));
+        first_occurrence_counts(
+            |row| super_keys[row],
+            &super_active,
+            |row| included_keys[row],
+            &included_active,
+        )
+    };
 
     build_hint_from_values(multiplicities, super_active)
 }
@@ -96,12 +105,13 @@ pub fn build_multiplicity_hint_schema_only(_super_hint: &HintDF) -> DataFusionRe
     build_hint_from_values(vec![0], vec![false])
 }
 
-fn data_column_names(df: &DataFrame) -> Vec<String> {
+fn data_columns(df: &DataFrame) -> (Vec<String>, Vec<DataType>) {
     df.schema()
         .fields()
         .iter()
-        .filter_map(|field| (!is_system_column(field.name())).then_some(field.name().to_string()))
-        .collect()
+        .filter(|field| !is_system_column(field.name()))
+        .map(|field| (field.name().to_string(), field.data_type().clone()))
+        .unzip()
 }
 
 fn active_mask_from_batches(batches: &[RecordBatch]) -> Vec<bool> {
@@ -139,31 +149,30 @@ fn active_mask_from_batches(batches: &[RecordBatch]) -> Vec<bool> {
     out
 }
 
-fn key_tuples_from_batches(
+fn key_rows(
     batches: &[RecordBatch],
     key_cols: &[String],
-) -> DataFusionResult<Vec<Vec<ScalarValue>>> {
-    let mut out = Vec::new();
-    for batch in batches {
-        let key_indices: Vec<usize> = key_cols
-            .iter()
-            .map(|name| batch.schema().index_of(name))
-            .collect::<Result<_, _>>()
-            .map_err(|e| {
-                DataFusionError::Plan(format!("multiplicity hint: key column missing: {e}"))
-            })?;
-        for row in 0..batch.num_rows() {
-            let tuple = key_indices
+    converter: &RowConverter,
+) -> DataFusionResult<Vec<Rows>> {
+    batches
+        .par_iter()
+        .map(|batch| {
+            let columns = key_cols
                 .iter()
-                .map(|idx| ScalarValue::try_from_array(batch.column(*idx), row))
+                .map(|name| {
+                    batch.column_by_name(name).cloned().ok_or_else(|| {
+                        DataFusionError::Plan(format!(
+                            "multiplicity hint: key column missing: {name}"
+                        ))
+                    })
+                })
                 .collect::<DataFusionResult<Vec<_>>>()?;
-            out.push(tuple);
-        }
-    }
-    Ok(out)
+            Ok(converter.convert_columns(&columns)?)
+        })
+        .collect()
 }
 
-fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFusionResult<HintDF> {
+fn build_hint_from_values(multiplicities: Vec<u64>, active: Vec<bool>) -> DataFusionResult<HintDF> {
     assert_eq!(
         multiplicities.len(),
         active.len(),
@@ -175,7 +184,7 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
     let target = row_count.next_power_of_two();
     let pad = target - row_count;
     let mut m_vals = multiplicities;
-    m_vals.extend(std::iter::repeat_n(0i64, pad));
+    m_vals.extend(std::iter::repeat_n(0, pad));
     let mut a_vals = active;
     a_vals.extend(std::iter::repeat_n(false, pad));
 
@@ -188,7 +197,9 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
         row_id_field.clone(),
     ]));
 
-    let m_arr: ArrayRef = Arc::new(Int64Array::from(m_vals));
+    let m_arr: ArrayRef = Arc::new(Int64Array::from_iter_values(
+        m_vals.into_iter().map(|m| m as i64),
+    ));
     let a_arr: ArrayRef = Arc::new(BooleanArray::from(a_vals));
     let r_arr: ArrayRef = Arc::new(Int64Array::from_iter_values((0..target).map(|i| i as i64)));
 
@@ -198,8 +209,7 @@ fn build_hint_from_values(multiplicities: Vec<i64>, active: Vec<bool>) -> DataFu
     let df = ctx.read_table(Arc::new(mem_table))?;
 
     // Only `multiplicity` is materialized. Inactive super rows already carry
-    // multiplicity 0 (the `!super_active[row]` skip in
-    // `build_multiplicity_hint`), so an activator poly would be redundant.
+    // multiplicity 0, so an activator poly would be redundant.
     let multiplicity_fref: FieldRef = Arc::new(multiplicity_field);
     let activator_fref: FieldRef = Arc::new(activator_field);
     let row_id_fref: FieldRef = Arc::new(row_id_field);

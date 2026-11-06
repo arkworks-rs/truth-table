@@ -269,21 +269,16 @@ fn tie_hint_covers_only_the_sort_keys() {
         ),
     ])
     .unwrap();
-    let df = crate::session::session_context().read_batch(batch).unwrap();
-    let should_materialize = df
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| (field.clone(), true))
-        .collect();
-    let input = crate::irs::nodes::hints::HintDF::new(df, should_materialize);
     let specs = vec![
         ("b".to_string(), true, false),
         ("a".to_string(), true, false),
     ];
 
     let mut payload = indexmap::IndexMap::new();
-    super::hints::populate_ties(&mut payload, &input, &specs);
+    let df = crate::session::session_context()
+        .read_batch(batch.clone())
+        .unwrap();
+    super::hints::populate_rotated_and_ties(&mut payload, &df, &[batch], &specs).unwrap();
 
     let tie_df = payload[TIE_INDICATOR_LABEL].data_frame().clone();
     let batches = crate::session::block_on(tie_df.collect()).unwrap();
