@@ -12,28 +12,25 @@
 //!
 //! Columns are `Vec<F>`: booleans are 0/1, small integers are `F::from(u64)`.
 
-use ark_ff::{BigInteger, PrimeField};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use ark_ff::PrimeField;
+use rayon::prelude::*;
 
 use super::Mode;
 
 /// The low 64 bits of `x`, for field elements that hold a small index.
 fn as_usize<F: PrimeField>(x: F) -> usize {
-    let bi = x.into_bigint();
-    let bytes = bi.to_bytes_le();
-    let mut acc: u64 = 0;
-    for (i, b) in bytes.iter().take(8).enumerate() {
-        acc |= (*b as u64) << (8 * i);
-    }
-    acc as usize
+    x.into_bigint().as_ref()[0] as usize
 }
 
 /// `result[i] = xs[(i + shift) mod n]`.
 pub(crate) fn shift_left<F: Copy>(xs: &[F], shift: usize) -> Vec<F> {
-    let n = xs.len();
-    if n == 0 {
+    if xs.is_empty() {
         return Vec::new();
     }
-    (0..n).map(|i| xs[(i + (shift % n)) % n]).collect()
+    let shift = shift % xs.len();
+    [&xs[shift..], &xs[..shift]].concat()
 }
 
 /// The scanned input tables. `char_domain` and `str_domain` are the log2 of
@@ -113,43 +110,31 @@ pub fn compute_mcpm_witness<F: PrimeField>(
     assert_eq!(tables.l.len(), n_strs);
 
     let t = factors.len();
-    let _ = n_strs; // used below via as_usize bounds checks
     let total_len: u64 = factors.iter().map(|(p, _)| p.len() as u64).sum();
+    let orig_ind: Vec<usize> = tables.orig_ind.par_iter().map(|&x| as_usize(x)).collect();
+    let int_ind: Vec<usize> = tables.int_ind.par_iter().map(|&x| as_usize(x)).collect();
 
     // Length Filtering: keep string i iff a[i] = 1 and l[i] >= total_len.
-    let a_old_prime: Vec<F> = (0..n_strs)
-        .map(|i| {
-            let a = tables.a[i];
-            let l = as_usize(tables.l[i]) as u64;
-            if a == F::one() && l >= total_len {
-                F::one()
-            } else {
-                F::zero()
-            }
-        })
+    let a_old_prime: Vec<F> = tables
+        .a
+        .par_iter()
+        .zip(&tables.l)
+        .map(|(&a, &l)| F::from(a == F::one() && as_usize(l) as u64 >= total_len))
         .collect();
-    let char_act_old_prime: Vec<F> = (0..n_chars)
-        .map(|c| {
-            let ca = tables.char_act[c];
-            let src = as_usize(tables.orig_ind[c]);
-            if ca == F::one() && src < n_strs && a_old_prime[src] == F::one() {
-                F::one()
-            } else {
-                F::zero()
-            }
-        })
+    let char_act_old_prime: Vec<F> = tables
+        .char_act
+        .par_iter()
+        .zip(&orig_ind)
+        .map(|(&ca, &s)| F::from(ca == F::one() && s < n_strs && a_old_prime[s] == F::one()))
         .collect();
 
     // Rotations are shared: build each once for the widest factor and let
     // the others read a prefix.
     let max_k = factors.iter().map(|(pat, _)| pat.len()).max().unwrap_or(0);
-    let mut rotated_chars: Vec<Vec<F>> = Vec::with_capacity(max_k);
-    if max_k > 0 {
-        rotated_chars.push(tables.char.clone());
-    }
-    for delta in 1..max_k {
-        rotated_chars.push(shift_left(&tables.char, delta));
-    }
+    let rotated_chars: Vec<Vec<F>> = (0..max_k)
+        .into_par_iter()
+        .map(|delta| shift_left(&tables.char, delta))
+        .collect();
     let max_bnd_k = factors
         .iter()
         .filter(|(_, mode)| matches!(mode, Mode::Infix | Mode::Suffix))
@@ -157,14 +142,12 @@ pub fn compute_mcpm_witness<F: PrimeField>(
         .max()
         .unwrap_or(0);
     let rotated_bnd: Vec<Vec<F>> = (1..max_bnd_k)
+        .into_par_iter()
         .map(|delta| shift_left(&tables.bnd, delta))
         .collect();
 
     let mut per_factor: Vec<FactorWitness<F>> = Vec::with_capacity(t);
     let mut alive_c: Vec<F> = char_act_old_prime.clone();
-    // alive_h is `a_old_prime` before the first factor and `match_j` after
-    // factor j. Only its final value is used, as `a_new`.
-    let _alive_h_initial = a_old_prime.clone();
 
     for (j, (pat, mode)) in factors.iter().enumerate() {
         let k = pat.len();
@@ -172,9 +155,9 @@ pub fn compute_mcpm_witness<F: PrimeField>(
         // This factor's view of the shared rotations: char^(δ) for
         // δ = 0..k-1, and (infix and suffix, k ≥ 2) bnd(δ) for δ = 1..k-1.
         let rotated_chars = &rotated_chars[..k];
-        let rotated_bnd: Option<&[Vec<F>]> = match mode {
-            Mode::Infix | Mode::Suffix if k >= 2 => Some(&rotated_bnd[..k - 1]),
-            _ => None,
+        let rotated_bnd: &[Vec<F>] = match mode {
+            Mode::Infix | Mode::Suffix if k >= 2 => &rotated_bnd[..k - 1],
+            _ => &[],
         };
 
         // Suffix: an occurrence at c ends its string iff the slot k to its
@@ -183,149 +166,121 @@ pub fn compute_mcpm_witness<F: PrimeField>(
         let (rotated_int_ind, end) = match mode {
             Mode::Suffix => {
                 let rotated = shift_left(&tables.int_ind, k);
-                let end: Vec<F> = (0..n_chars)
-                    .map(|c| {
-                        if rotated[c] != tables.int_ind[c] + F::from(k as u64) {
-                            F::one()
-                        } else {
-                            F::zero()
-                        }
-                    })
+                let k_f = F::from(k as u64);
+                let end: Vec<F> = rotated
+                    .par_iter()
+                    .zip(&tables.int_ind)
+                    .map(|(&r, &i)| F::from(r != i + k_f))
                     .collect();
                 (Some(rotated), Some(end))
             }
             _ => (None, None),
         };
 
-        // Prefix: alive_c · bnd
-        // Infix:  alive_c · (1 − Σ_{δ=1..k-1} bnd(δ))
-        // Suffix: the infix mask · end
-        let att_mask: Vec<F> = match mode {
-            Mode::Prefix => (0..n_chars).map(|c| alive_c[c] * tables.bnd[c]).collect(),
-            Mode::Infix | Mode::Suffix => (0..n_chars)
-                .map(|c| {
-                    let mut sum = F::zero();
-                    if let Some(rb) = rotated_bnd.as_ref() {
-                        for col in rb.iter() {
+        // The attempt mask is
+        //   Prefix: alive_c · bnd
+        //   Infix:  alive_c · (1 − Σ_{δ=1..k-1} bnd(δ))
+        //   Suffix: the infix mask · end
+        // and occurs[c] = 1 iff it is 1 and char(δ)[c] = pat[δ] for all δ.
+        let occurs: Vec<F> = (0..n_chars)
+            .into_par_iter()
+            .map(|c| {
+                let att_mask = match mode {
+                    Mode::Prefix => alive_c[c] * tables.bnd[c],
+                    Mode::Infix | Mode::Suffix => {
+                        let mut sum = F::zero();
+                        for col in rotated_bnd {
                             sum += col[c];
                         }
+                        let base = alive_c[c] * (F::one() - sum);
+                        match end.as_ref() {
+                            Some(end) => base * end[c],
+                            None => base,
+                        }
                     }
-                    let base = alive_c[c] * (F::one() - sum);
-                    match end.as_ref() {
-                        Some(end) => base * end[c],
-                        None => base,
-                    }
-                })
-                .collect(),
+                };
+                F::from(
+                    att_mask == F::one()
+                        && rotated_chars.iter().zip(pat).all(|(col, p)| col[c] == *p),
+                )
+            })
+            .collect();
+
+        // Each string marks its occurrence with the smallest int_ind, the
+        // leftmost position among ties: two order-independent min passes.
+        let min_int_ind: Vec<AtomicUsize> =
+            (0..n_strs).map(|_| AtomicUsize::new(usize::MAX)).collect();
+        occurs.par_iter().enumerate().for_each(|(c, &occ)| {
+            let s = orig_ind[c];
+            if occ == F::one() && s < n_strs {
+                min_int_ind[s].fetch_min(int_ind[c], Ordering::Relaxed);
+            }
+        });
+        let chosen: Vec<AtomicUsize> = (0..n_strs).map(|_| AtomicUsize::new(usize::MAX)).collect();
+        occurs.par_iter().enumerate().for_each(|(c, &occ)| {
+            let s = orig_ind[c];
+            if occ == F::one() && s < n_strs && int_ind[c] == min_int_ind[s].load(Ordering::Relaxed)
+            {
+                chosen[s].fetch_min(c, Ordering::Relaxed);
+            }
+        });
+        let chosen_mark_pos: Vec<Option<usize>> = chosen
+            .into_par_iter()
+            .map(|pos| Some(pos.into_inner()).filter(|&pos| pos != usize::MAX))
+            .collect();
+
+        let mark: Vec<F> = orig_ind
+            .par_iter()
+            .enumerate()
+            .map(|(c, &s)| F::from(s < n_strs && chosen_mark_pos[s] == Some(c)))
+            .collect();
+        let match_str: Vec<F> = chosen_mark_pos
+            .par_iter()
+            .map(|pos| F::from(pos.is_some()))
+            .collect();
+        let start: Vec<F> = chosen_mark_pos
+            .par_iter()
+            .map(|pos| pos.map_or(F::zero(), |pos| tables.int_ind[pos]))
+            .collect();
+        let start_ind: Vec<usize> = chosen_mark_pos
+            .par_iter()
+            .map(|pos| pos.map_or(0, |pos| int_ind[pos]))
+            .collect();
+
+        // The string-level columns read at orig_ind[c], 0 if out of bounds.
+        let broadcast = |col: &[F]| -> Vec<F> {
+            orig_ind
+                .par_iter()
+                .map(|&s| if s < n_strs { col[s] } else { F::zero() })
+                .collect()
         };
-
-        // occurs[c] = 1 iff att_mask[c] = 1 and rotated_chars[δ][c] == pat[δ] for all δ.
-        let occurs: Vec<F> = (0..n_chars)
-            .map(|c| {
-                if att_mask[c] != F::one() {
-                    return F::zero();
-                }
-                for delta in 0..k {
-                    if rotated_chars[delta][c] != pat[delta] {
-                        return F::zero();
-                    }
-                }
-                F::one()
-            })
-            .collect();
-
-        // mark[c] = 1 for the occurrence with the smallest int_ind in each
-        // string.
-        let mut mark: Vec<F> = vec![F::zero(); n_chars];
-        let mut chosen_mark_pos: Vec<Option<usize>> = vec![None; n_strs];
-        for (c, &occ) in occurs.iter().enumerate().take(n_chars) {
-            if occ != F::one() {
-                continue;
-            }
-            let s = as_usize(tables.orig_ind[c]);
-            if s >= n_strs {
-                continue;
-            }
-            let ii = as_usize(tables.int_ind[c]);
-            match chosen_mark_pos[s] {
-                None => chosen_mark_pos[s] = Some(c),
-                Some(prev) => {
-                    let prev_ii = as_usize(tables.int_ind[prev]);
-                    if ii < prev_ii {
-                        chosen_mark_pos[s] = Some(c);
-                    }
-                }
-            }
-        }
-        for pos in chosen_mark_pos.iter().flatten() {
-            mark[*pos] = F::one();
-        }
-
-        // match_str[i] = 1 iff string i has a mark.
-        let mut match_str: Vec<F> = vec![F::zero(); n_strs];
-        for i in 0..n_strs {
-            if chosen_mark_pos[i].is_some() {
-                match_str[i] = F::one();
-            }
-        }
-
-        // start[i] = int_ind[chosen_mark_pos[i]] if matched, else 0.
-        let mut start: Vec<F> = vec![F::zero(); n_strs];
-        for i in 0..n_strs {
-            if let Some(pos) = chosen_mark_pos[i] {
-                start[i] = tables.int_ind[pos];
-            }
-        }
-
-        // match_broadcast[c] = match_str[orig_ind[c]], 0 if out of bounds.
-        let match_broadcast: Vec<F> = (0..n_chars)
-            .map(|c| {
-                let s = as_usize(tables.orig_ind[c]);
-                if s < n_strs { match_str[s] } else { F::zero() }
-            })
-            .collect();
-
-        // start_broadcast[c] = start[orig_ind[c]], 0 if out of bounds.
-        let start_broadcast: Vec<F> = (0..n_chars)
-            .map(|c| {
-                let s = as_usize(tables.orig_ind[c]);
-                if s < n_strs { start[s] } else { F::zero() }
-            })
-            .collect();
+        let match_broadcast = broadcast(&match_str);
+        let start_broadcast = broadcast(&start);
+        let start_ind_broadcast = |c: usize| {
+            let s = orig_ind[c];
+            if s < n_strs { start_ind[s] } else { 0 }
+        };
 
         // leftmost_mask[c] = 1 iff int_ind[c] < start_broadcast[c].
         let leftmost_mask: Vec<F> = (0..n_chars)
-            .map(|c| {
-                if as_usize(tables.int_ind[c]) < as_usize(start_broadcast[c]) {
-                    F::one()
-                } else {
-                    F::zero()
-                }
-            })
+            .into_par_iter()
+            .map(|c| F::from(int_ind[c] < start_ind_broadcast(c)))
             .collect();
 
         // past[c] = 1 iff int_ind[c] >= start_broadcast[c] + k, for j < t-1:
         // the next factor starts after this occurrence ends.
-        let past: Option<Vec<F>> = if j + 1 < t {
-            Some(
-                (0..n_chars)
-                    .map(|c| {
-                        if as_usize(tables.int_ind[c]) >= as_usize(start_broadcast[c]) + k {
-                            F::one()
-                        } else {
-                            F::zero()
-                        }
-                    })
-                    .collect(),
-            )
-        } else {
-            None
-        };
+        let past: Option<Vec<F>> = (j + 1 < t).then(|| {
+            (0..n_chars)
+                .into_par_iter()
+                .map(|c| F::from(int_ind[c] >= start_ind_broadcast(c) + k))
+                .collect()
+        });
 
         // Next round: chars past this occurrence, inside strings that
         // matched this factor.
         if let Some(ref p) = past {
             alive_c = (0..n_chars)
+                .into_par_iter()
                 .map(|c| alive_c[c] * p[c] * match_broadcast[c])
                 .collect();
         }
@@ -347,16 +302,10 @@ pub fn compute_mcpm_witness<F: PrimeField>(
     let a_new = per_factor.last().unwrap().match_str.clone();
     // Chars active in char_act_old_prime whose string has a_new = 1: MCPM's
     // DPUC needs char_act_new and a_new to be consistent.
-    let char_act_new: Vec<F> = (0..n_chars)
-        .map(|c| {
-            let ca = char_act_old_prime[c];
-            let s = as_usize(tables.orig_ind[c]);
-            if ca == F::one() && s < n_strs && a_new[s] == F::one() {
-                F::one()
-            } else {
-                F::zero()
-            }
-        })
+    let char_act_new: Vec<F> = char_act_old_prime
+        .par_iter()
+        .zip(&orig_ind)
+        .map(|(&ca, &s)| F::from(ca == F::one() && s < n_strs && a_new[s] == F::one()))
         .collect();
 
     McpmWitness {

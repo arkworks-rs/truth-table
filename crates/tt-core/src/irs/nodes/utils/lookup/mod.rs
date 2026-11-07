@@ -7,6 +7,7 @@ use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
+use ark_ff::PrimeField;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use datafusion::arrow::datatypes::{DataType, Field};
@@ -639,8 +640,10 @@ fn active_mask_from_optional<F: ark_ff::Field>(values: Option<&Vec<F>>, size: us
 /// duplicates get 0).
 ///
 /// Sort-based and parallel, because a hash count is too slow on a large
-/// domain. Single-column tables (the common case) sort the field elements
-/// themselves; wider tables sort row tuples.
+/// domain. Single-column tables (the common case) sort single keys; wider
+/// tables sort row tuples. Keys are `into_bigint` once per row, because
+/// `Fp`'s `Ord` reduces both operands on every comparison; any total order
+/// gives the same counts.
 fn expected_lookup_multiplicities_from_values<B: SnarkBackend>(
     super_values: &[Vec<B::F>],
     included_values: &[Vec<B::F>],
@@ -649,18 +652,23 @@ fn expected_lookup_multiplicities_from_values<B: SnarkBackend>(
 ) -> Vec<u64> {
     match (super_values, included_values) {
         ([sup], [inc]) => first_occurrence_counts(
-            |row| sup[row],
+            |row| sup[row].into_bigint(),
             super_active,
-            |row| inc[row],
+            |row| inc[row].into_bigint(),
             included_active,
         ),
         _ => first_occurrence_counts(
-            |row| super_values.iter().map(|col| col[row]).collect::<Vec<_>>(),
+            |row| {
+                super_values
+                    .iter()
+                    .map(|col| col[row].into_bigint())
+                    .collect::<Vec<_>>()
+            },
             super_active,
             |row| {
                 included_values
                     .iter()
-                    .map(|col| col[row])
+                    .map(|col| col[row].into_bigint())
                     .collect::<Vec<_>>()
             },
             included_active,

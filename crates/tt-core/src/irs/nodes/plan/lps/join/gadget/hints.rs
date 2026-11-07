@@ -1,12 +1,14 @@
 use crate::session::session_context;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
-use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::array::{ArrayRef, AsArray, new_null_array};
+use datafusion::arrow::datatypes::{DataType, Int64Type, UInt64Type};
+use datafusion::arrow::row::{RowConverter, SortField};
 use datafusion::arrow::{compute::concat_batches, record_batch::RecordBatch};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::{Expr, ExprFunctionExt, ExprSchemable, Join, col, lit};
-use std::collections::HashMap;
+use rayon::prelude::*;
 use std::sync::Arc;
 
 use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
@@ -180,24 +182,31 @@ fn build_indexed_join_frames_impl(
     // ids taken from the replayed join's row order are brittle for nested
     // joins. Those ids are the fallback for rewritten subquery joins, where
     // DataFusion may reshape the payload enough to break the equality lookup.
-    let src_left = source_ids_from_payload_lookup(
-        &output_left,
-        &left,
-        left_row_id.name.as_str(),
-        SRC_LEFT_COL_NAME,
-    )
-    .or_else(|_| {
-        source_ids_from_indexed_rows(&indexed, "__src_left_row_id__", SRC_LEFT_COL_NAME)
-    })?;
-    let src_right = source_ids_from_payload_lookup(
-        &output_right,
-        &right,
-        right_row_id.name.as_str(),
-        SRC_RIGHT_COL_NAME,
-    )
-    .or_else(|_| {
-        source_ids_from_indexed_rows(&indexed, "__src_right_row_id__", SRC_RIGHT_COL_NAME)
-    })?;
+    let (src_left, src_right) = rayon::join(
+        || {
+            source_ids_from_payload_lookup(
+                &output_left,
+                &left,
+                left_row_id.name.as_str(),
+                SRC_LEFT_COL_NAME,
+            )
+            .or_else(|_| {
+                source_ids_from_indexed_rows(&indexed, "__src_left_row_id__", SRC_LEFT_COL_NAME)
+            })
+        },
+        || {
+            source_ids_from_payload_lookup(
+                &output_right,
+                &right,
+                right_row_id.name.as_str(),
+                SRC_RIGHT_COL_NAME,
+            )
+            .or_else(|_| {
+                source_ids_from_indexed_rows(&indexed, "__src_right_row_id__", SRC_RIGHT_COL_NAME)
+            })
+        },
+    );
+    let (src_left, src_right) = (src_left?, src_right?);
 
     let output_left = append_source_to_output_payload(&output_left, &src_left, SRC_LEFT_COL_NAME)?;
     let output_right =
@@ -223,7 +232,8 @@ fn source_ids_from_payload_lookup(
     let output_batches = crate::session::block_on(output_payload.clone().collect())?;
     let input_batches = crate::session::block_on(input_payload.clone().collect())?;
 
-    let mut payload_to_source = HashMap::<Vec<ScalarValue>, i64>::new();
+    let mut input_keys = Vec::with_capacity(input_batches.len());
+    let mut row_ids = Vec::new();
     for batch in &input_batches {
         let schema = batch.schema();
         let row_id_idx = schema
@@ -244,80 +254,149 @@ fn source_ids_from_payload_lookup(
                     .then_some(idx)
             })
             .collect::<Vec<_>>();
-        for row in 0..batch.num_rows() {
-            let payload = payload_indices
-                .iter()
-                .map(|idx| ScalarValue::try_from_array(batch.column(*idx).as_ref(), row))
-                .collect::<DataFusionResult<Vec<_>>>()?;
-            let row_id = scalar_i64(
-                ScalarValue::try_from_array(batch.column(row_id_idx).as_ref(), row)?,
-                input_row_id_name,
-            )?;
-            match payload_to_source.entry(payload) {
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    entry.insert(row_id);
-                }
-                std::collections::hash_map::Entry::Occupied(entry) => {
-                    if *entry.get() != row_id {
-                        return Err(DataFusionError::Execution(format!(
-                            "Join source mapping payload is ambiguous for {src_col_name}; falling back to indexed row ids"
-                        )));
-                    }
+        if batch.num_rows() == 0 {
+            continue;
+        }
+        let row_id_col = batch.column(row_id_idx);
+        let not_int64 = || {
+            DataFusionError::Execution(format!(
+                "Join source mapping column {input_row_id_name} was not Int64"
+            ))
+        };
+        if row_id_col.null_count() > 0 {
+            return Err(not_int64());
+        }
+        match row_id_col.data_type() {
+            DataType::Int64 => {
+                row_ids.extend_from_slice(row_id_col.as_primitive::<Int64Type>().values())
+            }
+            // UInt64 row numbers: see `scalar_i64`.
+            DataType::UInt64 => {
+                for &value in row_id_col.as_primitive::<UInt64Type>().values() {
+                    row_ids.push(i64::try_from(value).map_err(|_| {
+                        DataFusionError::Execution(format!(
+                            "Join source mapping column {input_row_id_name} overflowed Int64"
+                        ))
+                    })?);
                 }
             }
+            _ => return Err(not_int64()),
         }
+        input_keys.push(payload_key_columns(batch, &payload_indices));
     }
-
-    let mut src_values = Vec::new();
-    let mut output_row_ids = Vec::new();
-    for batch in &output_batches {
-        let schema = batch.schema();
-        let payload_indices = schema
-            .fields()
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, field)| (field.name() != ACTIVATOR_COL_NAME).then_some(idx))
-            .collect::<Vec<_>>();
-        for row in 0..batch.num_rows() {
-            let payload = payload_indices
+    let output_keys = output_batches
+        .iter()
+        .map(|batch| {
+            let payload_indices = batch
+                .schema()
+                .fields()
                 .iter()
-                .map(|idx| ScalarValue::try_from_array(batch.column(*idx).as_ref(), row))
-                .collect::<DataFusionResult<Vec<_>>>()?;
-            let Some(src_row_id) = payload_to_source.get(&payload).copied() else {
-                return Err(DataFusionError::Execution(format!(
-                    "Join source mapping could not find a matching input row for {src_col_name}"
-                )));
-            };
-            src_values.push(src_row_id);
-            output_row_ids.push(output_row_ids.len() as i64);
+                .enumerate()
+                .filter_map(|(idx, field)| (field.name() != ACTIVATOR_COL_NAME).then_some(idx))
+                .collect::<Vec<_>>();
+            payload_key_columns(batch, &payload_indices)
+        })
+        .collect::<Vec<_>>();
+    let output_rows = output_batches
+        .iter()
+        .map(RecordBatch::num_rows)
+        .sum::<usize>();
+    let not_found = || {
+        DataFusionError::Execution(format!(
+            "Join source mapping could not find a matching input row for {src_col_name}"
+        ))
+    };
+
+    // Row-format bytes of one converter are equal exactly when the
+    // ScalarValue tuples are (NULL equals NULL, floats compare by bits). A
+    // ScalarValue never equals one of another type, so a payload whose types
+    // differ from the input's matches no input row.
+    let key_types = |columns: &Vec<ArrayRef>| {
+        columns
+            .iter()
+            .map(|column| column.data_type().clone())
+            .collect::<Vec<_>>()
+    };
+    let Some(input_types) = input_keys.first().map(key_types) else {
+        if output_rows > 0 {
+            return Err(not_found());
         }
+        return src_ids_frame(Vec::new(), src_col_name);
+    };
+    let converter = RowConverter::new(input_types.iter().cloned().map(SortField::new).collect())?;
+    let input_rows = input_keys
+        .par_iter()
+        .map(|columns| converter.convert_columns(columns))
+        .collect::<Result<Vec<_>, _>>()?;
+    let input_bytes = input_rows
+        .iter()
+        .flat_map(|rows| rows.iter().map(|row| row.data()))
+        .collect::<Vec<_>>();
+
+    // The mapping is ambiguous when two input rows share a payload but not a
+    // row id.
+    let mut by_payload = (0..input_bytes.len()).collect::<Vec<_>>();
+    by_payload.par_sort_unstable_by_key(|&row| input_bytes[row]);
+    let ambiguous = by_payload.par_windows(2).any(|pair| {
+        input_bytes[pair[0]] == input_bytes[pair[1]] && row_ids[pair[0]] != row_ids[pair[1]]
+    });
+    if ambiguous {
+        return Err(DataFusionError::Execution(format!(
+            "Join source mapping payload is ambiguous for {src_col_name}; falling back to indexed row ids"
+        )));
     }
 
+    let mut src_values = Vec::with_capacity(output_rows);
+    for columns in output_keys.iter().filter(|columns| !columns[0].is_empty()) {
+        if key_types(columns) != input_types {
+            return Err(not_found());
+        }
+        let rows = converter.convert_columns(columns)?;
+        let matched = (0..rows.num_rows())
+            .into_par_iter()
+            .map(|row| {
+                let key = rows.row(row).data();
+                by_payload
+                    .binary_search_by(|&input_row| input_bytes[input_row].cmp(key))
+                    .map(|pos| row_ids[by_payload[pos]])
+                    .map_err(|_| not_found())
+            })
+            .collect::<DataFusionResult<Vec<_>>>()?;
+        src_values.extend(matched);
+    }
+    src_ids_frame(src_values, src_col_name)
+}
+
+/// The key columns of a payload. An empty payload is one Null column, whose
+/// zero-length row key gives every row the same key.
+fn payload_key_columns(batch: &RecordBatch, payload_indices: &[usize]) -> Vec<ArrayRef> {
+    if payload_indices.is_empty() {
+        return vec![new_null_array(&DataType::Null, batch.num_rows())];
+    }
+    payload_indices
+        .iter()
+        .map(|idx| batch.column(*idx).clone())
+        .collect()
+}
+
+fn src_ids_frame(src_values: Vec<i64>, src_col_name: &str) -> DataFusionResult<DataFrame> {
+    let rows = src_values.len();
     let schema = Arc::new(datafusion::arrow::datatypes::Schema::new(vec![
-        datafusion::arrow::datatypes::Field::new(
-            src_col_name,
-            datafusion::arrow::datatypes::DataType::Int64,
-            false,
-        ),
-        datafusion::arrow::datatypes::Field::new(
-            ACTIVATOR_COL_NAME,
-            datafusion::arrow::datatypes::DataType::Boolean,
-            false,
-        ),
-        datafusion::arrow::datatypes::Field::new(
-            ROW_ID_COL_NAME,
-            datafusion::arrow::datatypes::DataType::Int64,
-            false,
-        ),
+        datafusion::arrow::datatypes::Field::new(src_col_name, DataType::Int64, false),
+        datafusion::arrow::datatypes::Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        datafusion::arrow::datatypes::Field::new(ROW_ID_COL_NAME, DataType::Int64, false),
     ]));
     let batch = RecordBatch::try_new(
         schema,
         vec![
             Arc::new(datafusion::arrow::array::Int64Array::from(src_values)),
-            Arc::new(datafusion::arrow::array::BooleanArray::from(
-                vec![true; output_row_ids.len()],
+            Arc::new(datafusion::arrow::array::BooleanArray::from(vec![
+                true;
+                rows
+            ])),
+            Arc::new(datafusion::arrow::array::Int64Array::from_iter_values(
+                0..rows as i64,
             )),
-            Arc::new(datafusion::arrow::array::Int64Array::from(output_row_ids)),
         ],
     )?;
     session_context().read_batch(batch)
