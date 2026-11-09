@@ -28,7 +28,9 @@ pub const SUPER_RLC_LABEL: &str = "__super-rlc__";
 
 pub struct GadgetNode<B: SnarkBackend> {
     lookup: Arc<Node<B>>,
-    nodup: Arc<Node<B>>,
+    /// Absent when the super table is known to hold no duplicate rows, see
+    /// [`GadgetNode::new`].
+    nodup: Option<Arc<Node<B>>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -49,7 +51,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![self.lookup.clone(), self.nodup.clone()]
+        let mut children = vec![self.lookup.clone()];
+        children.extend(self.nodup.iter().cloned());
+        children
     }
 }
 
@@ -60,7 +64,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let (orig_hint, support_hint) = hints::io_plans(planned_ir, id);
-        hints::populate_nodup(planned_ir, self.nodup.id(), support_hint.clone());
+        if let Some(nodup) = &self.nodup {
+            hints::populate_nodup(planned_ir, nodup.id(), support_hint.clone());
+        }
         hints::populate_lookup(planned_ir, self.lookup.id(), orig_hint, support_hint);
         Ok(())
     }
@@ -81,7 +87,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         let (payload, orig_table, super_table) = io_tables_prover(virtualized_ir, id);
         let (orig_rlc, super_rlc) = io_rlc_prover(&orig_table, &super_table);
-        populate_nodup_payload_prover(virtualized_ir, self.nodup.id(), super_table.clone())?;
+        if let Some(nodup) = &self.nodup {
+            populate_nodup_payload_prover(virtualized_ir, nodup.id(), super_table.clone())?;
+        }
         populate_lookup_payload_prover(
             virtualized_ir,
             self.lookup.id(),
@@ -100,7 +108,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let (orig_hint, support_hint) = hints::io_plans(planned_ir, id);
-        hints::populate_nodup(planned_ir, self.nodup.id(), support_hint.clone());
+        if let Some(nodup) = &self.nodup {
+            hints::populate_nodup(planned_ir, nodup.id(), support_hint.clone());
+        }
         hints::populate_lookup(planned_ir, self.lookup.id(), orig_hint, support_hint);
         Ok(())
     }
@@ -120,7 +130,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         let (payload, orig_table, super_table) = io_tables_verifier(virtualized_ir, id);
         let (orig_rlc, super_rlc) = io_rlc_verifier(&orig_table, &super_table);
-        populate_nodup_payload_verifier(virtualized_ir, self.nodup.id(), super_table.clone())?;
+        if let Some(nodup) = &self.nodup {
+            populate_nodup_payload_verifier(virtualized_ir, nodup.id(), super_table.clone())?;
+        }
         populate_lookup_payload_verifier(
             virtualized_ir,
             self.lookup.id(),
@@ -207,20 +219,19 @@ fn payload_table<'a, T>(payload: Option<&'a PayloadStructure<T>>, label: &str) -
     }
 }
 
-impl<B: SnarkBackend> Default for GadgetNode<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self {
+    /// `super_is_duplicate_free` skips step 1 (NoDupcheck on the super table).
+    /// The caller passes it only when the proof already establishes it, and
+    /// prover and verifier must pass the same value.
+    pub fn new(super_is_duplicate_free: bool) -> Self {
         let lookup = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::lookup::GadgetNode::new(),
         )));
-        let nodup = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::utils::nodup::GadgetNode::default(),
-        )));
+        let nodup = (!super_is_duplicate_free).then(|| {
+            Arc::new(Node::<B>::Gadget(Arc::new(
+                crate::irs::nodes::utils::nodup::GadgetNode::default(),
+            )))
+        });
         Self { lookup, nodup }
     }
 }

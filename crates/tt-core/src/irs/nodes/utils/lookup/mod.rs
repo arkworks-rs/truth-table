@@ -733,5 +733,7 @@ where
             counts[*row] = *n;
         }
     }
+    #[cfg(feature = "test-utils")]
+    crate::test_utils::dishonest_prover::spread_duplicate_multiplicities(&sup, &mut counts);
     counts
 }

@@ -88,6 +88,8 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     let with_rownum = joined.window(vec![window_expr]).unwrap();
 
     let first = col("__row_number__").eq(lit(1_i64));
+    #[cfg(feature = "test-utils")]
+    let first = crate::test_utils::dishonest_prover::forge_representatives(first, ungrouped);
     let new_activator_expr = when(
         if ungrouped {
             first

@@ -25,7 +25,6 @@ use indexmap::IndexMap;
 
 pub const INPUT_LABEL: &str = "_input_";
 pub const LEX_SORTED_LABEL: &str = "_lex_sorted_";
-const PK_METADATA_KEY: &str = "tt.pk";
 /// Prefix for the prover->verifier side channel that carries the number
 /// of active input rows for SortNoDup.
 type GadgetPayload<T> = IndexMap<String, T>;
@@ -56,7 +55,6 @@ pub struct SortNoDupGadgets<B: SnarkBackend> {
 }
 
 pub struct GadgetNode<B: SnarkBackend> {
-    is_pk: Mutex<bool>,
     gadgets: Gadgets<B>,
     /// Cached during planning from the concrete input hint. Later phases can
     /// build a virtual contiguous activator without recollecting the input DF.
@@ -82,11 +80,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates: no gadgets and
-            // no checks, here and in every phase below.
-            return vec![];
-        }
         match &self.gadgets {
             #[cfg(test)]
             Gadgets::BezoutNoDup(g) => vec![g.rotation.clone()],
@@ -110,12 +103,6 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     let Some(input_hint) = self_payload.get(INPUT_LABEL).cloned() else {
         panic!("No input hint found for NoDup gadget at node {:?}", id);
     };
-    let is_pk = nodup_input_is_pk(&input_hint);
-    node.cache_is_pk(is_pk);
-    if is_pk {
-        return Ok(());
-    }
-
     // SortNoDup is the only mode that uses planner hints/virtual witnesses.
     let Some(_) = node.sort_gadgets() else {
         return Ok(());
@@ -176,9 +163,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if self.is_pk() {
-            return Ok(());
-        }
         let Some(_) = self.sort_gadgets() else {
             return Ok(());
         };
@@ -229,9 +213,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if self.is_pk() {
-            return Ok(());
-        }
         #[cfg(test)]
         if let Gadgets::BezoutNoDup(gadgets) = &self.gadgets {
             return Self::prove_nodup_bezout(_prover, virtualized_ir, id, gadgets);
@@ -286,9 +267,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if self.is_pk() {
-            return Ok(());
-        }
         let Some(_) = self.sort_gadgets() else {
             return Ok(());
         };
@@ -344,9 +322,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if self.is_pk() {
-            return Ok(());
-        }
         #[cfg(test)]
         if let Gadgets::BezoutNoDup(gadgets) = &self.gadgets {
             return Self::verify_nodup_bezout(_verifier, virtualized_ir, id, gadgets);
@@ -412,9 +387,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        if self.is_pk() {
-            return Ok(());
-        }
         match &self.gadgets {
             Gadgets::SortNoDup(_) => Ok(()),
             #[cfg(test)]
@@ -442,12 +414,10 @@ impl<B: SnarkBackend> GadgetNode<B> {
         match mode {
             #[cfg(test)]
             Mode::BezoutBased => Self {
-                is_pk: Mutex::new(false),
                 gadgets: Gadgets::BezoutNoDup(bezout::BezoutGadgets::new()),
                 sort_nodup_active_input_rows: Mutex::new(None),
             },
             Mode::SortBased => Self {
-                is_pk: Mutex::new(false),
                 gadgets: Gadgets::SortNoDup(SortNoDupGadgets {
                     sort_gadget: Arc::new(Node::<B>::Gadget(Arc::new(
                         crate::irs::nodes::utils::contig_sort::GadgetNode::new_preserve_row_id(
@@ -519,20 +489,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
         }
 
         Ok(())
-    }
-
-    fn cache_is_pk(&self, is_pk: bool) {
-        *self
-            .is_pk
-            .lock()
-            .expect("NoDup pk lock should not be poisoned") = is_pk;
-    }
-
-    fn is_pk(&self) -> bool {
-        *self
-            .is_pk
-            .lock()
-            .expect("NoDup pk lock should not be poisoned")
     }
 
     fn cache_sort_nodup_active_rows(&self, rows: usize) {
@@ -649,26 +605,6 @@ fn payload_value_or_panic<T: Clone>(
         .get(label)
         .unwrap_or_else(|| panic!("{context} for label '{label}' at node {:?}", id))
         .clone()
-}
-
-fn nodup_input_is_pk(input_hint: &crate::irs::nodes::hints::HintDF) -> bool {
-    let data_fields: Vec<_> = input_hint
-        .data_frame()
-        .schema()
-        .fields()
-        .iter()
-        .filter(|field| field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME)
-        .collect();
-    if data_fields.is_empty() {
-        return false;
-    }
-    data_fields.into_iter().all(|field| {
-        field
-            .metadata()
-            .get(PK_METADATA_KEY)
-            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
-            .unwrap_or(false)
-    })
 }
 
 /// Without an activator column, all rows are active.

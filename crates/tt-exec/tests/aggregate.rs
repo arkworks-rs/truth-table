@@ -52,3 +52,19 @@ end_to_end_tests!(&["supplier"] => [
 end_to_end_tests!(&["nation"] => [
     group_by_one_row => r#"SELECT n_regionkey, COUNT(*) FROM nation WHERE n_nationkey = 3 GROUP BY n_regionkey ORDER BY n_regionkey"#,
 ]);
+
+// Groups that contain a unique key of the input skip the NoDupcheck: a whole
+// primary key, one carried through a filter and a projection, a composite
+// one, and one a join keeps because each row has one partner.
+end_to_end_tests!(&["orders"] => [
+    group_by_primary_key => r#"SELECT o_orderkey, COUNT(*) FROM orders GROUP BY o_orderkey"#,
+    group_by_filtered_primary_key => r#"SELECT o_custkey, o_orderkey FROM (SELECT o_orderkey AS o_orderkey, o_custkey FROM orders WHERE o_totalprice > 100000) GROUP BY o_custkey, o_orderkey"#,
+]);
+
+end_to_end_tests!(&["partsupp"] => [
+    group_by_composite_primary_key => r#"SELECT ps_partkey, ps_suppkey, SUM(ps_availqty) FROM partsupp GROUP BY ps_partkey, ps_suppkey"#,
+]);
+
+end_to_end_tests!(&["nation", "supplier"] => [
+    group_by_key_kept_by_join => r#"SELECT s_suppkey, n_name FROM supplier JOIN nation ON s_nationkey = n_nationkey GROUP BY s_suppkey, n_name"#,
+]);
