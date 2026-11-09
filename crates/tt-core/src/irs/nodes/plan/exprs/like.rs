@@ -40,8 +40,14 @@ use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
     errors::{SnarkError, SnarkResult},
-    prover::structs::polynomial::TrackedPoly,
-    verifier::structs::oracle::TrackedOracle,
+    prover::{
+        ArgProver,
+        structs::polynomial::{TrackedPoly, get_or_insert_shift_poly},
+    },
+    verifier::{
+        ArgVerifier,
+        structs::oracle::{TrackedOracle, get_or_insert_shift_oracle},
+    },
 };
 use datafusion::arrow::{
     array::{Array, ArrayRef, Int64Array},
@@ -287,11 +293,7 @@ impl<B: SnarkBackend> ExprNode<B> {
             .expect("Like: scope must carry a string-level activator")
             .evaluations();
         let n_strs = 1usize << str_domain;
-        let ind_evals: Vec<B::F> = scope_table
-            .tracked_polys_iter()
-            .find(|(f, _)| f.name() == ROW_ID_COL_NAME)
-            .map(|(_, p)| p.evaluations())
-            .unwrap_or_else(|| (0..n_strs).map(|i| B::F::from(i as u64)).collect());
+        let ind_evals: Vec<B::F> = (0..n_strs).map(|i| B::F::from(i as u64)).collect();
         let tables = ScannedTables::<B::F> {
             char: char_evals,
             orig_ind: orig_ind_evals,
@@ -310,6 +312,7 @@ impl<B: SnarkBackend> ExprNode<B> {
     fn commit_and_wire_prover(
         &self,
         id: NodeId,
+        prover: &mut ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         let mcpm_node = self
@@ -483,17 +486,11 @@ impl<B: SnarkBackend> ExprNode<B> {
             let ind_f = Arc::new(Field::new("ind", DataType::UInt64, false));
             let l_f = length_field.clone();
             let mut polys = IndexMap::new();
-            let ind_poly = scope_table
-                .tracked_polys_iter()
-                .find(|(f, _)| f.name() == ROW_ID_COL_NAME)
-                .map(|(_, p)| p.clone())
-                .unwrap_or_else(|| {
-                    let evals: Vec<B::F> = (0..(1usize << str_domain))
-                        .map(|i| B::F::from(i as u64))
-                        .collect();
-                    commit_with_tracker(&tracker_rc, str_domain, evals)
-                        .expect("commit ind fallback")
-                });
+            // `ind` is the public identity `0..2^str_domain`, built on both
+            // sides: the activator-consistency and broadcast checks need it
+            // distinct per string, which nothing would enforce on a committed
+            // copy.
+            let ind_poly = get_or_insert_shift_poly(prover, str_domain, 0, true);
             polys.insert(ind_f.clone(), ind_poly);
             polys.insert(l_f.clone(), length_poly.clone());
             polys.insert(
@@ -737,6 +734,7 @@ impl<B: SnarkBackend> ExprNode<B> {
     fn track_and_wire_verifier(
         &self,
         id: NodeId,
+        verifier: &mut ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         let mcpm_node = self
@@ -910,13 +908,7 @@ impl<B: SnarkBackend> ExprNode<B> {
         {
             let ind_f = Arc::new(Field::new("ind", DataType::UInt64, false));
             let mut oracles = IndexMap::new();
-            // Without a `__row_id__` oracle on the scope, the prover committed
-            // a fresh `ind` poly (0..n_strs) at this point; track it here.
-            let ind_oracle = scope_table
-                .tracked_oracles_iter()
-                .find(|(f, _)| f.name() == ROW_ID_COL_NAME)
-                .map(|(_, p)| p.clone())
-                .unwrap_or_else(|| track_next_committed(&tracker_rc).expect("track ind fallback"));
+            let ind_oracle = get_or_insert_shift_oracle(verifier, str_domain, 0, true);
             oracles.insert(ind_f.clone(), ind_oracle);
             oracles.insert(length_field.clone(), length_oracle.clone());
             oracles.insert(
@@ -1279,24 +1271,10 @@ impl<B: SnarkBackend> ExprNode<B> {
             .map(|i| B::F::from(i < active_len))
             .collect();
 
-        // `ind` from `__row_id__` and `a` from the activator. Both have
+        // `ind` is the public identity and `a` the activator, both with
         // `n_rows` entries, the string-domain size.
         let str_domain = n_rows.max(1).trailing_zeros() as usize;
-        let row_id_idx = combined
-            .schema()
-            .fields()
-            .iter()
-            .position(|f| f.name() == ROW_ID_COL_NAME);
-        let ind: Vec<B::F> = if let Some(idx) = row_id_idx {
-            let arr = combined.column(idx);
-            let segs = encoding::encode_arrow_array_to_field::<B::F>(&arr.clone()).ok()?;
-            segs.into_iter()
-                .find(|seg| seg.suffix.is_empty())
-                .and_then(|seg| seg.mle)
-                .map(|mle| mle.evaluations())?
-        } else {
-            (0..n_rows).map(|i| B::F::from(i as u64)).collect()
-        };
+        let ind: Vec<B::F> = (0..n_rows).map(|i| B::F::from(i as u64)).collect();
 
         let activator_idx = combined
             .schema()
@@ -1370,7 +1348,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
+        prover: &mut ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         if self.factors.is_empty() {
@@ -1378,7 +1356,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         }
         // Runs before MCPM's own `initialize_gadgets` (pre-order pass), so
         // MCPM finds its payload populated.
-        self.commit_and_wire_prover(id, virtualized_ir)
+        self.commit_and_wire_prover(id, prover, virtualized_ir)
     }
 
     fn initialize_gadget_plans(
@@ -1460,13 +1438,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        verifier: &mut ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         if self.factors.is_empty() {
             return Ok(());
         }
-        self.track_and_wire_verifier(id, virtualized_ir)
+        self.track_and_wire_verifier(id, verifier, virtualized_ir)
     }
 
     fn initialize_gadget_plans(
