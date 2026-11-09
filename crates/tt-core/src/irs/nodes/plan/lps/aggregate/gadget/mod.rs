@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use crate::irs::nodes::utils::{bool, supp};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
+use crate::irs::unique_keys;
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
@@ -325,9 +326,17 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(aggregate: Aggregate) -> Self {
         let has_groups = !aggregate.group_expr.is_empty();
+        // The output's group columns copy the input's at a subset of its
+        // active rows, so they hold no duplicate when they contain an input key.
+        let group_columns = aggregate
+            .group_expr
+            .iter()
+            .filter_map(|expr| unique_keys::copied_input_index(expr, aggregate.input.schema()))
+            .collect();
+        let groups_are_unique = unique_keys::contains_unique_key(&aggregate.input, &group_columns);
         let supp_gadget = has_groups.then(|| {
             Arc::new(Node::<B>::Gadget(Arc::new(
-                crate::irs::nodes::utils::supp::GadgetNode::new(),
+                crate::irs::nodes::utils::supp::GadgetNode::new(groups_are_unique),
             )))
         });
         let bool_gadget = has_groups.then(|| {

@@ -143,7 +143,7 @@ fn is_name_preserving_column(expr: &Expr) -> bool {
 /// reads it from the committed schema's metadata; a prover whose parquet schema
 /// carries no metadata reads the same `constraints.json` the commitment was
 /// built from.
-fn primary_key_columns(scan: &datafusion_expr::TableScan) -> Option<BTreeSet<String>> {
+pub(crate) fn primary_key_columns(scan: &datafusion_expr::TableScan) -> Option<BTreeSet<String>> {
     let schema = scan.source.schema();
     let has_constraint_metadata = schema
         .fields()

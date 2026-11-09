@@ -14,3 +14,4 @@ pub mod shared_ir;
 pub mod string_order;
 pub mod supported;
 pub mod tree;
+pub mod unique_keys;

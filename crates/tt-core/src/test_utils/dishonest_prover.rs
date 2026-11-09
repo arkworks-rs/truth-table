@@ -3,7 +3,8 @@
 //! places that compute them (the output hint and the gadget's source maps),
 //! so every witness carries the same forgery. A [`SortForgery`] reverses an
 //! ORDER BY, or its last key, in the prover's plan. A count forgery shifts
-//! every COUNT an Aggregate outputs. A rescale forgery adds one to every
+//! every COUNT an Aggregate outputs. A duplicate-groups forgery outputs every
+//! group of a GROUP BY twice. A rescale forgery adds one to every
 //! cast output that divides by `10^k`. An unowned-scan forgery commits the
 //! scanned tables itself instead of loading the owner's oracles. A
 //! claimed-result rewrite makes the prover claim the result of the forged
@@ -216,6 +217,60 @@ pub(crate) fn forge_split_ungrouped(output: DataFrame, values: &[String]) -> Dat
         .filter(|expr| expr.schema_name().to_string() != "__split_position__")
         .collect::<Vec<_>>();
     output.select(exprs).expect("forged split select")
+}
+
+static DUPLICATE_GROUPS: Mutex<Option<()>> = Mutex::new(None);
+
+/// Makes every Aggregate with GROUP BY also activate the second row of each
+/// group, so the output holds every group twice, and every lookup spread a
+/// repeated super value's multiplicity over its copies, so each copy has a
+/// nonzero one as Suppcheck requires.
+pub fn set_duplicate_groups_forgery() -> Installed<()> {
+    install(&DUPLICATE_GROUPS, ())
+}
+
+/// `first`, the condition that picks a group's representative among its
+/// rows ordered active first, with the installed duplicate-groups forgery
+/// applied: the second such row is picked too.
+pub(crate) fn forge_representatives(first: Expr, ungrouped: bool) -> Expr {
+    if ungrouped
+        || DUPLICATE_GROUPS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_none()
+    {
+        return first;
+    }
+    first.or(datafusion_expr::col("__row_number__").eq(lit(2_i64)))
+}
+
+/// `counts`, a lookup's multiplicities with each value's count on its first
+/// super row, with the installed duplicate-groups forgery applied: every
+/// later copy of a value takes 1 from the first while the first keeps one.
+/// `super_rows` lists the active super rows by key, ties by row.
+pub(crate) fn spread_duplicate_multiplicities<K: PartialEq>(
+    super_rows: &[(K, usize)],
+    counts: &mut [u64],
+) {
+    if DUPLICATE_GROUPS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_none()
+    {
+        return;
+    }
+    let mut first: Option<(&K, usize)> = None;
+    for (key, row) in super_rows {
+        match first {
+            Some((first_key, first_row)) if first_key == key => {
+                if counts[first_row] > 1 {
+                    counts[first_row] -= 1;
+                    counts[*row] = 1;
+                }
+            }
+            _ => first = Some((key, *row)),
+        }
+    }
 }
 
 pub fn set_rescale_forgery() -> Installed<()> {
