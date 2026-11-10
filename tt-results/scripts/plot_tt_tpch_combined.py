@@ -25,7 +25,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.patches import FancyBboxPatch
 from matplotlib.ticker import FuncFormatter, LogLocator
 
 plt.style.use("seaborn-v0_8-whitegrid")
@@ -151,72 +150,27 @@ if cdf.empty:
     raise RuntimeError(f"no rows with scale-factor={SCALE_FACTOR} in {commit_path}")
 cdf = cdf.sort_values("table").reset_index(drop=True)
 
-TABLE_ABBREV = {
-    "customer": "C",
-    "lineitem": "L",
-    "nation":   "N",
-    "orders":   "O",
-    "part":     "P",
-    "partsupp": "PS",
-    "region":   "R",
-    "supplier": "S",
-}
-cdf["abbrev"] = cdf["table"].map(TABLE_ABBREV)
-
-
 def draw_commit(ax):
     # Distinct color + hatch from the other three panels:
     # prover (blue /), verifier (green /), proof (purple x) → commit (orange \).
     palette_face = light[1]
     palette_edge = colors[1]
     x = np.arange(len(cdf))
-    ax.bar(x, cdf["latency-1thread(ms)"] / 1000.0, width=0.7,
+    seconds = cdf["latency-1thread(ms)"] / 1000.0
+    ax.bar(x, seconds, width=0.7,
            facecolor=palette_face, edgecolor=palette_edge, hatch="\\", linewidth=0.8)
-    ax.set_xticks(x, cdf["abbrev"].tolist())
+    # Full table names on the axis: an abbreviation key inside the panel
+    # covers the bars once the larger tables pass a few seconds.
+    ax.set_xticks(x, cdf["table"].tolist(), fontsize="small")
     ax.set_xlabel("Table")
     ax.set_ylabel("Commit Latency (s)")
     ax.set_yscale("log")
+    ax.set_ylim(top=seconds.max() * 3)
     ax.yaxis.set_major_locator(LogLocator(base=10))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
     ax.tick_params(axis="x", pad=10)
     ax.tick_params(axis="y", pad=10)
     ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
-    # Abbreviation legend, top-right. Drawn as a background box + per-cell
-    # ax.text calls; each "=" sign is right-anchored at a fixed column x, so
-    # columns line up regardless of font metrics. (Earlier single-string +
-    # monospace attempts misaligned because matplotlib right-aligns each line
-    # of a multi-line block individually when ha="right".)
-    abbrev_rows = [
-        ("C",  "customer", "P",  "part"),
-        ("L",  "lineitem", "PS", "partsupp"),
-        ("N",  "nation",   "R",  "region"),
-        ("O",  "orders",   "S",  "supplier"),
-    ]
-    # Each row's full "key = value" string is left-anchored at the column's
-    # x_start, so every row in a column begins at the same x. The "=" signs
-    # will sit at slightly different positions across rows (intended).
-    # Box widened further left to accommodate 38pt text with comfortable
-    # right margin and inter-column gap. The new bx0=0.42 slightly overlaps
-    # the very top corner of the orders bar (y~0.67), but alpha=0.95 keeps
-    # the impact small.
-    bx0, by0, bx1, by1 = 0.42, 0.59, 0.985, 0.955
-    ax.add_patch(FancyBboxPatch(
-        (bx0, by0), bx1 - bx0, by1 - by0,
-        boxstyle="round,pad=0.005",
-        transform=ax.transAxes,
-        facecolor="white", edgecolor="#bbbbbb",
-        linewidth=1.0, alpha=0.95,
-        zorder=4,
-    ))
-    left_start = 0.44
-    right_start = 0.70
-    margin_y = 0.04
-    y_positions = np.linspace(by1 - margin_y, by0 + margin_y, len(abbrev_rows))
-    for y, (k1, v1, k2, v2) in zip(y_positions, abbrev_rows):
-        ax.text(left_start,  y, f"{k1} = {v1}", transform=ax.transAxes,
-                ha="left", va="center", fontsize=38, zorder=5)
-        ax.text(right_start, y, f"{k2} = {v2}", transform=ax.transAxes,
-                ha="left", va="center", fontsize=38, zorder=5)
 
 
 # figsize_width matches plot_pgn.py / plot_micro.py (46), and figsize_height
