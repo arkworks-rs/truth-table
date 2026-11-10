@@ -3,6 +3,7 @@ mod align_agg_input_to_output;
 mod align_binary_operands;
 mod case_as_arithmetic;
 mod common;
+mod hide_system_columns;
 
 use std::sync::Arc;
 
@@ -10,6 +11,7 @@ use add_avg_support::AddAvgSupport;
 use align_agg_input_to_output::AlignAggInputToOutput;
 use align_binary_operands::AlignBinaryOperands;
 use case_as_arithmetic::CaseAsArithmetic;
+use hide_system_columns::HideSystemColumns;
 
 use datafusion::{
     config::ConfigOptions,
@@ -29,6 +31,7 @@ pub fn rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
         Arc::new(ApplyFunctionRewrites::default()),
         Arc::new(InlineTableScan::new()),
         Arc::new(ExpandWildcardRule::new()),
+        Arc::new(HideSystemColumns::new()),
         Arc::new(ResolveGroupingFunction::new()),
         Arc::new(TypeCoercion::new()),
         Arc::new(AlignBinaryOperands::new()),
