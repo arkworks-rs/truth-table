@@ -1,11 +1,11 @@
 use std::{
     collections::HashSet,
-    path::PathBuf,
     sync::{Mutex, OnceLock},
 };
 use tt_core::session::session_context;
 
 use arithmetic::ROW_ID_COL_NAME;
+use ark_piop::setup::structs::SNARKPk;
 use ark_serialize::CanonicalSerialize;
 use datafusion::prelude::ParquetReadOptions;
 use divan::Bencher;
@@ -61,13 +61,18 @@ const TPCH_TABLES: &[CommitCase] = &[
     },
 ];
 
-fn commit_pk_path() -> &'static PathBuf {
-    static PK_PATH: OnceLock<PathBuf> = OnceLock::new();
-    PK_PATH.get_or_init(|| {
+/// Loaded once: reading the key from disk is not part of committing a table,
+/// and would otherwise dominate the time of every small table.
+fn commit_pk() -> SNARKPk<B> {
+    static PK: OnceLock<SNARKPk<B>> = OnceLock::new();
+    PK.get_or_init(|| {
         let (pk_path, _vk_path) = resolve_key_paths(DEFAULT_BENCH_LOG_SIZE)
             .expect("resolve proving key for commit bench");
-        pk_path
+        TTPk::<B>::load(&pk_path)
+            .expect("load proving key for commit bench")
+            .into_inner()
     })
+    .clone()
 }
 
 fn log_commit_size_once(case_name: &'static str, bytes: usize) {
@@ -100,8 +105,7 @@ fn commit_content_len(case: CommitCase) -> usize {
     )
     .expect("register parquet for commit bench");
 
-    let tt_pk = TTPk::<B>::load(commit_pk_path()).expect("load proving key for commit bench");
-    let snark_pk = tt_pk.into_inner();
+    let snark_pk = commit_pk();
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
     let data_owner = TTDataOwner::new(TTDataOwnerConfig::default(), shared_config, snark_pk);
     let serializable = block_on(data_owner.commit(&query)).expect("commit table to oracle");
