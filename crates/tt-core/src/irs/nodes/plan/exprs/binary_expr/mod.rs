@@ -204,37 +204,6 @@ impl<B: SnarkBackend> ExprNode<B> {
             _ => panic!("Unsupported operator for binary expression gadget"),
         }
     }
-
-    fn activator_expr_for_df(input_df: &datafusion::prelude::DataFrame) -> Option<Expr> {
-        let activator_exprs: Vec<Expr> = input_df
-            .schema()
-            .iter()
-            .filter_map(|(qualifier, field)| {
-                if field.name() != arithmetic::ACTIVATOR_COL_NAME {
-                    return None;
-                }
-                Some(Expr::Column(datafusion_common::Column::new(
-                    qualifier.cloned(),
-                    arithmetic::ACTIVATOR_COL_NAME,
-                )))
-            })
-            .collect();
-        if activator_exprs.is_empty() {
-            return None;
-        }
-        let mut qualified: Vec<Expr> = activator_exprs
-            .iter()
-            .filter(|&expr| matches!(expr, Expr::Column(col) if col.relation.is_some()))
-            .cloned()
-            .collect();
-        if !qualified.is_empty() {
-            return Some(qualified.remove(0));
-        }
-        if activator_exprs.len() == 1 {
-            return Some(activator_exprs[0].clone());
-        }
-        None
-    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
@@ -625,7 +594,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
             // Comparison outputs should be false on inactive rows. The masked
             // column keeps the expression's name, which is what a parent
             // (a projection, the result check) looks it up by.
-            if let Some(activator_expr) = Self::activator_expr_for_df(&input_df) {
+            if let Some(activator_expr) = crate::irs::nodes::hints::activator_expr(&input_df) {
                 let else_expr = match output_expr.get_type(input_df.schema()).ok() {
                     Some(DataType::Boolean) => lit(false),
                     _ => lit(ScalarValue::Null),
@@ -694,7 +663,9 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
         let output_expr = Expr::BinaryExpr(self.binary_expression.clone());
         let output_expr = if self.should_materialize() {
             // Masked and named as on the prover side.
-            if let Some(activator_expr) = Self::activator_expr_for_df(scope_hint_df.data_frame()) {
+            if let Some(activator_expr) =
+                crate::irs::nodes::hints::activator_expr(scope_hint_df.data_frame())
+            {
                 let else_expr = match output_expr
                     .get_type(scope_hint_df.data_frame().schema())
                     .ok()

@@ -231,6 +231,39 @@ pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
     exprs.push(row_expr);
 }
 
+/// The activator column of `df`, preferring a qualified one; `None` when
+/// there is none, or several unqualified ones.
+pub(crate) fn activator_expr(df: &DataFrame) -> Option<Expr> {
+    let activator_exprs: Vec<Expr> = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            if field.name() != arithmetic::ACTIVATOR_COL_NAME {
+                return None;
+            }
+            Some(Expr::Column(Column::new(
+                qualifier.cloned(),
+                arithmetic::ACTIVATOR_COL_NAME,
+            )))
+        })
+        .collect();
+    if activator_exprs.is_empty() {
+        return None;
+    }
+    let mut qualified: Vec<Expr> = activator_exprs
+        .iter()
+        .filter(|&expr| matches!(expr, Expr::Column(col) if col.relation.is_some()))
+        .cloned()
+        .collect();
+    if !qualified.is_empty() {
+        return Some(qualified.remove(0));
+    }
+    if activator_exprs.len() == 1 {
+        return Some(activator_exprs[0].clone());
+    }
+    None
+}
+
 pub fn append_activator_exprs_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
     let activator_already_present = exprs.iter().any(|expr| match expr {
         Expr::Column(col) => col.name == arithmetic::ACTIVATOR_COL_NAME,
