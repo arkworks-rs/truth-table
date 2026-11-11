@@ -294,6 +294,24 @@ pub(crate) fn forge_rescale(cast: Expr, data_type: &DataType) -> Expr {
     datafusion_expr::cast(cast + lit(one), data_type.clone()).alias(name)
 }
 
+static IN_LIST_FORGERY: Mutex<Option<()>> = Mutex::new(None);
+
+pub fn set_in_list_forgery() -> Installed<()> {
+    install(&IN_LIST_FORGERY, ())
+}
+
+/// `in_list` negated when the IN-list forgery is installed.
+pub(crate) fn forge_in_list(in_list: Expr) -> Expr {
+    if IN_LIST_FORGERY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_none()
+    {
+        return in_list;
+    }
+    Expr::Not(Box::new(in_list))
+}
+
 pub fn set_unowned_scans() -> Installed<()> {
     install(&UNOWNED_SCANS, ())
 }

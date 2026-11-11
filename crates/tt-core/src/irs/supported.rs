@@ -14,7 +14,8 @@ use std::collections::BTreeSet;
 use crate::irs::lineage::{ambiguous_rank, base_column, is_string_type};
 use crate::irs::nodes::{
     plan::compaction::CompactionLogicalNode, plan::exprs::cast::rescale,
-    plan::exprs::fp_prefilter::TT_PREFILTER_UDF_NAME, utils::contig_sort::difference_sign_type,
+    plan::exprs::fp_prefilter::TT_PREFILTER_UDF_NAME, plan::exprs::in_list::literal_values,
+    utils::contig_sort::difference_sign_type,
 };
 use crate::irs::string_order::{StringOrder, string_order};
 
@@ -100,6 +101,9 @@ pub fn ensure_supported(plan: &LogicalPlan) -> Result<()> {
                 Expr::Between(_) => Err(DataFusionError::NotImplemented(format!(
                     "{BETWEEN_NOT_REWRITTEN}: {expr}"
                 ))),
+                Expr::InList(in_list) if literal_values(in_list).is_none() => Err(
+                    DataFusionError::NotImplemented(format!("{IN_LIST_NOT_REWRITTEN}: {expr}")),
+                ),
                 _ => Ok(TreeNodeRecursion::Continue),
             })
         })
@@ -255,6 +259,9 @@ pub(crate) const SCALAR_FUNCTION: &str = "scalar functions are not supported";
 /// comparisons that prove it.
 pub(crate) const BETWEEN_NOT_REWRITTEN: &str =
     "BETWEEN is proved as the comparisons it is rewritten into, and this one was not rewritten";
+
+pub(crate) const IN_LIST_NOT_REWRITTEN: &str = "an IN list with a value that is not a non-null \
+    literal is proved as the comparisons it is rewritten into, and this one was not rewritten";
 
 #[cfg(test)]
 mod tests {
