@@ -120,6 +120,9 @@ impl<B: SnarkBackend> TTVerifier<B> {
         self.shared_config
             .ctx_oracles()
             .ensure_rank_columns(gadget_planned_ir.tree(), &rank_columns)?;
+        self.shared_config
+            .ctx_oracles()
+            .ensure_side_columns(gadget_planned_ir.tree(), &side_columns)?;
         let verifier_tracking_pass = self.verifier_config.tracking_pass(
             arg_verifier.clone(),
             self.shared_config.ctx_oracles().clone(),

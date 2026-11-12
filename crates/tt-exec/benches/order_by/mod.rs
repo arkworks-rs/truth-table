@@ -7,6 +7,7 @@ use crate::support::{
     log_proof_size_once, prepare_assets_cached, prepare_prover_iteration, run_full_verifier_once,
     run_preprocess_once, run_prover_iteration, warmup_proof,
 };
+use tt_exec::test_utils::StringCommit;
 
 fn order_by_cases() -> &'static [BenchCase] {
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
@@ -17,12 +18,14 @@ fn order_by_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_suppkey FROM lineitem ORDER BY l_suppkey LIMIT 128"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "order_by_multi_col",
                 query: r#"SELECT l_partkey, l_suppkey FROM lineitem WHERE l_partkey < 1000 ORDER BY l_partkey, l_suppkey LIMIT 256"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
         ];
         Box::leak(cases.into_boxed_slice())

@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use tpch_data::bench_data_path;
 use tt_exec::prove::ProveBuilder;
 use tt_exec::setup::DEFAULT_BENCH_LOG_SIZE;
-use tt_exec::test_utils::{resolve_key_paths, resolve_oracle_path_blocking};
+use tt_exec::test_utils::{StringCommit, resolve_key_paths, resolve_oracle_path_blocking};
 
 use crate::corpus::Corpus;
 
@@ -43,7 +43,7 @@ fn resolve_assets() -> Result<(PathBuf, PathBuf, PathBuf)> {
             parquet.display()
         );
     }
-    let oracle = resolve_oracle_path_blocking(&parquet, &pk_path)
+    let oracle = resolve_oracle_path_blocking(&parquet, &pk_path, StringCommit::WhiteBox)
         .with_context(|| format!("resolve/commit oracle for {}", parquet.display()))?;
     Ok((parquet, oracle, pk_path))
 }

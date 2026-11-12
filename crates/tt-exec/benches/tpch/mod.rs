@@ -6,6 +6,7 @@ use crate::support::{
     emit_benchmark_stats_row, ensure_proof, log_proof_size_once, prepare_assets_cached,
     prepare_prover_iteration, run_full_verifier_once, run_preprocess_once, run_prover_iteration,
 };
+use tt_exec::test_utils::StringCommit;
 
 fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchState {
     let assets = prepare_assets_cached(case);
@@ -38,6 +39,7 @@ macro_rules! define_tpch_case_benches {
                     query: spec.sql,
                     tables: spec.tables,
                     benchmark_suite: Some($suite),
+                    strings: StringCommit::for_variant(Variant::$variant),
                 }
             }
 

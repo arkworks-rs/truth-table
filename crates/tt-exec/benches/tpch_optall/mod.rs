@@ -28,6 +28,7 @@ use crate::support::{
     prepare_assets_cached, prepare_prover_iteration_with_rules, run_full_verifier_once,
     run_preprocess_once, run_prover_iteration,
 };
+use tt_exec::test_utils::StringCommit;
 
 #[derive(Clone, Copy)]
 pub enum OptConfig {
@@ -81,6 +82,7 @@ macro_rules! define_optall_case_benches {
                     query: spec.sql,
                     tables: spec.tables,
                     benchmark_suite: Some(concat!("TPC-H Q", stringify!($query_num), " (optall)")),
+                    strings: StringCommit::HashOnly,
                 }
             }
 

@@ -7,6 +7,7 @@ use crate::support::{
     log_proof_size_once, prepare_assets_cached, prepare_prover_iteration, run_full_verifier_once,
     run_preprocess_once, run_prover_iteration, warmup_proof,
 };
+use tt_exec::test_utils::StringCommit;
 
 fn filter_cases() -> &'static [BenchCase] {
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
@@ -17,12 +18,14 @@ fn filter_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_partkey = 214"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "filter_lt",
                 query: r#"SELECT l_returnflag, l_linestatus FROM lineitem WHERE l_shipdate < DATE '1998-09-01'"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
         ];
         Box::leak(cases.into_boxed_slice())
@@ -43,18 +46,21 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 query: r#"SELECT n_name FROM nation WHERE n_name LIKE 'IN%'"#,
                 tables: &["nation"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
             BenchCase {
                 name: "filter_like_suffix_nation",
                 query: r#"SELECT n_name FROM nation WHERE n_name LIKE '%AN'"#,
                 tables: &["nation"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
             BenchCase {
                 name: "filter_like_infix_nation",
                 query: r#"SELECT n_name FROM nation WHERE n_name LIKE '%AN%'"#,
                 tables: &["nation"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
             // t = 1, infix.
             BenchCase {
@@ -62,6 +68,7 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%green%'"#,
                 tables: &["lineitem"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
             // t = 1, prefix.
             BenchCase {
@@ -69,6 +76,7 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE 'deposits%'"#,
                 tables: &["lineitem"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
             // t = 1, suffix.
             BenchCase {
@@ -76,6 +84,7 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%requests'"#,
                 tables: &["lineitem"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
             // t = 2, two infix factors.
             BenchCase {
@@ -83,6 +92,7 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%bold%plate%'"#,
                 tables: &["lineitem"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
             // t = 2, prefix + infix.
             BenchCase {
@@ -90,6 +100,7 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE 'ideas%green%'"#,
                 tables: &["lineitem"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
             // t = 3, three infix factors: the past-chain runs over more than
             // one inter-factor step.
@@ -98,6 +109,7 @@ fn filter_like_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%special%packages%beans%'"#,
                 tables: &["lineitem"],
                 benchmark_suite: None,
+                strings: StringCommit::WhiteBox,
             },
         ];
         Box::leak(cases.into_boxed_slice())

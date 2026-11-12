@@ -7,6 +7,7 @@ use crate::support::{
     log_proof_size_once, prepare_assets_cached, prepare_prover_iteration, run_full_verifier_once,
     run_preprocess_once, run_prover_iteration, warmup_proof,
 };
+use tt_exec::test_utils::StringCommit;
 
 fn join_cases() -> &'static [BenchCase] {
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
@@ -22,6 +23,7 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["supplier", "customer"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_partsupp_self_medium_many_to_many",
@@ -33,6 +35,7 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["partsupp"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_supplier_nation_small_one_to_many",
@@ -44,6 +47,7 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["supplier", "nation"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_orders_customer_medium_one_to_many",
@@ -55,6 +59,7 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["orders", "customer"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_lineitem_orders_large_one_to_many",
@@ -66,6 +71,7 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["lineitem", "orders"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_partsupp_self_small_composite_key",
@@ -78,6 +84,7 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["partsupp"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_lineitem_partsupp_medium_composite_key",
@@ -90,6 +97,7 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["lineitem", "partsupp"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_lineitem_self_large_composite_key",
@@ -102,6 +110,7 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["lineitem"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_customer_orders_lineitem_large_chain",
@@ -118,6 +127,7 @@ WHERE
                 "#,
                 tables: &["lineitem", "orders", "customer"],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "join_customer_orders_lineitem_supplier_large_chain",
@@ -138,6 +148,7 @@ WHERE
                     "lineitem", "orders", "partsupp", "supplier", "customer", "nation", "region",
                 ],
                 benchmark_suite: None,
+                strings: StringCommit::HashOnly,
             },
         ];
         Box::leak(cases.into_boxed_slice())

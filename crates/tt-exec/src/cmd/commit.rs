@@ -30,6 +30,12 @@ pub struct Commit {
     #[arg(long)]
     pub no_ranks: bool,
 
+    /// Commit no string column's char-level side columns or fingerprints:
+    /// each string is committed as its hash and length only. The oracle is
+    /// smaller and cheaper to commit, but cannot serve LIKE.
+    #[arg(long)]
+    pub no_side_columns: bool,
+
     /// Print how long the command takes to execute
     #[arg(long)]
     pub timed: bool,
@@ -50,6 +56,7 @@ impl Runnable for Commit {
             .with_output_path(self.output_path)
             .with_fp_width(self.fp_bins)
             .with_ranks(!self.no_ranks)
+            .with_side_columns(!self.no_side_columns)
             .build()?;
 
         let output = runner.run().await?;
