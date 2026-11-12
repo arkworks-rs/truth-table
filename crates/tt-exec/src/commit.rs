@@ -35,6 +35,7 @@ pub struct CommitBuilder {
     output_root: Option<PathBuf>,
     fp_width: Option<usize>,
     ranks: bool,
+    side_columns: bool,
 }
 
 impl Default for CommitBuilder {
@@ -51,7 +52,16 @@ impl CommitBuilder {
             output_root: None,
             fp_width: None,
             ranks: true,
+            side_columns: true,
         }
+    }
+
+    /// Whether to commit every string column's char-level side columns and
+    /// fingerprints, which LIKE needs. On by default. Without them each
+    /// string is committed as its hash and length only.
+    pub fn with_side_columns(mut self, side_columns: bool) -> Self {
+        self.side_columns = side_columns;
+        self
     }
 
     /// Whether to commit every string column's rank, which a query sorting
@@ -100,6 +110,7 @@ impl CommitBuilder {
             output_path,
             fp_width,
             ranks: self.ranks,
+            side_columns: self.side_columns,
         })
     }
 }
@@ -110,6 +121,7 @@ pub struct CommitRunner {
     output_path: PathBuf,
     fp_width: usize,
     ranks: bool,
+    side_columns: bool,
 }
 
 impl CommitRunner {
@@ -132,6 +144,7 @@ impl CommitRunner {
             &output_path,
             self.fp_width,
             self.ranks,
+            self.side_columns,
         )
         .await
         .with_context(|| {
@@ -148,7 +161,11 @@ impl CommitRunner {
 
 /// The rule of `width` bins for every string column, built from its
 /// active rows.
-async fn column_rules(ctx: &SessionContext, table: &str, width: usize) -> Result<FingerprintRules> {
+pub async fn column_rules(
+    ctx: &SessionContext,
+    table: &str,
+    width: usize,
+) -> Result<FingerprintRules> {
     let mut rules = FingerprintRules::default();
     let schema = ctx.table(table).await?.schema().as_arrow().clone();
     let active = if schema.index_of(ACTIVATOR_COL_NAME).is_ok() {
@@ -243,6 +260,7 @@ async fn commit_parquet_with_pk(
     output_path: &Path,
     width: usize,
     ranks: bool,
+    side_columns: bool,
 ) -> Result<Duration> {
     let snark_pk = load_snark_pk(pk_path)
         .with_context(|| format!("failed to load proving key from {}", pk_path.display()))?;
@@ -268,15 +286,19 @@ async fn commit_parquet_with_pk(
     // Install the rules before encoding: they decide how each string column
     // is fingerprinted, and they are recorded in the oracle so prover and
     // verifier reproduce exactly this encoding.
-    let rules = column_rules(&ctx, &table_name, width).await?;
-    arithmetic::fingerprint::configure_rules(rules)
-        .map_err(|e| anyhow!("install fingerprint rules: {e}"))?;
+    if side_columns {
+        let rules = column_rules(&ctx, &table_name, width).await?;
+        arithmetic::fingerprint::configure_rules(rules)
+            .map_err(|e| anyhow!("install fingerprint rules: {e}"))?;
+    }
 
     let query = format!("SELECT * EXCEPT ({}) FROM {table_name}", ROW_ID_COL_NAME);
 
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
     let data_owner = TTDataOwner::new(
-        TTDataOwnerConfig::default().with_ranks(ranks),
+        TTDataOwnerConfig::default()
+            .with_ranks(ranks)
+            .with_side_columns(side_columns),
         shared_config,
         snark_pk,
     );

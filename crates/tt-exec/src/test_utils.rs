@@ -90,6 +90,21 @@ pub async fn prove_and_verify_query(
     table_names: &[&str],
     proof_output_path: Option<PathBuf>,
 ) -> Result<()> {
+    prove_and_verify_query_with(
+        query,
+        table_names,
+        proof_output_path,
+        StringCommit::WhiteBox,
+    )
+    .await
+}
+
+pub async fn prove_and_verify_query_with(
+    query: &str,
+    table_names: &[&str],
+    proof_output_path: Option<PathBuf>,
+    strings: StringCommit,
+) -> Result<()> {
     init_test_tracing(jsonl_stats_enabled_from_env());
     let parquet_paths = table_names
         .iter()
@@ -98,7 +113,7 @@ pub async fn prove_and_verify_query(
     let (pk_path, vk_path) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE)?;
     let mut oracle_paths = Vec::with_capacity(parquet_paths.len());
     for parquet_path in &parquet_paths {
-        let oracle = resolve_oracle_path(parquet_path, &pk_path).await?;
+        let oracle = resolve_oracle_path_for(parquet_path, &pk_path, strings).await?;
         oracle_paths.push(oracle);
     }
 
@@ -167,13 +182,45 @@ pub fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
     Ok((expected_pk, expected_vk))
 }
 
+/// What a cached oracle commits for each string column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StringCommit {
+    /// The hash and length only: what every query without a white-box
+    /// string operation needs (the `_tt` TPC-H variants, the micro
+    /// benches).
+    HashOnly,
+    /// Also the side columns, fingerprints and ranks that LIKE and string
+    /// ORDER BY read (the `_tt_2` and Poneglyph variants, LIKE).
+    WhiteBox,
+}
+
+impl StringCommit {
+    /// `_tt` has no white-box string operation; Poneglyph's Q1 and Q9 sort
+    /// by strings.
+    pub fn for_variant(variant: tpch_data::Variant) -> Self {
+        match variant {
+            tpch_data::Variant::Tt => Self::HashOnly,
+            tpch_data::Variant::Tt2 | tpch_data::Variant::Pgn => Self::WhiteBox,
+        }
+    }
+}
+
+/// The [`StringCommit::WhiteBox`] oracle, which serves any query.
 pub async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
+    resolve_oracle_path_for(parquet_path, pk_path, StringCommit::WhiteBox).await
+}
+
+pub async fn resolve_oracle_path_for(
+    parquet_path: &Path,
+    pk_path: &Path,
+    strings: StringCommit,
+) -> Result<PathBuf> {
     // One commit at a time per parquet path: `cargo test` runs tests as
     // threads in one process. The lock is held across the check-then-build, so
     // a second caller for the same table finds the first caller's file.
     let lock = oracle_build_lock(parquet_path);
     let _guard = lock.lock().await;
-    resolve_oracle_path_locked(parquet_path, pk_path).await
+    resolve_oracle_path_locked(parquet_path, pk_path, strings).await
 }
 
 fn oracle_build_lock(parquet_path: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
@@ -189,13 +236,18 @@ fn oracle_build_lock(parquet_path: &Path) -> std::sync::Arc<tokio::sync::Mutex<(
 
 /// Cache key for a committed oracle: everything the commitment depends on
 /// that can change without the parquet path changing. That is the backend,
-/// [`ORACLE_LAYOUT`], the size and modification time of the parquet and of the
-/// proving key, and how the commit path encodes the table
+/// [`ORACLE_LAYOUT`], `strings`, the size and modification time of the parquet
+/// and of the proving key, and how the commit path encodes the table
 /// ([`hash_sample_encoding`], which covers the fingerprint and rank columns).
-async fn oracle_cache_key(parquet_path: &Path, pk_path: &Path) -> Result<String> {
+async fn oracle_cache_key(
+    parquet_path: &Path,
+    pk_path: &Path,
+    strings: StringCommit,
+) -> Result<String> {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut h = DefaultHasher::new();
-    hash_sample_encoding(parquet_path, &mut h).await?;
+    hash_sample_encoding(parquet_path, strings, &mut h).await?;
+    strings.hash(&mut h);
     BACKEND_NAME.hash(&mut h);
     ORACLE_LAYOUT.hash(&mut h);
     for path in [parquet_path, pk_path] {
@@ -226,6 +278,7 @@ const ENCODING_SAMPLE_ROWS: usize = 64;
 /// arithmetization functions a commitment goes through.
 async fn hash_sample_encoding(
     parquet_path: &Path,
+    strings: StringCommit,
     hasher: &mut impl std::hash::Hasher,
 ) -> Result<()> {
     use ark_piop::SnarkBackend;
@@ -268,10 +321,11 @@ async fn hash_sample_encoding(
         row_count,
         batches,
     );
+    let fingerprints = tt_core::prover::passes::arithmetization::FingerprintColumns::All;
     let arith = arithmetize_materialized_table::<<B as SnarkBackend>::F>(
         &table,
         None,
-        Some(&tt_core::prover::passes::arithmetization::FingerprintColumns::All),
+        (strings == StringCommit::WhiteBox).then_some(&fingerprints),
         &|_| arithmetic::encoding::RankSource::Own,
     );
     let mut bytes = Vec::new();
@@ -286,10 +340,14 @@ async fn hash_sample_encoding(
     Ok(())
 }
 
-async fn resolve_oracle_path_locked(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
+async fn resolve_oracle_path_locked(
+    parquet_path: &Path,
+    pk_path: &Path,
+    strings: StringCommit,
+) -> Result<PathBuf> {
     // `<stem>.<backend>.<key>.oracle`, next to the parquet. The key changes
     // whenever the commitment would, so an existing file is always current.
-    let key = oracle_cache_key(parquet_path, pk_path).await?;
+    let key = oracle_cache_key(parquet_path, pk_path, strings).await?;
     let cached = parquet_path.with_extension(format!("{BACKEND_NAME}.{key}.oracle"));
     if cached.exists() && oracle_matches_parquet(&cached, parquet_path)? {
         return Ok(cached);
@@ -317,6 +375,8 @@ async fn resolve_oracle_path_locked(parquet_path: &Path, pk_path: &Path) -> Resu
         .with_parquet_path(parquet_path.to_path_buf())
         .with_pk_path(pk_path.to_path_buf())
         .with_output_path(Some(tmp.clone()))
+        .with_ranks(strings == StringCommit::WhiteBox)
+        .with_side_columns(strings == StringCommit::WhiteBox)
         .build()?
         .run()
         .await?;
@@ -342,8 +402,12 @@ async fn resolve_oracle_path_locked(parquet_path: &Path, pk_path: &Path) -> Resu
     Ok(cached)
 }
 
-pub fn resolve_oracle_path_blocking(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
-    runtime::block_on(resolve_oracle_path(parquet_path, pk_path))
+pub fn resolve_oracle_path_blocking(
+    parquet_path: &Path,
+    pk_path: &Path,
+    strings: StringCommit,
+) -> Result<PathBuf> {
+    runtime::block_on(resolve_oracle_path_for(parquet_path, pk_path, strings))
 }
 
 pub fn resolve_parquet_path(table_name: &str) -> Result<PathBuf> {

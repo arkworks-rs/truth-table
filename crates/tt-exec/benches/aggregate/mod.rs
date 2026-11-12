@@ -7,6 +7,7 @@ use crate::support::{
     log_proof_size_once, prepare_assets_cached, prepare_prover_iteration, run_full_verifier_once,
     run_preprocess_once, run_prover_iteration, warmup_proof,
 };
+use tt_exec::test_utils::StringCommit;
 
 fn aggregate_cases() -> &'static [BenchCase] {
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
@@ -17,36 +18,42 @@ fn aggregate_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_suppkey, COUNT(l_suppkey) FROM lineitem GROUP BY l_suppkey,l_orderkey"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "aggr_sum",
                 query: r#"SELECT l_suppkey, SUM(l_suppkey) FROM lineitem GROUP BY l_suppkey,l_orderkey"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "aggr_max",
                 query: r#"SELECT l_suppkey, MAX(l_suppkey) FROM lineitem GROUP BY l_suppkey,l_orderkey"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "aggr_min",
                 query: r#"SELECT l_suppkey, MIN(l_suppkey) FROM lineitem GROUP BY l_suppkey,l_orderkey"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "full_aggr_count",
                 query: r#"SELECT COUNT(*) FROM lineitem"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
             BenchCase {
                 name: "full_aggr_sum",
                 query: r#"SELECT SUM(l_suppkey) FROM lineitem"#,
                 tables: &["lineitem"],
                     benchmark_suite: None,
+                    strings: StringCommit::HashOnly,
             },
         ];
         Box::leak(cases.into_boxed_slice())

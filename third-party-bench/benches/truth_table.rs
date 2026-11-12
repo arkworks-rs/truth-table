@@ -13,7 +13,7 @@ use arrow::{
 use exec::{
     prove::ProveBuilder,
     setup::SetupBuilder,
-    test_utils::resolve_oracle_path_blocking,
+    test_utils::{resolve_oracle_path_blocking, StringCommit},
     verify::VerifyBuilder,
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -476,12 +476,12 @@ fn main() {
 
             let start = Instant::now();
             let oracle_path =
-                resolve_oracle_path_blocking(&preprocessed_path, &pk_path).expect("resolve oracle");
+                resolve_oracle_path_blocking(&preprocessed_path, &pk_path, StringCommit::HashOnly).expect("resolve oracle");
             println!("commit_ms: {}", start.elapsed().as_millis());
             let oracle_path_b = if is_join {
                 let start = Instant::now();
                 let oracle =
-                    resolve_oracle_path_blocking(&preprocessed_path_b, &pk_path)
+                    resolve_oracle_path_blocking(&preprocessed_path_b, &pk_path, StringCommit::HashOnly)
                         .expect("resolve oracle");
                 println!("commit_ms: {}", start.elapsed().as_millis());
                 oracle

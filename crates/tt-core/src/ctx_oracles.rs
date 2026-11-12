@@ -116,6 +116,57 @@ impl<B: SnarkBackend> CtxOracles<B> {
         }
         Ok(())
     }
+
+    /// Every table scan in `tree` of a string column in `side_columns` has
+    /// an oracle committing that column's side segments. They are owner
+    /// data: a gadget reads the characters through them.
+    pub fn ensure_side_columns(
+        &self,
+        tree: &Tree<B>,
+        side_columns: &BTreeSet<String>,
+    ) -> TTResult<()> {
+        if side_columns.is_empty() {
+            return Ok(());
+        }
+        for node in tree.arena().values() {
+            let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref() else {
+                continue;
+            };
+            let LogicalPlan::TableScan(scan) = lp_node.lp() else {
+                continue;
+            };
+            let table = scan.table_name.table();
+            for field in scan.projected_schema.fields() {
+                let column = field.name();
+                if !is_string_type(field.data_type()) || !side_columns.contains(column) {
+                    continue;
+                }
+                let Some(oracle) = self.table_oracle_by_name(table) else {
+                    return Err(DataFusionError::Plan(format!(
+                        "column {column} of table {table} needs its committed side columns, \
+                         but the table has no oracle"
+                    ))
+                    .into());
+                };
+                let committed =
+                    arithmetic::encoding::side_segment_suffixes_for_type::<B::F>(field.data_type())
+                        .into_iter()
+                        .all(|suffix| {
+                            oracle
+                                .side_commitment(&format!("{column}{suffix}"))
+                                .is_some()
+                        });
+                if !committed {
+                    return Err(DataFusionError::Plan(format!(
+                        "table {table} has no side columns for column {column}; \
+                         re-commit it with side columns"
+                    ))
+                    .into());
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> Default for CtxOracles<B> {

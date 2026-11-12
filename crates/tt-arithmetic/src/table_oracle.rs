@@ -1068,6 +1068,15 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
         }
         self
     }
+    pub fn without_fingerprint_rules(mut self) -> Self {
+        if let Some(schema) = self.schema.take() {
+            let mut metadata = schema.metadata().clone();
+            metadata.remove(FINGERPRINT_RULES_METADATA_KEY);
+            self.schema = Some(Schema::new_with_metadata(schema.fields().clone(), metadata));
+        }
+        self
+    }
+
     /// The commitments behind a `TrackedTableOracle`'s oracles.
     pub fn from_tracked_table_oracle(table_oracle: &TrackedTableOracle<B>) -> Self
     where

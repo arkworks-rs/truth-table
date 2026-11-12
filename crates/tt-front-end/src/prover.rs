@@ -283,6 +283,9 @@ impl<B: SnarkBackend> TTProver<B> {
         // tree, so the verifier reaches the same decision without a wire hint.
         let side_columns = materialized_ir.tree().required_side_columns();
         info!(?side_columns, "columns receiving char-level side polys");
+        self.shared_config
+            .ctx_oracles()
+            .ensure_side_columns(materialized_ir.tree(), &side_columns)?;
         let fingerprint_columns = materialized_ir.tree().required_fingerprint_columns();
         let base_ranks =
             tt_core::prover::passes::arithmetization::base_ranks(&materialized_ir, &rank_columns);

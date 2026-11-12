@@ -36,7 +36,7 @@ use tt_exec::{
     paths::workspace_artifacts_dir,
     prove::ProveBuilder,
     setup::DEFAULT_BENCH_LOG_SIZE,
-    test_utils::{resolve_key_paths, resolve_oracle_path_blocking},
+    test_utils::{StringCommit, resolve_key_paths, resolve_oracle_path_blocking},
 };
 
 pub use stats_layer::emit_benchmark_stats_row;
@@ -50,6 +50,8 @@ pub struct BenchCase {
     pub tables: &'static [&'static str],
     /// Label of the benchmark suite or query family, e.g. `"TPC-H Q1"`.
     pub benchmark_suite: Option<&'static str>,
+    /// The tables the query is proved against.
+    pub strings: StringCommit,
 }
 
 impl fmt::Display for BenchCase {
@@ -177,7 +179,7 @@ pub fn prepare_assets(case: BenchCase) -> BenchAssets {
     let oracle_paths = parquet_paths
         .iter()
         .map(|parquet_path| {
-            resolve_oracle_path_blocking(parquet_path, &pk_path)
+            resolve_oracle_path_blocking(parquet_path, &pk_path, case.strings)
                 .expect("resolve oracle path for bench")
         })
         .collect::<Vec<_>>();

@@ -2,10 +2,11 @@
 
 //! `Tree::required_side_columns` decides which string columns' side polys
 //! (`__chars`, `__orig_ind`, `__int_ind`, `__bnd`) a query encodes and
-//! tracks; the data owner commits them for every string column. It must name
-//! exactly the columns consumed by white-box string gadgets (LIKE), so a
-//! query without one loads no auxiliary column (paper: "Dropping Auxiliary
-//! Columns").
+//! tracks; the data owner commits them for every string column, or for none.
+//! It must name exactly the columns consumed by white-box string gadgets
+//! (LIKE), so a query without one loads no auxiliary column (paper: "Dropping
+//! Auxiliary Columns"), and a table committed without them serves every
+//! query but LIKE.
 
 use std::collections::BTreeSet;
 
@@ -13,7 +14,12 @@ use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use front_end::shared::TTSharedConfig;
 use tt_core::irs::shared_ir::EmptyIr;
 use tt_exec::backend::BenchBackend;
-use tt_exec::test_utils::resolve_parquet_path;
+use tt_exec::{
+    prove::ProveBuilder,
+    setup::DEFAULT_TEST_LOG_SIZE,
+    test_utils::{StringCommit, resolve_key_paths, resolve_oracle_path_for, resolve_parquet_path},
+    verify::VerifyBuilder,
+};
 
 type B = BenchBackend;
 
@@ -99,6 +105,64 @@ async fn equality_filter_requires_no_side_columns() {
         cols.is_empty(),
         "equality filter would load side columns {cols:?}"
     );
+}
+
+/// A table committed without side columns proves and verifies a query with
+/// no LIKE, and both sides refuse a LIKE over it with a clear error.
+#[tokio::test]
+async fn a_table_committed_without_side_columns_refuses_like() {
+    let like = "SELECT n_nationkey FROM nation WHERE n_comment LIKE '%haggle%'";
+    let expected = "table nation has no side columns for column n_comment";
+    tt_exec::test_utils::prove_and_verify_query_with(
+        "SELECT n_nationkey FROM nation WHERE n_name = 'FRANCE'",
+        &["nation"],
+        None,
+        StringCommit::HashOnly,
+    )
+    .await
+    .expect("a query with no LIKE over the hash-only table");
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let (pk, vk) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE).expect("test keys");
+    let parquet = resolve_parquet_path("nation").expect("nation parquet");
+    let prove = |oracle, name: &str| {
+        ProveBuilder::new()
+            .with_query(like.to_owned())
+            .with_parquet_path(parquet.clone())
+            .with_oracle_path(oracle)
+            .with_pk_path(pk.clone())
+            .with_output_path(Some(dir.path().join(name)))
+            .build()
+            .expect("prove runner")
+    };
+    let hash_only = resolve_oracle_path_for(&parquet, &pk, StringCommit::HashOnly)
+        .await
+        .expect("hash-only oracle");
+
+    let Err(refused) = prove(hash_only.clone(), "refused.pi").run().await else {
+        panic!("the prover needs the committed side columns");
+    };
+    assert!(format!("{refused:#}").contains(expected), "{refused:#}");
+
+    let white_box = resolve_oracle_path_for(&parquet, &pk, StringCommit::WhiteBox)
+        .await
+        .expect("white-box oracle");
+    let outputs = prove(white_box, "honest.pi")
+        .run()
+        .await
+        .expect("prove with side columns");
+    let refused = VerifyBuilder::new()
+        .with_query(like.to_owned())
+        .with_oracle_path(hash_only)
+        .with_proof_path(outputs.proof_path)
+        .with_result_path(outputs.result_path)
+        .with_vk_path(vk)
+        .build()
+        .expect("verify runner")
+        .run()
+        .await
+        .expect_err("the verifier needs the committed side columns");
+    assert!(format!("{refused:#}").contains(expected), "{refused:#}");
 }
 
 /// A bare `Like` IR node for `n_comment LIKE '<pattern>'`. Built with

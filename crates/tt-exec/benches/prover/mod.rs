@@ -9,7 +9,7 @@ use tt_exec::{
     backend::BenchBackend,
     prove::ProveBuilder,
     setup::DEFAULT_BENCH_LOG_SIZE,
-    test_utils::{resolve_key_paths, resolve_oracle_path_blocking},
+    test_utils::{StringCommit, resolve_key_paths, resolve_oracle_path_blocking},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -68,7 +68,7 @@ fn prepare_prover_inputs(spec: BenchQuery) -> ProverBenchInputs {
     let oracle_paths = parquet_paths
         .iter()
         .map(|parquet_path| {
-            resolve_oracle_path_blocking(parquet_path, &pk_path)
+            resolve_oracle_path_blocking(parquet_path, &pk_path, StringCommit::HashOnly)
                 .expect("resolve oracle path for bench")
         })
         .collect::<Vec<_>>();

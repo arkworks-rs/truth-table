@@ -1,11 +1,13 @@
 #![cfg(feature = "test-utils")]
 
 //! Every TPC-H query of the benchmark list, `_tt` and `_tt_2`, proved and
-//! verified on the test tables. The Poneglyph variants are in `tpch_poneglyph.rs`: fingerprint
+//! verified on the test tables: `_tt` against tables that commit each string
+//! by its hash only. The Poneglyph variants are in `tpch_poneglyph.rs`: fingerprint
 //! rules are per process and keyed by column name, and `orders` and
 //! `orders_poneglyph` give `o_clerk` different rules.
 
 use tpch_data::Variant;
+use tt_exec::test_utils::StringCommit;
 
 async fn prove(number: u8) {
     prove_variant(number, Variant::Tt).await;
@@ -13,9 +15,14 @@ async fn prove(number: u8) {
 
 async fn prove_variant(number: u8, variant: Variant) {
     let spec = tpch_data::query_spec(number, variant);
-    tt_exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
-        .await
-        .unwrap_or_else(|err| panic!("TPC-H q{number} ({variant:?}): {err:?}"));
+    tt_exec::test_utils::prove_and_verify_query_with(
+        spec.sql,
+        spec.tables,
+        None,
+        StringCommit::for_variant(variant),
+    )
+    .await
+    .unwrap_or_else(|err| panic!("TPC-H q{number} ({variant:?}): {err:?}"));
 }
 
 #[tokio::test]

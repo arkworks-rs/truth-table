@@ -28,6 +28,10 @@ pub struct TTDataOwnerConfig<B: SnarkBackend> {
     /// Commit every string column's rank (TruthTable++ §3.2). A table
     /// committed without ranks cannot serve a query that sorts by a string.
     ranks: bool,
+    /// Commit every string column's char-level side columns and
+    /// fingerprints, which LIKE reads. A table committed without them
+    /// cannot serve LIKE.
+    side_columns: bool,
     phantom: std::marker::PhantomData<B>,
 }
 
@@ -35,12 +39,18 @@ impl<B: SnarkBackend> TTDataOwnerConfig<B> {
     pub fn new() -> Self {
         Self {
             ranks: true,
+            side_columns: true,
             phantom: std::marker::PhantomData,
         }
     }
 
     pub fn with_ranks(mut self, ranks: bool) -> Self {
         self.ranks = ranks;
+        self
+    }
+
+    pub fn with_side_columns(mut self, side_columns: bool) -> Self {
+        self.side_columns = side_columns;
         self
     }
 }
@@ -148,10 +158,22 @@ impl<B: SnarkBackend> TTDataOwner<B> {
 
     /// Commits the table-scan output of `query` into a serializable oracle.
     pub async fn commit(&self, query: &str) -> TTResult<ArithTableOracle<B>> {
+        use tt_core::prover::passes::arithmetization::{
+            FingerprintColumns, RankColumns, SideColumns,
+        };
         let rank_columns = if self.data_owner_config().ranks {
-            tt_core::prover::passes::arithmetization::RankColumns::All
+            RankColumns::All
         } else {
-            tt_core::prover::passes::arithmetization::RankColumns::None
+            RankColumns::None
+        };
+        // Fingerprints only pre-filter LIKE, so they follow the side columns.
+        let (side_columns, fingerprint_columns) = if self.data_owner_config().side_columns {
+            (SideColumns::All, FingerprintColumns::All)
+        } else {
+            (
+                SideColumns::Only(Default::default()),
+                FingerprintColumns::Only(Default::default()),
+            )
         };
 
         let initial_lp = self.shared_config.query_to_lp(query).await;
@@ -208,11 +230,8 @@ impl<B: SnarkBackend> TTDataOwner<B> {
         );
         let arithmetized_ir = materialized_ir.apply_local_pass_parallel(
             &tt_core::prover::passes::arithmetization::ArithmetizationPass::new(
-                // The oracle carries every string column's char-level side
-                // segments and fingerprint limbs, so any later query can
-                // read the characters of, or pre-filter, any column.
-                tt_core::prover::passes::arithmetization::SideColumns::All,
-                tt_core::prover::passes::arithmetization::FingerprintColumns::All,
+                side_columns,
+                fingerprint_columns,
                 rank_columns,
                 Default::default(),
             ),
@@ -296,8 +315,13 @@ impl<B: SnarkBackend> TTDataOwner<B> {
 
         let tracked_table_oracle =
             TrackedTableOracle::from_tracked_table(table_scan, &mut verifier)?;
-        Ok(ArithTableOracle::from_tracked_table_oracle(
-            &tracked_table_oracle,
-        ))
+        let oracle = ArithTableOracle::from_tracked_table_oracle(&tracked_table_oracle);
+        // The process may hold another commit's rules for these column
+        // names; a table with no fingerprints must not carry them.
+        Ok(if self.data_owner_config().side_columns {
+            oracle
+        } else {
+            oracle.without_fingerprint_rules()
+        })
     }
 }
