@@ -1124,12 +1124,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        for j in 0..self.factors.len() {
+        for (j, placement) in self.factor_placements.iter().enumerate() {
             let mark_hint = match own.get(&format!("__like_f{j}_mark_plan_hint__")) {
                 Some(h) => h.clone(),
                 None => continue,
             };
-            let child_id = self.factor_placements[j].id();
+            let child_id = placement.id();
             let mut child_payload = match planned_ir.payload_for_node(&child_id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
@@ -1255,12 +1255,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        for j in 0..self.factors.len() {
+        for (j, placement) in self.factor_placements.iter().enumerate() {
             let mark_hint = match own.get(&format!("__like_f{j}_mark_plan_hint__")) {
                 Some(h) => h.clone(),
                 None => continue,
             };
-            let child_id = self.factor_placements[j].id();
+            let child_id = placement.id();
             let mut child_payload = match planned_ir.payload_for_node(&child_id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
