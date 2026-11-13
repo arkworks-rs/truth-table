@@ -414,10 +414,10 @@ mod tests {
         for mask in 0u32..(1 << 5) {
             let mut set = RowSet::empty(c.len());
             let mut expected = 0usize;
-            for row in 0..c.len() {
+            for (row, string) in c.strings.iter().enumerate() {
                 if mask >> row & 1 == 1 {
                     set.insert(row);
-                    expected += c.strings[row].len();
+                    expected += string.len();
                 }
             }
             assert_eq!(planes.chars_of(&set), expected, "rows {mask:#07b}");
