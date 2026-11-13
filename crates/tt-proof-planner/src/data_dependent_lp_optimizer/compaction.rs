@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use tt_core::irs::{
     nodes::plan::{
         compaction::{CompactionLogicalNode, wrap_logical_plan},
+        exprs::fp_prefilter::prefilter_args,
         result_check::ResultCheckLogicalNode,
     },
     string_order::{StringOrder, string_order},
@@ -15,7 +16,8 @@ use super::{
 };
 
 /// Wraps a Filter or Aggregate in a `CompactionLogicalNode` when its output
-/// fits a strictly smaller power-of-two hypercube than its input, unless the
+/// fits a hypercube at least `MIN_SHRINK` times smaller than its input's
+/// (a filter on string characters: any strictly smaller one), unless the
 /// node is in the result tail (only Projections and SubqueryAliases between
 /// it and the `ResultCheck`). Those operators do no per-row proof work and
 /// the result check's multiset argument takes the node's own domain, so
@@ -232,27 +234,39 @@ fn should_compact(session_state: &SessionState, plan: &LogicalPlan) -> DataFusio
         return Ok(false);
     }
 
-    let hypercube_halves =
-        |input_plan: &LogicalPlan, op_plan: &LogicalPlan| -> DataFusionResult<bool> {
-            let input_active = row_count(session_state, input_plan)?;
-            if input_active == 0 {
-                return Ok(false);
-            }
-            let output_active = row_count(session_state, op_plan)?;
-            Ok(next_power_of_two_strict(output_active) < next_power_of_two_strict(input_active))
-        };
-
-    match plan {
-        LogicalPlan::Filter(filter) => {
-            hypercube_halves(filter.input.as_ref(), &LogicalPlan::Filter(filter.clone()))
-        }
-        LogicalPlan::Aggregate(aggregate) => hypercube_halves(
-            aggregate.input.as_ref(),
-            &LogicalPlan::Aggregate(aggregate.clone()),
+    let (input, reads_chars) = match plan {
+        LogicalPlan::Filter(filter) => (
+            filter.input.as_ref(),
+            filter.predicate.exists(|expr| {
+                Ok(matches!(expr, Expr::Like(_)) || prefilter_args(expr).is_some())
+            })?,
         ),
-        _ => Ok(false),
+        LogicalPlan::Aggregate(aggregate) => (aggregate.input.as_ref(), false),
+        _ => return Ok(false),
+    };
+    let input_rows = row_count(session_state, input)?;
+    if input_rows == 0 {
+        return Ok(false);
     }
+    let output_rows = row_count(session_state, plan)?;
+    if reads_chars {
+        // The LIKE cost model (`arithmetic::fingerprint::cost`) prices the
+        // pre-filter's bins assuming exactly this test.
+        return Ok(next_power_of_two_strict(output_rows) < next_power_of_two_strict(input_rows));
+    }
+    // A padded scan's rows are its domain; any other input's rows round up to
+    // a lower bound on its domain, so every compaction shrinks by MIN_SHRINK.
+    Ok(output_rows
+        .max(1)
+        .next_power_of_two()
+        .saturating_mul(MIN_SHRINK)
+        <= input_rows.next_power_of_two())
 }
+
+/// The least factor by which a compaction must shrink the domain. Its
+/// permutation check commits dense helpers over the whole input domain, which
+/// the work above repays only on a much smaller domain.
+const MIN_SHRINK: usize = 8;
 
 fn next_power_of_two_strict(value: usize) -> usize {
     if value <= 1 {
@@ -267,12 +281,20 @@ fn next_power_of_two_strict(value: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, sync::Arc};
 
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::{
+        arrow::{
+            array::{Int64Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        datasource::MemTable,
+    };
     use datafusion_expr::{LogicalPlan, col, lit, logical_plan::table_scan};
 
-    use super::apply_compaction_hints;
+    use super::super::DataDependentOptimizationRule;
+    use super::{CompactionRule, apply_compaction_hints};
 
     fn scan() -> datafusion_expr::LogicalPlanBuilder {
         let schema = Schema::new(vec![
@@ -305,5 +327,46 @@ mod tests {
             .build()
             .unwrap();
         assert!(compact_root(plan).is_err());
+    }
+
+    /// How many compaction hints the rule collects for `sql` over a 64-row
+    /// table `t(k, s)` with `k` = 0..63 and `s` = "x" on the first `x_rows`.
+    async fn hint_count(sql: &str, x_rows: usize) -> usize {
+        let ctx = tt_core::session::session_context();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("k", DataType::Int64, false),
+            Field::new("s", DataType::Utf8, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int64Array::from_iter_values(0..64)),
+                Arc::new(StringArray::from_iter_values(
+                    (0..64).map(|row| if row < x_rows { "x" } else { "y" }),
+                )),
+            ],
+        )
+        .unwrap();
+        ctx.register_table(
+            "t",
+            Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap()),
+        )
+        .unwrap();
+        let plan = ctx.sql(sql).await.unwrap().into_optimized_plan().unwrap();
+        CompactionRule::new()
+            .collect_hints(&ctx.state(), &plan)
+            .unwrap()
+            .len()
+    }
+
+    #[tokio::test]
+    async fn a_filter_is_compacted_only_when_the_domain_shrinks_by_min_shrink() {
+        assert_eq!(hint_count("SELECT k FROM t WHERE k < 8", 0).await, 1);
+        assert_eq!(hint_count("SELECT k FROM t WHERE k < 9", 0).await, 0);
+    }
+
+    #[tokio::test]
+    async fn a_like_filter_is_compacted_on_any_halving() {
+        assert_eq!(hint_count("SELECT k FROM t WHERE s LIKE '%x%'", 9).await, 1);
     }
 }
