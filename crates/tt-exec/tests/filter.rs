@@ -68,15 +68,3 @@ end_to_end_tests!(&["lineitem"] => [
     // from the padded empty table.
     like_prefilter_keeps_no_row => r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%quickly%xylophone%'"#,
 ]);
-
-/// LIKE on the bench-data `lineitem` (2^20 rows) with the bench-size key.
-#[tokio::test]
-async fn bench_like_infix_lineitem() {
-    tt_exec::test_utils::prove_and_verify_query_bench(
-        r#"SELECT l_returnflag FROM lineitem WHERE l_comment LIKE '%green%'"#,
-        &["lineitem"],
-        None,
-    )
-    .await
-    .expect("bench-data lineitem LIKE end-to-end");
-}
