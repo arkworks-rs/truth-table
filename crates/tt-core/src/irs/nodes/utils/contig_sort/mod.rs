@@ -56,8 +56,8 @@ pub fn active_rows_field() -> FieldRef {
     Arc::new(Field::new("active_rows", DataType::UInt64, false))
 }
 
-pub(crate) use distinct::sort_distinct;
 use distinct::{DistinctLayout, distinct_view, distinct_view_fields};
+pub(crate) use distinct::{compared_columns, sort_distinct};
 
 /// The committed limbs of the hash slots a distinct sort compares.
 pub const LIMBS_LABEL: &str = "__limbs__";

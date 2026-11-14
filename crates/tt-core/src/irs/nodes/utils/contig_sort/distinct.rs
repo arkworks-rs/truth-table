@@ -121,6 +121,15 @@ impl DistinctLayout {
     }
 }
 
+/// How many columns the distinct sort compares for `field`: one for an
+/// order-preserving column, its limbs for a hashed one. `None` for a column
+/// it cannot compare.
+pub(crate) fn compared_columns<F: PrimeField>(field: &Field) -> Option<usize> {
+    DistinctLayout::new::<F>([field])
+        .ok()
+        .map(|layout| layout.sort_fields.len())
+}
+
 /// `df` collected into one batch, its layout, and the limb columns of its
 /// hashed columns in layout order.
 fn with_limbs<F: PrimeField>(

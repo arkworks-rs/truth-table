@@ -222,15 +222,21 @@ fn payload_table<'a, T>(payload: Option<&'a PayloadStructure<T>>, label: &str) -
 impl<B: SnarkBackend> GadgetNode<B> {
     /// `super_is_duplicate_free` skips step 1 (NoDupcheck on the super table).
     /// The caller passes it only when the proof already establishes it, and
-    /// prover and verifier must pass the same value.
-    pub fn new(super_is_duplicate_free: bool) -> Self {
+    /// prover and verifier must pass the same value. Otherwise `nodup_key`,
+    /// when given, names the super table's data columns step 1 compares (see
+    /// `nodup::GadgetNode::on_key`).
+    pub fn new(
+        super_is_duplicate_free: bool,
+        nodup_key: Option<std::collections::BTreeSet<String>>,
+    ) -> Self {
         let lookup = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::utils::lookup::GadgetNode::new(),
         )));
         let nodup = (!super_is_duplicate_free).then(|| {
-            Arc::new(Node::<B>::Gadget(Arc::new(
-                crate::irs::nodes::utils::nodup::GadgetNode::default(),
-            )))
+            Arc::new(Node::<B>::Gadget(Arc::new(match nodup_key {
+                Some(key) => crate::irs::nodes::utils::nodup::GadgetNode::on_key(key),
+                None => crate::irs::nodes::utils::nodup::GadgetNode::default(),
+            })))
         });
         Self { lookup, nodup }
     }
