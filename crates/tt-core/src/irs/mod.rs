@@ -6,6 +6,7 @@
 //! gadget planning). Each pass maps the payloads of one stage to the next.
 
 pub mod codec;
+pub mod functional_dependencies;
 pub mod ir;
 pub mod lineage;
 pub mod nodes;

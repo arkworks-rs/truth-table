@@ -1,12 +1,15 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_ff::One;
+use ark_ff::{One, PrimeField};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion_expr::Aggregate;
 use indexmap::IndexMap;
 
+use crate::irs::functional_dependencies;
+use crate::irs::nodes::utils::contig_sort::compared_columns;
 use crate::irs::nodes::utils::{bool, supp};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
@@ -335,8 +338,11 @@ impl<B: SnarkBackend> GadgetNode<B> {
             .collect();
         let groups_are_unique = unique_keys::contains_unique_key(&aggregate.input, &group_columns);
         let supp_gadget = has_groups.then(|| {
+            let nodup_key = (!groups_are_unique)
+                .then(|| distinctness_key::<B::F>(&aggregate))
+                .flatten();
             Arc::new(Node::<B>::Gadget(Arc::new(
-                crate::irs::nodes::utils::supp::GadgetNode::new(groups_are_unique),
+                crate::irs::nodes::utils::supp::GadgetNode::new(groups_are_unique, nodup_key),
             )))
         });
         let bool_gadget = has_groups.then(|| {
@@ -354,6 +360,55 @@ impl<B: SnarkBackend> GadgetNode<B> {
     fn has_groups(&self) -> bool {
         !self.aggregate.group_expr.is_empty()
     }
+}
+
+/// The names of the group columns, cheapest for the distinct sort, that fix
+/// every group column through the input's functional dependencies, or `None`
+/// when that takes them all. The output's group columns copy input rows, so
+/// its rows are distinct on these exactly when they are distinct.
+fn distinctness_key<F: PrimeField>(aggregate: &Aggregate) -> Option<BTreeSet<String>> {
+    // Subsets are enumerated; past this many group columns, compare them all.
+    const MAX_GROUPS: usize = 16;
+    let input = aggregate.input.schema();
+    let copies: Vec<Option<usize>> = aggregate
+        .group_expr
+        .iter()
+        .map(|expr| unique_keys::copied_input_index(expr, input))
+        .collect();
+    if copies.len() > MAX_GROUPS {
+        return None;
+    }
+    let dependencies = functional_dependencies::dependencies(&aggregate.input);
+    let copied: BTreeSet<usize> = copies.iter().flatten().copied().collect();
+    let cost = |position: usize| {
+        compared_columns::<F>(aggregate.schema.field(position)).unwrap_or(usize::MAX / MAX_GROUPS)
+    };
+    let mut best: Option<(usize, Vec<usize>)> = None;
+    for subset in 1u32..(1 << copies.len()) {
+        // A group expression that copies no input column is always compared.
+        let key: Vec<usize> = (0..copies.len())
+            .filter(|&position| subset >> position & 1 == 1 || copies[position].is_none())
+            .collect();
+        let from: BTreeSet<usize> = key
+            .iter()
+            .filter_map(|&position| copies[position])
+            .collect();
+        if !functional_dependencies::closure(&dependencies, &from).is_superset(&copied) {
+            continue;
+        }
+        let key_cost = key.iter().map(|&position| cost(position)).sum();
+        if best.as_ref().is_none_or(|(best_cost, best_key)| {
+            (key_cost, key.len()) < (*best_cost, best_key.len())
+        }) {
+            best = Some((key_cost, key));
+        }
+    }
+    best.filter(|(_, key)| key.len() < copies.len())
+        .map(|(_, key)| {
+            key.iter()
+                .map(|&position| aggregate.schema.field(position).name().clone())
+                .collect()
+        })
 }
 
 fn bool_table_from_output_prover<B: SnarkBackend>(output: &TrackedTable<B>) -> TrackedTable<B> {

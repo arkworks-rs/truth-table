@@ -4,9 +4,10 @@
 //! ([`set_duplicate_groups_forgery`]), and claims the doubled result, so only
 //! the NoDupcheck inside the aggregate's Suppcheck can reject. Each query
 //! groups by columns that hold no unique key of the aggregate's input, so
-//! that check must run: a prefix of a composite primary key, and the primary
-//! key of a join side whose rows the join repeats. Every group has at least
-//! two input rows, so every group is doubled.
+//! that check must run: a prefix of a composite primary key, the primary key
+//! of a join side whose rows the join repeats, and that key with a column it
+//! fixes, which the check then compares on the key alone. Every group has at
+//! least two input rows, so every group is doubled.
 //!
 //! The forgery is process-wide, so this binary has a single test.
 
@@ -31,6 +32,11 @@ const QUERIES: &[(&str, &[&str])] = &[
     (
         "SELECT r_regionkey FROM region JOIN nation ON r_regionkey = n_regionkey \
          GROUP BY r_regionkey",
+        &["region", "nation"],
+    ),
+    (
+        "SELECT r_regionkey, r_name FROM region JOIN nation ON r_regionkey = n_regionkey \
+         GROUP BY r_regionkey, r_name",
         &["region", "nation"],
     ),
 ];

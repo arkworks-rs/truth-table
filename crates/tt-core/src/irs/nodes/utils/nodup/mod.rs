@@ -2,6 +2,7 @@ use crate::irs::nodes::utils::{
     SnarkError, VerifierError, commit_with_tracker, field_to_usize, track_next_committed,
 };
 use std::{
+    collections::BTreeSet,
     panic,
     sync::{Arc, Mutex},
 };
@@ -15,8 +16,13 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 use arithmetic::{
-    ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
+    ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
+use datafusion_common::Column;
+use datafusion_expr::Expr;
+
+use crate::irs::nodes::hints::HintDF;
 use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 use datafusion::arrow::array::Array;
 
@@ -59,6 +65,11 @@ pub struct GadgetNode<B: SnarkBackend> {
     /// Cached during planning from the concrete input hint. Later phases can
     /// build a virtual contiguous activator without recollecting the input DF.
     sort_nodup_active_input_rows: Mutex<Option<usize>>,
+    /// The names of the input's data columns compared, every column of such a
+    /// name included; `None` compares all. Rows distinct on some of their
+    /// columns are distinct, so any subset is sound; the caller picks one the
+    /// honest rows are distinct on. Prover and verifier must pick the same.
+    key: Option<BTreeSet<String>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -107,6 +118,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     let Some(_) = node.sort_gadgets() else {
         return Ok(());
     };
+    let input_hint = node.key_hint(&input_hint);
     if !is_verifier {
         node.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
     } else {
@@ -239,6 +251,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
         let input_table =
             payload_value_or_panic(id, &payload, INPUT_LABEL, "No input table found for NoDup");
+        let input_table = input_table.tracked_subtable_by_indices(
+            &self.key_flat_indices(
+                &input_table
+                    .tracked_cols_iter()
+                    .map(|(field, col)| (field.name().as_str(), col.segments_iter().count()))
+                    .collect::<Vec<_>>(),
+            ),
+        );
         let perm_payload = with_perm_payload(
             virtualized_ir
                 .payload_for_node(&gadgets.perm_gadget.id())
@@ -339,6 +359,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
             return Ok(());
         };
+        let input_table = input_table.tracked_subtable_by_indices(
+            &self.key_flat_indices(
+                &input_table
+                    .tracked_col_oracles_iter()
+                    .map(|(field, col)| (field.name().as_str(), col.segments_iter().count()))
+                    .collect::<Vec<_>>(),
+            ),
+        );
         let sort_id = gadgets.sort_gadget.id();
         let sort_payload = with_sort_table_label(
             virtualized_ir.payload_for_node(&sort_id).cloned(),
@@ -378,7 +406,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Self::honest_check_no_dup_active(prover, gadget_ready_ir, id)
+        self.honest_check_no_dup_active(prover, gadget_ready_ir, id)
     }
 
     fn verify(
@@ -416,6 +444,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Mode::BezoutBased => Self {
                 gadgets: Gadgets::BezoutNoDup(bezout::BezoutGadgets::new()),
                 sort_nodup_active_input_rows: Mutex::new(None),
+                key: None,
             },
             Mode::SortBased => Self {
                 gadgets: Gadgets::SortNoDup(SortNoDupGadgets {
@@ -429,8 +458,85 @@ impl<B: SnarkBackend> GadgetNode<B> {
                     ))),
                 }),
                 sort_nodup_active_input_rows: Mutex::new(None),
+                key: None,
             },
         }
+    }
+
+    /// The sort-based check on the data columns named in `key` only.
+    pub fn on_key(key: BTreeSet<String>) -> Self {
+        Self {
+            key: Some(key),
+            ..Self::new(Mode::SortBased)
+        }
+    }
+
+    /// The key, when it names some of `data_columns`; otherwise every data
+    /// column is compared. Both sides decide this from the same schema.
+    fn key_among<'a>(
+        &self,
+        mut data_columns: impl Iterator<Item = &'a str>,
+    ) -> Option<&BTreeSet<String>> {
+        self.key
+            .as_ref()
+            .filter(|key| data_columns.any(|name| key.contains(name)))
+    }
+
+    /// `hint` restricted to the key columns and the system columns.
+    fn key_hint(&self, hint: &HintDF) -> HintDF {
+        let df = hint.data_frame().clone();
+        let data_columns = df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().as_str())
+            .filter(|name| !is_system_column(name));
+        let Some(key) = self.key_among(data_columns) else {
+            return hint.clone();
+        };
+        let kept: Vec<Expr> = df
+            .schema()
+            .iter()
+            .filter(|(_, field)| is_system_column(field.name()) || key.contains(field.name()))
+            .map(|(qualifier, field)| Expr::Column(Column::new(qualifier.cloned(), field.name())))
+            .collect();
+        let projected = df
+            .select(kept)
+            .expect("the NoDup key projection selects existing columns");
+        let should_materialize = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let materialize = hint
+                    .field_materialization_iter()
+                    .find(|(f, _)| f.name() == field.name())
+                    .is_none_or(|(_, m)| *m);
+                (field.clone(), materialize)
+            })
+            .collect();
+        HintDF::new(projected, should_materialize)
+    }
+
+    /// Flat-view indices that keep, through `tracked_subtable_by_indices`,
+    /// the key's source columns and the system columns. `columns` lists each
+    /// source column's name and segment count in table order.
+    fn key_flat_indices(&self, columns: &[(&str, usize)]) -> Vec<usize> {
+        let key = self.key_among(
+            columns
+                .iter()
+                .map(|(name, _)| *name)
+                .filter(|name| !is_system_column(name)),
+        );
+        let mut indices = Vec::new();
+        let mut flat = 0;
+        for &(name, segments) in columns {
+            if !is_system_column(name) && key.is_none_or(|key| key.contains(name)) {
+                indices.push(flat);
+            }
+            flat += segments;
+        }
+        indices
     }
 
     fn sort_gadgets(&self) -> Option<&SortNoDupGadgets<B>> {
@@ -442,6 +548,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 
     fn honest_check_no_dup_active(
+        &self,
         _prover: &mut ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
@@ -454,6 +561,14 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
             panic!("Expected input table for NoDup gadget");
         };
+        let input_table = input_table.tracked_subtable_by_indices(
+            &self.key_flat_indices(
+                &input_table
+                    .tracked_cols_iter()
+                    .map(|(field, col)| (field.name().as_str(), col.segments_iter().count()))
+                    .collect::<Vec<_>>(),
+            ),
+        );
 
         let data_indices = input_table.data_tracked_polys_indices();
         let data_evals: Vec<Vec<B::F>> = data_indices
