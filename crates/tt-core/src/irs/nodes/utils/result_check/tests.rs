@@ -1,6 +1,6 @@
 //! Tests for the `ResultCheck` gadget against a dishonest prover.
 //!
-//! The harness proves the gadget directly, with no honest-prover check, so a
+//! The harness proves the gadget directly, so without `honest-prover` a
 //! claimed result that differs from the proven output still produces a proof.
 //! The verifier must accept exactly the claims whose active rows are the same
 //! multiset as the output's, regardless of row order, padding and domain
@@ -10,18 +10,21 @@
 use std::sync::Arc;
 
 use ark_ff::{One, Zero};
-use ark_piop::{DefaultSnarkBackend, SnarkBackend};
+use ark_piop::{DefaultSnarkBackend, SnarkBackend, errors::SnarkError};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
 use super::{GadgetNode, INPUT_LABEL, OUTPUT_LABEL};
 use crate::irs::nodes::Node;
-use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
+use crate::test_utils::gadget_harness::{
+    GadgetHarness, TableSpec, run_gadget_pipeline_to_verifier,
+};
 
 type B = DefaultSnarkBackend;
 type F = <B as SnarkBackend>::F;
 
 /// A table as `(column name, values)` per column plus which slots are active.
 /// Every column and the activator hold `2^nv` values.
+#[derive(Clone)]
 struct Table<'a> {
     nv: usize,
     cols: &'a [(&'a str, &'a [u64])],
@@ -59,27 +62,49 @@ fn spec(table: &Table) -> TableSpec<F> {
     }
 }
 
-fn run(output: Table, claimed: Table) -> Result<(), ark_piop::errors::SnarkError> {
+fn run(output: Table, claimed: Table) -> Verdict {
     run_mode(output, claimed, false)
 }
 
-fn run_ordered(output: Table, claimed: Table) -> Result<(), ark_piop::errors::SnarkError> {
+fn run_ordered(output: Table, claimed: Table) -> Verdict {
     run_mode(output, claimed, true)
 }
 
-fn run_mode(
-    output: Table,
-    claimed: Table,
-    ordered: bool,
-) -> Result<(), ark_piop::errors::SnarkError> {
+/// The prover's outcome, and inside it the verifier's verdict.
+type Verdict = Result<Result<(), SnarkError>, SnarkError>;
+
+fn accepted(verdict: Verdict) {
+    verdict
+        .expect("the prover must produce a proof")
+        .expect("the verifier must accept");
+}
+
+/// A false claim: with `honest-prover` the prover refuses it, otherwise the
+/// verifier must.
+fn rejected(verdict: Verdict) {
+    if cfg!(feature = "honest-prover") {
+        assert!(
+            matches!(verdict, Err(SnarkError::ProverError(_))),
+            "expected the honest prover to refuse, got {verdict:?}"
+        );
+    } else {
+        let verdict = verdict.expect("the prover must produce a proof");
+        assert!(
+            matches!(verdict, Err(SnarkError::VerifierError(_))),
+            "expected the verifier to reject, got {verdict:?}"
+        );
+    }
+}
+
+fn run_mode(output: Table, claimed: Table, ordered: bool) -> Verdict {
     let gadget: Arc<Node<B>> = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(ordered))));
     let gadget_id = gadget.id();
     let harness = GadgetHarness::<B>::builder(8)
         .with_gadget(gadget)
         .with_table(gadget_id, INPUT_LABEL, spec(&output))
-        .with_table(gadget_id, OUTPUT_LABEL, spec(&claimed))
+        .with_public_table(gadget_id, OUTPUT_LABEL, spec(&claimed))
         .build();
-    run_gadget_pipeline(harness)
+    run_gadget_pipeline_to_verifier(harness)
 }
 
 /// Three active rows `(10, 1), (20, 2), (30, 3)` scattered over four slots,
@@ -99,7 +124,7 @@ fn same_rows_in_another_order_verify() {
         cols: &[("a", &[30, 10, 20, 0]), ("b", &[3, 1, 2, 0])],
         active: &[true, true, true, false],
     };
-    run(output(), claimed).expect("the same rows in another order must verify");
+    accepted(run(output(), claimed));
 }
 
 #[test]
@@ -117,7 +142,7 @@ fn a_smaller_claimed_domain_verifies() {
         cols: &[("a", &[20, 10]), ("b", &[2, 1])],
         active: &[true, true],
     };
-    run(output, claimed).expect("equal rows on differently sized domains must verify");
+    accepted(run(output, claimed));
 }
 
 #[test]
@@ -127,7 +152,7 @@ fn a_changed_value_is_rejected() {
         cols: &[("a", &[30, 10, 20, 0]), ("b", &[4, 1, 2, 0])],
         active: &[true, true, true, false],
     };
-    assert!(run(output(), claimed).is_err());
+    rejected(run(output(), claimed));
 }
 
 #[test]
@@ -139,7 +164,7 @@ fn broken_row_pairing_is_rejected() {
         cols: &[("a", &[10, 20, 30, 0]), ("b", &[2, 1, 3, 0])],
         active: &[true, true, true, false],
     };
-    assert!(run(output(), claimed).is_err());
+    rejected(run(output(), claimed));
 }
 
 #[test]
@@ -149,7 +174,7 @@ fn an_extra_row_is_rejected() {
         cols: &[("a", &[10, 20, 30, 30]), ("b", &[1, 2, 3, 3])],
         active: &[true, true, true, true],
     };
-    assert!(run(output(), claimed).is_err());
+    rejected(run(output(), claimed));
 }
 
 #[test]
@@ -159,7 +184,7 @@ fn a_missing_row_is_rejected() {
         cols: &[("a", &[10, 20, 0, 0]), ("b", &[1, 2, 0, 0])],
         active: &[true, true, false, false],
     };
-    assert!(run(output(), claimed).is_err());
+    rejected(run(output(), claimed));
 }
 
 #[test]
@@ -175,7 +200,7 @@ fn changed_multiplicities_are_rejected() {
         cols: &[("a", &[10, 20, 20, 0]), ("b", &[1, 2, 2, 0])],
         active: &[true, true, true, false],
     };
-    assert!(run(output, claimed).is_err());
+    rejected(run(output, claimed));
 }
 
 #[test]
@@ -185,7 +210,7 @@ fn junk_in_an_inactive_claimed_slot_is_ignored() {
         cols: &[("a", &[30, 10, 20, 55]), ("b", &[3, 1, 2, 66])],
         active: &[true, true, true, false],
     };
-    run(output(), claimed).expect("values in inactive slots must not matter");
+    accepted(run(output(), claimed));
 }
 
 #[test]
@@ -195,7 +220,33 @@ fn a_renamed_column_is_rejected() {
         cols: &[("a", &[30, 10, 20, 0]), ("c", &[3, 1, 2, 0])],
         active: &[true, true, true, false],
     };
-    assert!(run(output(), claimed).is_err());
+    assert!(
+        run_mode(output(), claimed, false)
+            .and_then(|verdict| verdict)
+            .is_err()
+    );
+}
+
+/// Without data columns only the number of active rows is compared.
+#[test]
+fn without_columns_the_row_count_is_compared() {
+    let output = Table {
+        nv: 2,
+        cols: &[],
+        active: &[true, false, true, true],
+    };
+    let claimed = |active: &'static [bool]| Table {
+        nv: 2,
+        cols: &[],
+        active,
+    };
+    accepted(run(output, claimed(&[true, true, true, false])));
+    let output = Table {
+        nv: 2,
+        cols: &[],
+        active: &[true, false, true, true],
+    };
+    rejected(run(output, claimed(&[true, true, false, false])));
 }
 
 /// The output of an ORDER BY: three sorted rows in the first slots of eight.
@@ -217,7 +268,7 @@ fn ordered_same_rows_in_the_same_order_verify() {
         cols: &[("a", &[10, 20, 30, 0]), ("b", &[1, 2, 3, 0])],
         active: &[true, true, true, false],
     };
-    run_ordered(sorted_output(), claimed).expect("the rows in their order must verify");
+    accepted(run_ordered(sorted_output(), claimed));
 }
 
 #[test]
@@ -227,7 +278,7 @@ fn ordered_same_rows_in_another_order_are_rejected() {
         cols: &[("a", &[20, 10, 30, 0]), ("b", &[2, 1, 3, 0])],
         active: &[true, true, true, false],
     };
-    assert!(run_ordered(sorted_output(), claimed).is_err());
+    rejected(run_ordered(sorted_output(), claimed));
 }
 
 #[test]
@@ -237,5 +288,100 @@ fn ordered_a_missing_row_is_rejected() {
         cols: &[("a", &[10, 20]), ("b", &[1, 2])],
         active: &[true, true],
     };
-    assert!(run_ordered(sorted_output(), claimed).is_err());
+    rejected(run_ordered(sorted_output(), claimed));
+}
+
+#[test]
+fn ordered_a_larger_claimed_domain_with_junk_verifies() {
+    let claimed = Table {
+        nv: 4,
+        cols: &[
+            ("a", &[10, 20, 30, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9]),
+            ("b", &[1, 2, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9]),
+        ],
+        active: &[
+            true, true, true, false, false, false, false, false, false, false, false, false, false,
+            false, false, false,
+        ],
+    };
+    accepted(run_ordered(sorted_output(), claimed));
+}
+
+#[test]
+fn ordered_an_extra_row_is_rejected() {
+    let claimed = Table {
+        nv: 2,
+        cols: &[("a", &[10, 20, 30, 40]), ("b", &[1, 2, 3, 4])],
+        active: &[true, true, true, true],
+    };
+    rejected(run_ordered(sorted_output(), claimed));
+}
+
+#[test]
+fn ordered_a_changed_value_is_rejected() {
+    let claimed = Table {
+        nv: 2,
+        cols: &[("a", &[10, 20, 30, 0]), ("b", &[1, 5, 3, 0])],
+        active: &[true, true, true, false],
+    };
+    rejected(run_ordered(sorted_output(), claimed));
+}
+
+/// The verifier lays the result out on the first rows itself; the same rows
+/// spread over its domain are not the output's.
+#[test]
+fn ordered_rows_with_a_gap_are_rejected() {
+    let claimed = Table {
+        nv: 2,
+        cols: &[("a", &[10, 0, 20, 30]), ("b", &[1, 0, 2, 3])],
+        active: &[true, false, true, true],
+    };
+    rejected(run_ordered(sorted_output(), claimed));
+}
+
+/// The prover proves the output against the true result while the verifier
+/// holds another: the verifier checks the result it holds, not the prover's.
+#[test]
+fn a_proof_for_another_result_is_rejected() {
+    let truth = Table {
+        nv: 2,
+        cols: &[("a", &[30, 10, 20, 0]), ("b", &[3, 1, 2, 0])],
+        active: &[true, true, true, false],
+    };
+    let sent = Table {
+        nv: 2,
+        cols: &[("a", &[30, 10, 21, 0]), ("b", &[3, 1, 2, 0])],
+        active: &[true, true, true, false],
+    };
+    for ordered in [false, true] {
+        let output = if ordered { sorted_output() } else { output() };
+        let (truth, sent) = if ordered {
+            (
+                Table {
+                    nv: 2,
+                    cols: &[("a", &[10, 20, 30, 0]), ("b", &[1, 2, 3, 0])],
+                    active: &[true, true, true, false],
+                },
+                Table {
+                    nv: 2,
+                    cols: &[("a", &[10, 21, 30, 0]), ("b", &[1, 2, 3, 0])],
+                    active: &[true, true, true, false],
+                },
+            )
+        } else {
+            (truth.clone(), sent.clone())
+        };
+        let gadget: Arc<Node<B>> = Arc::new(Node::Gadget(Arc::new(GadgetNode::<B>::new(ordered))));
+        let gadget_id = gadget.id();
+        let harness = GadgetHarness::<B>::builder(8)
+            .with_gadget(gadget)
+            .with_table(gadget_id, INPUT_LABEL, spec(&output))
+            .with_diverging_public_table(gadget_id, OUTPUT_LABEL, spec(&truth), spec(&sent))
+            .build();
+        let verdict = run_gadget_pipeline_to_verifier(harness).expect("the true claim is proved");
+        assert!(
+            matches!(verdict, Err(SnarkError::VerifierError(_))),
+            "expected the verifier to reject, got {verdict:?}"
+        );
+    }
 }

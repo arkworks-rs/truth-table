@@ -1,32 +1,26 @@
 use std::{collections::HashMap, sync::Arc};
 
-use arithmetic::{
-    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
-};
-use ark_ff::Zero;
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use ark_ff::{PrimeField, Zero};
 use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
-    piop::PIOP,
+    piop::keyed_sumcheck::{KeyedSumcheckProverInput, KeyedSumcheckVerifierInput},
     prover::ArgProver,
     prover::structs::polynomial::TrackedPoly,
     verifier::ArgVerifier,
-    verifier::structs::oracle::TrackedOracle,
+    verifier::structs::oracle::{Oracle, TrackedOracle},
 };
 use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{
-            IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-            utils::nodup::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
-        },
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
-    verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
+    verifier::{irs::GadgetReadyIr as VerifierGadgetReadyIr, passes::tracking::eval_mle_at_point},
 };
 
 #[cfg(test)]
@@ -34,6 +28,7 @@ mod tests;
 
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
+const RESULT_LABEL: &[u8] = b"result_check_result";
 
 pub struct GadgetNode<B: SnarkBackend> {
     /// Compare the rows in order, not as a multiset (paper PIOP 20, step 2):
@@ -205,20 +200,17 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
-/// Proves that the active rows of `t_table`, the query output the plan has
-/// proven, are the same multiset as the rows of `r_table`, the result the
-/// verifier holds in the clear. When `ordered`, each row carries its
-/// position as a further column, so the multisets are equal exactly when
-/// the rows agree in order (paper PIOP 20, step 2, which fingerprints and
-/// compares row by row; the two tables have different domains).
+/// Proves that `r_table`, the result the verifier holds in the clear, is
+/// `t_table`, the query output the plan has proven (paper PIOP 20).
 ///
-/// The claimed result comes from the prover and is not otherwise in the
-/// transcript, so it must be fixed before this check draws any challenge:
-/// a prover that knew the fold challenges could pick different rows that
-/// fold to the same values. So the prover first commits the result on its
-/// own domain, and a zerocheck against the verifier's copy ties each
-/// commitment to the claimed result. Only then are the fold challenges
-/// drawn and the two multisets compared.
+/// The result is the prover's to choose, so a digest of it enters the
+/// transcript before this check draws a challenge: a prover that knew the
+/// challenges could pick rows that pass. When `ordered`, the output of the
+/// ORDER BY is contiguous and the rows must agree in order: the output's
+/// activator is the result's, laid out on the output's domain, and so are
+/// its columns on the active rows (step 2). Otherwise the folded active rows
+/// of the output must be the folded rows of the result as a multiset
+/// (step 3), a LogUp whose result side the verifier sums itself.
 fn prove_result_check<B: SnarkBackend>(
     prover: &mut ArgProver<B>,
     t_table: &TrackedTable<B>,
@@ -230,58 +222,52 @@ fn prove_result_check<B: SnarkBackend>(
         .expect("ResultCheck t_table activator missing");
     let r_act = r_table
         .activator_tracked_poly()
-        .expect("ResultCheck r_table activator missing");
+        .expect("ResultCheck r_table activator missing")
+        .evaluations();
     let columns =
         match_columns(data_polys(t_table), data_polys(r_table)).ok_or_else(false_claim)?;
-
-    let r_nv = r_table.log_size();
-    let committed_act = commit_claimed_poly(prover, &r_act, r_nv)?;
-    let mut t_data = Vec::with_capacity(columns.len());
-    let mut r_data = Vec::with_capacity(columns.len());
-    for (t_poly, r_poly) in &columns {
-        t_data.push(t_poly.clone());
-        r_data.push(commit_claimed_poly(prover, r_poly, r_nv)?);
-    }
-    if ordered {
-        t_data.push(prover.track_mat_mv_poly(index_mle(t_table.log_size())));
-        r_data.push(prover.track_mat_mv_poly(index_mle(r_nv)));
-    }
-
-    let mut challenges = Vec::with_capacity(t_data.len());
-    for _ in 0..t_data.len() {
+    let r_cols: Vec<Vec<B::F>> = columns.iter().map(|(_, r)| r.evaluations()).collect();
+    prover.append_statement(RESULT_LABEL, &result_digest(&r_cols, &r_act))?;
+    // The first column is folded in with coefficient 1.
+    let mut challenges = Vec::with_capacity(columns.len());
+    for _ in 1..columns.len() {
         challenges.push(prover.get_and_append_challenge(b"result_check_fold")?);
     }
-    // With no data columns the multisets are equal exactly when the active
-    // row counts are, which comparing the activators themselves checks.
-    let (t_rows, r_rows) = if t_data.is_empty() {
-        (t_act.clone(), committed_act.clone())
-    } else {
-        (
-            fold_polys(&t_data, &challenges),
-            fold_polys(&r_data, &challenges),
-        )
-    };
-    PermPIOP::<B>::prove(
-        prover,
-        PermPIOPProverInput {
-            left_col: TrackedCol::new(t_rows, Some(t_act), None),
-            right_col: TrackedCol::new(r_rows, Some(committed_act), None),
-        },
-    )?;
-    Ok(())
-}
+    let t_data: Vec<TrackedPoly<B>> = columns.into_iter().map(|(t, _)| t).collect();
 
-/// Commits `public`, a column of the claimed result, and adds the zerocheck
-/// that binds the commitment to it.
-fn commit_claimed_poly<B: SnarkBackend>(
-    prover: &mut ArgProver<B>,
-    public: &TrackedPoly<B>,
-    nv: usize,
-) -> SnarkResult<TrackedPoly<B>> {
-    let committed = prover
-        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(nv, public.evaluations()))?;
-    prover.add_mv_zerocheck_claim((&committed - public).id())?;
-    Ok(committed)
+    if ordered {
+        let nv = t_table.log_size();
+        let laid_out = |values: &[B::F]| {
+            lay_out(values, &r_act, nv)
+                .map(|values| MLE::from_evaluations_vec(nv, values))
+                .ok_or_else(false_claim)
+        };
+        let r_act_ext = prover.track_mat_mv_poly(laid_out(&r_act)?);
+        prover.add_mv_zerocheck_claim((&t_act - &r_act_ext).id())?;
+        if !t_data.is_empty() {
+            let r_rows = prover.track_mat_mv_poly(laid_out(&fold_rows(&r_cols, &challenges))?);
+            let diff = &fold_polys(&t_data, &challenges) - &r_rows;
+            prover.add_mv_zerocheck_claim((&t_act * &diff).id())?;
+        }
+        return Ok(());
+    }
+
+    // With no data columns the multisets are equal exactly when the active
+    // row counts are: every active row is the key 1.
+    let t_rows = if t_data.is_empty() {
+        t_act.clone()
+    } else {
+        fold_polys(&t_data, &challenges)
+    };
+    prover.add_mv_keyed_sum_claim_with_public(
+        KeyedSumcheckProverInput {
+            fxs: vec![t_rows],
+            mfxs: vec![Some(t_act)],
+            gxs: Vec::new(),
+            mgxs: Vec::new(),
+        },
+        [Vec::new(), vec![active_keys(&r_cols, &r_act, &challenges)]],
+    )
 }
 
 fn data_polys<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<(String, TrackedPoly<B>)> {
@@ -324,65 +310,58 @@ fn verify_result_check<B: SnarkBackend>(
     let t_act = t_table
         .activator_tracked_poly()
         .expect("ResultCheck t_table activator missing");
-    let r_act = r_table
-        .activator_tracked_poly()
-        .expect("ResultCheck r_table activator missing");
+    let r_act = public_evaluations(
+        &r_table
+            .activator_tracked_poly()
+            .expect("ResultCheck r_table activator missing"),
+    )?;
     let columns = match_columns(data_oracles(t_table), data_oracles(r_table)).ok_or_else(|| {
         check_failed("the claimed result's columns differ from the query output's".to_string())
     })?;
-
-    // Mirror the prover: bind the claimed result before drawing challenges.
-    let r_nv = r_table.log_size();
-    let committed_act = bind_claimed_oracle(verifier, &r_act, r_nv)?;
-    let mut t_data = Vec::with_capacity(columns.len());
-    let mut r_data = Vec::with_capacity(columns.len());
-    for (t_oracle, r_oracle) in &columns {
-        t_data.push(t_oracle.clone());
-        r_data.push(bind_claimed_oracle(verifier, r_oracle, r_nv)?);
-    }
-    if ordered {
-        t_data.push(index_oracle(&t_act, t_table.log_size()));
-        r_data.push(index_oracle(&t_act, r_nv));
-    }
-
-    let mut challenges = Vec::with_capacity(t_data.len());
-    for _ in 0..t_data.len() {
+    let r_cols = columns
+        .iter()
+        .map(|(_, r)| public_evaluations(r))
+        .collect::<SnarkResult<Vec<_>>>()?;
+    verifier.append_statement(RESULT_LABEL, &result_digest(&r_cols, &r_act))?;
+    // The first column is folded in with coefficient 1.
+    let mut challenges = Vec::with_capacity(columns.len());
+    for _ in 1..columns.len() {
         challenges.push(verifier.get_and_append_challenge(b"result_check_fold")?);
     }
-    let (t_rows, r_rows) = if t_data.is_empty() {
-        (t_act.clone(), committed_act.clone())
-    } else {
-        (
-            fold_oracles(&t_data, &challenges),
-            fold_oracles(&r_data, &challenges),
-        )
-    };
-    PermPIOP::<B>::verify(
-        verifier,
-        PermPIOPVerifierInput {
-            left_tracked_col_oracle: TrackedColOracle::new(t_rows, Some(t_act), None),
-            right_tracked_col_oracle: TrackedColOracle::new(r_rows, Some(committed_act), None),
-        },
-    )?;
-    Ok(())
-}
+    let t_data: Vec<TrackedOracle<B>> = columns.into_iter().map(|(t, _)| t).collect();
 
-/// Takes the prover's commitment to `public`, a column of the claimed result,
-/// and adds the zerocheck that binds it to the verifier's own copy.
-fn bind_claimed_oracle<B: SnarkBackend>(
-    verifier: &mut ArgVerifier<B>,
-    public: &TrackedOracle<B>,
-    nv: usize,
-) -> SnarkResult<TrackedOracle<B>> {
-    let committed = verifier.track_next_mv_com()?;
-    if committed.log_size() != nv {
-        return Err(check_failed(format!(
-            "committed result column has {} variables, the claimed result has {nv}",
-            committed.log_size()
-        )));
+    if ordered {
+        let nv = t_table.log_size();
+        let laid_out = |verifier: &ArgVerifier<B>, values: &[B::F]| {
+            let values = lay_out(values, &r_act, nv).ok_or_else(|| {
+                check_failed("the claimed result has more rows than the output".to_string())
+            })?;
+            Ok::<_, SnarkError>(verifier.track_base_oracle(prefix_oracle(values, nv)))
+        };
+        let r_act_ext = laid_out(verifier, &r_act)?;
+        verifier.add_mv_zerocheck_claim((&t_act - &r_act_ext).id());
+        if !t_data.is_empty() {
+            let r_rows = laid_out(verifier, &fold_rows(&r_cols, &challenges))?;
+            let diff = &fold_oracles(&t_data, &challenges) - &r_rows;
+            verifier.add_mv_zerocheck_claim((&t_act * &diff).id());
+        }
+        return Ok(());
     }
-    verifier.add_mv_zerocheck_claim((&committed - public).id());
-    Ok(committed)
+
+    let t_rows = if t_data.is_empty() {
+        t_act.clone()
+    } else {
+        fold_oracles(&t_data, &challenges)
+    };
+    verifier.add_mv_keyed_sum_claim_with_public(
+        KeyedSumcheckVerifierInput {
+            fxs: vec![t_rows],
+            mfxs: vec![Some(t_act)],
+            gxs: Vec::new(),
+            mgxs: Vec::new(),
+        },
+        [Vec::new(), vec![active_keys(&r_cols, &r_act, &challenges)]],
+    )
 }
 
 fn data_oracles<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<(String, TrackedOracle<B>)> {
@@ -397,17 +376,102 @@ fn data_oracles<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<(String, 
         .collect()
 }
 
-/// Row `i` holds `i`; the verifier evaluates the same polynomial itself.
-fn index_mle<F: ark_ff::PrimeField>(log_size: usize) -> MLE<F> {
-    MLE::from_evaluations_vec(log_size, (0..1u64 << log_size).map(F::from).collect())
+fn public_evaluations<B: SnarkBackend>(oracle: &TrackedOracle<B>) -> SnarkResult<Arc<[B::F]>> {
+    oracle
+        .evaluations()
+        .ok_or_else(|| check_failed("the claimed result is not held in the clear".to_string()))
 }
 
-fn index_oracle<B: SnarkBackend>(any: &TrackedOracle<B>, log_size: usize) -> TrackedOracle<B> {
-    let tracker = any.tracker();
-    let id = tracker.borrow_mut().track_base_oracle(
-        crate::irs::nodes::utils::prescr_perm::shift_permutation_oracle::<B::F>(log_size, 0, true),
-    );
-    TrackedOracle::new(either::Either::Left(id), tracker, log_size)
+/// Binds every value of the claimed result, column by column in the
+/// output's order, then its activator. The field's `Hash` writes an
+/// element's internal representation, which is unique to it, so the values
+/// are bound without converting each one out of it.
+fn result_digest<F: PrimeField>(cols: &[impl AsRef<[F]>], act: &[F]) -> [u8; 32] {
+    /// Feeds blake3 in large blocks: `Hash` writes each element on its own.
+    struct Digest {
+        hasher: blake3::Hasher,
+        buffer: Vec<u8>,
+    }
+    impl std::hash::Hasher for Digest {
+        fn write(&mut self, bytes: &[u8]) {
+            self.buffer.extend_from_slice(bytes);
+            if self.buffer.len() >= 1 << 16 {
+                self.hasher.update(&self.buffer);
+                self.buffer.clear();
+            }
+        }
+
+        fn finish(&self) -> u64 {
+            unreachable!("the digest is read with `finalize`")
+        }
+    }
+    let mut digest = Digest {
+        hasher: blake3::Hasher::new(),
+        buffer: Vec::with_capacity(1 << 17),
+    };
+    for values in cols.iter().map(AsRef::as_ref).chain([act]) {
+        std::hash::Hash::hash(values, &mut digest);
+    }
+    digest.hasher.update(&digest.buffer);
+    *digest.hasher.finalize().as_bytes()
+}
+
+/// `cols[0] + sum_i challenges[i]·cols[i + 1]`, row by row.
+fn fold_rows<F: PrimeField>(cols: &[impl AsRef<[F]>], challenges: &[F]) -> Vec<F> {
+    let Some((first, rest)) = cols.split_first() else {
+        return Vec::new();
+    };
+    let mut folded = first.as_ref().to_vec();
+    for (col, chall) in rest.iter().zip(challenges) {
+        for (acc, value) in folded.iter_mut().zip(col.as_ref()) {
+            *acc += *value * chall;
+        }
+    }
+    folded
+}
+
+/// The folded rows of the claimed result where its activator is set, or the
+/// key 1 for each when it has no data columns.
+fn active_keys<F: PrimeField>(cols: &[impl AsRef<[F]>], act: &[F], challenges: &[F]) -> Arc<[F]> {
+    let folded = (!cols.is_empty()).then(|| fold_rows(cols, challenges));
+    act.iter()
+        .enumerate()
+        .filter(|(_, on)| !on.is_zero())
+        .map(|(row, _)| folded.as_ref().map_or(F::one(), |folded| folded[row]))
+        .collect()
+}
+
+/// `values`, a column of the claimed result, on the first rows of a domain
+/// of `nv` variables, zero beyond. `None` if an active row of the result
+/// falls outside it.
+fn lay_out<F: PrimeField>(values: &[F], act: &[F], nv: usize) -> Option<Vec<F>> {
+    let rows = 1usize << nv;
+    if act.iter().skip(rows).any(|on| !on.is_zero()) {
+        return None;
+    }
+    let mut laid_out = values[..values.len().min(rows)].to_vec();
+    laid_out.resize(rows, F::zero());
+    Some(laid_out)
+}
+
+/// The oracle of a column [`lay_out`] built, evaluated in time linear in its
+/// nonzero prefix: past the prefix of `2^k` rows every row is zero, so the
+/// MLE is the prefix's at the low variables times `prod (1 - x_j)` over the
+/// others. Like every oracle of `nv` variables, it reads only the first `nv`
+/// coordinates of a longer point.
+fn prefix_oracle<F: PrimeField>(mut values: Vec<F>, nv: usize) -> Oracle<F> {
+    let used = values
+        .iter()
+        .rposition(|v| !v.is_zero())
+        .map_or(0, |last| last + 1);
+    let k = used.next_power_of_two().trailing_zeros() as usize;
+    values.truncate(1 << k);
+    Oracle::new_multivariate(nv, move |point: Vec<F>| {
+        let prefix = eval_mle_at_point(&values, k, &point[..k]);
+        Ok(point[k..nv]
+            .iter()
+            .fold(prefix, |acc, x| acc * (F::one() - x)))
+    })
 }
 
 fn check_failed(msg: String) -> SnarkError {
@@ -418,25 +482,22 @@ fn check_failed(msg: String) -> SnarkError {
     )
 }
 
+/// `polys[0] + sum_i challenges[i]·polys[i + 1]`.
 fn fold_polys<B: SnarkBackend>(polys: &[TrackedPoly<B>], challenges: &[B::F]) -> TrackedPoly<B> {
-    debug_assert!(!polys.is_empty(), "fold_polys requires at least one poly");
-    let mut folded = polys[0].mul_scalar_poly(challenges[0]);
-    for (poly, &chall) in polys.iter().zip(challenges.iter()).skip(1) {
+    let mut folded = polys[0].clone();
+    for (poly, &chall) in polys[1..].iter().zip(challenges) {
         folded += &poly.mul_scalar_poly(chall);
     }
     folded
 }
 
+/// `oracles[0] + sum_i challenges[i]·oracles[i + 1]`.
 fn fold_oracles<B: SnarkBackend>(
     oracles: &[TrackedOracle<B>],
     challenges: &[B::F],
 ) -> TrackedOracle<B> {
-    debug_assert!(
-        !oracles.is_empty(),
-        "fold_oracles requires at least one oracle"
-    );
-    let mut folded = oracles[0].mul_scalar_oracle(challenges[0]);
-    for (oracle, &chall) in oracles.iter().zip(challenges.iter()).skip(1) {
+    let mut folded = oracles[0].clone();
+    for (oracle, &chall) in oracles[1..].iter().zip(challenges) {
         folded += &oracle.mul_scalar_oracle(chall);
     }
     folded
