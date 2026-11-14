@@ -16,7 +16,10 @@ use ark_piop::{
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     test_utils::prelude_with_vars,
     types::{CommitmentBinding, TrackerID},
-    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
+    verifier::{
+        ArgVerifier,
+        structs::oracle::{Oracle, TrackedOracle},
+    },
 };
 use datafusion::arrow::datatypes::{FieldRef, Schema};
 use indexmap::IndexMap;
@@ -31,6 +34,7 @@ use crate::prover::irs::GadgetReadyIr as ProverGadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
 /// One payload table to build and commit.
+#[derive(Clone)]
 pub struct TableSpec<F> {
     pub schema: Schema,
     pub log_size: usize,
@@ -60,6 +64,15 @@ pub struct GadgetHarness<B: SnarkBackend> {
     /// Kept per (target node, label) so the pipeline can build the verifier
     /// tables after `set_proof`.
     committed: IndexMap<NodeId, IndexMap<String, CommittedTable<B>>>,
+    public: Vec<PublicTable<B::F>>,
+}
+
+/// A public table as the prover and as the verifier hold it.
+struct PublicTable<F> {
+    node_id: NodeId,
+    label: String,
+    prover: TableSpec<F>,
+    verifier: TableSpec<F>,
 }
 
 impl<B: SnarkBackend> GadgetHarness<B> {
@@ -72,6 +85,7 @@ pub struct GadgetHarnessBuilder<B: SnarkBackend> {
     srs_nv: usize,
     gadget: Option<Arc<Node<B>>>,
     payloads: IndexMap<NodeId, IndexMap<String, TableSpec<B::F>>>,
+    public: Vec<PublicTable<B::F>>,
     shared_activators: Vec<(NodeId, String, NodeId, String)>,
     explicit_commitments: bool,
 }
@@ -82,6 +96,7 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
             srs_nv,
             gadget: None,
             payloads: IndexMap::new(),
+            public: Vec::new(),
             shared_activators: Vec::new(),
             explicit_commitments: false,
         }
@@ -117,6 +132,33 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
     /// Gives the table at (`target_node`, `target_label`), whose spec has no
     /// activator, the committed activator of the source table, as columns of
     /// one physical table share it. Sources must be registered first.
+    /// A table both sides hold in the clear, as the verifier holds the
+    /// claimed result: the prover tracks it uncommitted and the verifier as
+    /// oracles that carry their evaluations. Public tables are tracked after
+    /// every committed one, in the order of these calls.
+    pub fn with_public_table(self, node_id: NodeId, label: &str, spec: TableSpec<B::F>) -> Self {
+        self.with_diverging_public_table(node_id, label, spec.clone(), spec)
+    }
+
+    /// [`Self::with_public_table`] where the prover holds one table and the
+    /// verifier another, as when the prover proves a result other than the
+    /// one it sent.
+    pub fn with_diverging_public_table(
+        mut self,
+        node_id: NodeId,
+        label: &str,
+        prover: TableSpec<B::F>,
+        verifier: TableSpec<B::F>,
+    ) -> Self {
+        self.public.push(PublicTable {
+            node_id,
+            label: label.to_string(),
+            prover,
+            verifier,
+        });
+        self
+    }
+
     pub fn with_shared_activator(
         mut self,
         target_node: NodeId,
@@ -198,6 +240,29 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
                 .set_payload_for_node(target_id, Some(PayloadStructure::GadgetPayload(payload)));
         }
 
+        for PublicTable {
+            node_id: target_id,
+            label,
+            prover: spec,
+            ..
+        } in &self.public
+        {
+            let polys = public_columns(spec)
+                .map(|(field, evals)| {
+                    let mle = MLE::from_evaluations_vec(spec.log_size, evals.to_vec());
+                    (field, prover.track_mat_mv_poly(mle))
+                })
+                .collect();
+            let table = TrackedTable::<B>::new(Some(spec.schema.clone()), polys, spec.log_size);
+            let mut payload = match prover_ir.payload_for_node(target_id) {
+                Some(PayloadStructure::GadgetPayload(payload)) => payload.clone(),
+                _ => IndexMap::new(),
+            };
+            payload.insert(label.clone(), table);
+            prover_ir
+                .set_payload_for_node(*target_id, Some(PayloadStructure::GadgetPayload(payload)));
+        }
+
         GadgetHarness {
             prover,
             verifier,
@@ -206,8 +271,21 @@ impl<B: SnarkBackend> GadgetHarnessBuilder<B> {
             prover_ir,
             verifier_ir,
             committed,
+            public: self.public,
         }
     }
+}
+
+/// The data columns of a public table, then its activator.
+fn public_columns<F>(spec: &TableSpec<F>) -> impl Iterator<Item = (FieldRef, &[F])> {
+    spec.cols
+        .iter()
+        .map(|(field, evals)| (field.clone(), &evals[..]))
+        .chain(
+            spec.activator
+                .iter()
+                .map(|evals| (ACTIVATOR_FIELD.clone(), &evals[..])),
+        )
 }
 
 fn commit_prover_table<B: SnarkBackend>(
@@ -332,6 +410,31 @@ pub fn run_gadget_pipeline_to_verifier<B: SnarkBackend>(
             *target_id,
             Some(PayloadStructure::GadgetPayload(verifier_payload)),
         );
+    }
+
+    for PublicTable {
+        node_id: target_id,
+        label,
+        verifier: spec,
+        ..
+    } in &harness.public
+    {
+        let oracles = public_columns(spec)
+            .map(|(field, evals)| {
+                let mle = MLE::from_evaluations_vec(spec.log_size, evals.to_vec());
+                let oracle = Oracle::from_mle(mle).with_evaluations(evals.into());
+                (field, harness.verifier.track_base_oracle(oracle))
+            })
+            .collect();
+        let table = TrackedTableOracle::<B>::new(Some(spec.schema.clone()), oracles, spec.log_size);
+        let mut payload = match harness.verifier_ir.payload_for_node(target_id) {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload.clone(),
+            _ => IndexMap::new(),
+        };
+        payload.insert(label.clone(), table);
+        harness
+            .verifier_ir
+            .set_payload_for_node(*target_id, Some(PayloadStructure::GadgetPayload(payload)));
     }
 
     // Same order as the prover: the gadgets call `track_next_mv_com` in the

@@ -1,6 +1,6 @@
 use crate::session::session_context;
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
-use ark_ff::{Field, Zero};
+use ark_ff::Field;
 use ark_piop::{
     SnarkBackend,
     types::CommitmentBinding,
@@ -685,21 +685,16 @@ impl<B: SnarkBackend> TrackingPass<B> {
             .polynomials()
             .iter()
             .map(|(field_ref, mle)| {
-                let poly_evals = mle.evaluations();
+                let evaluations: Arc<[B::F]> = mle.evaluations().into();
                 let num_vars = mle.num_vars();
+                let table = evaluations.clone();
                 let oracle = ark_piop::verifier::structs::oracle::Oracle::new_multivariate(
                     arith_table.log_size(),
-                    move |point| {
-                        // result_check's verifier reads the result at
-                        // hypercube points, where the evaluation is an array
-                        // lookup: O(num_vars) instead of O(2^num_vars).
-                        if let Some(idx) = hypercube_index(&point, num_vars) {
-                            return Ok(poly_evals.get(idx).copied().unwrap_or_else(B::F::zero));
-                        }
-                        Ok(eval_mle_at_point(&poly_evals, num_vars, &point))
-                    },
+                    move |point| Ok(eval_mle_at_point(&table, num_vars, &point)),
                 );
-                let tracked_oracle = verifier.borrow().track_base_oracle(oracle);
+                let tracked_oracle = verifier
+                    .borrow()
+                    .track_base_oracle(oracle.with_evaluations(evaluations));
                 (field_ref.clone(), tracked_oracle)
             })
             .collect();
@@ -711,26 +706,11 @@ impl<B: SnarkBackend> TrackingPass<B> {
     }
 }
 
-/// The index `point` encodes (little-endian bits) when every coordinate is
-/// 0 or 1, otherwise `None`.
-fn hypercube_index<F: Field + Copy>(point: &[F], num_vars: usize) -> Option<usize> {
-    let zero = F::zero();
-    let one = F::one();
-    let mut idx = 0usize;
-    for i in 0..num_vars {
-        let xi = point.get(i).copied().unwrap_or(zero);
-        if xi == zero {
-            // bit is 0
-        } else if xi == one {
-            idx |= 1 << i;
-        } else {
-            return None;
-        }
-    }
-    Some(idx)
-}
-
-fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point: &[F]) -> F {
+pub(crate) fn eval_mle_at_point<F: Field + Copy>(
+    evaluations: &[F],
+    num_vars: usize,
+    point: &[F],
+) -> F {
     if num_vars == 0 {
         return evaluations.first().copied().unwrap_or_else(F::zero);
     }
