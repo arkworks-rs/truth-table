@@ -41,7 +41,7 @@ use datafusion::arrow::array::{
     Array, ArrayRef, BooleanArray, LargeStringArray, StringArray, StringViewArray,
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue, Statistics};
+use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::{
     ColumnarValue, Expr, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
     expr::ScalarFunction, lit,
@@ -645,14 +645,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
             self.pattern,
             self.bins.len(),
         )
-    }
-
-    fn cost(
-        &self,
-        _statistics: Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {

@@ -79,14 +79,6 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
         format!("Compaction\nInput: {}", self.input.name())
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion_common::Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
-    }
-
     fn children(&self) -> Vec<Arc<Node<B>>> {
         let mut children = vec![self.input.clone(), self.gadget.clone()];
         if let Some(dpuc) = &self.dpuc_gadget {

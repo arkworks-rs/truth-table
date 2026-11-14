@@ -6,7 +6,6 @@ use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use datafusion_common::Statistics;
 use datafusion_expr::{ExprSchemable, expr::Alias};
 use indexmap::IndexMap;
 
@@ -64,14 +63,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
             self.alias.name,
             self.scope()[0].name()
         )
-    }
-
-    fn cost(
-        &self,
-        _statistics: Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {

@@ -8,7 +8,6 @@ use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use indexmap::IndexMap;
 
 use crate::irs::nodes::NodeId;
-use crate::irs::nodes::cost::ProvingCost;
 use crate::irs::nodes::hints::HintDF;
 use crate::irs::nodes::utils::bounds::{Numeric, numeric};
 use crate::irs::nodes::{
@@ -229,14 +228,6 @@ impl<B: SnarkBackend> IsNode<B> for BinCmpNode<B> {
     fn display(&self) -> String {
         let name = self.name();
         crate::irs::nodes::display_with_inputs(&name, &self.children())
-    }
-
-    fn cost(
-        &self,
-        _statistics: datafusion_common::Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> ProvingCost {
-        todo!()
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {

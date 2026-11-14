@@ -37,14 +37,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         crate::irs::nodes::display_with_inputs(&name, &self.children())
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion_common::Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
-    }
-
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         let mut children = Vec::with_capacity(2);
         children.extend(self.supp_gadget.iter().cloned());

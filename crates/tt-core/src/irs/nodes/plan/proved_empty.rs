@@ -44,14 +44,6 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
         format!("ProvedEmpty\nWitness: {}", self.witness.name())
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion_common::Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
-    }
-
     fn children(&self) -> Vec<Arc<Node<B>>> {
         vec![self.witness.clone()]
     }

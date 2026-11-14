@@ -20,7 +20,6 @@ use std::{
 use crate::{
     irs::{
         nodes::{
-            cost::ProvingCost,
             hints::HintDF,
             plan::{
                 compaction,
@@ -41,12 +40,9 @@ use crate::{
     },
 };
 use ark_piop::{SnarkBackend, errors::SnarkResult};
-use arrow_schema::SchemaRef;
-use datafusion_common::Statistics;
 use datafusion_expr::{Expr, LogicalPlan};
 use derivative::Derivative;
 use indexmap::IndexMap;
-pub mod cost;
 pub mod hints;
 pub mod plan;
 pub mod utils;
@@ -104,7 +100,6 @@ where
 {
     fn name(&self) -> String;
     fn display(&self) -> String;
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
     fn children(&self) -> Vec<Arc<Node<B>>>;
     /// One optional label per child edge, for display.
     fn child_edge_labels(&self) -> Vec<Option<String>> {
@@ -489,13 +484,6 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
         }
     }
 
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
-        match &self {
-            Node::Plan(plan_node) => plan_node.cost(statistics, schema),
-            Node::Gadget(gadget_node) => gadget_node.cost(statistics, schema),
-        }
-    }
-
     fn children(&self) -> Vec<Arc<Node<B>>> {
         match &self {
             Node::Plan(plan_node) => plan_node.children(),
@@ -641,12 +629,6 @@ impl<B: SnarkBackend> PlanNode<B> {
             PlanNode::ExprBased(expr_node) => expr_node.display(),
         }
     }
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
-        match &self {
-            PlanNode::LpBased(lp_node) => lp_node.cost(statistics, schema),
-            PlanNode::ExprBased(expr_node) => expr_node.cost(statistics, schema),
-        }
-    }
     fn children(&self) -> Vec<Arc<Node<B>>> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.children(),
@@ -709,10 +691,6 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
 
     fn display(&self) -> String {
         PlanNode::display(self)
-    }
-
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
-        PlanNode::cost(self, statistics, schema)
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {

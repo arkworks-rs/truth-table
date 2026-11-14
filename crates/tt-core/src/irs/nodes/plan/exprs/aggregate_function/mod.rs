@@ -9,7 +9,7 @@ use ark_piop::{
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use datafusion_common::{Column, Statistics};
+use datafusion_common::Column;
 use datafusion_expr::{Expr, LogicalPlan, expr::AggregateFunction};
 use either::Either;
 use indexmap::IndexMap;
@@ -152,14 +152,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
             self.aggregate_function.func.name(),
             args
         )
-    }
-
-    fn cost(
-        &self,
-        _statistics: Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {

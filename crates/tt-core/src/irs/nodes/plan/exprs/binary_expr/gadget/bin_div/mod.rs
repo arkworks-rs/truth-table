@@ -3,7 +3,6 @@ use indexmap::IndexMap;
 
 use super::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
 use crate::irs::nodes::NodeId;
-use crate::irs::nodes::cost::ProvingCost;
 use crate::irs::nodes::hints::HintDF;
 use crate::irs::nodes::utils::division::{self, Divisor, Operand};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
@@ -65,14 +64,6 @@ impl<B: SnarkBackend> IsNode<B> for BinDivNode<B> {
     fn display(&self) -> String {
         let name = self.name();
         crate::irs::nodes::display_with_inputs(&name, &self.children())
-    }
-
-    fn cost(
-        &self,
-        _statistics: datafusion_common::Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> ProvingCost {
-        todo!()
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {

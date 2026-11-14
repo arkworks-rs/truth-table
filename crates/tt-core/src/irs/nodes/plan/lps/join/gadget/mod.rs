@@ -305,14 +305,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         crate::irs::nodes::display_with_inputs(&name, &self.children())
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion_common::Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
-    }
-
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         if let Some(gadgets) = self.many_to_many_gadgets() {
             vec![
