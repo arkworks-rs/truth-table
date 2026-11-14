@@ -97,6 +97,23 @@ async fn in_subquery_is_not_supported() {
     }
 }
 
+#[tokio::test]
+async fn exists_is_not_supported() {
+    for query in [
+        "SELECT n_name FROM nation WHERE EXISTS (SELECT 1 FROM region WHERE r_regionkey = n_regionkey AND r_name = 'ASIA')",
+        "SELECT n_name FROM nation WHERE NOT EXISTS (SELECT 1 FROM region WHERE r_regionkey = n_regionkey)",
+        "SELECT n_name FROM nation WHERE EXISTS (SELECT 1 FROM region WHERE r_name = 'ASIA')",
+    ] {
+        let error = tt_exec::test_utils::prove_and_verify_query(query, &["nation", "region"], None)
+            .await
+            .expect_err("an EXISTS subquery must be rejected");
+        assert!(
+            format!("{error:#}").contains("EXISTS and NOT EXISTS are not supported"),
+            "{error:#}"
+        );
+    }
+}
+
 // Join keys resolved by qualifier: the input that carries the key
 // also carries a same-named column of another alias, listed first.
 end_to_end_tests!(&["nation"] => [
