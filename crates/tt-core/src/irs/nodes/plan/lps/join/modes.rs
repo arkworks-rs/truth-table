@@ -27,18 +27,19 @@ struct ColumnConstraintMetadata {
 /// Decide join mode directly from the logical join specification.
 ///
 /// A specialized mode proves the join with a single lookup of the
-/// foreign-key side's rows into the primary-key side (the PKFKJoin protocol),
-/// so the verifier must be sure that every foreign-key row has at most one
-/// match. That holds only when the primary-key side is a whole committed
-/// table joined on its complete primary key; anything else falls back to
-/// `MANY_TO_MANY`. Whether every foreign-key row has a match is a property of
-/// the data owner's schema and affects only whether an honest proof exists.
+/// foreign-key side's rows into the primary-key side's base table (the
+/// PKFKJoin protocol), so the verifier must be sure that every foreign-key
+/// row has at most one match. That holds only when the primary-key side is a
+/// committed table, possibly filtered, joined on its complete primary key;
+/// anything else falls back to `MANY_TO_MANY`. Whether every foreign-key row
+/// has a match is a property of the data owner's schema and affects only
+/// whether an honest proof exists.
 ///
 /// Guards (any failing one yields `MANY_TO_MANY`):
 /// - the join is inner, has equijoin keys, and has no extra filter;
 /// - the two sides share no data column name (outputs are matched by name);
-/// - the primary-key side is a plain scan of one table, see
-///   [`plain_table_scan`], and the join keys are exactly its primary key;
+/// - the primary-key side keeps its base table's rows, see
+///   [`base_table_scan`], and the join keys are exactly its primary key;
 /// - the foreign-key side's keys reference that table and it contains no
 ///   outer join (which could null a key).
 ///
@@ -82,31 +83,57 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
     JoinMode::MANY_TO_MANY
 }
 
-/// Returns the base table name when `plan` is a plain scan of one table and
+/// Whether the primary-key side of a join in `mode` is filtered. PKFKJoin
+/// then looks the foreign keys up in the unfiltered base table and carries
+/// the primary-key side's activator through the lookup.
+pub fn pk_side_is_filtered(join: &Join, mode: JoinMode) -> bool {
+    pk_side_index(mode)
+        .and_then(|idx| base_table_scan([&join.left, &join.right][idx]))
+        .is_some_and(|lineage| lineage.filtered)
+}
+
+/// The input (0 left, 1 right) holding the primary key in `mode`.
+pub fn pk_side_index(mode: JoinMode) -> Option<usize> {
+    match mode {
+        JoinMode::ONE_TO_MANY => Some(0),
+        JoinMode::MANY_TO_ONE => Some(1),
+        JoinMode::ONE_TO_ONE | JoinMode::MANY_TO_MANY => None,
+    }
+}
+
+/// Returns the base table name when `plan` keeps one table's rows and
 /// `key_cols` are exactly that table's primary key, so each key value names at
-/// most one active row.
+/// most one row of the table.
 fn unique_key_table(plan: &LogicalPlan, key_cols: &[Column]) -> Option<String> {
-    let (scan, aliases) = plain_table_scan(plan)?;
-    let table = scan.table_name.table().to_lowercase();
+    let lineage = base_table_scan(plan)?;
+    let table = lineage.scan.table_name.table().to_lowercase();
     let names_this_table = |col: &Column| {
         col.relation.as_ref().is_none_or(|relation| {
             let relation = table_name_from_relation(relation);
-            relation == table || aliases.contains(&relation)
+            relation == table || lineage.aliases.contains(&relation)
         })
     };
     if !key_cols.iter().all(names_this_table) {
         return None;
     }
-    let primary_key = primary_key_columns(scan)?;
+    let primary_key = primary_key_columns(lineage.scan)?;
     (!primary_key.is_empty() && column_name_set(key_cols) == primary_key).then_some(table)
 }
 
-/// Unwraps `plan` down to a table scan when every row of the scan reaches the
-/// output unchanged: only aliases, column-only projections that keep each
-/// column's name, and a scan with no pushed-down filter or row limit. Returns
-/// the scan and the aliases seen on the way.
-fn plain_table_scan(plan: &LogicalPlan) -> Option<(&datafusion_expr::TableScan, BTreeSet<String>)> {
+struct BaseTableLineage<'a> {
+    scan: &'a datafusion_expr::TableScan,
+    aliases: BTreeSet<String>,
+    filtered: bool,
+}
+
+/// Unwraps `plan` down to a table scan when its rows are the scan's rows in
+/// the scan's layout, with only the activator changed: filters, aliases,
+/// column-only projections that keep each column's name, and a scan with no
+/// pushed-down filter or row limit. A compaction re-lays out the rows, so it
+/// stops the walk.
+fn base_table_scan(plan: &LogicalPlan) -> Option<BaseTableLineage<'_>> {
     let mut aliases = BTreeSet::new();
+    let mut filtered = false;
     let mut current = plan;
     loop {
         match current {
@@ -120,9 +147,18 @@ fn plain_table_scan(plan: &LogicalPlan) -> Option<(&datafusion_expr::TableScan, 
                 }
                 current = projection.input.as_ref();
             }
+            LogicalPlan::Filter(filter) => {
+                filtered = true;
+                current = filter.input.as_ref();
+            }
             LogicalPlan::TableScan(scan) => {
-                return (scan.filters.is_empty() && scan.fetch.is_none())
-                    .then_some((scan, aliases));
+                return (scan.filters.is_empty() && scan.fetch.is_none()).then_some(
+                    BaseTableLineage {
+                        scan,
+                        aliases,
+                        filtered,
+                    },
+                );
             }
             _ => return None,
         }
@@ -450,11 +486,44 @@ mod tests {
     }
 
     #[test]
-    fn a_filtered_pk_side_does_not_specialize() {
+    fn a_filtered_pk_side_specializes() {
         let on = ("supplier.s_nationkey", "nation.n_nationkey");
         let filtered = nation().filter(col("n_regionkey").eq(lit(1_i64))).unwrap();
-        assert_eq!(mode(supplier(), filtered, on), JoinMode::MANY_TO_MANY);
+        let plan = supplier()
+            .join(
+                filtered.alias("n").unwrap().build().unwrap(),
+                JoinType::Inner,
+                (vec![on.0], vec!["n.n_nationkey"]),
+                None,
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+        let LogicalPlan::Join(join) = plan else {
+            unreachable!("the builder produced a join");
+        };
+        assert_eq!(decide_join_mode(&join), JoinMode::MANY_TO_ONE);
+        assert!(pk_side_is_filtered(&join, JoinMode::MANY_TO_ONE));
 
+        let LogicalPlan::Join(unfiltered) = supplier()
+            .join(
+                nation().build().unwrap(),
+                JoinType::Inner,
+                (vec![on.0], vec![on.1]),
+                None,
+            )
+            .unwrap()
+            .build()
+            .unwrap()
+        else {
+            unreachable!("the builder produced a join");
+        };
+        assert!(!pk_side_is_filtered(&unfiltered, JoinMode::MANY_TO_ONE));
+    }
+
+    #[test]
+    fn a_pushed_down_pk_side_filter_does_not_specialize() {
+        let on = ("supplier.s_nationkey", "nation.n_nationkey");
         let schema = nation().schema().as_arrow().clone();
         let pushed_down = table_scan_with_filters(
             Some("nation"),

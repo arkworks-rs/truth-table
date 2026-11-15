@@ -72,6 +72,27 @@ impl<B: SnarkBackend> LpNode<B> {
         }
     }
 
+    fn pk_filtered(&self) -> bool {
+        modes::pk_side_is_filtered(&self.join, self.join_mode())
+    }
+
+    /// The table scan under a filtered PK side. [`modes::pk_side_is_filtered`]
+    /// admits only filters, aliases and name-keeping projections above it,
+    /// each of which has its input as its first child.
+    fn pk_base_scan(&self) -> Arc<Node<B>> {
+        let idx = modes::pk_side_index(self.join_mode()).expect("a PK-FK join has a PK side");
+        let mut current = [&self.left, &self.right][idx].clone();
+        loop {
+            let Node::Plan(crate::irs::nodes::PlanNode::LpBased(lp_node)) = current.as_ref() else {
+                panic!("the PK side of a PK-FK join must be a base table lineage");
+            };
+            if matches!(lp_node.lp(), LogicalPlan::TableScan(_)) {
+                return current;
+            }
+            current = current.children()[0].clone();
+        }
+    }
+
     fn should_fully_materialize(&self) -> bool {
         // Must match the gadget's protocol: MANY_TO_MANY materializes the
         // whole output, every other mode (HasOne) only the PK side.
@@ -496,7 +517,24 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             })
             .unwrap_or_default();
 
-        let updated_table = Self::merge_partial_output_prover(&current_table, &fk_table);
+        let mut updated_table = Self::merge_partial_output_prover(&current_table, &fk_table);
+        if self.pk_filtered() {
+            // The committed flag is the output activator: the gadget pins it to
+            // the PK side's activator on active FK rows and to 0 elsewhere.
+            let flag = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map
+                    .get(join_gadget::PK_FLAG_LABEL)
+                    .and_then(|table| {
+                        table
+                            .tracked_polys_iter()
+                            .find(|(field, _)| field.name() == hints::PK_FLAG_COL_NAME)
+                            .map(|(_, poly)| poly)
+                    })
+                    .expect("PK-FK join gadget payload missing the PK flag"),
+                _ => panic!("PK-FK join gadget payload missing"),
+            };
+            updated_table = append_activator_prover(&updated_table, flag);
+        }
         let updated_table = Self::update_constraints_prover(
             &updated_table,
             self.join_mode(),
@@ -540,6 +578,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_table);
         gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_table);
         gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_table);
+        if self.pk_filtered() {
+            let base = match virtualized_ir.payload_for_node(&self.pk_base_scan().id()) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                _ => panic!("PK-FK join base table payload missing"),
+            };
+            gadget_payload.insert(join_gadget::PK_BASE_LABEL.to_string(), base);
+        }
         virtualized_ir.set_payload_for_node(
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
@@ -625,12 +670,24 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
             // Partial mode (HasOne): the output keeps the FK-side row domain and
             // only the PK-side columns are materialized, so virtual and
             // materialized columns share one log size.
-            hints::build_partial_output_dataframe(
+            // A filtered PK side's flag is committed by the gadget, not here.
+            let joined = hints::build_partial_output_dataframe(
                 left_hint_df.data_frame().clone(),
                 right_hint_df.data_frame().clone(),
                 &self.join,
                 self.join_mode(),
-            )
+                self.pk_filtered(),
+            );
+            let keep = joined
+                .schema()
+                .columns()
+                .into_iter()
+                .filter(|column| column.name != hints::PK_FLAG_COL_NAME)
+                .map(datafusion_expr::Expr::Column)
+                .collect::<Vec<_>>();
+            joined
+                .select(keep)
+                .expect("partial join output projection should succeed")
         };
 
         if self.should_fully_materialize() {
@@ -834,6 +891,7 @@ fn build_partial_output_dataframe_verifier_light(
                 right_df_fallback,
                 join,
                 mode,
+                false,
             );
         }
     };
@@ -988,7 +1046,22 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             })
             .unwrap_or_default();
 
-        let updated_table = Self::merge_partial_output_verifier(&current_table, &fk_table);
+        let mut updated_table = Self::merge_partial_output_verifier(&current_table, &fk_table);
+        if self.pk_filtered() {
+            let flag = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map
+                    .get(join_gadget::PK_FLAG_LABEL)
+                    .and_then(|table| {
+                        table
+                            .tracked_oracles_iter()
+                            .find(|(field, _)| field.name() == hints::PK_FLAG_COL_NAME)
+                            .map(|(_, oracle)| oracle)
+                    })
+                    .expect("PK-FK join gadget payload missing the PK flag"),
+                _ => panic!("PK-FK join gadget payload missing"),
+            };
+            updated_table = append_activator_verifier(&updated_table, flag);
+        }
         let updated_table = Self::update_constraints_verifier(
             &updated_table,
             self.join_mode(),
@@ -1030,6 +1103,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_table);
         gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_table);
         gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_table);
+        if self.pk_filtered() {
+            let base = match virtualized_ir.payload_for_node(&self.pk_base_scan().id()) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                _ => panic!("PK-FK join base table payload missing"),
+            };
+            gadget_payload.insert(join_gadget::PK_BASE_LABEL.to_string(), base);
+        }
         virtualized_ir.set_payload_for_node(
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),

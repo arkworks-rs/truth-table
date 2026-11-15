@@ -126,11 +126,20 @@ pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Jo
         .expect("join row_id projection should succeed")
 }
 
+/// The output activator of a join whose PK side is filtered: the FK side's
+/// activator AND the PK side's on the row its key names.
+pub const PK_FLAG_COL_NAME: &str = "__pk_flag__";
+
+/// One output row per FK-side row, with the PK-side columns of the row its
+/// key names. When `pk_filtered`, the PK side's inactive rows are matched too
+/// (they are rows of its base table, which the foreign key references) and
+/// the output carries [`PK_FLAG_COL_NAME`].
 pub fn build_partial_output_dataframe(
     left_df: DataFrame,
     right_df: DataFrame,
     join: &Join,
     mode: JoinMode,
+    pk_filtered: bool,
 ) -> DataFrame {
     // Every FK-side row is kept, inactive ones included, and the PK-side
     // columns are attached by a LEFT JOIN, so the materialized PK columns have
@@ -166,12 +175,43 @@ pub fn build_partial_output_dataframe(
             .expect("partial join fk projection should succeed")
     };
 
+    let pk_keys: Vec<Expr> = join
+        .on
+        .iter()
+        .map(|(left_expr, right_expr)| {
+            if fk_is_left {
+                right_expr.clone()
+            } else {
+                left_expr.clone()
+            }
+        })
+        .collect();
     let prepare_pk_input = |df: DataFrame| {
+        // A filtered PK side keeps its inactive rows but not its base table's
+        // padding, whose keys are NULL. DataFusion's hash join walks every
+        // NULL key of the build side for each NULL probe key, so padding on
+        // both sides would cost the product of their sizes.
+        let keep = if pk_filtered {
+            pk_keys
+                .iter()
+                .map(|key| key.clone().is_not_null())
+                .reduce(Expr::and)
+                .expect("a PK-FK join has a key")
+        } else {
+            col(ACTIVATOR_COL_NAME).eq(lit(true))
+        };
         let df = df
-            .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
-            .expect("partial join pk activator filter should succeed");
+            .filter(keep)
+            .expect("partial join pk row filter should succeed");
         let mut projection_exprs = Vec::new();
         for (qualifier, field) in df.schema().iter() {
+            if field.name() == ACTIVATOR_COL_NAME && pk_filtered {
+                projection_exprs.push(
+                    Expr::Column(Column::new(qualifier.cloned(), ACTIVATOR_COL_NAME))
+                        .alias(PK_FLAG_COL_NAME),
+                );
+                continue;
+            }
             if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
                 continue;
             }
@@ -214,7 +254,12 @@ pub fn build_partial_output_dataframe(
     let mut data_exprs = Vec::new();
     let mut fk_row_id = None;
     let mut fk_activator = None;
+    let mut pk_flag = None;
     for (qualifier, field) in joined.schema().iter() {
+        if field.name() == PK_FLAG_COL_NAME {
+            pk_flag = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+            continue;
+        }
         if field.name() == "__fk_row_id__" {
             fk_row_id = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
             continue;
@@ -231,12 +276,22 @@ pub fn build_partial_output_dataframe(
 
     // One output row per FK-side row (PKFKJoin): the foreign-key constraint
     // promises every FK key has its PK row, so the output activator is the FK
-    // activator. Data breaking that promise leaves null PK-side columns, which
-    // the join's lookup then fails to find.
-    let output_activator = fk_activator.expect("partial join output missing fk activator");
-
+    // activator, narrowed by a filtered PK side's flag. Data breaking that
+    // promise leaves null PK-side columns, which the join's lookup then fails
+    // to find.
+    let fk_activator = fk_activator.expect("partial join output missing fk activator");
     let mut projection_exprs = data_exprs;
-    projection_exprs.push(output_activator.alias(ACTIVATOR_COL_NAME));
+    match pk_flag {
+        Some(flag) => {
+            let flag = fk_activator.and(datafusion::functions::expr_fn::coalesce(vec![
+                flag,
+                lit(false),
+            ]));
+            projection_exprs.push(flag.clone().alias(ACTIVATOR_COL_NAME));
+            projection_exprs.push(flag.alias(PK_FLAG_COL_NAME));
+        }
+        None => projection_exprs.push(fk_activator.alias(ACTIVATOR_COL_NAME)),
+    }
     projection_exprs.push(
         fk_row_id
             .expect("partial join output missing fk row_id")

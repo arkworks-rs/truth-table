@@ -35,6 +35,11 @@ pub const SRC_LEFT_LABEL: &str = "__SRC_LEFT__";
 pub const SRC_RIGHT_LABEL: &str = "__SRC_RIGHT__";
 pub const SRC_LEFT_COL_NAME: &str = "src_left";
 pub const SRC_RIGHT_COL_NAME: &str = "src_right";
+/// PK-FK join over a filtered PK side: the committed flag column, and the
+/// PK side's base table.
+pub const PK_FLAG_LABEL: &str = "__PK_FLAG__";
+pub const PK_BASE_LABEL: &str = "__PK_BASE__";
+use super::hints::PK_FLAG_COL_NAME;
 pub use crate::irs::nodes::plan::lps::join::modes::JoinMode;
 
 #[derive(Clone)]
@@ -393,6 +398,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             );
             Ok(())
         } else {
+            self.plan_pk_flag_prover(id, planned_ir);
             Ok(())
         }
     }
@@ -523,6 +529,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             );
             Ok(())
         } else {
+            self.plan_pk_flag_verifier(id, planned_ir);
             Ok(())
         }
     }
@@ -1177,13 +1184,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             )?;
             Ok(())
         } else {
-            let (output, fk_side, pk_side) =
-                self.pk_fk_tables(gadget_ready_ir.payload_for_node(&id));
-            let (included, super_table) = self.pk_fk_lookup_tables_prover(
-                output.expect("PK-FK join payload missing output table"),
-                fk_side.expect("PK-FK join payload missing FK-side input table"),
-                pk_side.expect("PK-FK join payload missing PK-side input table"),
-            );
+            let (included, super_table, flag_off_inactive) =
+                self.pk_fk_lookup_tables_prover(gadget_ready_ir.payload_for_node(&id));
+            if let Some(poly) = flag_off_inactive {
+                prover.add_mv_zerocheck_claim(poly.id())?;
+            }
             let challenges =
                 lookup_fold_challenges_prover(prover, included.data_tracked_polys_indices().len())?;
             LookupPIOP::<B>::prove(
@@ -1399,15 +1404,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             )?;
             Ok(())
         } else {
-            let (output, fk_side, pk_side) =
-                self.pk_fk_tables(gadget_ready_ir.payload_for_node(&id));
-            let (Some(output), Some(fk_side), Some(pk_side)) = (output, fk_side, pk_side) else {
-                return Err(pk_fk_check_failed(
-                    "the join payload is incomplete".to_string(),
-                ));
-            };
-            let (included, super_table) =
-                self.pk_fk_lookup_tables_verifier(output, fk_side, pk_side)?;
+            let (included, super_table, flag_off_inactive) =
+                self.pk_fk_lookup_tables_verifier(gadget_ready_ir.payload_for_node(&id))?;
+            if let Some(oracle) = flag_off_inactive {
+                verifier.add_mv_zerocheck_claim(oracle.id());
+            }
             let challenges = lookup_fold_challenges_verifier(
                 verifier,
                 included.data_tracked_oracles_indices().len(),
@@ -1496,13 +1497,87 @@ impl<B: SnarkBackend> GadgetNode<B> {
 }
 
 /// The PKFKJoin protocol for the HasOne modes. The output keeps one row per
-/// active FK-side row; its FK-side columns and activator are the FK input's
-/// own polynomials, and the prover commits only the PK-side columns O.dP. A
-/// single Lookupcheck proves (F.a, [F.k, O.dP]) is contained in
-/// (P.a, [P.k, P.d]). The mode is chosen only when P.k is P's full primary
-/// key over an unfiltered table, so each FK row has at most one match, and the
-/// lookup pins O.dP to exactly that row.
+/// FK-side row; its FK-side columns are the FK input's own polynomials, and
+/// the prover commits only the PK-side columns O.dP. The mode is chosen only
+/// when P.k is the full primary key of P's base table P0, so each FK row has
+/// at most one match, and the lookup pins O.dP to exactly that row.
+///
+/// - P unfiltered: (F.a, [F.k, O.dP]) is contained in (P.a, [P.k, P.d]), and
+///   O.a = F.a.
+/// - P filtered: P shares P0's rows and differs only in its activator, so the
+///   lookup goes into P0 and carries P.a in the committed output activator:
+///   (F.a, [F.k, O.a, O.dP]) is contained in (P0.a, [P.k, P.a, P.d]), and a
+///   zerocheck of (1 - F.a) * O.a sets O.a = 0 off the active FK rows. P0.a,
+///   not P.a, keeps the lookup complete for keys P filtered out.
 impl<B: SnarkBackend> GadgetNode<B> {
+    fn pk_filtered(&self) -> bool {
+        super::modes::pk_side_is_filtered(&self.join, self.join_mode())
+    }
+
+    /// Plans the flag column `f` of a filtered PK side: the PK side's
+    /// activator on the row each FK row's key names.
+    fn plan_pk_flag_prover(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) {
+        if !self.pk_filtered() {
+            return;
+        }
+        let Some(PayloadStructure::GadgetPayload(mut payload)) =
+            planned_ir.payload_for_node(&id).cloned()
+        else {
+            return;
+        };
+        let (Some(left), Some(right)) = (payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL)) else {
+            return;
+        };
+        let joined = super::hints::build_partial_output_dataframe(
+            left.data_frame().clone(),
+            right.data_frame().clone(),
+            &self.join,
+            self.join_mode(),
+            true,
+        );
+        let flag = joined
+            .select(vec![
+                datafusion_expr::col(PK_FLAG_COL_NAME),
+                datafusion_expr::col(arithmetic::ACTIVATOR_COL_NAME),
+                datafusion_expr::col(arithmetic::ROW_ID_COL_NAME),
+            ])
+            .expect("PK flag projection should succeed");
+        payload.insert(
+            PK_FLAG_LABEL.to_string(),
+            build_prover_source_hint(flag, PK_FLAG_COL_NAME),
+        );
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
+    }
+
+    fn plan_pk_flag_verifier(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) {
+        if !self.pk_filtered() {
+            return;
+        }
+        let Some(PayloadStructure::GadgetPayload(mut payload)) =
+            planned_ir.payload_for_node(&id).cloned()
+        else {
+            return;
+        };
+        let schema = crate::irs::nodes::hints::schema_only_df(vec![
+            Field::new(PK_FLAG_COL_NAME, DataType::Boolean, false),
+            arithmetic::ACTIVATOR_FIELD.as_ref().clone(),
+            arithmetic::ROW_ID_FIELD.as_ref().clone(),
+        ]);
+        payload.insert(
+            PK_FLAG_LABEL.to_string(),
+            build_prover_source_hint(schema, PK_FLAG_COL_NAME),
+        );
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
+    }
+
     /// The join output and its (FK-side, PK-side) inputs from this join's
     /// gadget payload.
     fn pk_fk_tables<'a, T>(
@@ -1541,12 +1616,16 @@ impl<B: SnarkBackend> GadgetNode<B> {
             .collect()
     }
 
+    /// The lookup's included and super tables, and for a filtered PK side the
+    /// polynomial that must vanish for the flag to be 0 off the active FK rows.
     fn pk_fk_lookup_tables_prover(
         &self,
-        output: &TrackedTable<B>,
-        fk_side: &TrackedTable<B>,
-        pk_side: &TrackedTable<B>,
-    ) -> (TrackedTable<B>, TrackedTable<B>) {
+        payload: Option<&PayloadStructure<TrackedTable<B>>>,
+    ) -> (TrackedTable<B>, TrackedTable<B>, Option<TrackedPoly<B>>) {
+        let (output, fk_side, pk_side) = self.pk_fk_tables(payload);
+        let output = output.expect("PK-FK join payload missing output table");
+        let fk_side = fk_side.expect("PK-FK join payload missing FK-side input table");
+        let pk_side = pk_side.expect("PK-FK join payload missing PK-side input table");
         let output_polys = row_domain_polys(output.tracked_polys(), output.log_size());
         let fk_polys = row_domain_polys(fk_side.tracked_polys(), fk_side.log_size());
         let pk_polys = row_domain_polys(pk_side.tracked_polys(), pk_side.log_size());
@@ -1555,6 +1634,28 @@ impl<B: SnarkBackend> GadgetNode<B> {
         for (fk_name, pk_name) in self.pk_fk_key_names() {
             included.push(named(&fk_polys, &fk_name, "FK-side input"));
             super_cols.push(named(&pk_polys, &pk_name, "PK-side input"));
+        }
+        let mut super_activator = pk_side.activator_tracked_poly();
+        let mut flag_off_inactive = None;
+        if self.pk_filtered() {
+            let (flag, base) = self.pk_filter_tables(payload);
+            let flag = flag.expect("PK-FK join payload missing the PK flag");
+            let base = base.expect("PK-FK join payload missing the PK base table");
+            let flag = named(
+                &row_domain_polys(flag.tracked_polys(), flag.log_size()),
+                PK_FLAG_COL_NAME,
+                "PK flag",
+            );
+            flag_off_inactive = fk_side
+                .activator_tracked_poly()
+                .map(|fk_activator| &flag - &(&fk_activator * &flag));
+            included.push(flag);
+            super_cols.push(
+                pk_side
+                    .activator_tracked_poly()
+                    .expect("a filtered PK side has an activator"),
+            );
+            super_activator = base.activator_tracked_poly();
         }
         for name in data_names(&pk_polys) {
             included.push(named(&output_polys, &name, "join output"));
@@ -1566,20 +1667,36 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 fk_side.activator_tracked_poly(),
                 fk_side.log_size(),
             ),
-            lookup_table(
-                super_cols,
-                pk_side.activator_tracked_poly(),
-                pk_side.log_size(),
-            ),
+            lookup_table(super_cols, super_activator, pk_side.log_size()),
+            flag_off_inactive,
         )
     }
 
+    /// The PK flag table and the PK side's base table, for a filtered PK side.
+    fn pk_filter_tables<'a, T>(
+        &self,
+        payload: Option<&'a PayloadStructure<T>>,
+    ) -> (Option<&'a T>, Option<&'a T>) {
+        let Some(PayloadStructure::GadgetPayload(map)) = payload else {
+            return (None, None);
+        };
+        (map.get(PK_FLAG_LABEL), map.get(PK_BASE_LABEL))
+    }
+
+    #[allow(clippy::type_complexity)]
     fn pk_fk_lookup_tables_verifier(
         &self,
-        output: &TrackedTableOracle<B>,
-        fk_side: &TrackedTableOracle<B>,
-        pk_side: &TrackedTableOracle<B>,
-    ) -> ark_piop::errors::SnarkResult<(TrackedTableOracle<B>, TrackedTableOracle<B>)> {
+        payload: Option<&PayloadStructure<TrackedTableOracle<B>>>,
+    ) -> ark_piop::errors::SnarkResult<(
+        TrackedTableOracle<B>,
+        TrackedTableOracle<B>,
+        Option<TrackedOracle<B>>,
+    )> {
+        let (Some(output), Some(fk_side), Some(pk_side)) = self.pk_fk_tables(payload) else {
+            return Err(pk_fk_check_failed(
+                "the join payload is incomplete".to_string(),
+            ));
+        };
         // O.dP is indexed by FK-side row, so it must live on the FK domain.
         if output.log_size() != fk_side.log_size() {
             return Err(pk_fk_check_failed(format!(
@@ -1604,6 +1721,36 @@ impl<B: SnarkBackend> GadgetNode<B> {
             included.push(find(&fk_oracles, &fk_name, "FK-side input")?);
             super_cols.push(find(&pk_oracles, &pk_name, "PK-side input")?);
         }
+        let mut super_activator = pk_side.activator_tracked_poly();
+        let mut flag_off_inactive = None;
+        if self.pk_filtered() {
+            let (Some(flag), Some(base)) = self.pk_filter_tables(payload) else {
+                return Err(pk_fk_check_failed(
+                    "the PK flag or the PK base table is missing".to_string(),
+                ));
+            };
+            // f is indexed by FK row and P.a by base-table row.
+            if flag.log_size() != fk_side.log_size() || base.log_size() != pk_side.log_size() {
+                return Err(pk_fk_check_failed(format!(
+                    "the PK flag has {} variables for an FK side of {}, the base table {} \
+                     for a PK side of {}",
+                    flag.log_size(),
+                    fk_side.log_size(),
+                    base.log_size(),
+                    pk_side.log_size()
+                )));
+            }
+            let flag_oracles = row_domain_oracles(flag.tracked_oracles(), flag.log_size());
+            let flag = find(&flag_oracles, PK_FLAG_COL_NAME, "PK flag")?;
+            flag_off_inactive = fk_side
+                .activator_tracked_poly()
+                .map(|fk_activator| &flag - &(&fk_activator * &flag));
+            included.push(flag);
+            super_cols.push(pk_side.activator_tracked_poly().ok_or_else(|| {
+                pk_fk_check_failed("the filtered PK side has no activator".to_string())
+            })?);
+            super_activator = base.activator_tracked_poly();
+        }
         for name in data_names(&pk_oracles) {
             included.push(find(&output_oracles, &name, "join output")?);
             super_cols.push(find(&pk_oracles, &name, "PK-side input")?);
@@ -1614,11 +1761,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 fk_side.activator_tracked_poly(),
                 fk_side.log_size(),
             ),
-            lookup_table_oracle(
-                super_cols,
-                pk_side.activator_tracked_poly(),
-                pk_side.log_size(),
-            ),
+            lookup_table_oracle(super_cols, super_activator, pk_side.log_size()),
+            flag_off_inactive,
         ))
     }
 }
