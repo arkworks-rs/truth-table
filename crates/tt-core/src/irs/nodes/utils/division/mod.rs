@@ -36,16 +36,18 @@ use ark_piop::{
 use datafusion::arrow::datatypes::DataType;
 
 use super::bounds::{self, Bound, pow10_bits};
-use super::sign::range;
+use super::sign::range::{self, LIMB_BITS};
 
 /// What the quotient divides by.
 pub enum Divisor<'a, P> {
-    /// `positive` drops `σ_D`; pass it only when the denominator is positive
-    /// by construction (a COUNT), since `D - 1 ∈ [0, 2^wD)` is still checked
-    /// and fails otherwise.
+    /// `count_rows` is `Some(log_rows)` for a COUNT over a domain of
+    /// `2^log_rows` rows. Such a denominator is positive by construction, so
+    /// `σ_D` is dropped, and at most `2^log_rows`, so `wD` comes from the
+    /// narrower of that and its type. `D - 1 ∈ [0, 2^wD)` is still checked, so a count
+    /// that is not positive or not within it fails, whatever the claim.
     Column {
         operand: Operand<'a, P>,
-        positive: bool,
+        count_rows: Option<usize>,
     },
     /// The constant 1 of scale 0, which the rescaling makes `10^k`.
     Power10(Rounding),
@@ -58,15 +60,26 @@ pub enum Rounding {
 }
 
 impl<P> Divisor<'_, P> {
-    fn data_type(&self) -> Option<&DataType> {
-        match self {
-            Divisor::Column { operand, .. } => Some(operand.data_type),
-            Divisor::Power10(_) => None,
+    /// The denominator's bound and scale: its type's, narrowed for a COUNT
+    /// to the rows it counts. `None` for a power of ten.
+    fn bound_and_scale(&self) -> SnarkResult<Option<(Bound, i32)>> {
+        let Divisor::Column {
+            operand,
+            count_rows,
+        } = self
+        else {
+            return Ok(None);
+        };
+        let mut bound = Bound::of_type(operand.data_type)?;
+        if let Some(log_rows) = count_rows {
+            bound = bound.min(Bound::rows(*log_rows));
         }
+        Ok(Some((bound, bounds::scale(operand.data_type)?)))
     }
 }
 
-/// Range-check widths and rescaling exponents, fixed by the operand types.
+/// Range-check widths and rescaling exponents, fixed by the operand types
+/// and, for a COUNT, by the rows it counts.
 struct Widths {
     num_shift: u32,
     den_shift: u32,
@@ -80,28 +93,41 @@ impl Widths {
     /// `wQ + wD < C`, so `|X| + |Q|·|D| + |D| < 2^(C+1) < p/4`. Capping a
     /// width only costs completeness for values the type allows but the
     /// field cannot hold.
-    fn new<F: PrimeField>(
+    ///
+    /// Each width is rounded up to whole 16-bit limbs (`wQ + 1` for the
+    /// quotient's check) before the caps. A narrower top limb needs a lookup
+    /// table of its own, while the limbs a value leaves at zero cost no
+    /// commitment; a wider range only admits more values, within the caps.
+    fn new<F: PrimeField, P>(
         num: &DataType,
-        den: Option<&DataType>,
+        den: &Divisor<'_, P>,
         quot: &DataType,
     ) -> SnarkResult<Self> {
         let bits_and_scale = |data_type: &DataType| -> SnarkResult<(usize, i32)> {
             Ok((Bound::of_type(data_type)?.bits(), bounds::scale(data_type)?))
         };
         let (num_bits, num_scale) = bits_and_scale(num)?;
-        let (den_bits, den_scale) = den.map_or(Ok((1, 0)), bits_and_scale)?;
+        let (den_bits, den_scale) = den
+            .bound_and_scale()?
+            .map_or((1, 0), |(bound, scale)| (bound.bits(), scale));
         let (quot_bits, quot_scale) = bits_and_scale(quot)?;
         let shift = quot_scale + den_scale - num_scale;
         let num_shift = shift.max(0) as u32;
         let den_shift = (-shift).max(0) as u32;
         let cap = bounds::safe_bits::<F>();
-        let den = (den_bits + pow10_bits(den_shift)).min(cap / 2);
+        // At least one limb: a count of one row has a 0-bit bound.
+        let den = (den_bits + pow10_bits(den_shift))
+            .max(1)
+            .next_multiple_of(LIMB_BITS)
+            .min(cap / 2);
         Ok(Self {
             num_shift,
             den_shift,
-            num: (num_bits + pow10_bits(num_shift)).min(cap),
+            num: (num_bits + pow10_bits(num_shift))
+                .next_multiple_of(LIMB_BITS)
+                .min(cap),
             den,
-            quot: quot_bits.min(cap - 1 - den),
+            quot: ((quot_bits + 1).next_multiple_of(LIMB_BITS) - 1).min(cap - 1 - den),
         })
     }
 }
@@ -173,15 +199,18 @@ pub fn prove<B: SnarkBackend>(
     den: Divisor<'_, TrackedPoly<B>>,
     quot: Operand<'_, TrackedPoly<B>>,
 ) -> SnarkResult<()> {
-    let widths = Widths::new::<B::F>(num.data_type, den.data_type(), quot.data_type)?;
+    let widths = Widths::new::<B::F, _>(num.data_type, &den, quot.data_type)?;
     let x = num.data.mul_scalar_poly(pow10(widths.num_shift));
     let x_sign = commit_sign(prover, &x, activator)?;
     let q = quot.data;
     let mut ranged = vec![(&x_sign * &x, widths.num)];
     let (rem, bound) = match den {
-        Divisor::Column { operand, positive } => {
+        Divisor::Column {
+            operand,
+            count_rows,
+        } => {
             let d = operand.data.mul_scalar_poly(pow10(widths.den_shift));
-            let abs_d = if positive {
+            let abs_d = if count_rows.is_some() {
                 d.clone()
             } else {
                 &commit_sign(prover, &d, activator)? * &d
@@ -227,15 +256,18 @@ pub fn verify<B: SnarkBackend>(
     den: Divisor<'_, TrackedOracle<B>>,
     quot: Operand<'_, TrackedOracle<B>>,
 ) -> SnarkResult<()> {
-    let widths = Widths::new::<B::F>(num.data_type, den.data_type(), quot.data_type)?;
+    let widths = Widths::new::<B::F, _>(num.data_type, &den, quot.data_type)?;
     let x = num.data.mul_scalar_oracle(pow10(widths.num_shift));
     let x_sign = track_sign(verifier)?;
     let q = quot.data;
     let mut ranged = vec![(&x_sign * &x, widths.num)];
     let (rem, bound) = match den {
-        Divisor::Column { operand, positive } => {
+        Divisor::Column {
+            operand,
+            count_rows,
+        } => {
             let d = operand.data.mul_scalar_oracle(pow10(widths.den_shift));
-            let abs_d = if positive {
+            let abs_d = if count_rows.is_some() {
                 d.clone()
             } else {
                 &track_sign(verifier)? * &d
@@ -281,7 +313,7 @@ pub fn honest_check<B: SnarkBackend>(
     den: Divisor<'_, TrackedPoly<B>>,
     quot: Operand<'_, TrackedPoly<B>>,
 ) -> SnarkResult<()> {
-    let widths = Widths::new::<B::F>(num.data_type, den.data_type(), quot.data_type)?;
+    let widths = Widths::new::<B::F, _>(num.data_type, &den, quot.data_type)?;
     let xs = num.data.evaluations();
     let qs = quot.data.evaluations();
     let active = activator.map(|a| a.evaluations());
@@ -316,7 +348,7 @@ pub fn honest_check<B: SnarkBackend>(
     let den_positive = !matches!(
         den,
         Divisor::Column {
-            positive: false,
+            count_rows: None,
             ..
         }
     );

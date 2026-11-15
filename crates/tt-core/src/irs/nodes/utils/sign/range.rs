@@ -23,7 +23,7 @@ use ark_piop::{
 use super::SignNode;
 use crate::irs::nodes::utils::bounds::safe_bits;
 
-const LIMB_BITS: usize = 16;
+pub(crate) const LIMB_BITS: usize = 16;
 
 /// Refuses a width past `bounds::safe_bits`.
 pub(crate) fn ensure_width<F: PrimeField>(width: usize) -> SnarkResult<()> {

@@ -1,7 +1,7 @@
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::plan::exprs::aggregate_function::gadget::OUTPUT_LABEL;
+use crate::irs::nodes::plan::exprs::aggregate_function::gadget::{OUTPUT_LABEL, input_label};
 use crate::irs::nodes::utils::division::{self, Divisor, Operand};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
@@ -39,6 +39,8 @@ macro_rules! avg_operands {
             column(SUM_LABEL),
             column(COUNT_LABEL),
             column(OUTPUT_LABEL),
+            // COUNT counts the active rows of the argument's domain.
+            table(&input_label(0)).log_size(),
         )
     }};
 }
@@ -122,7 +124,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             panic!("Expected gadget payload for Avg Aggregate Function gadget");
         };
-        let (activator, (sum, sum_field), (count, count_field), (avg, avg_field)) = avg_operands!(
+        let (activator, (sum, sum_field), (count, count_field), (avg, avg_field), log_rows) = avg_operands!(
             payload,
             data_tracked_polys_indices,
             tracked_col_by_ind,
@@ -140,7 +142,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     data: &count,
                     data_type: count_field.data_type(),
                 },
-                positive: true,
+                count_rows: Some(log_rows),
             },
             Operand {
                 data: &avg,
@@ -159,7 +161,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let (activator, (sum, sum_field), (count, count_field), (avg, avg_field)) = avg_operands!(
+        let (activator, (sum, sum_field), (count, count_field), (avg, avg_field), log_rows) = avg_operands!(
             payload,
             data_tracked_polys_indices,
             tracked_col_by_ind,
@@ -176,7 +178,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     data: &count,
                     data_type: count_field.data_type(),
                 },
-                positive: true,
+                count_rows: Some(log_rows),
             },
             Operand {
                 data: &avg,
@@ -195,7 +197,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             panic!("Expected gadget payload for Avg Aggregate Function gadget");
         };
-        let (activator, (sum, sum_field), (count, count_field), (avg, avg_field)) = avg_operands!(
+        let (activator, (sum, sum_field), (count, count_field), (avg, avg_field), log_rows) = avg_operands!(
             payload,
             data_tracked_oracles_indices,
             tracked_col_oracle_by_ind,
@@ -213,7 +215,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     data: &count,
                     data_type: count_field.data_type(),
                 },
-                positive: true,
+                count_rows: Some(log_rows),
             },
             Operand {
                 data: &avg,

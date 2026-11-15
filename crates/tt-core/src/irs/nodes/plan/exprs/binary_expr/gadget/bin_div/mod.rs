@@ -154,7 +154,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinDivNode<B> {
                     data: &den,
                     data_type: den_field.data_type(),
                 },
-                positive: false,
+                count_rows: None,
             },
             Operand {
                 data: &quot,
@@ -190,7 +190,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinDivNode<B> {
                     data: &den,
                     data_type: den_field.data_type(),
                 },
-                positive: false,
+                count_rows: None,
             },
             Operand {
                 data: &quot,
@@ -227,7 +227,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinDivNode<B> {
                     data: &den,
                     data_type: den_field.data_type(),
                 },
-                positive: false,
+                count_rows: None,
             },
             Operand {
                 data: &quot,

@@ -115,6 +115,19 @@ impl Bound {
         Ok(Self { max: pow2(bits) })
     }
 
+    /// A count of the active rows of a domain of `2^log_rows` rows.
+    pub(crate) fn rows(log_rows: usize) -> Self {
+        Self {
+            max: pow2(log_rows),
+        }
+    }
+
+    pub(crate) fn min(self, other: Self) -> Self {
+        Self {
+            max: self.max.min(other.max),
+        }
+    }
+
     /// A constant operand's bound, from its value. The Cast node proves a
     /// cast, so a cast literal's field value is its cast value's encoding.
     pub(crate) fn of_literal(expr: &Expr) -> Option<Self> {
