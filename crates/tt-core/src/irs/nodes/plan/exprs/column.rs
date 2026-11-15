@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use arithmetic::{ACTIVATOR_COL_NAME, encoding::is_segment_of};
 use ark_piop::SnarkBackend;
-use datafusion_common::{Column, DFSchema, Statistics};
+use datafusion_common::{Column, DFSchema};
 
 // Store column qualifiers in metadata to disambiguate same-name columns.
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
@@ -34,14 +34,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
             self.scope()[0].name(),
             self.column
         )
-    }
-
-    fn cost(
-        &self,
-        _statistics: Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {

@@ -51,14 +51,6 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
         format!("Projection\nInput: {}, exprs: {}", self.input.name(), exprs)
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion_common::Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
-    }
-
     fn children(&self) -> Vec<Arc<Node<B>>> {
         let mut out = Vec::with_capacity(1 + self.exprs.len());
         out.push(self.input.clone());

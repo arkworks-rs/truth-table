@@ -18,7 +18,6 @@ use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_ff::Field as _;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use datafusion_common::Statistics;
 use datafusion_expr::{Cast, ExprSchemable};
 use indexmap::IndexMap;
 
@@ -121,14 +120,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
             self.expr.name(),
             self.cast.data_type
         )
-    }
-
-    fn cost(
-        &self,
-        _statistics: Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {

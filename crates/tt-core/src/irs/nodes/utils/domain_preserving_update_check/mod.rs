@@ -144,14 +144,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         crate::irs::nodes::display_with_inputs(&self.name(), &self.children())
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion_common::Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
-    }
-
     fn children(&self) -> Vec<Arc<Node<B>>> {
         vec![
             self.dpuc.clone(),

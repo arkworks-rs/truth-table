@@ -55,7 +55,7 @@ use datafusion::arrow::{
     record_batch::RecordBatch,
 };
 use datafusion::datasource::MemTable;
-use datafusion_common::{Result as DataFusionResult, ScalarValue, Statistics};
+use datafusion_common::{Result as DataFusionResult, ScalarValue};
 use datafusion_expr::{Expr, Like};
 use indexmap::IndexMap;
 use rayon::prelude::*;
@@ -162,14 +162,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
             self.short_pattern_label(),
             self.factors.len(),
         )
-    }
-
-    fn cost(
-        &self,
-        _statistics: Statistics,
-        _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
     }
 
     // `like.pattern` is not a child: `from_expr` requires a Utf8 literal and
