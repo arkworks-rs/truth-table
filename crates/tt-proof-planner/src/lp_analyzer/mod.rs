@@ -4,6 +4,7 @@ mod align_binary_operands;
 mod case_as_arithmetic;
 mod common;
 mod hide_system_columns;
+mod narrow_between;
 
 use std::sync::Arc;
 
@@ -12,6 +13,7 @@ use align_agg_input_to_output::AlignAggInputToOutput;
 use align_binary_operands::AlignBinaryOperands;
 use case_as_arithmetic::CaseAsArithmetic;
 use hide_system_columns::HideSystemColumns;
+use narrow_between::NarrowBetween;
 
 use datafusion::{
     config::ConfigOptions,
@@ -34,6 +36,7 @@ pub fn rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
         Arc::new(HideSystemColumns::new()),
         Arc::new(ResolveGroupingFunction::new()),
         Arc::new(TypeCoercion::new()),
+        Arc::new(NarrowBetween::new()),
         Arc::new(AlignBinaryOperands::new()),
         Arc::new(CaseAsArithmetic::new()),
         Arc::new(AddAvgSupport::new()),
