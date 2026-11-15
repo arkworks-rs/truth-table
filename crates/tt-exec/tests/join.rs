@@ -58,6 +58,18 @@ ON
 "#,
 ]);
 
+// PK-FK joins whose primary-key side is filtered: the foreign keys are looked
+// up in the base table and the PK side's filter narrows the output activator.
+end_to_end_tests!(&["supplier", "nation"] => [
+    filtered_pk_side_right => r#"SELECT s.s_suppkey, n.n_name FROM supplier s JOIN nation n ON s.s_nationkey = n.n_nationkey WHERE n.n_regionkey = 1"#,
+    filtered_pk_side_left => r#"SELECT s.s_suppkey, n.n_name FROM nation n JOIN supplier s ON n.n_nationkey = s.s_nationkey WHERE n.n_nationkey < 7"#,
+    filtered_pk_and_fk_sides => r#"SELECT s.s_suppkey, n.n_name FROM supplier s JOIN nation n ON s.s_nationkey = n.n_nationkey WHERE n.n_regionkey < 3 AND s.s_acctbal > 0"#,
+]);
+
+end_to_end_tests!(&["orders", "lineitem"] => [
+    filtered_pk_side_shrinks => r#"SELECT l_orderkey, l_linenumber, o_orderdate FROM lineitem JOIN orders ON l_orderkey = o_orderkey WHERE o_orderdate < DATE '1992-03-01'"#,
+]);
+
 // Many-to-many joins: no side is joined on its primary key.
 end_to_end_tests!(&["nation"] => [
     many_to_many_int_key => r#"SELECT n1.n_name, n2.n_name FROM nation n1 JOIN nation n2 ON n1.n_regionkey = n2.n_regionkey"#,

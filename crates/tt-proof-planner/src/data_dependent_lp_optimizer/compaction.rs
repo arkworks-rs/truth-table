@@ -2,6 +2,9 @@ use datafusion::execution::context::SessionState;
 use datafusion_common::{DataFusionError, Result as DataFusionResult, tree_node::TreeNode};
 use datafusion_expr::{BinaryExpr, Expr, LogicalPlan, Operator};
 use std::collections::BTreeSet;
+use tt_core::irs::nodes::plan::lps::join::modes::{
+    decide_join_mode, pk_side_index, pk_side_is_filtered,
+};
 use tt_core::irs::{
     nodes::plan::{
         compaction::{CompactionLogicalNode, wrap_logical_plan},
@@ -15,9 +18,9 @@ use super::{
     DataDependentOptimizationRule, OptimizationHint, proved_empty::is_proved_empty, row_count,
 };
 
-/// Wraps a Filter or Aggregate in a `CompactionLogicalNode` when its output
-/// fits a hypercube at least `MIN_SHRINK` times smaller than its input's
-/// (a filter on string characters: any strictly smaller one), unless the
+/// Wraps a Filter, Aggregate or PK-FK join in a `CompactionLogicalNode` when
+/// its output fits a hypercube at least `MIN_SHRINK` times smaller than its
+/// input's (a filter on string characters: any strictly smaller one), unless the
 /// node is in the result tail (only Projections and SubqueryAliases between
 /// it and the `ResultCheck`). Those operators do no per-row proof work and
 /// the result check's multiset argument takes the node's own domain, so
@@ -85,7 +88,18 @@ fn collect_compaction_hints(
 
     let child_in_result_tail = child_in_result_tail(plan, in_result_tail);
 
+    // A filtered primary-key side of a PK-FK join is proved by a lookup into
+    // its base table, which needs the base table's row layout; compacting it
+    // would force the join onto the generic protocol, which costs more.
+    let pk_side = match plan {
+        LogicalPlan::Join(join) => pk_side_index(decide_join_mode(join)),
+        _ => None,
+    };
+
     for (idx, input) in plan.inputs().into_iter().enumerate() {
+        if pk_side == Some(idx) {
+            continue;
+        }
         path.push(idx);
         collect_compaction_hints(session_state, input, child_in_result_tail, path, hints)?;
         path.pop();
@@ -180,7 +194,10 @@ fn ensure_compaction_target(plan: &LogicalPlan, path: &[usize]) -> DataFusionRes
     // TODO: Limit is excluded because wrapping it in Compaction triggers
     // `HonestProverError(FalseClaim)` on queries with an explicit LIMIT
     // (TPC-H Q3, Q10). Needs an IR-side investigation.
-    if matches!(plan, LogicalPlan::Filter(_) | LogicalPlan::Aggregate(_)) {
+    if matches!(
+        plan,
+        LogicalPlan::Filter(_) | LogicalPlan::Aggregate(_) | LogicalPlan::Join(_)
+    ) {
         return Ok(());
     }
     Err(DataFusionError::Plan(format!(
@@ -242,6 +259,18 @@ fn should_compact(session_state: &SessionState, plan: &LogicalPlan) -> DataFusio
             })?,
         ),
         LogicalPlan::Aggregate(aggregate) => (aggregate.input.as_ref(), false),
+        // A PK-FK join's output keeps its foreign-key side's rows, and only a
+        // filtered primary-key side can deactivate some of them.
+        LogicalPlan::Join(join) => {
+            let mode = decide_join_mode(join);
+            if !pk_side_is_filtered(join, mode) {
+                return Ok(false);
+            }
+            match pk_side_index(mode) {
+                Some(0) => (join.right.as_ref(), false),
+                _ => (join.left.as_ref(), false),
+            }
+        }
         _ => return Ok(false),
     };
     let input_rows = row_count(session_state, input)?;
@@ -368,5 +397,70 @@ mod tests {
     #[tokio::test]
     async fn a_like_filter_is_compacted_on_any_halving() {
         assert_eq!(hint_count("SELECT k FROM t WHERE s LIKE '%x%'", 9).await, 1);
+    }
+
+    /// Compaction hints for `sql` over `p(k, v)`, keyed by `k`, and `f(fk)`,
+    /// a foreign key into `p.k`; 64 rows each, `f.fk` = row % 8.
+    async fn pk_fk_hint_count(sql: &str) -> usize {
+        let ctx = tt_core::session::session_context();
+        let meta = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<std::collections::HashMap<_, _>>()
+        };
+        let p_schema = Arc::new(Schema::new(vec![
+            Field::new("k", DataType::Int64, false).with_metadata(meta(&[("tt.pk", "true")])),
+            Field::new("v", DataType::Int64, false),
+        ]));
+        let f_schema = Arc::new(Schema::new(vec![
+            Field::new("fk", DataType::Int64, false).with_metadata(meta(&[
+                ("tt.fk.ref_table", "p"),
+                ("tt.fk.ref_columns", r#"["k"]"#),
+            ])),
+        ]));
+        let p_batch = RecordBatch::try_new(
+            p_schema.clone(),
+            vec![
+                Arc::new(Int64Array::from_iter_values(0..64)),
+                Arc::new(Int64Array::from_iter_values(0..64)),
+            ],
+        )
+        .unwrap();
+        let f_batch = RecordBatch::try_new(
+            f_schema.clone(),
+            vec![Arc::new(Int64Array::from_iter_values(
+                (0..64).map(|row| row % 8),
+            ))],
+        )
+        .unwrap();
+        for (name, schema, batch) in [("p", p_schema, p_batch), ("f", f_schema, f_batch)] {
+            ctx.register_table(
+                name,
+                Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap()),
+            )
+            .unwrap();
+        }
+        let plan = ctx.sql(sql).await.unwrap().into_optimized_plan().unwrap();
+        CompactionRule::new()
+            .collect_hints(&ctx.state(), &plan)
+            .unwrap()
+            .len()
+    }
+
+    #[tokio::test]
+    async fn a_filtered_pk_side_of_a_pk_fk_join_is_not_compacted() {
+        let sql = "SELECT f.fk, p.v FROM f JOIN p ON f.fk = p.k WHERE p.v < 4";
+        assert_eq!(pk_fk_hint_count(sql).await, 0);
+        // Joined on a non-key column, the same filter is compacted.
+        let sql = "SELECT f.fk, p.k FROM f JOIN p ON f.fk = p.v WHERE p.k < 4";
+        assert_eq!(pk_fk_hint_count(sql).await, 1);
+    }
+
+    #[tokio::test]
+    async fn a_pk_fk_join_output_is_compacted_when_its_pk_filter_shrinks_it() {
+        // Key 0 keeps 8 of the 64 foreign-key rows.
+        let sql = "SELECT f.fk, p.v FROM f JOIN p ON f.fk = p.k WHERE p.v < 1";
+        assert_eq!(pk_fk_hint_count(sql).await, 1);
     }
 }

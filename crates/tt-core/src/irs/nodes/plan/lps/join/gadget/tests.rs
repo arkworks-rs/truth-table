@@ -13,7 +13,10 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion_expr::{JoinType, LogicalPlan, logical_plan::table_scan};
 
-use super::{GadgetNode, JoinMode, LEFT_LABEL, OUTPUT_LABEL, RIGHT_LABEL};
+use super::{
+    GadgetNode, JoinMode, LEFT_LABEL, OUTPUT_LABEL, PK_BASE_LABEL, PK_FLAG_COL_NAME, PK_FLAG_LABEL,
+    RIGHT_LABEL,
+};
 use crate::irs::nodes::Node;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
 
@@ -204,6 +207,104 @@ fn an_inactive_pk_row_is_rejected() {
         ACTIVE,
     );
     assert!(run_with(true, fk, pk(), output).is_err());
+}
+
+/// `f JOIN (SELECT * FROM p WHERE p_val > 15) ON f.f_key = p.p_key`.
+fn filtered_join_gadget() -> GadgetNode<B> {
+    use datafusion_expr::{col, lit};
+    let f = table_scan(Some("f"), &schema(&["f_key", "f_val"]), None).unwrap();
+    let p = table_scan(Some("p"), &schema(&["p_key", "p_val"]), None)
+        .unwrap()
+        .filter(col("p_val").gt(lit(15_u64)))
+        .unwrap();
+    let plan = f
+        .join(
+            p.build().unwrap(),
+            JoinType::Inner,
+            (vec!["f_key"], vec!["p_key"]),
+            None,
+        )
+        .unwrap();
+    let LogicalPlan::Join(join) = plan.build().unwrap() else {
+        unreachable!("the builder produced a join");
+    };
+    assert!(super::super::modes::pk_side_is_filtered(
+        &join,
+        JoinMode::MANY_TO_ONE
+    ));
+    GadgetNode::new(join, JoinMode::MANY_TO_ONE)
+}
+
+/// [`pk`] after its filter: key 1 is filtered out, keys 2 and 3 stay.
+const PK_FILTERED: &[bool] = &[false, true, true, false];
+
+fn run_filtered(
+    fk: Table,
+    flag: &[u64],
+    output: Table,
+) -> Result<(), ark_piop::errors::SnarkError> {
+    let gadget: Arc<Node<B>> = Arc::new(Node::Gadget(Arc::new(filtered_join_gadget())));
+    let id = gadget.id();
+    let base = pk();
+    let filtered = Table {
+        cols: base.cols.clone(),
+        active: PK_FILTERED.to_vec(),
+    };
+    let flag = Table::new(&[(PK_FLAG_COL_NAME, flag)], &[true; 4]);
+    let harness = GadgetHarness::<B>::builder(8)
+        .with_gadget(gadget)
+        .with_table(id, LEFT_LABEL, spec(&fk))
+        .with_table(id, RIGHT_LABEL, spec(&filtered))
+        .with_table(id, OUTPUT_LABEL, spec(&output))
+        .with_table(id, PK_FLAG_LABEL, spec(&flag))
+        .with_table(id, PK_BASE_LABEL, spec(&base))
+        .build();
+    run_gadget_pipeline(harness)
+}
+
+/// The honest output: every FK row carries its base-table PK row, and the
+/// flag is that row's filtered activator on active FK rows, 0 elsewhere.
+fn honest_filtered_output() -> Table {
+    output(&[1, 2, 1, 0], &[10, 20, 10, 0])
+}
+
+#[test]
+fn a_filtered_pk_side_verifies() {
+    run_filtered(fk(), &[0, 1, 0, 0], honest_filtered_output())
+        .expect("the honest join over a filtered PK side must verify");
+}
+
+#[test]
+fn a_flag_activating_a_filtered_out_key_is_rejected() {
+    // Key 1 is in the base table but not in the filtered PK side.
+    assert!(run_filtered(fk(), &[1, 1, 0, 0], honest_filtered_output()).is_err());
+}
+
+#[test]
+fn a_flag_dropping_a_kept_key_is_rejected() {
+    assert!(run_filtered(fk(), &[0, 0, 0, 0], honest_filtered_output()).is_err());
+}
+
+#[test]
+fn a_flag_on_an_inactive_fk_row_is_rejected() {
+    // The flag is the output activator, so it must be 0 off the active FK rows.
+    assert!(run_filtered(fk(), &[0, 1, 0, 1], honest_filtered_output()).is_err());
+}
+
+#[test]
+fn a_base_table_padding_row_is_rejected() {
+    // Key 7 sits in a slot the base table itself leaves inactive.
+    let fk = Table::new(&[("f_key", &[1, 2, 7, 9]), ("f_val", FK_VALS)], ACTIVE);
+    let output = Table::new(
+        &[
+            ("f_key", &[1, 2, 7, 9]),
+            ("f_val", FK_VALS),
+            ("p_key", &[1, 2, 7, 0]),
+            ("p_val", &[10, 20, 70, 0]),
+        ],
+        ACTIVE,
+    );
+    assert!(run_filtered(fk, &[0, 1, 0, 0], output).is_err());
 }
 
 /// A field of alias `qualifier`, as the join's input tables carry it.
