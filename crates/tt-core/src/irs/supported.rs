@@ -56,6 +56,9 @@ pub fn ensure_supported(plan: &LogicalPlan) -> Result<()> {
                 Expr::InSubquery(_) => Err(DataFusionError::NotImplemented(format!(
                     "{IN_SUBQUERY}: {expr}"
                 ))),
+                Expr::Exists(_) => Err(DataFusionError::NotImplemented(format!(
+                    "{EXISTS_SUBQUERY}: {expr}"
+                ))),
                 Expr::Case(case) if case.else_expr.is_none() => Err(
                     DataFusionError::NotImplemented(CASE_WITHOUT_ELSE.to_string()),
                 ),
@@ -242,6 +245,10 @@ pub(crate) const CASE_RESULT: &str = "CASE is supported with integer and decimal
 // No check binds the membership flag to the subquery's rows: the prover
 // would choose it.
 pub(crate) const IN_SUBQUERY: &str = "IN and NOT IN over a subquery are not supported";
+
+// EXISTS is a semi join and NOT EXISTS an anti join; only inner equijoins are
+// proved (#179).
+pub(crate) const EXISTS_SUBQUERY: &str = "EXISTS and NOT EXISTS are not supported";
 
 pub(crate) const SORT_KEY_NOT_A_COLUMN: &str =
     "an ORDER BY key must be a column of the sorted input";

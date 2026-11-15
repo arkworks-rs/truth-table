@@ -3,7 +3,6 @@ pub mod alias;
 pub mod binary_expr;
 pub mod cast;
 pub mod column;
-pub mod exists;
 pub mod fp_prefilter;
 pub mod in_list;
 pub mod like;
