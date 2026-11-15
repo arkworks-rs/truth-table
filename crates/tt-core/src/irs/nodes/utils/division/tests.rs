@@ -8,7 +8,7 @@ use ark_ff::Field as _;
 use ark_piop::{DefaultSnarkBackend, SnarkBackend, errors::SnarkError};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 
-use super::{Divisor, Operand, Rounding};
+use super::{Divisor, Operand, Rounding, Widths};
 use crate::irs::nodes::utils::contig_sort::tests::assert_rejected;
 use crate::test_utils::gadget_harness::{GadgetHarness, TableSpec, run_gadget_pipeline};
 use crate::test_utils::inline_gadget::InlineGadget;
@@ -28,19 +28,23 @@ struct Case {
     den: Vec<i64>,
     quot: Vec<F>,
     activator: Vec<i64>,
-    den_positive: bool,
+    /// `Some(log_rows)` for a COUNT denominator over `2^log_rows` rows.
+    count_rows: Option<usize>,
     /// Divides by the public `10^k` instead of the `d` column.
     power10: Option<Rounding>,
 }
 
 fn divisor<P>(
     operand: Operand<'_, P>,
-    positive: bool,
+    count_rows: Option<usize>,
     power10: Option<Rounding>,
 ) -> Divisor<'_, P> {
     match power10 {
         Some(rounding) => Divisor::Power10(rounding),
-        None => Divisor::Column { operand, positive },
+        None => Divisor::Column {
+            operand,
+            count_rows,
+        },
     }
 }
 
@@ -52,7 +56,7 @@ impl Case {
             den: den.to_vec(),
             quot: quot.into_iter().map(int).collect(),
             activator: vec![1; 4],
-            den_positive: false,
+            count_rows: None,
             power10: None,
         }
     }
@@ -60,7 +64,7 @@ impl Case {
     /// The verifier's result, and whether `honest_check` accepted the
     /// prover's columns.
     fn run(self) -> (Result<(), SnarkError>, bool) {
-        let (den_positive, power10) = (self.den_positive, self.power10);
+        let (count_rows, power10) = (self.count_rows, self.power10);
         let honest = Arc::new(Mutex::new(false));
         let honest_in_prover = honest.clone();
         let gadget = InlineGadget::<B>::node(
@@ -87,7 +91,7 @@ impl Case {
                 *honest_in_prover.lock().unwrap() = super::honest_check(
                     activator.as_ref(),
                     operand(0),
-                    divisor(operand(1), den_positive, power10),
+                    divisor(operand(1), count_rows, power10),
                     operand(2),
                 )
                 .is_ok();
@@ -95,7 +99,7 @@ impl Case {
                     prover,
                     activator.as_ref(),
                     operand(0),
-                    divisor(operand(1), den_positive, power10),
+                    divisor(operand(1), count_rows, power10),
                     operand(2),
                 )
             }),
@@ -123,7 +127,7 @@ impl Case {
                     verifier,
                     activator.as_ref(),
                     operand(0),
-                    divisor(operand(1), den_positive, power10),
+                    divisor(operand(1), count_rows, power10),
                     operand(2),
                 )
             }),
@@ -225,7 +229,7 @@ fn decimal_scales_aligned() {
         num: case.num.clone(),
         den: case.den.clone(),
         activator: case.activator.clone(),
-        den_positive: false,
+        count_rows: None,
         power10: None,
     };
     case.accepted();
@@ -241,13 +245,50 @@ fn inactive_rows_are_not_checked() {
 }
 
 #[test]
-fn positive_denominator_must_be_positive() {
+fn count_denominator_must_be_positive() {
     let mut case = Case::int64([7, 4, 1, 1], [2, 2, 1, 1], [3, 2, 1, 1]);
-    case.den_positive = true;
+    case.count_rows = Some(2);
     case.accepted();
     let mut case = Case::int64([7, 4, 1, 1], [-2, 2, 1, 1], [-3, 2, 1, 1]);
-    case.den_positive = true;
+    case.count_rows = Some(2);
     case.rejected();
+}
+
+/// A COUNT over `2^2` rows is checked at one limb, not its type's four: a
+/// count of `2^16` passes and one of `2^16 + 1` fails, whatever the quotient.
+#[test]
+fn count_denominator_is_bounded_by_its_rows() {
+    let count = |d: i64| Case::int64([2 * d, 4, 3, 1], [d, 4, 3, 1], [2, 1, 1, 1]);
+    let mut case = count(1 << 16);
+    case.count_rows = Some(2);
+    case.accepted();
+    let mut case = count((1 << 16) + 1);
+    case.count_rows = Some(2);
+    case.rejected();
+    count((1 << 16) + 1).accepted();
+}
+
+/// A COUNT's width comes from the narrower of its rows and its type, in
+/// whole limbs.
+#[test]
+fn count_width_is_the_narrower_bound() {
+    let width = |den_type: DataType, count_rows: Option<usize>| {
+        let column: Divisor<'_, ()> = Divisor::Column {
+            operand: Operand {
+                data: &(),
+                data_type: &den_type,
+            },
+            count_rows,
+        };
+        Widths::new::<F, ()>(&DataType::Int64, &column, &DataType::Int64)
+            .unwrap()
+            .den
+    };
+    assert_eq!(width(DataType::Int64, None), 64);
+    assert_eq!(width(DataType::Int64, Some(19)), 32);
+    assert_eq!(width(DataType::Int64, Some(40)), 48);
+    assert_eq!(width(DataType::Int16, Some(40)), 16);
+    assert_eq!(width(DataType::Int64, Some(0)), 16);
 }
 
 /// A decimal rescale from scale `from` to scale `to`, by the public `10^k`.
