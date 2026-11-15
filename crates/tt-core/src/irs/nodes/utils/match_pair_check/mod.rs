@@ -12,6 +12,7 @@
 use std::sync::{Arc, Mutex};
 
 mod hints;
+pub(crate) use hints::build_union_hint_df;
 
 use ark_ff::{One, Zero};
 use ark_piop::{
@@ -31,7 +32,6 @@ use either::Either;
 use indexmap::IndexMap;
 use tracing::error;
 
-use self::hints::build_union_hint_df;
 use crate::irs::nodes::hints::{HintDF, sort_by_row_id_if_present};
 use crate::irs::nodes::utils::contig_sort::{ACTIVE_ROWS_LABEL, active_rows_field};
 use crate::irs::nodes::utils::{
@@ -72,7 +72,7 @@ struct MatchPairPlanningContext {
 
 /// `û` with every column but the row id and the activator committed: the
 /// activator is the public `C_{µ,t}`.
-fn union_runtime_hint(df: DataFrame) -> HintDF {
+pub(crate) fn union_runtime_hint(df: DataFrame) -> HintDF {
     let should_materialize = df
         .schema()
         .fields()
