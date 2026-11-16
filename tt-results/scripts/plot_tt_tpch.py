@@ -1,6 +1,7 @@
 """Plot prover / verifier / proof-size figures for TruthTable on the
 regular TPC-H queries (System=tt rows of tidy/tpch.csv), next to the no-proof
-baseline on the same `_tt` queries (tidy/tpch_baseline.csv).
+baseline on the same `_tt` queries (tidy/tpch_baseline.csv). The prover
+figure also has plain execution: the query on the full tables, unverified.
 
 Outputs:
   figures/tpch_tt_prover.pdf
@@ -134,10 +135,12 @@ def plot_prover():
 
     base_one = baseline_values("prover time 1thread (s)")
     base_four = baseline_values("prover time 4threads (s)")
+    exec_one = baseline_values("execution time 1thread (s)")
+    exec_four = baseline_values("execution time 4threads (s)")
 
-    bar_width = 0.2
-    group_gap = 0.25
-    group_width = 4 * bar_width + group_gap
+    bar_width = 0.14
+    group_gap = 0.22
+    group_width = 6 * bar_width + group_gap
     x = np.arange(len(QUERY_IDS)) * group_width
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
@@ -172,6 +175,12 @@ def plot_prover():
     ax.bar(x + 3 * bar_width, base_four, width=bar_width,
            label=f"{baseline_style.LABEL}, 4 threads",
            **{**baseline_style.BAR_STYLE, "facecolor": baseline_style.EDGE})
+    ax.bar(x + 4 * bar_width, exec_one, width=bar_width,
+           label=f"{baseline_style.EXEC_LABEL}, 1 thread", **baseline_style.EXEC_BAR_STYLE)
+    ax.bar(x + 5 * bar_width, exec_four, width=bar_width,
+           label=f"{baseline_style.EXEC_LABEL}, 4 threads",
+           **{**baseline_style.EXEC_BAR_STYLE,
+              "facecolor": baseline_style.EXEC_BAR_STYLE["edgecolor"]})
 
     one_arr = np.asarray(one_thread, dtype=float)
     four_arr = np.asarray(four_thread, dtype=float)
@@ -188,15 +197,15 @@ def plot_prover():
     ax.axhline(four_max, linestyle="--", linewidth=1.6, color=colors[four_color_idx],
                label=f"TT 4-thread max = {four_max:.1f} s")
 
-    ax.set_xticks(x + 1.5 * bar_width)
+    ax.set_xticks(x + 2.5 * bar_width)
     ax.set_xticklabels(query_labels)
     ax.set_ylabel("Prover Time (s)")
     _style_axes(ax)
-    _mark_missing(ax, x + 1.5 * bar_width)
-    ax.set_xlim(x[0] - bar_width, x[-1] + 4 * bar_width)
-    _log_axis(ax, one_thread + four_thread + base_one + base_four)
+    _mark_missing(ax, x + 2.5 * bar_width)
+    ax.set_xlim(x[0] - bar_width, x[-1] + 6 * bar_width)
+    _log_axis(ax, one_thread + four_thread + base_one + base_four + exec_one + exec_four)
     ax.legend(
-        ncol=4,
+        ncol=5,
         loc="lower center",
         bbox_to_anchor=(0.5, 1.04),
         handlelength=2.2,

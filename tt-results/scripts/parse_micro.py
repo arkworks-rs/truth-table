@@ -28,6 +28,8 @@ Units:
   proof size (KB)     = proof_bytes / 1024
   commit time (s)       = commit_ms / 1000       (Baseline only)
   commitment size (KB)  = commitment_bytes / 1024 (Baseline only)
+  execution time (s)    = execute_ms / 1000      (Baseline only: the query
+                          on the full tables, unverified)
 
 Usage:
   python3 tt-results/scripts/parse_micro.py
@@ -53,6 +55,7 @@ DEFAULT_HEADER = [
     "proof size (KB)",
     "commit time (s)",
     "commitment size (KB)",
+    "execution time (s)",
 ]
 
 # (bench_name, System label, default_curve, JSON filename)
@@ -114,6 +117,7 @@ def rows_from_json(json_path, system_label, default_curve):
         proof_bytes = entry.get("proof_bytes")
         commit_ms = entry.get("commit_ms") if system_label == "Baseline" else None
         commitment_bytes = entry.get("commitment_bytes")
+        execute_ms = entry.get("execute_ms")
         # Per-row curve takes precedence (TT emits it on each result line).
         row_curve = entry.get("curve", curve)
         rows.append([
@@ -129,6 +133,7 @@ def rows_from_json(json_path, system_label, default_curve):
             fmt(proof_bytes / 1024) if proof_bytes is not None else "",
             fmt(commit_ms / 1000, decimals=7) if commit_ms is not None else "",
             fmt(commitment_bytes / 1024) if commitment_bytes is not None else "",
+            fmt(execute_ms / 1000, decimals=7) if execute_ms is not None else "",
         ])
     return rows
 

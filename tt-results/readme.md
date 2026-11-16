@@ -33,7 +33,8 @@ query itself. Every figure shows it next to TruthTable, on the same queries
 over the tables without padding or system columns: the micro baseline comes
 from `run_micro.sh` (`third_party_baseline_{1,4}.*`), the TPC-H one from
 `run_baseline_tpch.sh`. Panels with prover time or proof size use a log axis,
-because the baseline's are milliseconds and megabytes.
+because the baseline's are milliseconds and megabytes. Prover-time panels also
+show plain execution: the same query on the full tables, unverified.
 
 ## Running everything
 

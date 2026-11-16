@@ -7,6 +7,9 @@ Reads:
   tidy/tpch_baseline.csv    — the baseline on the same `_tt` queries
   tidy/commit_baseline.csv  — the baseline's per-table commit latency
 
+The prover panel also has plain execution: the query on the full tables,
+unverified.
+
 Output:
   figures/tpch_tt_combined.pdf
 
@@ -114,20 +117,27 @@ def _log_axis(ax, values):
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
 
 
-def draw_query_panel(ax, tt, base, color_idx, hatch, ylabel, log):
-    """TruthTable's bar and the baseline's bar for every query."""
+def draw_query_panel(ax, tt, base, color_idx, hatch, ylabel, log, execution=None):
+    """TruthTable's bar and the baseline's bar for every query, and plain
+    execution's when given."""
     x = np.arange(len(QUERY_IDS), dtype=float)
-    ax.bar(x, tt, width=BAR_WIDTH, facecolor=light[color_idx],
+    width = BAR_WIDTH if execution is None else 0.27
+    ax.bar(x, tt, width=width, facecolor=light[color_idx],
            edgecolor=colors[color_idx], hatch=hatch, linewidth=0.8)
-    ax.bar(x + BAR_WIDTH, base, width=BAR_WIDTH, **baseline_style.BAR_STYLE)
-    ax.set_xticks(x + BAR_WIDTH / 2)
+    ax.bar(x + width, base, width=width, **baseline_style.BAR_STYLE)
+    bars = tt + base
+    if execution is not None:
+        ax.bar(x + 2 * width, execution, width=width, **baseline_style.EXEC_BAR_STYLE)
+        bars = bars + execution
+    n = 2 if execution is None else 3
+    ax.set_xticks(x + width * (n - 1) / 2)
     ax.set_xticklabels(query_labels)
     ax.set_ylabel(ylabel)
     _style_q_axes(ax)
     if log:
-        _log_axis(ax, tt + base)
+        _log_axis(ax, bars)
     else:
-        ax.set_ylim(0, float(np.nanmax(np.asarray(tt + base, dtype=float))) * 1.10)
+        ax.set_ylim(0, float(np.nanmax(np.asarray(bars, dtype=float))) * 1.10)
 
 
 def bvalues(col):
@@ -136,7 +146,8 @@ def bvalues(col):
 
 def draw_prover(ax):
     draw_query_panel(ax, tvalues("prover time 1thread (s)"),
-                     bvalues("prover time 1thread (s)"), 0, "/", "Prover Time (s)", True)
+                     bvalues("prover time 1thread (s)"), 0, "/", "Prover Time (s)", True,
+                     execution=bvalues("execution time 1thread (s)"))
 
 
 def draw_proof_size(ax):
@@ -204,8 +215,9 @@ fig.legend(
     handles=[
         Patch(facecolor="white", edgecolor="black", linewidth=0.8, label="TruthTable (colored)"),
         Patch(label=baseline_style.LABEL, **baseline_style.BAR_STYLE),
+        Patch(label=baseline_style.EXEC_LABEL, **baseline_style.EXEC_BAR_STYLE),
     ],
-    ncol=2,
+    ncol=3,
     loc="lower center",
     bbox_to_anchor=(0.5, 1.0),
     handlelength=2.2,

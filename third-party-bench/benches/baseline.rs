@@ -1,11 +1,12 @@
 //! The no-proof baseline (`tt_third_party_bench::baseline`) on the micro
 //! queries, over the raw bench parquets rather than the preprocessed ones.
+//! `execute_ms` is plain execution: the query on the full tables, unverified.
 
 use std::path::{Path, PathBuf};
 
 use datafusion::arrow::array::RecordBatch;
 use tt_third_party_bench::baseline::{
-    Table, check_result, commit, file_len, load_parquet, median_ms, prove, store,
+    Table, check_result, commit, execute, file_len, load_parquet, median_ms, prove, store,
     threads_and_runtime, verify,
 };
 
@@ -117,7 +118,11 @@ fn main() {
                     .block_on(verify(&sql, &commitment_paths, &proof_path, threads))
                     .expect("baseline verify");
             });
-            rt.block_on(check_result(&sql, &table_refs, threads, &result));
+            let mut expected: Vec<RecordBatch> = Vec::new();
+            let execute_ms = median_ms(ITERS, || {
+                expected = rt.block_on(execute(&sql, &table_refs, threads));
+            });
+            check_result(&sql, &expected, &result);
             let result_rows: usize = result.iter().map(RecordBatch::num_rows).sum();
 
             println!("commit_ms: {commit_ms:.4}");
@@ -125,6 +130,7 @@ fn main() {
             println!("prove_ms: {prove_ms:.4}");
             println!("proof_bytes: {}", file_len(&proof_path));
             println!("verify_ms: {verify_ms:.4}");
+            println!("execute_ms: {execute_ms:.4}");
             println!("result_rows: {result_rows}");
             println!("----------------------------------------");
         }

@@ -339,23 +339,27 @@ pub async fn verify(
     df.collect().await.map_err(|e| e.to_string())
 }
 
-/// Panics unless `result` is the result of `sql` on the full tables, up to
-/// row order.
-pub async fn check_result(sql: &str, tables: &[&Table], threads: usize, result: &[RecordBatch]) {
+/// Plain execution, the cost of answering the query with no verifiability:
+/// the query on the full tables, with no commitment, hashing or proof.
+pub async fn execute(sql: &str, tables: &[&Table], threads: usize) -> Vec<RecordBatch> {
     let ctx = session(threads);
     for table in tables {
-        let mem = MemTable::try_new(table.batch.schema(), vec![vec![table.batch.clone()]])
+        let mem = MemTable::try_new(table.batch.schema(), partitions(&table.batch, threads))
             .expect("mem table");
         ctx.register_table(table.name.as_str(), Arc::new(mem))
             .expect("register table");
     }
-    let reference = ctx
-        .sql(sql)
+    ctx.sql(sql)
         .await
         .expect("plan")
         .collect()
         .await
-        .expect("run");
+        .expect("run")
+}
+
+/// Panics unless the verifier's `result` equals the plain execution's
+/// `expected`, up to row order.
+pub fn check_result(sql: &str, expected: &[RecordBatch], result: &[RecordBatch]) {
     let sorted_rows = |batches: &[RecordBatch]| {
         let rendered = pretty_format_batches(batches).expect("format").to_string();
         let mut lines: Vec<String> = rendered.lines().map(str::to_string).collect();
@@ -364,7 +368,7 @@ pub async fn check_result(sql: &str, tables: &[&Table], threads: usize, result: 
     };
     assert_eq!(
         sorted_rows(result),
-        sorted_rows(&reference),
+        sorted_rows(expected),
         "verifier result differs from the query on the full tables: {sql}"
     );
 }

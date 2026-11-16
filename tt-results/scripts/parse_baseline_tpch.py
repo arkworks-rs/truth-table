@@ -11,7 +11,8 @@ Writes:
   tidy/commit_baseline.csv — one row per (table, SF)
 
 The baseline verifier runs the query itself, so its time is reported per
-thread count, like the prover's.
+thread count, like the prover's. The execution time is plain execution: the
+query on the full tables, unverified.
 
 Usage:
   python3 tt-results/scripts/parse_baseline_tpch.py
@@ -31,6 +32,7 @@ TPCH_HEADER = [
     "prover time 1thread (s)", "prover time 4threads (s)",
     "verifier time 1thread (ms)", "verifier time 4threads (ms)",
     "proof size (KB)", "result rows",
+    "execution time 1thread (s)", "execution time 4threads (s)",
 ]
 COMMIT_HEADER = [
     "table", "scale-factor",
@@ -57,6 +59,7 @@ def main():
             row = queries.setdefault((r["q"], r["variant"], r["sf"]), {})
             row[f"prover time {suffix} (s)"] = fmt(r["prove_ms"] / 1000, 7)
             row[f"verifier time {suffix} (ms)"] = fmt(r["verify_ms"], 4)
+            row[f"execution time {suffix} (s)"] = fmt(r["execute_ms"] / 1000, 7)
             row["proof size (KB)"] = fmt(r["proof_bytes"] / 1024, 3)
             row["result rows"] = str(r["result_rows"])
         for r in data["tables"]:

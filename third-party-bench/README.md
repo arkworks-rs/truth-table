@@ -18,8 +18,9 @@ the verifier hashes them against the commitment and runs the query itself with
 DataFusion. It queries the raw parquets (`bench_table_<pow>.parquet`, not the
 `_preprocessed` ones TruthTable commits to), so there is no padding or
 activator column. Each phase is the median of five runs, in fractional
-milliseconds, and the bench checks the verifier's result against the query on
-the full tables. It reads the Join_PK_FK parquets the truth_table bench
+milliseconds. The bench also times plain execution, the query on the full
+tables with no verification at all (`execute_ms`), and checks the verifier's
+result against it. It reads the Join_PK_FK parquets the truth_table bench
 writes, so run that bench first.
 
 The protocol lives in [src/baseline.rs](src/baseline.rs). `benches/baseline.rs`

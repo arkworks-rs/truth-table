@@ -1,7 +1,8 @@
 """Plot single-threaded prover time per TPC-H query for TruthTable,
 PoneglyphDB and the no-proof baseline on one bar chart, at SF 0.04 (the
-largest SF Poneglyph supports). The y axis is logarithmic: the baseline's
-prover takes milliseconds.
+largest SF Poneglyph supports), with plain execution (the query on the full
+tables, unverified). The y axis is logarithmic: the baseline's prover takes
+milliseconds.
 
 Every query TT runs gets a TT bar. Queries Poneglyph does not support get a
 red cross in place of the Poneglyph bar.
@@ -101,23 +102,24 @@ baseline_tt = baseline_style.tpch("tt", SCALE_FACTOR)
 baseline_pgn = baseline_style.tpch("pgn", SCALE_FACTOR)
 
 
-def baseline_value(q_num):
+def baseline_value(q_num, column):
     rows = baseline_pgn if q_num in PGN_QUERY_IDS else baseline_tt
-    return baseline_style.value(rows, q_num, "prover time 1thread (s)")
+    return baseline_style.value(rows, q_num, column)
 
 
 tt_times = [tt_value(q) for q in QUERY_IDS]
 pgn_times = [pgn_csv_value(q, "poneglyph") for q in QUERY_IDS]
-baseline_times = [baseline_value(q) for q in QUERY_IDS]
+baseline_times = [baseline_value(q, "prover time 1thread (s)") for q in QUERY_IDS]
+exec_times = [baseline_value(q, "execution time 1thread (s)") for q in QUERY_IDS]
 query_labels = [f"Q{q}*" if q in PGN_QUERY_IDS else f"Q{q}" for q in QUERY_IDS]
 
 colors = plt.get_cmap("tab10").colors
 light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 tt_idx, pgn_idx = 0, 1
 
-bar_width = 0.27
-group_gap = 0.25
-group_width = 3 * bar_width + group_gap
+bar_width = 0.21
+group_gap = 0.22
+group_width = 4 * bar_width + group_gap
 x = np.arange(len(QUERY_IDS)) * group_width
 
 fig, ax = plt.subplots(figsize=FIGSIZE)
@@ -140,6 +142,7 @@ ax.bar(
     linewidth=0.8,
 )
 ax.bar(x + 2 * bar_width, baseline_times, width=bar_width, **baseline_style.BAR_STYLE)
+ax.bar(x + 3 * bar_width, exec_times, width=bar_width, **baseline_style.EXEC_BAR_STYLE)
 
 # Red cross on the baseline where Poneglyph has no bar.
 unsupported_x = [x[i] + bar_width for i, q in enumerate(QUERY_IDS) if q not in PGN_QUERY_IDS]
@@ -156,15 +159,15 @@ cross = ax.scatter(
     clip_on=False,
 )
 
-ax.set_xticks(x + bar_width)
+ax.set_xticks(x + 1.5 * bar_width)
 ax.set_xticklabels(query_labels)
 ax.set_xlabel("TPC-H Query")
 ax.set_ylabel("Prover Time (s)")
 ax.tick_params(axis="x", pad=8)
 ax.tick_params(axis="y", pad=8)
 ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
-ax.set_xlim(x[0] - bar_width, x[-1] + 3 * bar_width)
-all_times = np.asarray(tt_times + pgn_times + baseline_times, dtype=float)
+ax.set_xlim(x[0] - bar_width, x[-1] + 4 * bar_width)
+all_times = np.asarray(tt_times + pgn_times + baseline_times + exec_times, dtype=float)
 ax.set_yscale("log")
 ax.set_ylim(np.nanmin(all_times) / 2, np.nanmax(all_times) * 3)
 ax.yaxis.set_major_locator(LogLocator(base=10))
@@ -175,10 +178,12 @@ ax.legend(
         Patch(facecolor=light[tt_idx], edgecolor=colors[tt_idx], hatch="/"),
         Patch(facecolor=light[pgn_idx], edgecolor=colors[pgn_idx], hatch="x"),
         Patch(**baseline_style.BAR_STYLE),
+        Patch(**baseline_style.EXEC_BAR_STYLE),
         cross,
     ],
-    ["TruthTable", "Poneglyph", baseline_style.LABEL, "Not supported by Poneglyph"],
-    ncol=4,
+    ["TruthTable", "Poneglyph", baseline_style.LABEL, baseline_style.EXEC_LABEL,
+     "Not supported by Poneglyph"],
+    ncol=3,
     loc="lower center",
     bbox_to_anchor=(0.5, 1.04),
     handlelength=2.2,

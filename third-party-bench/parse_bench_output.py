@@ -196,6 +196,7 @@ def parse_truth_table(text: str) -> dict:
 #   prove_ms: <..>
 #   proof_bytes: <..>
 #   verify_ms: <..>
+#   execute_ms: <..>
 #   result_rows: <..>
 #   ----------------------------------------
 #
@@ -226,7 +227,7 @@ def parse_baseline(text: str) -> dict:
             "query": head.group(2),
             "parquet_rows": [int(x) for x in head.group(3).split(",")],
         }
-        for field in ("commit_ms", "prove_ms", "verify_ms"):
+        for field in ("commit_ms", "prove_ms", "verify_ms", "execute_ms"):
             m = re.search(rf"^{field}:\s*([\d.]+)\s*$", chunk, re.M)
             if m:
                 rec[field] = float(m.group(1))

@@ -6,7 +6,9 @@
 //!
 //! One line per committed table and per query:
 //!   table sf=<sf> name=<t> rows=<n> commit_ms=<ms> commitment_bytes=<b>
-//!   query sf=<sf> variant=<tt|pgn> q=<n> prove_ms=<ms> proof_bytes=<b> verify_ms=<ms> result_rows=<n>
+//!   query sf=<sf> variant=<tt|pgn> q=<n> prove_ms=<ms> proof_bytes=<b> verify_ms=<ms> execute_ms=<ms> result_rows=<n>
+//!
+//! `execute_ms` is plain execution: the query on the full tables, unverified.
 
 use std::{
     collections::BTreeSet,
@@ -20,7 +22,7 @@ use datafusion::arrow::{
 };
 use tpch_data::{Variant, generate_parquet_scale, query_spec};
 use tt_third_party_bench::baseline::{
-    Table, check_result, commit, file_len, load_parquet, median_ms, prove, store,
+    Table, check_result, commit, execute, file_len, load_parquet, median_ms, prove, store,
     threads_and_runtime, verify,
 };
 
@@ -137,9 +139,13 @@ fn main() {
                     .block_on(verify(spec.sql, &commitment_paths, &proof_path, threads))
                     .unwrap_or_else(|err| panic!("baseline verify {label} q{q}: {err}"));
             });
-            rt.block_on(check_result(spec.sql, &query_tables, threads, &result));
+            let mut expected: Vec<RecordBatch> = Vec::new();
+            let execute_ms = median_ms(ITERS, || {
+                expected = rt.block_on(execute(spec.sql, &query_tables, threads));
+            });
+            check_result(spec.sql, &expected, &result);
             println!(
-                "query sf={sf} variant={label} q={q} prove_ms={prove_ms:.4} proof_bytes={} verify_ms={verify_ms:.4} result_rows={}",
+                "query sf={sf} variant={label} q={q} prove_ms={prove_ms:.4} proof_bytes={} verify_ms={verify_ms:.4} execute_ms={execute_ms:.4} result_rows={}",
                 file_len(&proof_path),
                 result.iter().map(RecordBatch::num_rows).sum::<usize>()
             );

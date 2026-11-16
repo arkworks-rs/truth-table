@@ -4,6 +4,9 @@ The baseline sends the columns a query reads and the verifier runs the query
 itself (third-party-bench/src/baseline.rs). Its proofs are megabytes and its
 prover milliseconds, so a panel that plots it next to TruthTable's prover time
 or proof size needs a log axis.
+
+Plain execution is the same query on the full tables with no verifiability at
+all; it appears only in prover-time panels.
 """
 
 from pathlib import Path
@@ -58,3 +61,7 @@ def value(df, key, column):
     if df.empty or key not in df.index:
         return float("nan")
     return float(df.loc[key, column])
+
+
+EXEC_LABEL = "Plain execution (no verification)"
+EXEC_BAR_STYLE = dict(facecolor="#f5e6c4", edgecolor="#b8860b", hatch="--", linewidth=0.8)
