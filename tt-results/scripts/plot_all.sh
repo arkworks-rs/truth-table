@@ -29,7 +29,7 @@ python3 "$SCRIPT_DIR/plot_micro.py" || echo "  !! plot_micro.py failed (continui
 
 echo ""
 echo "########################################"
-echo "# 4/6  plot_commit.py            → commit_time.pdf"
+echo "# 4/6  plot_commit.py            → commit_time.pdf, commit_size.pdf"
 echo "########################################"
 python3 "$SCRIPT_DIR/plot_commit.py" || echo "  !! plot_commit.py failed (continuing)"
 

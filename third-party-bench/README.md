@@ -1,15 +1,34 @@
 # Third-party benchmark harness
 
-This directory compares TruthTable against two other verifiable-SQL systems on
-the same set of microbenchmark queries and the same table shapes:
+This directory compares TruthTable against two other verifiable-SQL systems and
+a no-proof baseline on the same set of microbenchmark queries and the same
+table shapes:
 
 | System | Crate path used | What we measure |
 |---|---|---|
 | **TruthTable** (this repo) | `crates/tt-exec` | prover time, verifier time, proof size |
 | **sxt-proof-of-sql** | `../../sxt-proof-of-sql` | same |
 | **qedb** | `../../qedb` | same |
+| **Baseline** | `benches/baseline.rs` | commit time, commitment size, prover time, verifier time, proof size |
 
-The three benches use the same auto-generated Parquet tables under
+The baseline has no proof system. The commitment is a BLAKE3 hash of every
+column (Arrow IPC encoding) plus the schema and row count, in a `.colhash`
+file. The prover plans the query and sends every column its table scans read;
+the verifier hashes them against the commitment and runs the query itself with
+DataFusion. It queries the raw parquets (`bench_table_<pow>.parquet`, not the
+`_preprocessed` ones TruthTable commits to), so there is no padding or
+activator column. Each phase is the median of five runs, in fractional
+milliseconds. The bench also times plain execution, the query on the full
+tables with no verification at all (`execute_ms`), and checks the verifier's
+result against it. It reads the Join_PK_FK parquets the truth_table bench
+writes, so run that bench first.
+
+The protocol lives in [src/baseline.rs](src/baseline.rs). `benches/baseline.rs`
+runs it on the micro queries above; `benches/baseline_tpch.rs` runs it on the
+TPC-H `_tt` and `_pgn` queries at SF 0.01–0.1, generating its own tables under
+`artifact/tpch/` (driven by `tt-results/scripts/run_baseline_tpch.sh`).
+
+The benches use the same auto-generated Parquet tables under
 `artifact/size_<pow>/`, so "same inputs, different provers" is a real apples-to-apples
 comparison rather than three systems reading unrelated data. The Join / Join_PK_FK
 parquets in particular share a deterministic PK/FK row layout written by the
@@ -63,11 +82,17 @@ What `run_micro.sh` does:
 1. Wipes `artifact/Join/` and `artifact/Join_PK_FK/` so stale join parquets
    don't leak across runs (other sizes are reused — they're independent of the
    PK/FK shape).
-2. For each bench (`sxt_proof_of_sql`, `qedb`, `truth_table`), runs
+2. For each bench (`sxt_proof_of_sql`, `qedb`, `truth_table`, `baseline`), runs
    `cargo bench --bench <name>` with `RAYON_NUM_THREADS` pinned (see below)
    and tees the log to `tt-results/raw/third_party_<bench>.log`.
 3. Parses each log into `tt-results/raw/third_party_<bench>.json` via
    [`parse_bench_output.py`](parse_bench_output.py).
+
+The baseline runs once per thread count in `BASELINE_THREADS` (1 and 4),
+pinned to CPUs `0..t-1`, and writes `third_party_baseline_<t>.{log,json}`.
+`MICRO_ONLY_BASELINE=1` runs only the baseline passes. Its `micro.csv` rows
+have curve `none` and also fill `commit time (s)` and `commitment size (KB)`;
+the micro figures do not plot them.
 
 Failures in one bench don't abort the others.
 
@@ -85,8 +110,8 @@ different thread count, edit the variable and rerun.
 ## Configuring what runs
 
 - **Table sizes**: `TABLE_POWS = &[16, 17, 18, 19]` near the top of each of
-  `benches/sxt_proof_of_sql.rs`, `benches/qedb.rs`, and `benches/truth_table.rs`.
-  Keep all three in sync.
+  `benches/sxt_proof_of_sql.rs`, `benches/qedb.rs`, `benches/truth_table.rs`
+  and `benches/baseline.rs`. Keep them in sync.
 - **Iterations**: `BENCH_ITERS` in `benches/sxt_proof_of_sql.rs` (the other two
   benches report a single wall-clock sample per `(query, size)` pair).
 - **Queries**: the `QUERIES` slice in each bench. Filter, Aggregate, Limit,

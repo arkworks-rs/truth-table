@@ -6,12 +6,14 @@ Reads (any subset that exists):
   raw/third_party_sxt_proof_of_sql.json  → System=PoSQL
   raw/third_party_qedb.json              → System=QEDB
   raw/third_party_truth_table.json       → System=TT
+  raw/third_party_baseline_<threads>.json → System=Baseline (curve "none")
 
 Writes:
   tidy/micro.csv
 
-For each JSON that exists, every row in micro.csv for that System is replaced.
-Systems whose JSON is missing are left untouched.
+For each JSON that exists, every row in micro.csv with that JSON's
+(System, curve, threads) is replaced. Rows of other combinations are left
+untouched.
 
 Query-name mapping (JSON → CSV Q):
   filter / Filter              → Filter
@@ -24,6 +26,10 @@ Units:
   prover time (s)     = prove_ms / 1000
   verifier time (ms)  = verify_ms
   proof size (KB)     = proof_bytes / 1024
+  commit time (s)       = commit_ms / 1000       (Baseline only)
+  commitment size (KB)  = commitment_bytes / 1024 (Baseline only)
+  execution time (s)    = execute_ms / 1000      (Baseline only: the query
+                          on the full tables, unverified)
 
 Usage:
   python3 tt-results/scripts/parse_micro.py
@@ -47,17 +53,23 @@ DEFAULT_HEADER = [
     "prover time (s)",
     "verifier time (ms)",
     "proof size (KB)",
+    "commit time (s)",
+    "commitment size (KB)",
+    "execution time (s)",
 ]
 
 # (bench_name, System label, default_curve, JSON filename)
 # default_curve is used when the JSON doesn't carry an explicit config.curve
 # (PoSQL is hard-coded to BN254 via HyperKZG; QEDB is hard-coded to BLS12-381).
-# TT runs once per curve, writing to a curve-suffixed JSON.
+# TT runs once per curve, writing to a curve-suffixed JSON. Baseline uses no
+# curve and runs once per thread count.
 BENCH_SOURCES = [
     ("sxt_proof_of_sql", "PoSQL", "bn254", "third_party_sxt_proof_of_sql.json"),
     ("qedb", "QEDB", "bls12_381", "third_party_qedb.json"),
     ("truth_table", "TT", "bn254", "third_party_truth_table.json"),
     ("truth_table", "TT", "bls12_381", "third_party_truth_table_bls12_381.json"),
+    ("baseline", "Baseline", "none", "third_party_baseline_1.json"),
+    ("baseline", "Baseline", "none", "third_party_baseline_4.json"),
 ]
 
 QUERY_NAME_MAP = {
@@ -74,7 +86,7 @@ QUERY_NAME_MAP = {
 }
 
 Q_ORDER = ["Filter", "Aggregate", "Join", "Join PK/FK", "Limit"]
-SYSTEM_ORDER = {"TT": 0, "QEDB": 1, "PoSQL": 2}
+SYSTEM_ORDER = {"TT": 0, "QEDB": 1, "PoSQL": 2, "Baseline": 3}
 
 
 def fmt(value, decimals=3):
@@ -103,6 +115,9 @@ def rows_from_json(json_path, system_label, default_curve):
         prove_ms = entry.get("prove_ms")
         verify_ms = entry.get("verify_ms")
         proof_bytes = entry.get("proof_bytes")
+        commit_ms = entry.get("commit_ms") if system_label == "Baseline" else None
+        commitment_bytes = entry.get("commitment_bytes")
+        execute_ms = entry.get("execute_ms")
         # Per-row curve takes precedence (TT emits it on each result line).
         row_curve = entry.get("curve", curve)
         rows.append([
@@ -111,9 +126,14 @@ def rows_from_json(json_path, system_label, default_curve):
             system_label,
             row_curve,
             str(pow_val) if pow_val is not None else "",
-            fmt(prove_ms / 1000) if prove_ms is not None else "",
-            fmt(verify_ms, decimals=0) if verify_ms is not None else "",
+            # Baseline times are fractional milliseconds; trailing zeros are
+            # stripped, so whole-millisecond times print as before.
+            fmt(prove_ms / 1000, decimals=7) if prove_ms is not None else "",
+            fmt(verify_ms, decimals=4) if verify_ms is not None else "",
             fmt(proof_bytes / 1024) if proof_bytes is not None else "",
+            fmt(commit_ms / 1000, decimals=7) if commit_ms is not None else "",
+            fmt(commitment_bytes / 1024) if commitment_bytes is not None else "",
+            fmt(execute_ms / 1000, decimals=7) if execute_ms is not None else "",
         ])
     return rows
 
@@ -142,19 +162,24 @@ def sort_key(row):
 def main():
     header = None
     carried_rows = []
-    # Refresh by (System, curve): writing a new TT@bn254 JSON must NOT clobber
-    # the TT@bls12_381 rows already in the CSV (and vice versa).
-    refreshed_pairs = set()
     refresh_plan = []
     for bench_name, system_label, default_curve, filename in BENCH_SOURCES:
         path = RAW_DIR / filename
         if path.exists():
             refresh_plan.append((bench_name, system_label, default_curve, path))
-            refreshed_pairs.add((system_label, default_curve))
 
     if not refresh_plan:
         print(f"No third-party JSON found in {RAW_DIR}; nothing to do.")
         return
+
+    fresh_rows = []
+    for bench_name, system_label, default_curve, path in refresh_plan:
+        rows = rows_from_json(path, system_label, default_curve)
+        print(f"{system_label}@{default_curve}: {len(rows)} rows from {path.name}")
+        fresh_rows.extend(rows)
+    # Refresh by (System, curve, threads): a new TT@bn254 JSON must not clobber
+    # the TT@bls12_381 rows, nor a 4-thread Baseline JSON the 1-thread rows.
+    refreshed = {(row[2], row[3], row[1]) for row in fresh_rows}
 
     # Per-system default curve for upgrading legacy rows that predate the
     # `curve` column. Derived from BENCH_SOURCES so it stays in sync with the
@@ -171,8 +196,8 @@ def main():
         with open(CSV_PATH) as f:
             reader = csv.reader(f)
             header = next(reader)
-            if header and header[0].startswith("﻿"):
-                header[0] = header[0].lstrip("﻿")
+            if header and header[0].startswith("\ufeff"):
+                header[0] = header[0].lstrip("\ufeff")
             has_curve_col = "curve" in [c.strip() for c in header]
             if not has_curve_col:
                 header.insert(3, "curve")
@@ -183,18 +208,15 @@ def main():
                     system = row[2]
                     legacy_curve = legacy_curve_for.get(system, "bn254")
                     row = row[:3] + [legacy_curve] + row[3:]
-                if len(row) >= 4 and (row[2], row[3]) in refreshed_pairs:
+                if len(row) >= 4 and (row[2], row[3], row[1]) in refreshed:
                     continue
                 carried_rows.append(row)
+        # Columns added after the CSV was written stay empty in its old rows.
+        header += [c for c in DEFAULT_HEADER if c not in header]
+        carried_rows = [row + [""] * (len(header) - len(row)) for row in carried_rows]
 
     if header is None:
         header = list(DEFAULT_HEADER)
-
-    fresh_rows = []
-    for bench_name, system_label, default_curve, path in refresh_plan:
-        rows = rows_from_json(path, system_label, default_curve)
-        print(f"{system_label}@{default_curve}: {len(rows)} rows from {path.name}")
-        fresh_rows.extend(rows)
 
     all_rows = carried_rows + fresh_rows
     all_rows.sort(key=sort_key)
@@ -205,7 +227,7 @@ def main():
         w.writerow(header)
         w.writerows(all_rows)
 
-    refreshed_labels = sorted(f"{s}@{c}" for s, c in refreshed_pairs)
+    refreshed_labels = sorted(f"{s}@{c}/{t}t" for s, c, t in refreshed)
     print(
         f"Wrote {CSV_PATH}: {len(all_rows)} rows "
         f"(refreshed: {', '.join(refreshed_labels)})"

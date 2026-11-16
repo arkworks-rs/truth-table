@@ -27,7 +27,7 @@ tpch-data = { package = "tt-tpch-data", path = "../crates/tt-tpch-data" }
 exec = { package = "tt-exec", path = "../crates/tt-exec" }
 front-end = { package = "tt-front-end", path = "../crates/tt-front-end" }
 ark-piop = "0.1.0"
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 parquet = { version = "57" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -37,6 +37,13 @@ chrono = "0.4"
 serde_json = "1"
 bincode = "1.3"
 zstd = "0.13"
+# The arrow DataFusion 46 is built on; `serde` makes committed fields serializable.
+arrow-schema = { version = "54.3", features = ["serde"] }
+blake3 = { version = "1", features = ["rayon"] }
+datafusion = { version = "46.0.1", default-features = false, features = ["parquet"] }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
 
 [[bench]]
 name = "sxt_proof_of_sql"
@@ -48,6 +55,14 @@ harness = false
 
 [[bench]]
 name = "qedb"
+harness = false
+
+[[bench]]
+name = "baseline"
+harness = false
+
+[[bench]]
+name = "baseline_tpch"
 harness = false
 
 [features]

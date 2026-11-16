@@ -1,5 +1,5 @@
 This folder holds the benchmark data and the scripts that produce it. The
-pipeline is organized into three stages × three benchmark suites:
+pipeline is organized into three stages × four benchmark suites:
 
 ```
               run (and dump)        parse (to CSV)        plot
@@ -7,6 +7,7 @@ pipeline is organized into three stages × three benchmark suites:
 TT TPC-H      run_tt_tpch.sh        parse_tt_tpch.py      plot_tt_tpch.py
 PGN compare   run_pgn.sh            parse_pgn.py          plot_pgn.py
 micro         run_micro.sh          parse_micro.py        plot_micro.py
+baseline      run_baseline_tpch.sh  parse_baseline_tpch.py  (every TPC-H plot)
 ```
 
 All scripts live in `tt-results/scripts/`. Each row is independent — you can
@@ -19,9 +20,21 @@ Per-suite outputs:
 | TT TPC-H    | `benches_tt_*.json`, `bench_stats_tt_*.jsonl`| `tpch.csv`               | `tpch_tt_*.pdf`                 |
 | PGN compare | `benches_pgn_*.json`, `bench_stats_pgn_*.jsonl`, `poneglyph_q*_k*.log` | `tpch_pgn.csv` | `tpch_pgn_*.pdf` |
 | micro       | `third_party_*.log`, `third_party_*.json`    | `micro.csv`              | `micro_*.pdf`                   |
+| baseline    | `baseline_tpch_{1,4}.{log,json}`             | `tpch_baseline.csv`, `commit_baseline.csv` | all TPC-H and commit figures |
 
-The Poneglyph comparison plots two systems side-by-side per query:
-TruthTable on the `_pgn` query variants, and PoneglyphDB on its KZG queries.
+The Poneglyph comparison plots three systems side-by-side per query:
+TruthTable on the `_pgn` query variants, PoneglyphDB on its KZG queries, and
+the baseline.
+
+The baseline is a verifiable database with no proof system
+(`third-party-bench/src/baseline.rs`): the commitment is a hash of every
+column, the proof is the columns the query reads, and the verifier runs the
+query itself. Every figure shows it next to TruthTable, on the same queries
+over the tables without padding or system columns: the micro baseline comes
+from `run_micro.sh` (`third_party_baseline_{1,4}.*`), the TPC-H one from
+`run_baseline_tpch.sh`. Panels with prover time or proof size use a log axis,
+because the baseline's are milliseconds and megabytes. Prover-time panels also
+show plain execution: the same query on the full tables, unverified.
 
 ## Running everything
 
@@ -29,7 +42,7 @@ TruthTable on the `_pgn` query variants, and PoneglyphDB on its KZG queries.
 ./bench_all.sh
 ```
 
-runs all three suites, rebuilds all three CSVs, and renders every figure.
+runs all four suites, rebuilds every CSV, and renders every figure.
 There are also stage-level helpers:
 
 ```bash
@@ -51,10 +64,15 @@ python3 tt-results/scripts/plot_tt_tpch.py
 python3 tt-results/scripts/parse_pgn.py
 python3 tt-results/scripts/plot_pgn.py
 
-# Micro (PoSQL / QEDB / TT on Filter / Aggregate / Join / Join PK/FK / Limit)
+# Micro (PoSQL / QEDB / TT / baseline on Filter / Aggregate / Join / Join PK/FK / Limit)
 ./tt-results/scripts/run_micro.sh
 python3 tt-results/scripts/parse_micro.py
 python3 tt-results/scripts/plot_micro.py
+
+# Baseline on TPC-H (the `_tt` and `_pgn` queries, 1 and 4 threads)
+./tt-results/scripts/run_baseline_tpch.sh
+python3 tt-results/scripts/parse_baseline_tpch.py
+./tt-results/scripts/plot_all.sh
 ```
 
 ## Plot prerequisites

@@ -1,10 +1,12 @@
-"""Plot per-table commit (oracle build) latency.
+"""Plot per-table commit (oracle build) latency and commitment size, for
+TruthTable and the no-proof baseline.
 
-Reads tidy/commit.csv. Filtered to SF=0.1, 1-thread to match the recent
-TPC-H baseline sweeps.
+Reads tidy/commit.csv and tidy/commit_baseline.csv. Filtered to SF=0.1,
+1-thread to match the recent TPC-H sweeps.
 
-Output:
-  figures/commit_time.pdf — single panel, one bar per table, log Y.
+Outputs:
+  figures/commit_time.pdf — one pair of bars per table, log Y.
+  figures/commit_size.pdf — the same for the commitment size, linear Y.
 
 Usage:
   python3 tt-results/scripts/plot_commit.py
@@ -15,7 +17,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter, LogLocator
+
+import baseline_style
 
 plt.style.use("seaborn-v0_8-whitegrid")
 # Match the font sizes used in plot_tt_tpch_combined.py so all plots share
@@ -43,6 +48,7 @@ df.columns = [c.strip().lstrip("﻿") for c in df.columns]
 df["table"] = df["table"].astype(str).str.strip().str.lower()
 df["scale-factor"] = pd.to_numeric(df["scale-factor"], errors="coerce")
 df["latency-1thread(ms)"] = pd.to_numeric(df["latency-1thread(ms)"], errors="coerce")
+df["size(KB)"] = pd.to_numeric(df["size(KB)"], errors="coerce")
 
 df = df[df["scale-factor"] == SCALE_FACTOR].copy()
 if df.empty:
@@ -64,27 +70,9 @@ df["abbrev"] = df["table"].map(TABLE_ABBREV)
 
 palette_face = "#d7e6f5"
 palette_edge = "#1f77b4"
+BAR_WIDTH = 0.38
 
-fig, ax = plt.subplots(figsize=(16, 8))
-x = np.arange(len(df))
-ax.bar(
-    x,
-    df["latency-1thread(ms)"] / 1000.0,
-    width=0.7,
-    facecolor=palette_face,
-    edgecolor=palette_edge,
-    hatch="/",
-    linewidth=0.8,
-)
-ax.set_xticks(x, df["abbrev"].tolist())
-ax.set_xlabel("Table")
-ax.set_ylabel("Commit Latency (s)")
-ax.set_yscale("log")
-ax.yaxis.set_major_locator(LogLocator(base=10))
-ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
-ax.tick_params(axis="x", pad=10)
-ax.tick_params(axis="y", pad=10)
-ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
+baseline = baseline_style.commit(SCALE_FACTOR)
 
 # Two-line mapping caption below the figure. Smaller than the axis fonts so it
 # reads as legend material, not chart data.
@@ -92,8 +80,44 @@ caption = (
     "C = customer    L = lineitem    N = nation    O = orders\n"
     "P = part    PS = partsupp    R = region    S = supplier"
 )
-fig.text(0.5, -0.02, caption, ha="center", va="top", fontsize=30)
 
-fig.tight_layout()
-fig.savefig(figures_dir / "commit_time.pdf", bbox_inches="tight")
-plt.close(fig)
+
+def plot(column, scale, ylabel, log, filename):
+    tt = (df[column] * scale).tolist()
+    base = [baseline_style.value(baseline, t, column) * scale for t in df["table"]]
+    fig, ax = plt.subplots(figsize=(16, 8))
+    x = np.arange(len(df))
+    ax.bar(x, tt, width=BAR_WIDTH, facecolor=palette_face, edgecolor=palette_edge,
+           hatch="/", linewidth=0.8)
+    ax.bar(x + BAR_WIDTH, base, width=BAR_WIDTH, **baseline_style.BAR_STYLE)
+    ax.set_xticks(x + BAR_WIDTH / 2, df["abbrev"].tolist())
+    ax.set_xlabel("Table")
+    ax.set_ylabel(ylabel)
+    if log:
+        ax.set_yscale("log")
+        ax.yaxis.set_major_locator(LogLocator(base=10))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
+    ax.tick_params(axis="x", pad=10)
+    ax.tick_params(axis="y", pad=10)
+    ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
+    ax.legend(
+        handles=[
+            Patch(facecolor=palette_face, edgecolor=palette_edge, hatch="/", linewidth=0.8,
+                  label="TruthTable"),
+            Patch(label=baseline_style.LABEL, **baseline_style.BAR_STYLE),
+        ],
+        ncol=1,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.02),
+        handlelength=2.2,
+        handleheight=1.4,
+        borderpad=0.6,
+    )
+    fig.text(0.5, -0.02, caption, ha="center", va="top", fontsize=30)
+    fig.tight_layout()
+    fig.savefig(figures_dir / filename, bbox_inches="tight")
+    plt.close(fig)
+
+
+plot("latency-1thread(ms)", 1 / 1000, "Commit Latency (s)", True, "commit_time.pdf")
+plot("size(KB)", 1, "Commitment Size (KB)", False, "commit_size.pdf")

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Run the three micro-benchmark suites (PoSQL, QEDB, TruthTable) on the
+# Run the micro-benchmark suites (PoSQL, QEDB, TruthTable, Baseline) on the
 # shared Filter / Aggregate / Limit / Join / Join_PK_FK queries, and emit
 # both raw stdout logs and structured per-bench JSON files.
 #
 # Outputs to tt-results/raw/:
 #   third_party_{bench}.log   — full cargo bench stdout (one per system)
 #   third_party_{bench}.json  — parsed/structured results (one per system)
+#   third_party_baseline_{1,4}.{log,json} — Baseline, one per thread count
 #
 # The per-bench JSONs are what parse_micro.py consumes; the logs are kept for
 # debugging.
@@ -16,6 +17,9 @@
 # about what was measured.
 #
 # Failures in one bench don't abort the others.
+#
+# MICRO_ONLY_TT=1 runs only the TruthTable passes, MICRO_ONLY_BASELINE=1 only
+# the Baseline passes; the other systems keep their existing JSONs.
 #
 # Usage:
 #   ./tt-results/scripts/run_micro.sh
@@ -55,7 +59,9 @@ WARMUP_THREADS=16   # threads for the unmeasured QEDB warmup (see below)
 # skipped, so keep the existing (deterministic) parquets instead of wiping —
 # wiping would strand the TT Join cases with no data source.
 ARTIFACT_ROOT="$TPB_DIR/artifact"
-if [[ "${MICRO_ONLY_TT:-0}" != "1" ]] && [[ -d "$ARTIFACT_ROOT" ]]; then
+# MICRO_ONLY_BASELINE=1 keeps them for the same reason.
+if [[ "${MICRO_ONLY_TT:-0}" != "1" ]] && [[ "${MICRO_ONLY_BASELINE:-0}" != "1" ]] \
+    && [[ -d "$ARTIFACT_ROOT" ]]; then
     find "$ARTIFACT_ROOT" -type d \( -name Join -o -name Join_PK_FK \) -prune -print0 \
         | xargs -0 -I {} rm -rf {}
 fi
@@ -135,15 +141,44 @@ run_bench_variant() {
         || echo "  !! parser failed for $bench${suffix}"
 }
 
+# Baseline (third-party-bench/benches/baseline.rs) at each of
+# BASELINE_THREADS, pinned to CPUs 0..t-1. On the bench machine those are
+# distinct physical cores; check `lscpu -e` before running elsewhere. It reads
+# the raw Join_PK_FK parquets the truth_table bench writes, so it runs last.
+BASELINE_THREADS=(1 4)
+
+run_baseline() {
+    local threads="$1"
+    local log="$RESULTS_DIR/third_party_baseline_${threads}.log"
+
+    echo ""
+    echo "=============================================="
+    echo "  cargo bench --bench baseline  (threads=$threads, CPUs 0-$((threads - 1)))"
+    echo "=============================================="
+
+    # Build unpinned; only the measured run is pinned.
+    (cd "$TPB_DIR" && cargo bench --bench baseline --no-run 2>&1)
+    (
+        cd "$TPB_DIR"
+        RAYON_NUM_THREADS="$threads" \
+            taskset -c "0-$((threads - 1))" cargo bench --bench baseline 2>&1
+    ) | tee "$log"
+
+    echo ""
+    echo "  → log: $log"
+
+    TT_BENCH_NUM_THREADS="$threads" \
+        python3 "$PARSER" baseline "$log" "$RESULTS_DIR/third_party_baseline_${threads}.json" \
+        || echo "  !! parser failed for baseline ($threads threads)"
+}
+
 echo "=== micro comparison sweep ==="
 echo "Benches: ${BENCHES[*]}"
 echo "Warmup threads: $WARMUP_THREADS (QEDB only, output discarded)"
 echo "Measured threads: $NUM_THREADS"
 echo "Results dir: $RESULTS_DIR"
 
-# Set MICRO_ONLY_TT=1 to rerun only the TruthTable passes; the third-party
-# systems keep their existing third_party_*.json files for parse_micro.py.
-if [[ "${MICRO_ONLY_TT:-0}" != "1" ]]; then
+if [[ "${MICRO_ONLY_TT:-0}" != "1" ]] && [[ "${MICRO_ONLY_BASELINE:-0}" != "1" ]]; then
     warmup_qedb
 
     for b in "${BENCHES[@]}"; do
@@ -154,8 +189,16 @@ fi
 # TruthTable: one pass per SNARK backend. BN254 is the default; the
 # `bls12-381` feature swaps the type alias in tt-exec. Each pass writes to a
 # distinct JSON so parse_micro.py can carry both into the same micro.csv.
-run_bench_variant truth_table ""             ""
-run_bench_variant truth_table "_bls12_381"   "bls12-381"
+if [[ "${MICRO_ONLY_BASELINE:-0}" != "1" ]]; then
+    run_bench_variant truth_table ""             ""
+    run_bench_variant truth_table "_bls12_381"   "bls12-381"
+fi
+
+if [[ "${MICRO_ONLY_TT:-0}" != "1" ]]; then
+    for t in "${BASELINE_THREADS[@]}"; do
+        run_baseline "$t"
+    done
+fi
 
 echo ""
 echo "=== micro sweep complete ==="

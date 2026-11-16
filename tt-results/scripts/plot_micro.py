@@ -5,8 +5,12 @@ Reads tidy/micro.csv.
 
 Outputs (one per curve, since each Truth Table competitor only runs on one
 of the two curves we support):
-  figures/micro_bn254.pdf      — TT (BN254)      vs PoSQL
-  figures/micro_bls12_381.pdf  — TT (BLS12-381)  vs QEDB
+  figures/micro_bn254.pdf      — TT (BN254)      vs PoSQL vs Baseline
+  figures/micro_bls12_381.pdf  — TT (BLS12-381)  vs QEDB  vs Baseline
+
+The baseline (no proof system, curve "none") is the same bar in both. The
+prover-time panel also has plain execution: the query on the full tables,
+unverified.
 
 Each PDF has prover time, verifier time, and proof size side-by-side, sharing
 one legend.
@@ -21,6 +25,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.ticker import FuncFormatter, LogLocator
+
+import baseline_style
 
 plt.style.use("seaborn-v0_8-whitegrid")
 # Match the font sizes used in plot_tt_tpch_combined.py so all plots share
@@ -59,6 +65,10 @@ df["threads"] = pd.to_numeric(df["threads"], errors="coerce")
 df["prover time (s)"] = pd.to_numeric(df["prover time (s)"], errors="coerce")
 df["verifier time (ms)"] = pd.to_numeric(df["verifier time (ms)"], errors="coerce")
 df["proof size (KB)"] = pd.to_numeric(df["proof size (KB)"], errors="coerce")
+if "execution time (s)" in df.columns:
+    df["execution time (s)"] = pd.to_numeric(df["execution time (s)"], errors="coerce")
+else:
+    df["execution time (s)"] = np.nan
 df["q_norm"] = df["Q"].apply(normalize_q)
 df["system_norm"] = df["System"].str.strip().str.lower()
 # Curve column was added when we started running TT under both BN254 and
@@ -117,6 +127,11 @@ palette = {
     "tt_join_pk_fk_bls12_381": {"edge": "#1f77b4", "face": "#aacde9"},
     "posql": {"edge": "#e31a1c", "face": "#f9d6d6"},
     "qedb": {"edge": "#33a02c", "face": "#d9efd6"},
+    "baseline": {"edge": baseline_style.EDGE, "face": baseline_style.FACE},
+    "execution": {
+        "edge": baseline_style.EXEC_BAR_STYLE["edgecolor"],
+        "face": baseline_style.EXEC_BAR_STYLE["facecolor"],
+    },
 }
 hatches = {
     "tt_bn254": "/",
@@ -125,6 +140,8 @@ hatches = {
     "tt_join_pk_fk_bls12_381": "//",
     "posql": "x",
     "qedb": "\\",
+    "baseline": baseline_style.HATCH,
+    "execution": baseline_style.EXEC_BAR_STYLE["hatch"],
 }
 
 
@@ -154,6 +171,11 @@ def pick_value(q_name, bar_key, value_col):
             & (df["system_norm"] == "tt")
             & (df["curve_norm"] == "bls12_381")
         ]
+    elif bar_key == "execution":
+        if value_col != "prover time (s)":
+            return np.nan
+        row = df[(df["q_norm"] == q_name) & (df["system_norm"] == "baseline")]
+        value_col = "execution time (s)"
     else:
         row = df[(df["q_norm"] == q_name) & (df["system_norm"] == bar_key)]
     if row.empty:
@@ -167,10 +189,23 @@ def build_groups(variant):
     pkfk_bar = f"tt_join_pk_fk_{variant['curve']}"
     competitor = variant["competitor_bar"]
     all_groups = {
-        "Filter": {"label": "Filter", "bars": [(tt_bar, "filter"), (competitor, "filter")]},
+        "Filter": {
+            "label": "Filter",
+            "bars": [
+                (tt_bar, "filter"),
+                (competitor, "filter"),
+                ("baseline", "filter"),
+                ("execution", "filter"),
+            ],
+        },
         "Aggregate": {
             "label": "Aggregate",
-            "bars": [(tt_bar, "aggregate"), (competitor, "aggregate")],
+            "bars": [
+                (tt_bar, "aggregate"),
+                (competitor, "aggregate"),
+                ("baseline", "aggregate"),
+                ("execution", "aggregate"),
+            ],
         },
         "Join": {
             "label": "Join",
@@ -178,9 +213,19 @@ def build_groups(variant):
                 (tt_bar, "join"),
                 (pkfk_bar, "join_pk_fk"),
                 (competitor, "join"),
+                ("baseline", "join"),
+                ("execution", "join"),
             ],
         },
-        "Limit": {"label": "Limit", "bars": [(tt_bar, "limit"), (competitor, "limit")]},
+        "Limit": {
+            "label": "Limit",
+            "bars": [
+                (tt_bar, "limit"),
+                (competitor, "limit"),
+                ("baseline", "limit"),
+                ("execution", "limit"),
+            ],
+        },
     }
     return [all_groups[name] for name in variant["operators"]]
 
@@ -188,12 +233,12 @@ def build_groups(variant):
 BAR_WIDTH = 0.16
 GROUP_GAP = 0.22
 
-# Reference layout: the original 4-operator BN254 plot (Filter+Aggregate+Join+
-# Limit = 9 bars across 4 groups) was tuned at figsize_width=46 inches. Scale
-# any variant's figure width by its share of that reference x-extent so the
-# bars keep their physical width on the page regardless of operator count.
+# Reference layout: the 4-operator BN254 prover panel (Filter+Aggregate+Join+
+# Limit = 17 bars across 4 groups) at figsize_width=46 inches. Every variant's panel
+# spans this x-extent so the bars keep their physical width on the page
+# regardless of operator count.
 REFERENCE_FIGSIZE_WIDTH = 46.0
-REFERENCE_PANEL_X_EXTENT = 9 * BAR_WIDTH + 3 * GROUP_GAP
+REFERENCE_PANEL_X_EXTENT = 17 * BAR_WIDTH + 3 * GROUP_GAP
 
 
 def panel_x_extent(groups, group_gap=GROUP_GAP):
@@ -203,6 +248,12 @@ def panel_x_extent(groups, group_gap=GROUP_GAP):
 
 
 def draw_panel(ax, groups, value_col, ylabel, group_gap=GROUP_GAP):
+    # Plain execution has only a time, shown next to the provers.
+    groups = [
+        {**spec, "bars": [b for b in spec["bars"]
+                          if b[0] != "execution" or value_col == "prover time (s)"]}
+        for spec in groups
+    ]
     bar_width = BAR_WIDTH
     group_centers = []
     # Center the bars inside a fixed reference x-extent so panels with fewer
@@ -289,6 +340,8 @@ def render_variant(variant):
     legend_specs = [
         (variant["tt_bar"], variant["tt_label"]),
         (variant["competitor_bar"], variant["competitor_label"]),
+        ("baseline", baseline_style.LABEL),
+        ("execution", baseline_style.EXEC_LABEL),
     ]
     legend_handles = [
         plt.Rectangle(
