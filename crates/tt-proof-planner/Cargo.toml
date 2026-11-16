@@ -39,5 +39,4 @@ serde = { workspace = true }
 test-utils = ["tt-core/test-utils"]
 
 [dev-dependencies]
-ark-test-curves = { workspace = true }
 datafusion-functions-aggregate = { workspace = true }
