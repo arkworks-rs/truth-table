@@ -1,8 +1,11 @@
-"""Combined 2×2 figure: TPC-H prover, proof size, verifier, and per-table commit.
+"""Combined 2×2 figure: TPC-H prover, proof size, verifier, and per-table commit,
+each next to the no-proof baseline.
 
 Reads:
-  tidy/tpch.csv    — TPC-H prover/verifier/proof-size rows (System=tt)
-  tidy/commit.csv  — per-table commit latency
+  tidy/tpch.csv             — TPC-H prover/verifier/proof-size rows (System=tt)
+  tidy/commit.csv           — per-table commit latency
+  tidy/tpch_baseline.csv    — the baseline on the same `_tt` queries
+  tidy/commit_baseline.csv  — the baseline's per-table commit latency
 
 Output:
   figures/tpch_tt_combined.pdf
@@ -10,10 +13,10 @@ Output:
 Layout:
   ┌──────────────────┬──────────────────┐
   │  Prover time     │  Proof size      │
-  │  (1t/4t bars)    │  (single bar)    │
+  │  (1 thread)      │                  │
   ├──────────────────┼──────────────────┤
   │  Verifier time   │  Commit latency  │
-  │  (crypto/non-cr) │  (per table)     │
+  │  (1 thread)      │  (per table)     │
   └──────────────────┴──────────────────┘
 
 Usage:
@@ -25,7 +28,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter, LogLocator
+
+import baseline_style
 
 plt.style.use("seaborn-v0_8-whitegrid")
 # Bumped ~1.4× from the previous "moderate" sizing per user feedback that the
@@ -96,47 +102,52 @@ def _style_q_axes(ax):
 colors = plt.get_cmap("tab10").colors
 light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 
+baseline = baseline_style.tpch("tt", SCALE_FACTOR)
+BAR_WIDTH = 0.38
+
+
+def _log_axis(ax, values):
+    arr = np.asarray(values, dtype=float)
+    ax.set_yscale("log")
+    ax.set_ylim(np.nanmin(arr) / 2, np.nanmax(arr) * 3)
+    ax.yaxis.set_major_locator(LogLocator(base=10))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
+
+
+def draw_query_panel(ax, tt, base, color_idx, hatch, ylabel, log):
+    """TruthTable's bar and the baseline's bar for every query."""
+    x = np.arange(len(QUERY_IDS), dtype=float)
+    ax.bar(x, tt, width=BAR_WIDTH, facecolor=light[color_idx],
+           edgecolor=colors[color_idx], hatch=hatch, linewidth=0.8)
+    ax.bar(x + BAR_WIDTH, base, width=BAR_WIDTH, **baseline_style.BAR_STYLE)
+    ax.set_xticks(x + BAR_WIDTH / 2)
+    ax.set_xticklabels(query_labels)
+    ax.set_ylabel(ylabel)
+    _style_q_axes(ax)
+    if log:
+        _log_axis(ax, tt + base)
+    else:
+        ax.set_ylim(0, float(np.nanmax(np.asarray(tt + base, dtype=float))) * 1.10)
+
+
+def bvalues(col):
+    return [baseline_style.value(baseline, q, col) for q in QUERY_IDS]
+
 
 def draw_prover(ax):
-    one = tvalues("prover time 1thread (s)")
-    bar_width = 0.7
-    x = np.arange(len(QUERY_IDS), dtype=float)
-    ax.bar(x, one, width=bar_width, facecolor=light[0], edgecolor=colors[0],
-           hatch="/", linewidth=0.8)
-    ax.set_xticks(x)
-    ax.set_xticklabels(query_labels)
-    ax.set_ylabel("Prover Time (s)")
-    _style_q_axes(ax)
-    ymax = float(np.nanmax(np.asarray(one, dtype=float)))
-    ax.set_ylim(0, ymax * 1.10)
+    draw_query_panel(ax, tvalues("prover time 1thread (s)"),
+                     bvalues("prover time 1thread (s)"), 0, "/", "Prover Time (s)", True)
 
 
 def draw_proof_size(ax):
-    sizes = tvalues("total proof size (KB)")
-    bar_width = 0.7
-    x = np.arange(len(QUERY_IDS), dtype=float)
-    ax.bar(x, sizes, width=bar_width, facecolor=light[4], edgecolor=colors[4],
-           hatch="x", linewidth=0.8)
-    ax.set_xticks(x)
-    ax.set_xticklabels(query_labels)
-    ax.set_ylabel("Proof Size (KB)")
-    _style_q_axes(ax)
-    ymax = float(np.nanmax(np.asarray(sizes, dtype=float)))
-    ax.set_ylim(0, ymax * 1.10)
+    draw_query_panel(ax, tvalues("total proof size (KB)"), bvalues("proof size (KB)"),
+                     4, "x", "Proof Size (KB)", True)
 
 
 def draw_verifier(ax):
-    total = tvalues("total verifier time (ms)")
-    bar_width = 0.7
-    x = np.arange(len(QUERY_IDS), dtype=float)
-    ax.bar(x, total, width=bar_width, facecolor=light[2], edgecolor=colors[2],
-           hatch="/", linewidth=0.8)
-    ax.set_xticks(x)
-    ax.set_xticklabels(query_labels)
-    ax.set_ylabel("Verifier Time (ms)")
-    _style_q_axes(ax)
-    ymax = float(np.nanmax(np.asarray(total, dtype=float)))
-    ax.set_ylim(0, ymax * 1.10)
+    draw_query_panel(ax, tvalues("total verifier time (ms)"),
+                     bvalues("verifier time 1thread (ms)"), 2, "/", "Verifier Time (ms)",
+                     False)
 
 
 # ── Load commit rows ──────────────────────────────────────────────────
@@ -149,6 +160,7 @@ cdf = cdf[cdf["scale-factor"] == SCALE_FACTOR].copy()
 if cdf.empty:
     raise RuntimeError(f"no rows with scale-factor={SCALE_FACTOR} in {commit_path}")
 cdf = cdf.sort_values("table").reset_index(drop=True)
+commit_baseline = baseline_style.commit(SCALE_FACTOR)
 
 def draw_commit(ax):
     # Distinct color + hatch from the other three panels:
@@ -156,18 +168,20 @@ def draw_commit(ax):
     palette_face = light[1]
     palette_edge = colors[1]
     x = np.arange(len(cdf))
-    seconds = cdf["latency-1thread(ms)"] / 1000.0
-    ax.bar(x, seconds, width=0.7,
+    seconds = (cdf["latency-1thread(ms)"] / 1000.0).tolist()
+    base_seconds = [
+        baseline_style.value(commit_baseline, t, "latency-1thread(ms)") / 1000.0
+        for t in cdf["table"]
+    ]
+    ax.bar(x, seconds, width=BAR_WIDTH,
            facecolor=palette_face, edgecolor=palette_edge, hatch="\\", linewidth=0.8)
+    ax.bar(x + BAR_WIDTH, base_seconds, width=BAR_WIDTH, **baseline_style.BAR_STYLE)
     # Full table names on the axis: an abbreviation key inside the panel
     # covers the bars once the larger tables pass a few seconds.
-    ax.set_xticks(x, cdf["table"].tolist(), fontsize="small")
+    ax.set_xticks(x + BAR_WIDTH / 2, cdf["table"].tolist(), fontsize="small")
     ax.set_xlabel("Table")
     ax.set_ylabel("Commit Latency (s)")
-    ax.set_yscale("log")
-    ax.set_ylim(top=seconds.max() * 3)
-    ax.yaxis.set_major_locator(LogLocator(base=10))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
+    _log_axis(ax, seconds + base_seconds)
     ax.tick_params(axis="x", pad=10)
     ax.tick_params(axis="y", pad=10)
     ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
@@ -183,6 +197,22 @@ draw_commit(axes[0, 0])
 draw_verifier(axes[0, 1])
 draw_prover(axes[1, 0])
 draw_proof_size(axes[1, 1])
+
+# TruthTable's bars take each panel's color; the baseline's are the same in
+# every panel.
+fig.legend(
+    handles=[
+        Patch(facecolor="white", edgecolor="black", linewidth=0.8, label="TruthTable (colored)"),
+        Patch(label=baseline_style.LABEL, **baseline_style.BAR_STYLE),
+    ],
+    ncol=2,
+    loc="lower center",
+    bbox_to_anchor=(0.5, 1.0),
+    handlelength=2.2,
+    handleheight=1.4,
+    borderpad=0.6,
+    columnspacing=1.6,
+)
 
 fig.tight_layout()
 fig.savefig(figures_dir / "tpch_tt_combined.pdf", bbox_inches="tight")

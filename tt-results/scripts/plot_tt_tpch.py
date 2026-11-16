@@ -1,5 +1,6 @@
 """Plot prover / verifier / proof-size figures for TruthTable on the
-regular TPC-H queries (System=tt rows of tidy/tpch.csv).
+regular TPC-H queries (System=tt rows of tidy/tpch.csv), next to the no-proof
+baseline on the same `_tt` queries (tidy/tpch_baseline.csv).
 
 Outputs:
   figures/tpch_tt_prover.pdf
@@ -16,6 +17,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter, LogLocator
+
+import baseline_style
 
 plt.style.use("seaborn-v0_8-whitegrid")
 plt.rcParams.update(
@@ -65,6 +69,22 @@ df = df[(df["System"] == "tt") & (df["scale-factor"] == SCALE_FACTOR)].copy()
 
 query_labels = [f"Q{q}" for q in QUERY_IDS]
 
+baseline = baseline_style.tpch("tt", SCALE_FACTOR)
+
+
+def baseline_values(col):
+    return [baseline_style.value(baseline, q, col) for q in QUERY_IDS]
+
+
+def _log_axis(ax, values):
+    """Log y axis from below the smallest bar to above the largest, with room
+    for the legend lines."""
+    arr = np.asarray(values, dtype=float)
+    ax.set_yscale("log")
+    ax.set_ylim(np.nanmin(arr) / 2, np.nanmax(arr) * 3)
+    ax.yaxis.set_major_locator(LogLocator(base=10))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
+
 
 def lookup(q_num, col):
     row = df[df["Q"] == f"q{q_num}"]
@@ -112,9 +132,12 @@ def plot_prover():
     one_thread = values("prover time 1thread (s)")
     four_thread = values("prover time 4threads (s)")
 
-    bar_width = 0.38
-    group_gap = 0.30
-    group_width = 2 * bar_width + group_gap
+    base_one = baseline_values("prover time 1thread (s)")
+    base_four = baseline_values("prover time 4threads (s)")
+
+    bar_width = 0.2
+    group_gap = 0.25
+    group_width = 4 * bar_width + group_gap
     x = np.arange(len(QUERY_IDS)) * group_width
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
@@ -132,7 +155,7 @@ def plot_prover():
         edgecolor=colors[one_color_idx],
         hatch="/",
         linewidth=0.8,
-        label="1 thread",
+        label="TT, 1 thread",
     )
     ax.bar(
         x + bar_width,
@@ -142,8 +165,13 @@ def plot_prover():
         edgecolor=colors[four_color_idx],
         hatch="x",
         linewidth=0.8,
-        label="4 threads",
+        label="TT, 4 threads",
     )
+    ax.bar(x + 2 * bar_width, base_one, width=bar_width,
+           label=f"{baseline_style.LABEL}, 1 thread", **baseline_style.BAR_STYLE)
+    ax.bar(x + 3 * bar_width, base_four, width=bar_width,
+           label=f"{baseline_style.LABEL}, 4 threads",
+           **{**baseline_style.BAR_STYLE, "facecolor": baseline_style.EDGE})
 
     one_arr = np.asarray(one_thread, dtype=float)
     four_arr = np.asarray(four_thread, dtype=float)
@@ -152,24 +180,23 @@ def plot_prover():
     four_avg = float(np.nanmean(four_arr))
     four_max = float(np.nanmax(four_arr))
     ax.axhline(one_avg, linestyle=":", linewidth=1.6, color=colors[one_color_idx],
-               label=f"1-thread avg = {one_avg:.1f} s")
+               label=f"TT 1-thread avg = {one_avg:.1f} s")
     ax.axhline(one_max, linestyle="--", linewidth=1.6, color=colors[one_color_idx],
-               label=f"1-thread max = {one_max:.1f} s")
+               label=f"TT 1-thread max = {one_max:.1f} s")
     ax.axhline(four_avg, linestyle=":", linewidth=1.6, color=colors[four_color_idx],
-               label=f"4-thread avg = {four_avg:.1f} s")
+               label=f"TT 4-thread avg = {four_avg:.1f} s")
     ax.axhline(four_max, linestyle="--", linewidth=1.6, color=colors[four_color_idx],
-               label=f"4-thread max = {four_max:.1f} s")
+               label=f"TT 4-thread max = {four_max:.1f} s")
 
-    ax.set_xticks(x + bar_width / 2)
+    ax.set_xticks(x + 1.5 * bar_width)
     ax.set_xticklabels(query_labels)
     ax.set_ylabel("Prover Time (s)")
     _style_axes(ax)
-    _mark_missing(ax, x + bar_width / 2)
-    ax.set_xlim(x[0] - bar_width, x[-1] + 2 * bar_width)
-    ymax = max(one_max, four_max)
-    ax.set_ylim(0, ymax * 1.10)
+    _mark_missing(ax, x + 1.5 * bar_width)
+    ax.set_xlim(x[0] - bar_width, x[-1] + 4 * bar_width)
+    _log_axis(ax, one_thread + four_thread + base_one + base_four)
     ax.legend(
-        ncol=6,
+        ncol=4,
         loc="lower center",
         bbox_to_anchor=(0.5, 1.04),
         handlelength=2.2,
@@ -187,8 +214,9 @@ def plot_prover():
 def plot_verifier():
     core = values("core verifier time (ms)")
     preprocessed = values("preprocessed veritifier time (ms)")
+    base = baseline_values("verifier time 1thread (ms)")
 
-    bar_width = 0.55
+    bar_width = 0.38
     x = np.arange(len(QUERY_IDS), dtype=float)
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
@@ -216,6 +244,7 @@ def plot_verifier():
         linewidth=0.8,
         label="Non-cryptographic",
     )
+    ax.bar(x + bar_width, base, width=bar_width, **baseline_style.BAR_STYLE)
 
     core_arr = np.asarray(core, dtype=float)
     pre_arr = np.asarray(preprocessed, dtype=float)
@@ -231,27 +260,28 @@ def plot_verifier():
     line_full_avg = ax.axhline(full_avg, linestyle=":", linewidth=1.6, color=full_color)
     line_full_max = ax.axhline(full_max, linestyle="--", linewidth=1.6, color=full_color)
 
-    ax.set_xticks(x)
+    ax.set_xticks(x + bar_width / 2)
     ax.set_xticklabels(query_labels)
     ax.set_ylabel("Verifier Time (ms)")
     _style_axes(ax)
-    _mark_missing(ax, x)
-    ax.set_xlim(x[0] - 0.6, x[-1] + 0.6)
-    ax.set_ylim(0, full_max * 1.10)
+    _mark_missing(ax, x + bar_width / 2)
+    ax.set_xlim(x[0] - 0.6, x[-1] + 0.6 + bar_width)
+    ax.set_ylim(0, max(full_max, float(np.nanmax(np.asarray(base, dtype=float)))) * 1.10)
     legend_handles = [
-        Patch(facecolor=light[2], edgecolor=colors[2], hatch="/", label="Cryptographic"),
-        Patch(facecolor=light[3], edgecolor=colors[3], hatch="\\", label="Non-cryptographic"),
-        (line_crypto_avg, f"Crypto avg = {crypto_avg:.1f} ms"),
-        (line_crypto_max, f"Crypto max = {crypto_max:.1f} ms"),
-        (line_full_avg, f"Full avg = {full_avg:.1f} ms"),
-        (line_full_max, f"Full max = {full_max:.1f} ms"),
+        Patch(facecolor=light[2], edgecolor=colors[2], hatch="/", label="TT cryptographic"),
+        Patch(facecolor=light[3], edgecolor=colors[3], hatch="\\", label="TT non-cryptographic"),
+        Patch(label=f"{baseline_style.LABEL}, 1 thread", **baseline_style.BAR_STYLE),
+        (line_crypto_avg, f"TT crypto avg = {crypto_avg:.1f} ms"),
+        (line_crypto_max, f"TT crypto max = {crypto_max:.1f} ms"),
+        (line_full_avg, f"TT full avg = {full_avg:.1f} ms"),
+        (line_full_max, f"TT full max = {full_max:.1f} ms"),
     ]
     handles = [h if isinstance(h, Patch) else h[0] for h in legend_handles]
     labels = [h.get_label() if isinstance(h, Patch) else h[1] for h in legend_handles]
     ax.legend(
         handles,
         labels,
-        ncol=6,
+        ncol=4,
         loc="lower center",
         bbox_to_anchor=(0.5, 1.04),
         handlelength=2.2,
@@ -268,8 +298,9 @@ def plot_verifier():
 
 def plot_proof_size():
     sizes = values("total proof size (KB)")
+    base = baseline_values("proof size (KB)")
 
-    bar_width = 0.55
+    bar_width = 0.38
     x = np.arange(len(QUERY_IDS), dtype=float)
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
@@ -284,23 +315,26 @@ def plot_proof_size():
         edgecolor=colors[4],
         hatch="x",
         linewidth=0.8,
+        label="TruthTable",
     )
+    ax.bar(x + bar_width, base, width=bar_width, label=baseline_style.LABEL,
+           **baseline_style.BAR_STYLE)
 
     sizes_arr = np.asarray(sizes, dtype=float)
     mean_val = float(np.nanmean(sizes_arr))
     max_val = float(np.nanmax(sizes_arr))
-    ax.axhline(mean_val, linestyle=":", linewidth=1.6, color=colors[0], label=f"Avg = {mean_val:.1f} KB")
-    ax.axhline(max_val, linestyle=":", linewidth=1.6, color=colors[3], label=f"Max = {max_val:.1f} KB")
+    ax.axhline(mean_val, linestyle=":", linewidth=1.6, color=colors[0], label=f"TT avg = {mean_val:.1f} KB")
+    ax.axhline(max_val, linestyle=":", linewidth=1.6, color=colors[3], label=f"TT max = {max_val:.1f} KB")
 
-    ax.set_xticks(x)
+    ax.set_xticks(x + bar_width / 2)
     ax.set_xticklabels(query_labels)
     ax.set_ylabel("Proof Size (KB)")
     _style_axes(ax)
-    _mark_missing(ax, x)
-    ax.set_xlim(x[0] - 0.6, x[-1] + 0.6)
-    ax.set_ylim(0, max_val * 1.10)
+    _mark_missing(ax, x + bar_width / 2)
+    ax.set_xlim(x[0] - 0.6, x[-1] + 0.6 + bar_width)
+    _log_axis(ax, sizes + base)
     ax.legend(
-        ncol=2,
+        ncol=4,
         loc="lower center",
         bbox_to_anchor=(0.5, 1.02),
         handlelength=2.2,

@@ -5,8 +5,10 @@ Reads tidy/micro.csv.
 
 Outputs (one per curve, since each Truth Table competitor only runs on one
 of the two curves we support):
-  figures/micro_bn254.pdf      — TT (BN254)      vs PoSQL
-  figures/micro_bls12_381.pdf  — TT (BLS12-381)  vs QEDB
+  figures/micro_bn254.pdf      — TT (BN254)      vs PoSQL vs Baseline
+  figures/micro_bls12_381.pdf  — TT (BLS12-381)  vs QEDB  vs Baseline
+
+The baseline (no proof system, curve "none") is the same bar in both.
 
 Each PDF has prover time, verifier time, and proof size side-by-side, sharing
 one legend.
@@ -21,6 +23,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.ticker import FuncFormatter, LogLocator
+
+import baseline_style
 
 plt.style.use("seaborn-v0_8-whitegrid")
 # Match the font sizes used in plot_tt_tpch_combined.py so all plots share
@@ -117,6 +121,7 @@ palette = {
     "tt_join_pk_fk_bls12_381": {"edge": "#1f77b4", "face": "#aacde9"},
     "posql": {"edge": "#e31a1c", "face": "#f9d6d6"},
     "qedb": {"edge": "#33a02c", "face": "#d9efd6"},
+    "baseline": {"edge": baseline_style.EDGE, "face": baseline_style.FACE},
 }
 hatches = {
     "tt_bn254": "/",
@@ -125,6 +130,7 @@ hatches = {
     "tt_join_pk_fk_bls12_381": "//",
     "posql": "x",
     "qedb": "\\",
+    "baseline": baseline_style.HATCH,
 }
 
 
@@ -167,10 +173,13 @@ def build_groups(variant):
     pkfk_bar = f"tt_join_pk_fk_{variant['curve']}"
     competitor = variant["competitor_bar"]
     all_groups = {
-        "Filter": {"label": "Filter", "bars": [(tt_bar, "filter"), (competitor, "filter")]},
+        "Filter": {
+            "label": "Filter",
+            "bars": [(tt_bar, "filter"), (competitor, "filter"), ("baseline", "filter")],
+        },
         "Aggregate": {
             "label": "Aggregate",
-            "bars": [(tt_bar, "aggregate"), (competitor, "aggregate")],
+            "bars": [(tt_bar, "aggregate"), (competitor, "aggregate"), ("baseline", "aggregate")],
         },
         "Join": {
             "label": "Join",
@@ -178,9 +187,13 @@ def build_groups(variant):
                 (tt_bar, "join"),
                 (pkfk_bar, "join_pk_fk"),
                 (competitor, "join"),
+                ("baseline", "join"),
             ],
         },
-        "Limit": {"label": "Limit", "bars": [(tt_bar, "limit"), (competitor, "limit")]},
+        "Limit": {
+            "label": "Limit",
+            "bars": [(tt_bar, "limit"), (competitor, "limit"), ("baseline", "limit")],
+        },
     }
     return [all_groups[name] for name in variant["operators"]]
 
@@ -188,12 +201,12 @@ def build_groups(variant):
 BAR_WIDTH = 0.16
 GROUP_GAP = 0.22
 
-# Reference layout: the original 4-operator BN254 plot (Filter+Aggregate+Join+
-# Limit = 9 bars across 4 groups) was tuned at figsize_width=46 inches. Scale
-# any variant's figure width by its share of that reference x-extent so the
-# bars keep their physical width on the page regardless of operator count.
+# Reference layout: the 4-operator BN254 plot (Filter+Aggregate+Join+Limit =
+# 13 bars across 4 groups) at figsize_width=46 inches. Every variant's panel
+# spans this x-extent so the bars keep their physical width on the page
+# regardless of operator count.
 REFERENCE_FIGSIZE_WIDTH = 46.0
-REFERENCE_PANEL_X_EXTENT = 9 * BAR_WIDTH + 3 * GROUP_GAP
+REFERENCE_PANEL_X_EXTENT = 13 * BAR_WIDTH + 3 * GROUP_GAP
 
 
 def panel_x_extent(groups, group_gap=GROUP_GAP):
@@ -289,6 +302,7 @@ def render_variant(variant):
     legend_specs = [
         (variant["tt_bar"], variant["tt_label"]),
         (variant["competitor_bar"], variant["competitor_label"]),
+        ("baseline", baseline_style.LABEL),
     ]
     legend_handles = [
         plt.Rectangle(

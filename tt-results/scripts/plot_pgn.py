@@ -1,8 +1,10 @@
 """Plot the Poneglyph comparison: TruthTable (on `_pgn` query variants) vs
-PoneglyphDB, side-by-side per query.
+PoneglyphDB vs the no-proof baseline (on the same `_pgn` queries),
+side-by-side per query.
 
-Reads tidy/tpch_pgn.csv. Both systems use Q=q{N} in that CSV; System
-distinguishes which prover produced the row.
+Reads tidy/tpch_pgn.csv (TT and Poneglyph; both use Q=q{N}, System
+distinguishes them) and tidy/tpch_baseline.csv (variant=pgn). Prover time and
+proof size are on log axes: the baseline's are milliseconds and megabytes.
 
 Outputs:
   figures/tpch_pgn_combined.pdf — single PDF with prover time, verifier time,
@@ -19,6 +21,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import FuncFormatter, LogLocator
+
+import baseline_style
 
 plt.style.use("seaborn-v0_8-whitegrid")
 # Match the font sizes used in plot_tt_tpch_combined.py so all plots share
@@ -66,7 +71,15 @@ query_labels = [f"Q{q}" for q in query_ids]
 series_specs = [
     ("TT simplified", "tt"),
     ("Poneglyph simplified", "poneglyph"),
+    (f"{baseline_style.LABEL} simplified", "baseline"),
 ]
+
+baseline = baseline_style.tpch("pgn", SCALE_FACTOR)
+BASELINE_COLUMNS = {
+    "prover": "prover time 1thread (s)",
+    "verifier": "verifier time 1thread (ms)",
+    "proof_size": "proof size (KB)",
+}
 
 
 def metric_column(system, value_key):
@@ -82,6 +95,8 @@ def metric_column(system, value_key):
 
 
 def pick_value(q_num, system, value_key):
+    if system == "baseline":
+        return baseline_style.value(baseline, q_num, BASELINE_COLUMNS[value_key])
     row = df[(df["Q"] == f"q{q_num}") & (df["System"] == system)]
     if row.empty:
         return np.nan
@@ -100,6 +115,12 @@ light_colors = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 hatches = ["/", "x", "\\"]
 
 
+def bar_style(i, system):
+    if system == "baseline":
+        return baseline_style.BAR_STYLE
+    return dict(facecolor=light_colors[i], edgecolor=colors[i], hatch=hatches[i], linewidth=0.8)
+
+
 def draw_panel(ax, value_key, ylabel):
     series = build_series(value_key)
 
@@ -108,19 +129,14 @@ def draw_panel(ax, value_key, ylabel):
     group_width = len(series_specs) * bar_width + group_gap
     x = np.arange(len(query_ids)) * group_width
 
-    for i, ((_, _system), heights) in enumerate(zip(series_specs, series)):
-        ax.bar(
-            x + i * bar_width,
-            heights,
-            width=bar_width,
-            alpha=1.0,
-            facecolor=light_colors[i],
-            edgecolor=colors[i],
-            hatch=hatches[i],
-            linewidth=0.8,
-        )
+    for i, ((_, system), heights) in enumerate(zip(series_specs, series)):
+        ax.bar(x + i * bar_width, heights, width=bar_width, **bar_style(i, system))
 
-    ax.set_xticks(x + bar_width, query_labels)
+    ax.set_xticks(x + bar_width * (len(series_specs) - 1) / 2, query_labels)
+    if value_key in ("prover", "proof_size"):
+        ax.set_yscale("log")
+        ax.yaxis.set_major_locator(LogLocator(base=10))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
     ax.set_xlabel("TPC-H Query")
     ax.set_ylabel(ylabel)
     ax.tick_params(axis="x", pad=10)
@@ -135,16 +151,8 @@ panels = [
 ]
 
 legend_handles = [
-    plt.Rectangle(
-        (0, 0),
-        1,
-        1,
-        facecolor=light_colors[i],
-        edgecolor=colors[i],
-        hatch=hatches[i],
-        linewidth=0.8,
-    )
-    for i in range(len(series_specs))
+    plt.Rectangle((0, 0), 1, 1, **bar_style(i, system))
+    for i, (_, system) in enumerate(series_specs)
 ]
 legend_labels = [label for label, _ in series_specs]
 legend_style = dict(
