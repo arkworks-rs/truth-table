@@ -128,7 +128,7 @@ fn bench_filter_prover(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_filter_prover", case.name);
 }
 
-#[divan::bench(args = filter_cases(), sample_size = 10)]
+#[divan::bench(args = filter_cases(), sample_size = 10, max_time = 1)]
 fn bench_filter_verifier(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark: preprocess once, then time from tracking onward.
     let assets = prepare_assets_cached(case);
@@ -156,7 +156,7 @@ fn bench_filter_like_prover(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_filter_like_prover", case.name);
 }
 
-#[divan::bench(args = filter_like_cases(), sample_size = 10)]
+#[divan::bench(args = filter_like_cases(), sample_size = 10, max_time = 1)]
 fn bench_filter_like_verifier(bencher: Bencher, case: BenchCase) {
     let assets = prepare_assets_cached(case);
     let _ = warmup_proof(&assets);

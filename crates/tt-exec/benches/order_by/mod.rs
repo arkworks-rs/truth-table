@@ -44,7 +44,7 @@ fn bench_order_by_prover(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_order_by_prover", case.name);
 }
 
-#[divan::bench(args = order_by_cases(), sample_size = 10)]
+#[divan::bench(args = order_by_cases(), sample_size = 10, max_time = 1)]
 fn bench_order_by_verifier(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark: preprocess once, then time from tracking onward.
     let assets = prepare_assets_cached(case);

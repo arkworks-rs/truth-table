@@ -167,7 +167,7 @@ fn bench_join_prover(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_join_prover", case.name);
 }
 
-#[divan::bench(args = join_cases(), sample_size = 10)]
+#[divan::bench(args = join_cases(), sample_size = 10, max_time = 1)]
 fn bench_join_verifier(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark: preprocess once, then time from tracking onward.
     let assets = prepare_assets_cached(case);
