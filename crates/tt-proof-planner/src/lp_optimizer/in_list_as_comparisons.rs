@@ -1,12 +1,8 @@
 //! Rewrites an IN list that has a value other than a non-null literal:
 //! `x IN (v1, .., vk)` as `x = v1 OR .. OR x = vk`, and `x NOT IN (v1, .., vk)`
 //! as `x <> v1 AND .. AND x <> vk`. A list of literals stays, for the
-//! membership gadget. `SimplifyExpressions` merges an OR of equalities on one
+//! membership gadgets. `SimplifyExpressions` merges an OR of equalities on one
 //! column back into an IN list, so this rule runs after its last pass.
-//!
-//! TODO(#183): a literal list costs a zerocheck of degree `k + 1`, whose
-//! expansion grows with the number of data columns of `x`. Prove long lists
-//! as a semi join (anti join for `NOT IN`) with the list as a public table.
 
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
 use datafusion_common::{

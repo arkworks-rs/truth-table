@@ -51,18 +51,8 @@ pub struct InListNode<B: SnarkBackend> {
 impl<B: SnarkBackend> InListNode<B> {
     pub fn new(list: &[ScalarValue], negated: bool) -> Self {
         assert!(!list.is_empty(), "an IN list needs at least one value");
-        let values = list
-            .iter()
-            .map(|value| {
-                arithmetic::encoding::scalar_to_fields::<B::F>(value)
-                    .unwrap_or_else(|| panic!("IN list value {value} has no field encoding"))
-                    .iter()
-                    .map(|segment| segment.value_as_field(0))
-                    .collect()
-            })
-            .collect();
         Self {
-            values,
+            values: value_segments(list),
             negated,
             bool_check: Arc::new(Node::<B>::Gadget(Arc::new(bool::GadgetNode::<B>::new()))),
         }
@@ -287,37 +277,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for InListNode<B> {
         else {
             return Ok(());
         };
-        let columns: Vec<Vec<B::F>> = input
-            .tracked_polys_iter()
-            .filter(|(field, _)| !is_system_column(field.name()) && !is_rank_segment(field.name()))
-            .map(|(_, poly)| poly.evaluations())
-            .collect();
-        let activator = input.activator_tracked_poly().map(|act| act.evaluations());
-        let output_ind = output.data_tracked_polys_indices()[0];
-        let b = output
-            .tracked_col_by_ind(output_ind)
-            .data_tracked_poly()
-            .evaluations();
-        for (row, b) in b.iter().enumerate() {
-            let expected = match &activator {
-                Some(act) if act[row].is_zero() => false,
-                _ => {
-                    let member = self.values.iter().any(|value| {
-                        value
-                            .iter()
-                            .zip(&columns)
-                            .all(|(v, column)| column[row] == *v)
-                    });
-                    member != self.negated
-                }
-            };
-            if *b != B::F::from(expected) {
-                return Err(SnarkError::ProverError(ProverError::HonestProverError(
-                    HonestProverError::FalseClaim,
-                )));
-            }
-        }
-        Ok(())
+        check_result(&self.values, self.negated, input, output)
     }
 
     fn verify(
@@ -422,4 +382,59 @@ impl<B: SnarkBackend> IsGadgetNode<B> for InListNode<B> {
     fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
     }
+}
+
+/// The row-domain segments of each value, in the order the tested
+/// expression's data columns have them.
+pub(super) fn value_segments<F: ark_ff::PrimeField>(list: &[ScalarValue]) -> Vec<Vec<F>> {
+    list.iter()
+        .map(|value| {
+            arithmetic::encoding::scalar_to_fields::<F>(value)
+                .unwrap_or_else(|| panic!("IN list value {value} has no field encoding"))
+                .iter()
+                .map(|segment| segment.value_as_field(0))
+                .collect()
+        })
+        .collect()
+}
+
+/// The honest prover's check that `output` is `input [NOT] IN values` on the
+/// active rows and false elsewhere.
+pub(super) fn check_result<B: SnarkBackend>(
+    values: &[Vec<B::F>],
+    negated: bool,
+    input: &arithmetic::table::TrackedTable<B>,
+    output: &arithmetic::table::TrackedTable<B>,
+) -> SnarkResult<()> {
+    let columns: Vec<Vec<B::F>> = input
+        .tracked_polys_iter()
+        .filter(|(field, _)| !is_system_column(field.name()) && !is_rank_segment(field.name()))
+        .map(|(_, poly)| poly.evaluations())
+        .collect();
+    let activator = input.activator_tracked_poly().map(|act| act.evaluations());
+    let output_ind = output.data_tracked_polys_indices()[0];
+    let b = output
+        .tracked_col_by_ind(output_ind)
+        .data_tracked_poly()
+        .evaluations();
+    for (row, b) in b.iter().enumerate() {
+        let expected = match &activator {
+            Some(act) if act[row].is_zero() => false,
+            _ => {
+                let member = values.iter().any(|value| {
+                    value
+                        .iter()
+                        .zip(&columns)
+                        .all(|(v, column)| column[row] == *v)
+                });
+                member != negated
+            }
+        };
+        if *b != B::F::from(expected) {
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+    }
+    Ok(())
 }

@@ -1,6 +1,8 @@
 //! `x [NOT] IN (v1, .., vk)` over literal values: the result is committed and
-//! proved by the membership gadget (`gadget`). A list with a non-literal value
-//! is rewritten into comparisons before the IR is built.
+//! proved by a membership gadget, `gadget` for a list of at most
+//! [`MAX_PRODUCT_VALUES`] distinct values and `long_list` for a longer one. A
+//! list with a non-literal value is rewritten into comparisons before the IR
+//! is built.
 
 use std::sync::Arc;
 
@@ -18,11 +20,18 @@ use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 
 pub mod gadget;
+pub mod long_list;
+
+/// The longest list `gadget` proves. Its zerocheck has degree `k + 1`, so its
+/// cost grows faster than linearly in `k`; `long_list` costs a sort of the
+/// distinct values and a lookup, whatever `k`.
+pub const MAX_PRODUCT_VALUES: usize = 8;
 
 pub struct ExprNode<B: SnarkBackend> {
     in_list: InList,
     expr: Arc<Node<B>>,
     gadget: Arc<Node<B>>,
+    long_list: bool,
     scope: Vec<std::sync::Weak<Node<B>>>,
     parent: Option<std::sync::Weak<Node<B>>>,
 }
@@ -61,6 +70,71 @@ impl<B: SnarkBackend> ExprNode<B> {
             Node::Plan(plan_node) => output(plan_node),
             Node::Gadget(_) => panic!("InList scope cannot be a gadget node"),
         }
+    }
+
+    /// The long-list gadget's plan-time keys: `x`, whether it is in the list,
+    /// the activator (all true without one) and the row id.
+    fn prover_keys_hint(&self) -> crate::irs::nodes::hints::HintDF {
+        let scope_hint_df = self.scope_output(|plan_node| {
+            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                plan_node,
+            )
+        });
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("in-list row-id sort should succeed");
+        let member = Expr::InList(InList {
+            negated: false,
+            ..self.in_list.clone()
+        });
+        let activator = crate::irs::nodes::hints::activator_expr(&input_df).unwrap_or(lit(true));
+        let mut exprs = vec![
+            self.in_list.expr.as_ref().clone().alias(long_list::KEY_COL),
+            member.alias(long_list::MEMBER_COL),
+            activator.alias(arithmetic::ACTIVATOR_COL_NAME),
+        ];
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+        let keys = input_df
+            .select(exprs)
+            .expect("in-list keys projection should succeed");
+        crate::irs::nodes::hints::HintDF::new_virtual(keys)
+    }
+
+    fn verifier_keys_hint(&self) -> crate::irs::nodes::hints::HintDF {
+        let scope_hint_df = self.scope_output(|plan_node| {
+            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                plan_node,
+            )
+        });
+        let key_type = self
+            .in_list
+            .expr
+            .get_type(scope_hint_df.data_frame().schema())
+            .expect("the IN list's tested expression has a type");
+        crate::irs::nodes::hints::HintDF::new_virtual(crate::irs::nodes::hints::schema_only_df(
+            vec![
+                Field::new(long_list::KEY_COL, key_type, true),
+                Field::new(long_list::MEMBER_COL, DataType::Boolean, true),
+                ACTIVATOR_FIELD.as_ref().clone(),
+                Field::new(ROW_ID_COL_NAME, DataType::Int64, false),
+            ],
+        ))
+    }
+
+    fn hand_keys_to_gadget(
+        &self,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        keys: crate::irs::nodes::hints::HintDF,
+    ) {
+        let mut payload = match planned_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload.clone(),
+            _ => IndexMap::new(),
+        };
+        payload.insert(long_list::KEYS_LABEL.to_string(), keys);
+        planned_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(payload)),
+        );
     }
 
     fn should_materialize(fields: &[FieldRef]) -> IndexMap<FieldRef, bool> {
@@ -152,10 +226,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => panic!("Expected PlanPayload for an InList table"),
         };
-        let payload = IndexMap::from([
-            (gadget::INPUT_LABEL.to_string(), table(&self.expr.id())),
-            (gadget::OUTPUT_LABEL.to_string(), table(&id)),
-        ]);
+        let (input, output) = (table(&self.expr.id()), table(&id));
+        let mut payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload.clone(),
+            _ => IndexMap::new(),
+        };
+        payload.insert(gadget::INPUT_LABEL.to_string(), input);
+        payload.insert(gadget::OUTPUT_LABEL.to_string(), output);
         virtualized_ir.set_payload_for_node(
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(payload)),
@@ -166,8 +243,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
     fn initialize_gadget_plans(
         &self,
         _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.long_list {
+            let keys = self.prover_keys_hint();
+            self.hand_keys_to_gadget(planned_ir, keys);
+        }
         Ok(())
     }
 }
@@ -237,10 +318,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => panic!("Expected PlanPayload for an InList table"),
         };
-        let payload = IndexMap::from([
-            (gadget::INPUT_LABEL.to_string(), table(&self.expr.id())),
-            (gadget::OUTPUT_LABEL.to_string(), table(&id)),
-        ]);
+        let (input, output) = (table(&self.expr.id()), table(&id));
+        let mut payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload.clone(),
+            _ => IndexMap::new(),
+        };
+        payload.insert(gadget::INPUT_LABEL.to_string(), input);
+        payload.insert(gadget::OUTPUT_LABEL.to_string(), output);
         virtualized_ir.set_payload_for_node(
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(payload)),
@@ -251,8 +335,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn initialize_gadget_plans(
         &self,
         _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.long_list {
+            let keys = self.verifier_keys_hint();
+            self.hand_keys_to_gadget(planned_ir, keys);
+        }
         Ok(())
     }
 }
@@ -343,14 +431,23 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         let expr = Tree::<B>::from_expr(&in_list.expr, Some(self_ref.clone()), scope.clone())
             .root()
             .clone();
-        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(gadget::InListNode::new(
-            &values,
-            in_list.negated,
-        ))));
+        let distinct: Vec<ScalarValue> = values
+            .iter()
+            .cloned()
+            .collect::<indexmap::IndexSet<_>>()
+            .into_iter()
+            .collect();
+        let long_list = distinct.len() > MAX_PRODUCT_VALUES;
+        let gadget: Arc<dyn crate::irs::nodes::IsGadgetNode<B>> = if long_list {
+            Arc::new(long_list::LongListNode::new(distinct, in_list.negated))
+        } else {
+            Arc::new(gadget::InListNode::new(&values, in_list.negated))
+        };
         Self {
             in_list,
             expr,
-            gadget,
+            gadget: Arc::new(Node::<B>::Gadget(gadget)),
+            long_list,
             scope,
             parent,
         }

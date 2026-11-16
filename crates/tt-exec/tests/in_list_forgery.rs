@@ -1,8 +1,8 @@
 #![cfg(feature = "test-utils")]
-//! A dishonest prover against a string IN list. The forgery commits the
-//! negated membership result ([`set_in_list_forgery`]), and the prover claims
-//! that result, so the result check passes and only the membership gadget can
-//! reject.
+//! A dishonest prover against string IN lists, short and long (the two
+//! membership gadgets). The forgery commits the negated membership result
+//! ([`set_in_list_forgery`]), and the prover claims that result, so the result
+//! check passes and only the membership gadget can reject.
 //!
 //! The forgery is process-wide, so this binary has a single test.
 
@@ -23,12 +23,15 @@ use tt_exec::{
     },
 };
 
-const QUERY: &str = "SELECT n_nationkey, n_name IN ('ALGERIA', 'BRAZIL', 'CANADA', 'EGYPT') AS c \
-     FROM nation";
+const QUERIES: [&str; 2] = [
+    "SELECT n_nationkey, n_name IN ('ALGERIA', 'BRAZIL', 'CANADA', 'EGYPT') AS c FROM nation",
+    "SELECT n_nationkey, n_name IN ('ALGERIA', 'BRAZIL', 'CANADA', 'EGYPT', 'FRANCE', 'GERMANY', \
+     'INDIA', 'JAPAN', 'KENYA', 'PERU') AS c FROM nation",
+];
 
-async fn prove(pk: &Path, oracle: &Path, tag: &str) -> ProveOutputs {
+async fn prove(query: &str, pk: &Path, oracle: &Path, tag: &str) -> ProveOutputs {
     ProveBuilder::new()
-        .with_query(QUERY.to_owned())
+        .with_query(query.to_owned())
         .with_parquet_paths(vec![
             resolve_parquet_path("nation").expect("nation parquet"),
         ])
@@ -73,33 +76,35 @@ async fn forged_in_list_is_rejected() {
         .await
         .expect("nation oracle");
 
-    let honest = prove(&pk, &oracle, "honest").await;
-    verify_on_thread(
-        QUERY,
-        vec![oracle.clone()],
-        &honest.proof_path,
-        &honest.result_path,
-        &vk,
-    )
-    .expect("the honest proof must verify; otherwise the rejection below proves nothing");
-    let claimed = flag_negated(&read_result(&honest.result_path));
+    for (index, query) in QUERIES.into_iter().enumerate() {
+        let honest = prove(query, &pk, &oracle, &format!("honest{index}")).await;
+        verify_on_thread(
+            query,
+            vec![oracle.clone()],
+            &honest.proof_path,
+            &honest.result_path,
+            &vk,
+        )
+        .expect("the honest proof must verify; otherwise the rejection below proves nothing");
+        let claimed = flag_negated(&read_result(&honest.result_path));
 
-    let forged = {
-        let _forgery = set_in_list_forgery();
-        let _claimed = set_claimed_result(Box::new(move |_| vec![claimed.clone()]));
-        prove(&pk, &oracle, "forged").await
-    };
-    let verdict = verify_on_thread(
-        QUERY,
-        vec![oracle.clone()],
-        &forged.proof_path,
-        &forged.result_path,
-        &vk,
-    );
-    match verdict {
-        Err(reason)
-            if reason.contains("verifier cryptographic verification failed")
-                && !reason.contains("panicked") => {}
-        other => panic!("the forged IN list must fail a check, got {other:?}"),
+        let forged = {
+            let _forgery = set_in_list_forgery();
+            let _claimed = set_claimed_result(Box::new(move |_| vec![claimed.clone()]));
+            prove(query, &pk, &oracle, &format!("forged{index}")).await
+        };
+        let verdict = verify_on_thread(
+            query,
+            vec![oracle.clone()],
+            &forged.proof_path,
+            &forged.result_path,
+            &vk,
+        );
+        match verdict {
+            Err(reason)
+                if reason.contains("verifier cryptographic verification failed")
+                    && !reason.contains("panicked") => {}
+            other => panic!("the forged IN list must fail a check: {query}, got {other:?}"),
+        }
     }
 }
