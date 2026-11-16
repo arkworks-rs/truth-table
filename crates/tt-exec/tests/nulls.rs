@@ -1,6 +1,7 @@
 #![cfg(feature = "test-utils")]
 //! The proof encodes NULL as 0, so NULL is kept out: the data owner does not
-//! commit one in an active row, and a query cannot produce one.
+//! commit one in an active row, and a query produces one only in an
+//! aggregate over no rows (`empty_subtrees`).
 
 use std::sync::Arc;
 
@@ -84,15 +85,6 @@ async fn a_null_in_a_derived_table_is_not_supported() {
          (SELECT CASE WHEN r_regionkey < 2 THEN r_regionkey END AS k FROM region) r \
          ON n_regionkey = r.k",
         &["nation", "region"],
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn a_sum_over_no_rows_is_not_supported() {
-    assert_rejected_as_null(
-        "SELECT SUM(n_nationkey) AS s FROM nation WHERE n_nationkey > 100",
-        &["nation"],
     )
     .await;
 }

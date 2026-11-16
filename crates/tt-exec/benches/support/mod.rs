@@ -626,28 +626,14 @@ pub fn run_preprocess_once(state: &VerifierFullBenchState) {
     // Time only one-time verifier preprocessing (planning/gadget planning cache fill).
     let lp = block_on_verifier(state.verifier.lp_passes(&state.query, &state.proof))
         .expect("verifier logical-plan preprocessing for bench");
+    let output_memtable = block_on_verifier(
+        state
+            .verifier
+            .output_table(&lp, Arc::clone(&state.output_memtable)),
+    )
+    .expect("verifier output preprocessing for bench");
     let gadget_planned_ir = block_on_verifier(state.verifier.ir_passes(lp))
         .expect("verifier ir preprocessing for bench");
-    let ctx = session_context();
-    let output_memtable = block_on_verifier(async {
-        let table: Arc<dyn TableProvider> = state.output_memtable.clone();
-        let df = ctx.read_table(table)?;
-        let batches = df.collect().await?;
-        let base_schema = batches
-            .first()
-            .map(|batch| batch.schema().as_ref().clone())
-            .unwrap_or_else(|| state.output_memtable.schema().as_ref().clone());
-        let (output_schema, output_batches) =
-            tt_core::prover::passes::materialization::append_activator_and_pad_batches(
-                &base_schema,
-                batches,
-            )?;
-        Ok::<Arc<MemTable>, tt_core::errors::TTError>(Arc::new(MemTable::try_new(
-            Arc::new(output_schema),
-            vec![output_batches],
-        )?))
-    })
-    .expect("verifier output preprocessing for bench");
     *state
         .preprocessed_gadget_ir
         .lock()

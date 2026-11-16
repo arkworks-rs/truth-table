@@ -20,7 +20,7 @@ mod prefilter_bins;
 mod proved_empty;
 pub use compaction::CompactionRule;
 pub use prefilter_bins::PrefilterBinsRule;
-pub use proved_empty::{EmptySubtreeRule, propagate_empty};
+pub use proved_empty::{EmptySubtreeRule, FixedResult, fixed_result, propagate_empty};
 
 /// A data-dependent decision the verifier replays. Each rule emits one
 /// variant.

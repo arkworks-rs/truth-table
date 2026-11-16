@@ -276,20 +276,68 @@ impl ExtensionPlanner for TTNoOpExtensionPlanner {
     }
 }
 
-/// The proof encodes NULL as 0, so a NULL in the result would be proved as a
-/// 0. An aggregate other than COUNT over no rows yields one.
-pub(crate) fn ensure_no_nulls_in_result(
-    batches: &[datafusion::arrow::record_batch::RecordBatch],
-) -> DataFusionResult<()> {
-    let nulls: usize = batches
+pub(crate) fn null_count(batches: &[datafusion::arrow::record_batch::RecordBatch]) -> usize {
+    batches
         .iter()
         .flat_map(|batch| batch.columns())
         .map(|column| column.null_count())
-        .sum();
-    if nulls > 0 {
-        return Err(DataFusionError::Plan(format!(
-            "NULL is not supported: the result holds {nulls} NULLs"
-        )));
-    }
-    Ok(())
+        .sum()
+}
+
+/// The proof encodes NULL as 0, so it proves a NULL in the result only in a
+/// result fixed by a proved-empty input, which the verifier computes itself.
+pub(crate) fn null_in_result() -> DataFusionError {
+    DataFusionError::Plan(
+        "NULL is not supported: the result holds a NULL outside an aggregate over no rows"
+            .to_string(),
+    )
+}
+
+/// Whether two results hold the same columns, by name, and the same rows in
+/// the same order, NULLs included. Strings compare as `Utf8`, whatever the
+/// array type that holds them.
+pub(crate) fn same_rows(
+    left: &[datafusion::arrow::record_batch::RecordBatch],
+    right: &[datafusion::arrow::record_batch::RecordBatch],
+) -> DataFusionResult<bool> {
+    use datafusion::arrow::{compute::cast, datatypes::DataType};
+    use datafusion_common::ScalarValue;
+    let rows = |batches: &[datafusion::arrow::record_batch::RecordBatch]| {
+        let mut names = None;
+        let mut rows = Vec::new();
+        for batch in batches {
+            let schema = batch.schema();
+            names.get_or_insert_with(|| {
+                schema
+                    .fields()
+                    .iter()
+                    .map(|field| field.name().clone())
+                    .collect::<Vec<_>>()
+            });
+            let columns = batch
+                .columns()
+                .iter()
+                .map(|column| match column.data_type() {
+                    DataType::Utf8View | DataType::LargeUtf8 => cast(column, &DataType::Utf8),
+                    _ => Ok(Arc::clone(column)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            for row in 0..batch.num_rows() {
+                rows.push(
+                    columns
+                        .iter()
+                        .map(|column| ScalarValue::try_from_array(column, row))
+                        .collect::<DataFusionResult<Vec<_>>>()?,
+                );
+            }
+        }
+        Ok::<_, DataFusionError>((names, rows))
+    };
+    let (left_names, left_rows) = rows(left)?;
+    let (right_names, right_rows) = rows(right)?;
+    let names_match = match (left_names, right_names) {
+        (Some(left), Some(right)) => left == right,
+        _ => true,
+    };
+    Ok(names_match && left_rows == right_rows)
 }

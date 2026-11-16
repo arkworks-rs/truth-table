@@ -13,7 +13,9 @@ use datafusion_expr::{
     SubqueryAlias, TableScan,
 };
 use indexmap::IndexMap;
-use proof_planner::data_dependent_lp_optimizer::{OptimizationHints, apply_optimization_hints};
+use proof_planner::data_dependent_lp_optimizer::{
+    OptimizationHints, apply_optimization_hints, fixed_result,
+};
 use proof_planner::lp_optimizer::FetchSafePushDownFilter;
 use tracing::{Instrument, Span, debug, info, info_span};
 use tt_core::irs::nodes::plan::lps::join::modes::{JoinMode, decide_join_mode};
@@ -402,11 +404,28 @@ impl<B: SnarkBackend> TTProver<B> {
     /// Executes the query and proves it. Returns the result table and the
     /// proof.
     pub async fn prove(&self, query: &str) -> TTResult<(Arc<MemTable>, TTProof<B>)> {
-        let result = self.execute(query).await?;
+        let (result, has_nulls) = self.execute(query).await?;
         let (lp, optimization_hints) = self.lp_passes(query).await?;
+        // A fixed result is the verifier's to compute: the result check sees
+        // the witness's empty output and an empty result.
+        let (lp, proved_result) = match fixed_result(&lp)? {
+            Some(fixed) => (
+                fixed.proved,
+                Arc::new(MemTable::try_new(
+                    datafusion::datasource::TableProvider::schema(result.as_ref()),
+                    vec![Vec::new()],
+                )?),
+            ),
+            None => {
+                if has_nulls {
+                    return Err(crate::shared::null_in_result().into());
+                }
+                (lp, Arc::clone(&result))
+            }
+        };
         tt_core::irs::supported::ensure_supported(&lp)?;
         let initial_ir = EmptyIr::<B>::from_logical_plan(&lp);
-        self.ir_passes(initial_ir, Arc::clone(&result)).await?;
+        self.ir_passes(initial_ir, proved_result).await?;
         let tt_proof = self.assemble_proof(optimization_hints)?;
         Ok((result, tt_proof))
     }
@@ -421,8 +440,9 @@ impl<B: SnarkBackend> TTProver<B> {
         )
     }
 
-    /// The query's result table, which is sent to the verifier.
-    async fn execute(&self, query: &str) -> TTResult<Arc<MemTable>> {
+    /// The query's result table, which is sent to the verifier, and whether
+    /// it holds a NULL.
+    async fn execute(&self, query: &str) -> TTResult<(Arc<MemTable>, bool)> {
         let lp = self.shared_config.query_to_lp(query).await;
         let analyzed_lp = self.shared_config.analyze_lp(lp).await;
         let optimized_lp = self.shared_config.optimize_lp(analyzed_lp).await;
@@ -453,11 +473,11 @@ impl<B: SnarkBackend> TTProver<B> {
         let df = DataFrame::new(state, optimized_lp);
         let logical_schema = df.schema().as_arrow().clone();
         let batches = df.collect().await?;
-        crate::shared::ensure_no_nulls_in_result(&batches)?;
+        let has_nulls = crate::shared::null_count(&batches) > 0;
         #[cfg(feature = "test-utils")]
         let batches = tt_core::test_utils::dishonest_prover::claimed_result(batches);
         let mem_table = MemTable::try_new(Arc::new(logical_schema), vec![batches])?;
-        Ok(Arc::new(mem_table))
+        Ok((Arc::new(mem_table), has_nulls))
     }
 }
 

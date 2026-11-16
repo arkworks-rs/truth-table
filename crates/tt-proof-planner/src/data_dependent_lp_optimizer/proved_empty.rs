@@ -3,11 +3,11 @@ use datafusion_common::{
     DataFusionError, Result as DataFusionResult,
     tree_node::{Transformed, TreeNode},
 };
-use datafusion_expr::{JoinType, LogicalPlan};
+use datafusion_expr::{EmptyRelation, Expr, JoinType, LogicalPlan};
 use std::collections::BTreeSet;
 use tt_core::irs::nodes::plan::{
     proved_empty::{ProvedEmptyLogicalNode, proved_empty},
-    result_check::ResultCheckLogicalNode,
+    result_check::{ResultCheckLogicalNode, wrap_logical_plan as wrap_result_check},
 };
 
 use super::{
@@ -180,6 +180,91 @@ pub fn propagate_empty(plan: LogicalPlan) -> DataFusionResult<LogicalPlan> {
         })
     })
     .map(|transformed| transformed.data)
+}
+
+/// A result fixed by a proved-empty input: an aggregate without GROUP BY
+/// over that input, under operators of one input (projections, filters,
+/// sorts, limits). The result is then the aggregate over no rows carried up,
+/// which the verifier computes itself, NULLs included: the proof encodes
+/// NULL as 0, so it cannot carry them.
+pub struct FixedResult {
+    /// The result check over the witness alone, the plan to prove: the
+    /// operators above the witness are not proved.
+    pub proved: LogicalPlan,
+    /// Computes the result without reading any table.
+    pub result: LogicalPlan,
+}
+
+/// The [`FixedResult`] of `plan`, after the hints are applied, if it has
+/// one. Prover and verifier run this same rewrite.
+pub fn fixed_result(plan: &LogicalPlan) -> DataFusionResult<Option<FixedResult>> {
+    let LogicalPlan::Extension(extension) = plan else {
+        return Ok(None);
+    };
+    let Some(result_check) = extension
+        .node
+        .as_any()
+        .downcast_ref::<ResultCheckLogicalNode>()
+    else {
+        return Ok(None);
+    };
+    let output = result_check.input();
+    let Some((witness, result)) = over_proved_empty_input(output)? else {
+        return Ok(None);
+    };
+    Ok(Some(FixedResult {
+        proved: wrap_result_check(proved_empty(witness, output.schema().clone())),
+        result,
+    }))
+}
+
+/// The witness under `plan`, and `plan` computed over an empty table in its
+/// place.
+fn over_proved_empty_input(
+    plan: &LogicalPlan,
+) -> DataFusionResult<Option<(LogicalPlan, LogicalPlan)>> {
+    // The result is computed without any table, so no expression may read
+    // one.
+    let reads_a_table = plan.expressions().iter().any(|expr| {
+        expr.exists(|e| {
+            Ok(matches!(
+                e,
+                Expr::ScalarSubquery(_) | Expr::Exists(_) | Expr::InSubquery(_)
+            ))
+        })
+        .unwrap_or(true)
+    });
+    if reads_a_table {
+        return Ok(None);
+    }
+    let input = match plan {
+        LogicalPlan::Aggregate(aggregate) if aggregate.group_expr.is_empty() => {
+            let Some(witness) = proved_empty_witness(&aggregate.input) else {
+                return Ok(None);
+            };
+            let empty = LogicalPlan::EmptyRelation(EmptyRelation {
+                produce_one_row: false,
+                schema: aggregate.input.schema().clone(),
+            });
+            return Ok(Some((
+                witness.clone(),
+                plan.with_new_exprs(plan.expressions(), vec![empty])?,
+            )));
+        }
+        LogicalPlan::Projection(_)
+        | LogicalPlan::Filter(_)
+        | LogicalPlan::Sort(_)
+        | LogicalPlan::Limit(_)
+        | LogicalPlan::SubqueryAlias(_) => plan.inputs()[0],
+        _ => return Ok(None),
+    };
+    let Some((witness, input)) = over_proved_empty_input(input)? else {
+        return Ok(None);
+    };
+    Ok(Some((
+        witness,
+        plan.with_new_exprs(plan.expressions(), vec![input])?,
+    )))
 }
 
 fn proved_empty_witness(plan: &LogicalPlan) -> Option<&LogicalPlan> {

@@ -1,7 +1,8 @@
 #![cfg(feature = "test-utils")]
 //! Queries with an empty intermediate result: the prover proves the lowest
 //! empty subtree empty and prunes the operators above it. An aggregate
-//! without GROUP BY stays: it outputs one row over no rows.
+//! without GROUP BY stays: it outputs one row over no rows, NULL for any
+//! aggregate but COUNT, which the verifier computes itself.
 
 mod support;
 
@@ -14,4 +15,12 @@ end_to_end_tests!(&["nation", "region"] => [
     count_over_no_rows => "SELECT COUNT(*) AS c FROM nation WHERE n_nationkey > 100",
     count_over_an_empty_join => "SELECT COUNT(*) AS c FROM nation JOIN region ON n_regionkey = r_regionkey WHERE r_regionkey > 10",
     count_column_over_no_rows => "SELECT COUNT(n_name) AS c FROM nation WHERE n_name LIKE '%zzz%'",
+    sum_over_no_rows => "SELECT SUM(n_nationkey) AS s FROM nation WHERE n_nationkey > 100",
+    aggregates_over_an_empty_join => "SELECT COUNT(*) AS c, MIN(n_name) AS m, MAX(r_regionkey) AS r FROM nation JOIN region ON n_regionkey = r_regionkey WHERE r_regionkey > 10",
+    having_over_no_rows => "SELECT COUNT(*) AS c FROM nation WHERE n_nationkey > 100 HAVING COUNT(*) > 0",
+]);
+
+end_to_end_tests!(&["supplier"] => [
+    sum_divided_over_no_rows => "SELECT SUM(s_acctbal) / CAST(7.0 AS DECIMAL(15, 2)) AS s FROM supplier WHERE s_suppkey < 0",
+    avg_over_no_rows => "SELECT AVG(s_acctbal) AS a, COUNT(*) AS c FROM supplier WHERE s_suppkey < 0",
 ]);
