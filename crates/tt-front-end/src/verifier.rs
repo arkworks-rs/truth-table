@@ -4,8 +4,9 @@ use ark_piop::{
     verifier::{ArgVerifier, errors::VerifierError},
 };
 use datafusion::datasource::{MemTable, TableProvider};
+use datafusion::prelude::DataFrame;
 use datafusion_common::DataFusionError;
-use proof_planner::data_dependent_lp_optimizer::apply_optimization_hints;
+use proof_planner::data_dependent_lp_optimizer::{apply_optimization_hints, fixed_result};
 use std::sync::Arc;
 use tracing::debug;
 use tt_core::session::session_context;
@@ -178,11 +179,40 @@ impl<B: SnarkBackend> TTVerifier<B> {
         result: Arc<MemTable>,
     ) -> TTResult<()> {
         let lp = self.lp_passes(query, proof).await?;
+        let output_memtable = self.output_table(&lp, result).await?;
         let gadget_planned_ir = self.ir_passes(lp).await?;
+        self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir, Some(output_memtable))
+            .await
+    }
+
+    /// The claimed result as the result check takes it, with its activator
+    /// and padding, from `lp` as [`Self::lp_passes`] returns it. A fixed
+    /// result ([`fixed_result`]) is compared here with the one the verifier
+    /// computes, and the result check gets an empty one.
+    pub async fn output_table(
+        &self,
+        lp: &datafusion_expr::LogicalPlan,
+        result: Arc<MemTable>,
+    ) -> TTResult<Arc<MemTable>> {
         let ctx = session_context();
-        let df = ctx.read_table(result.clone())?;
-        let batches = df.collect().await?;
-        crate::shared::ensure_no_nulls_in_result(&batches)?;
+        let batches = ctx.read_table(result.clone())?.collect().await?;
+        let batches = match fixed_result(lp)? {
+            Some(fixed) => {
+                let expected = DataFrame::new(ctx.state(), fixed.result).collect().await?;
+                if !crate::shared::same_rows(&batches, &expected)? {
+                    return Err(SnarkError::VerifierError(VerifierError::VerifierCheckFailed(
+                        "the claimed result is not the query's result over the proved-empty input"
+                            .to_string(),
+                    ))
+                    .into());
+                }
+                Vec::new()
+            }
+            None if crate::shared::null_count(&batches) > 0 => {
+                return Err(crate::shared::null_in_result().into());
+            }
+            None => batches,
+        };
         let base_schema = batches
             .first()
             .map(|batch| batch.schema().as_ref().clone())
@@ -192,12 +222,10 @@ impl<B: SnarkBackend> TTVerifier<B> {
                 &base_schema,
                 batches,
             )?;
-        let output_memtable = Arc::new(MemTable::try_new(
+        Ok(Arc::new(MemTable::try_new(
             Arc::new(output_schema),
             vec![output_batches],
-        )?);
-        self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir, Some(output_memtable))
-            .await
+        )?))
     }
 
     /// Runs the verifier logical-plan pipeline, replaying the optimization
@@ -242,6 +270,10 @@ impl<B: SnarkBackend> TTVerifier<B> {
         &self,
         lp: datafusion_expr::LogicalPlan,
     ) -> TTResult<GadgetPlannedIr<B>> {
+        let lp = match fixed_result(&lp)? {
+            Some(fixed) => fixed.proved,
+            None => lp,
+        };
         tt_core::irs::supported::ensure_supported(&lp)?;
         let initial_ir = EmptyIr::<B>::from_logical_plan(&lp);
         debug!(
