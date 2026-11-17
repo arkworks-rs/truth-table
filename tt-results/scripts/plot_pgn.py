@@ -1,9 +1,11 @@
 """Plot the Poneglyph comparison: TruthTable (on `_pgn` query variants) vs
-PoneglyphDB vs the no-proof baseline (on the same `_pgn` queries),
-side-by-side per query.
+PoneglyphDB vs the SP1 zkVM (GPU prover, with and without the Groth16 wrap)
+vs the no-proof baseline, all on the same `_pgn` queries, side-by-side per
+query.
 
 Reads tidy/tpch_pgn.csv (TT and Poneglyph; both use Q=q{N}, System
-distinguishes them) and tidy/tpch_baseline.csv (variant=pgn). Prover time and
+distinguishes them), tidy/tpch_zkvm.csv and tidy/tpch_baseline.csv
+(variant=pgn). Prover time and
 proof size are on log axes: the baseline's are milliseconds and megabytes. The
 prover panel also has plain execution: the query on the full tables,
 unverified.
@@ -73,6 +75,8 @@ query_labels = [f"Q{q}" for q in query_ids]
 series_specs = [
     ("TT simplified", "tt"),
     ("Poneglyph simplified", "poneglyph"),
+    (f"{baseline_style.ZKVM_GPU_LABEL} simplified", "zkvm"),
+    (f"{baseline_style.ZKVM_G16_LABEL} simplified", "zkvm_g16"),
     (f"{baseline_style.LABEL} simplified", "baseline"),
     (f"{baseline_style.EXEC_LABEL} simplified", "execution"),
 ]
@@ -83,6 +87,15 @@ def panel_specs(value_key):
     return [spec for spec in series_specs if spec[1] != "execution" or value_key == "prover"]
 
 baseline = baseline_style.tpch("pgn", SCALE_FACTOR)
+zkvm = {
+    "zkvm": baseline_style.zkvm_tpch("pgn", SCALE_FACTOR, "compressed"),
+    "zkvm_g16": baseline_style.zkvm_tpch("pgn", SCALE_FACTOR, "groth16"),
+}
+ZKVM_COLUMNS = {
+    "prover": "prover time (s)",
+    "verifier": "verifier time (ms)",
+    "proof_size": "proof size (KB)",
+}
 BASELINE_COLUMNS = {
     "prover": "prover time 1thread (s)",
     "verifier": "verifier time 1thread (ms)",
@@ -107,6 +120,8 @@ def pick_value(q_num, system, value_key):
         return baseline_style.value(baseline, q_num, BASELINE_COLUMNS[value_key])
     if system == "execution":
         return baseline_style.value(baseline, q_num, "execution time 1thread (s)")
+    if system in zkvm:
+        return baseline_style.value(zkvm[system], q_num, ZKVM_COLUMNS[value_key])
     row = df[(df["Q"] == f"q{q_num}") & (df["System"] == system)]
     if row.empty:
         return np.nan
@@ -130,6 +145,10 @@ def bar_style(i, system):
         return baseline_style.BAR_STYLE
     if system == "execution":
         return baseline_style.EXEC_BAR_STYLE
+    if system == "zkvm":
+        return baseline_style.ZKVM_GPU_BAR_STYLE
+    if system == "zkvm_g16":
+        return baseline_style.ZKVM_G16_BAR_STYLE
     return dict(facecolor=light_colors[i], edgecolor=colors[i], hatch=hatches[i], linewidth=0.8)
 
 
@@ -138,7 +157,7 @@ def draw_panel(ax, value_key, ylabel):
     series = build_series(value_key)
 
     group_gap = 0.18
-    bar_width = 0.16
+    bar_width = 0.12
     group_width = len(specs) * bar_width + group_gap
     x = np.arange(len(query_ids)) * group_width
 
@@ -190,10 +209,10 @@ for ax, (key, ylabel, _) in zip(axes, panels):
     draw_panel(ax, key, ylabel)
 
 # Single shared legend, centered below all three panels.
-fig.legend(bbox_to_anchor=(0.5, -0.02), **legend_style())
+fig.legend(bbox_to_anchor=(0.5, -0.02), **legend_style(ncol=3))
 
 # Reserve room at the bottom for the figure-level legend.
-fig.tight_layout(rect=[0, 0.10, 1, 1])
+fig.tight_layout(rect=[0, 0.20, 1, 1])
 fig.savefig(figures_dir / "tpch_pgn_combined.pdf", bbox_inches="tight")
 plt.close(fig)
 

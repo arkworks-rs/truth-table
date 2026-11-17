@@ -7,8 +7,10 @@ Reads:
   tidy/tpch_baseline.csv    — the baseline on the same `_tt` queries
   tidy/commit_baseline.csv  — the baseline's per-table commit latency
 
-The prover panel also has plain execution: the query on the full tables,
-unverified.
+Every panel also has the SP1 zkVM on its GPU prover, with and without the
+Groth16 wrap (tidy/tpch_zkvm.csv, tidy/commit_zkvm.csv; its commit, the data
+owner's column hashes, is one bar). The prover panel also has plain
+execution: the query on the full tables, unverified.
 
 Output:
   figures/tpch_tt_combined.pdf
@@ -106,7 +108,6 @@ colors = plt.get_cmap("tab10").colors
 light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 
 baseline = baseline_style.tpch("tt", SCALE_FACTOR)
-BAR_WIDTH = 0.38
 
 
 def _log_axis(ax, values):
@@ -117,19 +118,18 @@ def _log_axis(ax, values):
     ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
 
 
-def draw_query_panel(ax, tt, base, color_idx, hatch, ylabel, log, execution=None):
-    """TruthTable's bar and the baseline's bar for every query, and plain
-    execution's when given."""
+def draw_query_panel(ax, tt, others, color_idx, hatch, ylabel, log):
+    """TruthTable's bar and then one bar per (values, style) of `others` for
+    every query."""
     x = np.arange(len(QUERY_IDS), dtype=float)
-    width = BAR_WIDTH if execution is None else 0.27
+    n = 1 + len(others)
+    width = 0.8 / n
     ax.bar(x, tt, width=width, facecolor=light[color_idx],
            edgecolor=colors[color_idx], hatch=hatch, linewidth=0.8)
-    ax.bar(x + width, base, width=width, **baseline_style.BAR_STYLE)
-    bars = tt + base
-    if execution is not None:
-        ax.bar(x + 2 * width, execution, width=width, **baseline_style.EXEC_BAR_STYLE)
-        bars = bars + execution
-    n = 2 if execution is None else 3
+    bars = list(tt)
+    for i, (values, style) in enumerate(others, start=1):
+        ax.bar(x + i * width, values, width=width, **style)
+        bars += values
     ax.set_xticks(x + width * (n - 1) / 2)
     ax.set_xticklabels(query_labels)
     ax.set_ylabel(ylabel)
@@ -144,21 +144,41 @@ def bvalues(col):
     return [baseline_style.value(baseline, q, col) for q in QUERY_IDS]
 
 
+zkvm = {mode: baseline_style.zkvm_tpch("tt", SCALE_FACTOR, mode) for mode in ("compressed", "groth16")}
+
+
+def zkvm_bars(col):
+    return [
+        ([baseline_style.value(zkvm["compressed"], q, col) for q in QUERY_IDS],
+         baseline_style.ZKVM_GPU_BAR_STYLE),
+        ([baseline_style.value(zkvm["groth16"], q, col) for q in QUERY_IDS],
+         baseline_style.ZKVM_G16_BAR_STYLE),
+    ]
+
+
 def draw_prover(ax):
-    draw_query_panel(ax, tvalues("prover time 1thread (s)"),
-                     bvalues("prover time 1thread (s)"), 0, "/", "Prover Time (s)", True,
-                     execution=bvalues("execution time 1thread (s)"))
+    draw_query_panel(
+        ax, tvalues("prover time 1thread (s)"),
+        zkvm_bars("prover time (s)") + [
+            (bvalues("prover time 1thread (s)"), baseline_style.BAR_STYLE),
+            (bvalues("execution time 1thread (s)"), baseline_style.EXEC_BAR_STYLE),
+        ],
+        0, "/", "Prover Time (s)", True)
 
 
 def draw_proof_size(ax):
-    draw_query_panel(ax, tvalues("total proof size (KB)"), bvalues("proof size (KB)"),
-                     4, "x", "Proof Size (KB)", True)
+    draw_query_panel(
+        ax, tvalues("total proof size (KB)"),
+        zkvm_bars("proof size (KB)") + [(bvalues("proof size (KB)"), baseline_style.BAR_STYLE)],
+        4, "x", "Proof Size (KB)", True)
 
 
 def draw_verifier(ax):
-    draw_query_panel(ax, tvalues("total verifier time (ms)"),
-                     bvalues("verifier time 1thread (ms)"), 2, "/", "Verifier Time (ms)",
-                     False)
+    draw_query_panel(
+        ax, tvalues("total verifier time (ms)"),
+        zkvm_bars("verifier time (ms)")
+        + [(bvalues("verifier time 1thread (ms)"), baseline_style.BAR_STYLE)],
+        2, "/", "Verifier Time (ms)", False)
 
 
 # ── Load commit rows ──────────────────────────────────────────────────
@@ -172,6 +192,7 @@ if cdf.empty:
     raise RuntimeError(f"no rows with scale-factor={SCALE_FACTOR} in {commit_path}")
 cdf = cdf.sort_values("table").reset_index(drop=True)
 commit_baseline = baseline_style.commit(SCALE_FACTOR)
+commit_zkvm = baseline_style.zkvm_commit(SCALE_FACTOR)
 
 def draw_commit(ax):
     # Distinct color + hatch from the other three panels:
@@ -184,15 +205,20 @@ def draw_commit(ax):
         baseline_style.value(commit_baseline, t, "latency-1thread(ms)") / 1000.0
         for t in cdf["table"]
     ]
-    ax.bar(x, seconds, width=BAR_WIDTH,
+    zkvm_seconds = [
+        baseline_style.value(commit_zkvm, t, "latency(ms)") / 1000.0 for t in cdf["table"]
+    ]
+    width = 0.27
+    ax.bar(x, seconds, width=width,
            facecolor=palette_face, edgecolor=palette_edge, hatch="\\", linewidth=0.8)
-    ax.bar(x + BAR_WIDTH, base_seconds, width=BAR_WIDTH, **baseline_style.BAR_STYLE)
+    ax.bar(x + width, zkvm_seconds, width=width, **baseline_style.ZKVM_GPU_BAR_STYLE)
+    ax.bar(x + 2 * width, base_seconds, width=width, **baseline_style.BAR_STYLE)
     # Full table names on the axis: an abbreviation key inside the panel
     # covers the bars once the larger tables pass a few seconds.
-    ax.set_xticks(x + BAR_WIDTH / 2, cdf["table"].tolist(), fontsize="small")
+    ax.set_xticks(x + width, cdf["table"].tolist(), fontsize="small")
     ax.set_xlabel("Table")
     ax.set_ylabel("Commit Latency (s)")
-    _log_axis(ax, seconds + base_seconds)
+    _log_axis(ax, seconds + zkvm_seconds + base_seconds)
     ax.tick_params(axis="x", pad=10)
     ax.tick_params(axis="y", pad=10)
     ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
@@ -214,6 +240,8 @@ draw_proof_size(axes[1, 1])
 fig.legend(
     handles=[
         Patch(facecolor="white", edgecolor="black", linewidth=0.8, label="TruthTable (colored)"),
+        Patch(label=baseline_style.ZKVM_GPU_LABEL, **baseline_style.ZKVM_GPU_BAR_STYLE),
+        Patch(label=baseline_style.ZKVM_G16_LABEL, **baseline_style.ZKVM_G16_BAR_STYLE),
         Patch(label=baseline_style.LABEL, **baseline_style.BAR_STYLE),
         Patch(label=baseline_style.EXEC_LABEL, **baseline_style.EXEC_BAR_STYLE),
     ],

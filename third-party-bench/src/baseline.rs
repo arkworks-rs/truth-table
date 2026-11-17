@@ -25,8 +25,8 @@ use std::{
 // crate's `arrow` dependency on 57.
 use datafusion::{
     arrow::{
-        array::{ArrayRef, RecordBatch, RecordBatchOptions, RecordBatchReader},
-        compute::concat_batches,
+        array::{ArrayRef, BooleanArray, RecordBatch, RecordBatchOptions, RecordBatchReader},
+        compute::{concat_batches, filter_record_batch},
         datatypes::{Field, Schema, SchemaRef},
         ipc::{reader::StreamReader, writer::StreamWriter},
         util::pretty::pretty_format_batches,
@@ -99,6 +99,40 @@ pub fn load_parquet(path: &Path) -> RecordBatch {
     let schema = reader.schema();
     let batches = reader.collect::<Result<Vec<_>, _>>().expect("read parquet");
     concat_batches(&schema, &batches).expect("concat batches")
+}
+
+/// Generates the TPC-H tables at scale factor `sf` under `sf_dir` unless they
+/// are there: `tpch_data::generate_parquet_scale` writes the padded tables
+/// and the `_poneglyph` ones to `data` and the raw ones to `orig-data`.
+pub fn ensure_tpch_data(sf_dir: &Path, sf: f64) {
+    let padded_dir = sf_dir.join("data");
+    if !sf_dir.join("orig-data").join("lineitem.parquet").exists()
+        || !padded_dir.join("lineitem_poneglyph.parquet").exists()
+    {
+        tpch_data::generate_parquet_scale(sf, &padded_dir);
+    }
+}
+
+/// A TPC-H table of [`ensure_tpch_data`] without padding or system columns.
+/// The `_poneglyph` tables exist only padded: their active rows are kept and
+/// the system columns dropped.
+pub fn load_tpch_table(sf_dir: &Path, name: &str) -> RecordBatch {
+    if !name.ends_with("_poneglyph") {
+        return load_parquet(&sf_dir.join("orig-data").join(format!("{name}.parquet")));
+    }
+    let batch = load_parquet(&sf_dir.join("data").join(format!("{name}.parquet")));
+    let schema = batch.schema();
+    let activator = batch
+        .column(schema.index_of("__activator__").expect("activator column"))
+        .as_any()
+        .downcast_ref::<BooleanArray>()
+        .expect("boolean activator")
+        .clone();
+    let active = filter_record_batch(&batch, &activator).expect("filter active rows");
+    let keep: Vec<usize> = (0..schema.fields().len())
+        .filter(|&i| !schema.field(i).name().starts_with("__"))
+        .collect();
+    active.project(&keep).expect("drop system columns")
 }
 
 fn encode_column(field: &Field, array: &ArrayRef) -> Vec<u8> {

@@ -8,9 +8,10 @@ of the two curves we support):
   figures/micro_bn254.pdf      — TT (BN254)      vs PoSQL vs Baseline
   figures/micro_bls12_381.pdf  — TT (BLS12-381)  vs QEDB  vs Baseline
 
-The baseline (no proof system, curve "none") is the same bar in both. The
-prover-time panel also has plain execution: the query on the full tables,
-unverified.
+The baseline (no proof system, curve "none") is the same bar in both, and so
+is the SP1 zkVM: its CPU prover at the smallest thread count it was run with,
+and its GPU prover with and without the Groth16 wrap. The prover-time panel also has plain execution: the query
+on the full tables, unverified.
 
 Each PDF has prover time, verifier time, and proof size side-by-side, sharing
 one legend.
@@ -61,6 +62,7 @@ df = pd.read_csv(data_path)
 df.columns = [c.strip().lstrip("﻿") for c in df.columns]
 df = df[(df["Q"] != "Q") & (df["System"] != "System")].copy()
 df["table log size"] = pd.to_numeric(df["table log size"], errors="coerce")
+df["on_gpu"] = df["threads"].astype(str).str.strip() == "gpu"
 df["threads"] = pd.to_numeric(df["threads"], errors="coerce")
 df["prover time (s)"] = pd.to_numeric(df["prover time (s)"], errors="coerce")
 df["verifier time (ms)"] = pd.to_numeric(df["verifier time (ms)"], errors="coerce")
@@ -85,8 +87,15 @@ available_threads = sorted(df["threads"].dropna().unique())
 if not available_threads:
     raise RuntimeError(f"no rows with a threads value in {data_path}")
 threads_value = 1 if 1 in available_threads else int(available_threads[0])
-df = df[(df["table log size"] == 19) & (df["threads"] == threads_value)].copy()
-print(f"plot_micro: filtering to threads={threads_value}")
+largest = df[df["table log size"] == 19]
+zkvm_cpu = largest[largest["system_norm"] == "zkvm"]
+zkvm_threads = int(zkvm_cpu["threads"].min()) if not zkvm_cpu.empty else None
+df = pd.concat([
+    largest[(largest["threads"] == threads_value) & (largest["system_norm"] != "zkvm")],
+    zkvm_cpu[zkvm_cpu["threads"] == zkvm_threads],
+    largest[largest["on_gpu"]],
+]).copy()
+print(f"plot_micro: filtering to threads={threads_value} (zkVM CPU: {zkvm_threads})")
 
 
 # Per-variant style. Each variant is one PDF and pairs TT @ that curve
@@ -132,6 +141,18 @@ palette = {
         "edge": baseline_style.EXEC_BAR_STYLE["edgecolor"],
         "face": baseline_style.EXEC_BAR_STYLE["facecolor"],
     },
+    "zkvm": {
+        "edge": baseline_style.ZKVM_BAR_STYLE["edgecolor"],
+        "face": baseline_style.ZKVM_BAR_STYLE["facecolor"],
+    },
+    "zkvm_gpu": {
+        "edge": baseline_style.ZKVM_GPU_BAR_STYLE["edgecolor"],
+        "face": baseline_style.ZKVM_GPU_BAR_STYLE["facecolor"],
+    },
+    "zkvm_gpu_g16": {
+        "edge": baseline_style.ZKVM_G16_BAR_STYLE["edgecolor"],
+        "face": baseline_style.ZKVM_G16_BAR_STYLE["facecolor"],
+    },
 }
 hatches = {
     "tt_bn254": "/",
@@ -142,6 +163,9 @@ hatches = {
     "qedb": "\\",
     "baseline": baseline_style.HATCH,
     "execution": baseline_style.EXEC_BAR_STYLE["hatch"],
+    "zkvm": baseline_style.ZKVM_BAR_STYLE["hatch"],
+    "zkvm_gpu": baseline_style.ZKVM_GPU_BAR_STYLE["hatch"],
+    "zkvm_gpu_g16": baseline_style.ZKVM_G16_BAR_STYLE["hatch"],
 }
 
 
@@ -171,6 +195,10 @@ def pick_value(q_name, bar_key, value_col):
             & (df["system_norm"] == "tt")
             & (df["curve_norm"] == "bls12_381")
         ]
+    elif bar_key == "zkvm_gpu":
+        row = df[(df["q_norm"] == q_name) & (df["system_norm"] == "zkvm (gpu)")]
+    elif bar_key == "zkvm_gpu_g16":
+        row = df[(df["q_norm"] == q_name) & (df["system_norm"] == "zkvm (gpu, groth16)")]
     elif bar_key == "execution":
         if value_col != "prover time (s)":
             return np.nan
@@ -194,6 +222,9 @@ def build_groups(variant):
             "bars": [
                 (tt_bar, "filter"),
                 (competitor, "filter"),
+                ("zkvm", "filter"),
+                ("zkvm_gpu", "filter"),
+                ("zkvm_gpu_g16", "filter"),
                 ("baseline", "filter"),
                 ("execution", "filter"),
             ],
@@ -203,6 +234,9 @@ def build_groups(variant):
             "bars": [
                 (tt_bar, "aggregate"),
                 (competitor, "aggregate"),
+                ("zkvm", "aggregate"),
+                ("zkvm_gpu", "aggregate"),
+                ("zkvm_gpu_g16", "aggregate"),
                 ("baseline", "aggregate"),
                 ("execution", "aggregate"),
             ],
@@ -213,6 +247,9 @@ def build_groups(variant):
                 (tt_bar, "join"),
                 (pkfk_bar, "join_pk_fk"),
                 (competitor, "join"),
+                ("zkvm", "join"),
+                ("zkvm_gpu", "join"),
+                ("zkvm_gpu_g16", "join"),
                 ("baseline", "join"),
                 ("execution", "join"),
             ],
@@ -222,23 +259,31 @@ def build_groups(variant):
             "bars": [
                 (tt_bar, "limit"),
                 (competitor, "limit"),
+                ("zkvm", "limit"),
+                ("zkvm_gpu", "limit"),
+                ("zkvm_gpu_g16", "limit"),
                 ("baseline", "limit"),
                 ("execution", "limit"),
             ],
         },
     }
-    return [all_groups[name] for name in variant["operators"]]
+    groups = [all_groups[name] for name in variant["operators"]]
+    if zkvm_threads is None:
+        groups = [
+            {**spec, "bars": [b for b in spec["bars"] if b[0] != "zkvm"]} for spec in groups
+        ]
+    return groups
 
 
 BAR_WIDTH = 0.16
 GROUP_GAP = 0.22
 
 # Reference layout: the 4-operator BN254 prover panel (Filter+Aggregate+Join+
-# Limit = 17 bars across 4 groups) at figsize_width=46 inches. Every variant's panel
+# Limit = 29 bars across 4 groups) at figsize_width=46 inches. Every variant's panel
 # spans this x-extent so the bars keep their physical width on the page
 # regardless of operator count.
 REFERENCE_FIGSIZE_WIDTH = 46.0
-REFERENCE_PANEL_X_EXTENT = 17 * BAR_WIDTH + 3 * GROUP_GAP
+REFERENCE_PANEL_X_EXTENT = 29 * BAR_WIDTH + 3 * GROUP_GAP
 
 
 def panel_x_extent(groups, group_gap=GROUP_GAP):
@@ -340,9 +385,15 @@ def render_variant(variant):
     legend_specs = [
         (variant["tt_bar"], variant["tt_label"]),
         (variant["competitor_bar"], variant["competitor_label"]),
+        ("zkvm", f"{baseline_style.ZKVM_LABEL}, CPU, "
+                 f"{zkvm_threads} thread{'s' if zkvm_threads != 1 else ''}"),
+        ("zkvm_gpu", baseline_style.ZKVM_GPU_LABEL),
+        ("zkvm_gpu_g16", baseline_style.ZKVM_G16_LABEL),
         ("baseline", baseline_style.LABEL),
         ("execution", baseline_style.EXEC_LABEL),
     ]
+    if zkvm_threads is None:
+        legend_specs = [spec for spec in legend_specs if spec[0] != "zkvm"]
     legend_handles = [
         plt.Rectangle(
             (0, 0),
@@ -360,7 +411,7 @@ def render_variant(variant):
     fig.legend(
         handles=legend_handles,
         labels=legend_labels,
-        ncol=len(legend_labels),
+        ncol=3,
         loc="lower center",
         bbox_to_anchor=(0.5, -0.02),
         handlelength=2.2,
@@ -369,7 +420,8 @@ def render_variant(variant):
         columnspacing=1.6,
     )
 
-    fig.tight_layout(rect=[0, 0.10, 1, 1])
+    # Room below the panels for the two-row legend.
+    fig.tight_layout(rect=[0, 0.20, 1, 1])
     out = figures_dir / variant["outfile"]
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)

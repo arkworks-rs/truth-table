@@ -25,12 +25,12 @@ BAR_STYLE = dict(facecolor=FACE, edgecolor=EDGE, hatch=HATCH, linewidth=0.8)
 def _read(name):
     path = TIDY_DIR / name
     if not path.exists():
-        print(f"baseline: {path} missing; the figure has no baseline bars")
+        print(f"{path.name} missing; the figure has no bars from it")
         return None
     df = pd.read_csv(path)
     df.columns = [c.strip() for c in df.columns]
     for col in df.columns:
-        if col not in ("Q", "variant", "table"):
+        if col not in ("Q", "variant", "table", "prover", "mode"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
@@ -65,3 +65,40 @@ def value(df, key, column):
 
 EXEC_LABEL = "Plain execution (no verification)"
 EXEC_BAR_STYLE = dict(facecolor="#f5e6c4", edgecolor="#b8860b", hatch="--", linewidth=0.8)
+
+
+# The SP1 zkVM (third-party-bench/zkvm): its CPU prover, its GPU prover, and
+# its GPU prover with the Groth16 wrap. Its rows come from
+# tidy/tpch_zkvm.csv and tidy/commit_zkvm.csv.
+ZKVM_LABEL = "zkVM (SP1)"
+ZKVM_GPU_LABEL = "zkVM (SP1, GPU)"
+ZKVM_G16_LABEL = "zkVM (SP1, GPU, Groth16)"
+ZKVM_BAR_STYLE = dict(facecolor="#e8dcf2", edgecolor="#6a3d9a", hatch="oo", linewidth=0.8)
+ZKVM_GPU_BAR_STYLE = dict(facecolor="#b49ac9", edgecolor="#6a3d9a", hatch="oo", linewidth=0.8)
+ZKVM_G16_BAR_STYLE = dict(facecolor="#6a3d9a", edgecolor="#3f2161", hatch="xx", linewidth=0.8)
+
+
+def zkvm_tpch(variant, scale_factor, mode, prover="gpu"):
+    """Rows of tidy/tpch_zkvm.csv for one variant, SF, proof mode and prover,
+    indexed by query number."""
+    df = _read("tpch_zkvm.csv")
+    if df is None:
+        return pd.DataFrame()
+    df = df[
+        (df["variant"] == variant)
+        & (df["scale-factor"] == scale_factor)
+        & (df["mode"] == mode)
+        & (df["prover"] == prover)
+    ].copy()
+    df.index = df["Q"].str.strip().str.lower().str.lstrip("q").astype(int)
+    return df
+
+
+def zkvm_commit(scale_factor):
+    """Rows of tidy/commit_zkvm.csv at `scale_factor`, indexed by table."""
+    df = _read("commit_zkvm.csv")
+    if df is None:
+        return pd.DataFrame()
+    df = df[df["scale-factor"] == scale_factor].copy()
+    df.index = df["table"].str.strip().str.lower()
+    return df
