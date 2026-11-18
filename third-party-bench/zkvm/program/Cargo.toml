@@ -1,0 +1,9 @@
+[package]
+name = "tt-zkvm-program"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+sp1-zkvm = "6.10.0"
+tt-zkvm-lib = { path = "../lib" }

@@ -5,7 +5,7 @@ Usage:
   parse_bench_output.py <bench> <log_path> <json_out>
 
 Where <bench> is one of: sxt_proof_of_sql, qedb, truth_table, baseline,
-baseline_tpch.
+baseline_tpch, zkvm.
 
 Each parser is tolerant of extra noise (cargo messages, tracing output, etc.):
 it only matches the specific println! lines each bench emits, and ignores the
@@ -268,12 +268,45 @@ def parse_baseline_tpch(text: str) -> dict:
     return {"bench": "baseline_tpch", "config": config, "tables": tables, "results": results}
 
 
+# zkvm (zkvm/script: the `micro` and `tpch` binaries) emits a `prover:`/
+# `threads:`/`setup_ms:` header, then `key=value` lines: one `query ...` per
+# run and proof mode, and (TPC-H) one `table ...` per committed table.
+
+def parse_zkvm(text: str) -> dict:
+    config = _thread_config()
+    m = re.search(r"^prover:\s*(\S+)", text, re.M)
+    if m:
+        config["prover"] = m.group(1)
+    m = re.search(r"^setup_ms:\s*([\d.]+)", text, re.M)
+    if m:
+        config["setup_ms"] = float(m.group(1))
+
+    def fields(line):
+        rec = {}
+        for key, value in re.findall(r"(\w+)=(\S+)", line):
+            if key in ("q", "mode", "variant", "sf", "name"):
+                rec["query" if key == "q" else key] = value
+            elif "." in value:
+                rec[key] = float(value)
+            else:
+                rec[key] = int(value)
+        return rec
+
+    results = [fields(line) for line in re.findall(r"^query (.*)$", text, re.M)]
+    for rec in results:
+        if "pow" in rec:
+            rec["table_size"] = 1 << rec["pow"]
+    tables = [fields(line) for line in re.findall(r"^table (.*)$", text, re.M)]
+    return {"bench": "zkvm", "config": config, "tables": tables, "results": results}
+
+
 PARSERS = {
     "sxt_proof_of_sql": parse_sxt_proof_of_sql,
     "qedb": parse_qedb,
     "truth_table": parse_truth_table,
     "baseline": parse_baseline,
     "baseline_tpch": parse_baseline_tpch,
+    "zkvm": parse_zkvm,
 }
 
 

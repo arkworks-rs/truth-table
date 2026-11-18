@@ -28,6 +28,38 @@ runs it on the micro queries above; `benches/baseline_tpch.rs` runs it on the
 TPC-H `_tt` and `_pgn` queries at SF 0.01–0.1, generating its own tables under
 `artifact/tpch/` (driven by `tt-results/scripts/run_baseline_tpch.sh`).
 
+### zkVM (SP1)
+
+[zkvm/](zkvm/) proves the micro queries and the TPC-H `_tt` and `_pgn`
+queries in the SP1 zkVM. It is a Cargo
+workspace of its own: the guest (`zkvm/program`) is built for SP1's RISC-V
+target with SP1's toolchain, and `sp1-sdk` pins its own dependency versions.
+
+- Commit: the data owner publishes the SHA-256 hash of every column, in the
+  flat layout of `zkvm/lib` (type tag, row count, little-endian values).
+- Prove: the guest reads the encoded columns the query needs, hashes them with
+  SP1's SHA-256 accelerator, runs a hand-written Rust version of the query
+  (`zkvm/lib/src/tpch.rs` for TPC-H) and commits the query, the input hashes
+  and the hash of the result. Each run is proved twice: SP1's compressed
+  proof, and the same wrapped in Groth16 (`ZKVM_MODES`).
+- Verify: check the proof, compare the input hashes with the published ones,
+  and hash the result handed over separately.
+
+Prerequisites: `curl -L https://sp1up.succinct.xyz | bash && sp1up`. The GPU
+prover downloads `sp1-gpu-server` into `~/.sp1/bin` on first use; it links
+the CUDA 12 runtime, so on a CUDA 13 machine extract `libcudart.so.12` from
+NVIDIA's `nvidia-cuda-runtime-cu12` wheel into `~/.sp1/lib/cuda12`.
+The Groth16 wrap downloads SP1's circuit files (about 8 GB) into
+`~/.sp1/circuits` on first use.
+
+The TPC-H binary checks every query's result against DataFusion's before
+proving it; write those results first with
+`cargo run --release --bin tpch_reference -- <sf>...` (from this directory).
+`tt-results/scripts/run_zkvm.sh` runs the passes (`ZKVM_PASSES`, e.g.
+`"cpu:1 cpu:4 cuda"`) and writes `tt-results/raw/third_party_zkvm_<pass>.*`
+(micro) and `zkvm_tpch_<pass>.*` (TPC-H). The CPU prover takes about 44x the
+GPU's time and, with SP1's default worker counts, over 100 GB of memory.
+
 The benches use the same auto-generated Parquet tables under
 `artifact/size_<pow>/`, so "same inputs, different provers" is a real apples-to-apples
 comparison rather than three systems reading unrelated data. The Join / Join_PK_FK

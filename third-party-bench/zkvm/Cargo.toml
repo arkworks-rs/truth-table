@@ -1,0 +1,11 @@
+# The SP1 zkVM baseline. A workspace of its own: the guest is built for SP1's
+# RISC-V target with SP1's toolchain, and sp1-sdk pins dependency versions the
+# other third-party benches must not be tied to.
+[workspace]
+members = ["lib", "program", "script"]
+resolver = "2"
+
+# SP1's SHA-256 accelerator: the guest hashes its input columns with it. On
+# the host the patched crate is plain sha2.
+[patch.crates-io]
+sha2 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-sha2-0.10.9-sp1-6.10.0" }

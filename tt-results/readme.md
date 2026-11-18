@@ -1,5 +1,5 @@
 This folder holds the benchmark data and the scripts that produce it. The
-pipeline is organized into three stages × four benchmark suites:
+pipeline is organized into three stages × five benchmark suites:
 
 ```
               run (and dump)        parse (to CSV)        plot
@@ -8,6 +8,7 @@ TT TPC-H      run_tt_tpch.sh        parse_tt_tpch.py      plot_tt_tpch.py
 PGN compare   run_pgn.sh            parse_pgn.py          plot_pgn.py
 micro         run_micro.sh          parse_micro.py        plot_micro.py
 baseline      run_baseline_tpch.sh  parse_baseline_tpch.py  (every TPC-H plot)
+zkVM (SP1)    run_zkvm.sh           parse_zkvm_tpch.py      (every plot)
 ```
 
 All scripts live in `tt-results/scripts/`. Each row is independent — you can
@@ -21,6 +22,7 @@ Per-suite outputs:
 | PGN compare | `benches_pgn_*.json`, `bench_stats_pgn_*.jsonl`, `poneglyph_q*_k*.log` | `tpch_pgn.csv` | `tpch_pgn_*.pdf` |
 | micro       | `third_party_*.log`, `third_party_*.json`    | `micro.csv`              | `micro_*.pdf`                   |
 | baseline    | `baseline_tpch_{1,4}.{log,json}`             | `tpch_baseline.csv`, `commit_baseline.csv` | all TPC-H and commit figures |
+| zkVM (SP1)  | `third_party_zkvm_<pass>.*`, `zkvm_tpch_<pass>.*` | `micro.csv`, `tpch_zkvm.csv`, `commit_zkvm.csv` | every figure |
 
 The Poneglyph comparison plots three systems side-by-side per query:
 TruthTable on the `_pgn` query variants, PoneglyphDB on its KZG queries, and
@@ -32,7 +34,15 @@ column, the proof is the columns the query reads, and the verifier runs the
 query itself. Every figure shows it next to TruthTable, on the same queries
 over the tables without padding or system columns: the micro baseline comes
 from `run_micro.sh` (`third_party_baseline_{1,4}.*`), the TPC-H one from
-`run_baseline_tpch.sh`. Panels with prover time or proof size use a log axis,
+`run_baseline_tpch.sh`.
+
+The SP1 zkVM (`third-party-bench/zkvm`) proves the same queries with
+hand-written Rust in the zkVM, bound to SHA-256 column hashes, in two proof
+modes: SP1's compressed proof and its Groth16 wrap. The figures show its GPU
+prover (`run_zkvm.sh` with `ZKVM_PASSES=cuda`); its CPU prover is about 44x
+slower.
+
+Panels with prover time or proof size use a log axis,
 because the baseline's are milliseconds and megabytes. Prover-time panels also
 show plain execution: the same query on the full tables, unverified.
 

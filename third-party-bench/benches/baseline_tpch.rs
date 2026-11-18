@@ -16,14 +16,11 @@ use std::{
     sync::Arc,
 };
 
-use datafusion::arrow::{
-    array::{BooleanArray, RecordBatch},
-    compute::filter_record_batch,
-};
-use tpch_data::{Variant, generate_parquet_scale, query_spec};
+use datafusion::arrow::array::RecordBatch;
+use tpch_data::{Variant, query_spec};
 use tt_third_party_bench::baseline::{
-    Table, check_result, commit, execute, file_len, load_parquet, median_ms, prove, store,
-    threads_and_runtime, verify,
+    Table, check_result, commit, ensure_tpch_data, execute, file_len, load_tpch_table, median_ms,
+    prove, store, threads_and_runtime, verify,
 };
 
 // The scale factors of the TruthTable TPC-H sweeps: 0.05 and 0.1 for the
@@ -35,23 +32,6 @@ const TT_QUERIES: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 17, 18, 1
 const PGN_QUERIES: &[u8] = &[1, 3, 5, 8, 9, 18];
 
 const ITERS: usize = 5;
-
-/// The `_poneglyph` tables exist only padded: keeps the active rows and
-/// drops the system columns.
-fn strip_padding(batch: RecordBatch) -> RecordBatch {
-    let schema = batch.schema();
-    let activator = batch
-        .column(schema.index_of("__activator__").expect("activator column"))
-        .as_any()
-        .downcast_ref::<BooleanArray>()
-        .expect("boolean activator")
-        .clone();
-    let active = filter_record_batch(&batch, &activator).expect("filter active rows");
-    let keep: Vec<usize> = (0..schema.fields().len())
-        .filter(|&i| !schema.field(i).name().starts_with("__"))
-        .collect();
-    active.project(&keep).expect("drop system columns")
-}
 
 fn main() {
     let bench_root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -66,15 +46,7 @@ fn main() {
             .join("artifact")
             .join("tpch")
             .join(format!("sf_{sf}"));
-        // `generate_parquet_scale` writes the padded tables to `data` and the
-        // raw ones to the sibling `orig-data`.
-        let padded_dir = sf_dir.join("data");
-        let raw_dir = sf_dir.join("orig-data");
-        if !raw_dir.join("lineitem.parquet").exists()
-            || !padded_dir.join("lineitem_poneglyph.parquet").exists()
-        {
-            generate_parquet_scale(sf, &padded_dir);
-        }
+        ensure_tpch_data(&sf_dir, sf);
         let commit_dir = sf_dir.join("baseline");
         std::fs::create_dir_all(&commit_dir).expect("create baseline dir");
 
@@ -91,12 +63,7 @@ fn main() {
         let tables: Vec<Arc<Table>> = table_names
             .iter()
             .map(|&name| {
-                let batch = if name.ends_with("_poneglyph") {
-                    strip_padding(load_parquet(&padded_dir.join(format!("{name}.parquet"))))
-                } else {
-                    load_parquet(&raw_dir.join(format!("{name}.parquet")))
-                };
-                let table = Table::new(name, batch, &commit_dir);
+                let table = Table::new(name, load_tpch_table(&sf_dir, name), &commit_dir);
                 let commit_ms = median_ms(ITERS, || {
                     commit(&table);
                 });

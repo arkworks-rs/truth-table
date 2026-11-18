@@ -1,7 +1,8 @@
 """Plot per-table commit (oracle build) latency and commitment size, for
-TruthTable and the no-proof baseline.
+TruthTable, the SP1 zkVM (SHA-256 column hashes) and the no-proof baseline
+(BLAKE3 column hashes).
 
-Reads tidy/commit.csv and tidy/commit_baseline.csv. Filtered to SF=0.1,
+Reads tidy/commit.csv, tidy/commit_zkvm.csv and tidy/commit_baseline.csv. Filtered to SF=0.1,
 1-thread to match the recent TPC-H sweeps.
 
 Outputs:
@@ -70,9 +71,11 @@ df["abbrev"] = df["table"].map(TABLE_ABBREV)
 
 palette_face = "#d7e6f5"
 palette_edge = "#1f77b4"
-BAR_WIDTH = 0.38
+BAR_WIDTH = 0.27
 
 baseline = baseline_style.commit(SCALE_FACTOR)
+zkvm = baseline_style.zkvm_commit(SCALE_FACTOR)
+ZKVM_COLUMN = {"latency-1thread(ms)": "latency(ms)", "size(KB)": "size(KB)"}
 
 # Two-line mapping caption below the figure. Smaller than the axis fonts so it
 # reads as legend material, not chart data.
@@ -85,12 +88,14 @@ caption = (
 def plot(column, scale, ylabel, log, filename):
     tt = (df[column] * scale).tolist()
     base = [baseline_style.value(baseline, t, column) * scale for t in df["table"]]
+    zk = [baseline_style.value(zkvm, t, ZKVM_COLUMN[column]) * scale for t in df["table"]]
     fig, ax = plt.subplots(figsize=(16, 8))
     x = np.arange(len(df))
     ax.bar(x, tt, width=BAR_WIDTH, facecolor=palette_face, edgecolor=palette_edge,
            hatch="/", linewidth=0.8)
-    ax.bar(x + BAR_WIDTH, base, width=BAR_WIDTH, **baseline_style.BAR_STYLE)
-    ax.set_xticks(x + BAR_WIDTH / 2, df["abbrev"].tolist())
+    ax.bar(x + BAR_WIDTH, zk, width=BAR_WIDTH, **baseline_style.ZKVM_GPU_BAR_STYLE)
+    ax.bar(x + 2 * BAR_WIDTH, base, width=BAR_WIDTH, **baseline_style.BAR_STYLE)
+    ax.set_xticks(x + BAR_WIDTH, df["abbrev"].tolist())
     ax.set_xlabel("Table")
     ax.set_ylabel(ylabel)
     if log:
@@ -104,6 +109,7 @@ def plot(column, scale, ylabel, log, filename):
         handles=[
             Patch(facecolor=palette_face, edgecolor=palette_edge, hatch="/", linewidth=0.8,
                   label="TruthTable"),
+            Patch(label=baseline_style.ZKVM_LABEL, **baseline_style.ZKVM_GPU_BAR_STYLE),
             Patch(label=baseline_style.LABEL, **baseline_style.BAR_STYLE),
         ],
         ncol=1,

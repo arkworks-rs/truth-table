@@ -1,5 +1,6 @@
 """Plot single-threaded prover time per TPC-H query for TruthTable,
-PoneglyphDB and the no-proof baseline on one bar chart, at SF 0.04 (the
+PoneglyphDB, the SP1 zkVM (GPU prover, with and without the Groth16 wrap) and
+the no-proof baseline on one bar chart, at SF 0.04 (the
 largest SF Poneglyph supports), with plain execution (the query on the full
 tables, unverified). The y axis is logarithmic: the baseline's prover takes
 milliseconds.
@@ -15,7 +16,9 @@ Sources:
   raw/benches_tt_0.04_1.json — TT on the regular `_tt` queries at SF 0.04,
                              used for the queries Poneglyph does not support.
                              No parse script reads it for SF 0.04.
-  tidy/tpch_baseline.csv   — the baseline on the same query as the TT bar:
+  tidy/tpch_zkvm.csv,
+  tidy/tpch_baseline.csv   — the zkVM and the baseline on the same query as
+                             the TT bar:
                              the `_pgn` variant on starred ticks, `_tt`
                              otherwise.
 
@@ -110,6 +113,20 @@ def baseline_value(q_num, column):
 tt_times = [tt_value(q) for q in QUERY_IDS]
 pgn_times = [pgn_csv_value(q, "poneglyph") for q in QUERY_IDS]
 baseline_times = [baseline_value(q, "prover time 1thread (s)") for q in QUERY_IDS]
+zkvm_rows = {
+    (variant, mode): baseline_style.zkvm_tpch(variant, SCALE_FACTOR, mode)
+    for variant in ("tt", "pgn")
+    for mode in ("compressed", "groth16")
+}
+
+
+def zkvm_value(q_num, mode):
+    variant = "pgn" if q_num in PGN_QUERY_IDS else "tt"
+    return baseline_style.value(zkvm_rows[(variant, mode)], q_num, "prover time (s)")
+
+
+zkvm_times = [zkvm_value(q, "compressed") for q in QUERY_IDS]
+zkvm_g16_times = [zkvm_value(q, "groth16") for q in QUERY_IDS]
 exec_times = [baseline_value(q, "execution time 1thread (s)") for q in QUERY_IDS]
 query_labels = [f"Q{q}*" if q in PGN_QUERY_IDS else f"Q{q}" for q in QUERY_IDS]
 
@@ -117,9 +134,9 @@ colors = plt.get_cmap("tab10").colors
 light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
 tt_idx, pgn_idx = 0, 1
 
-bar_width = 0.21
-group_gap = 0.22
-group_width = 4 * bar_width + group_gap
+bar_width = 0.15
+group_gap = 0.2
+group_width = 6 * bar_width + group_gap
 x = np.arange(len(QUERY_IDS)) * group_width
 
 fig, ax = plt.subplots(figsize=FIGSIZE)
@@ -141,8 +158,10 @@ ax.bar(
     hatch="x",
     linewidth=0.8,
 )
-ax.bar(x + 2 * bar_width, baseline_times, width=bar_width, **baseline_style.BAR_STYLE)
-ax.bar(x + 3 * bar_width, exec_times, width=bar_width, **baseline_style.EXEC_BAR_STYLE)
+ax.bar(x + 2 * bar_width, zkvm_times, width=bar_width, **baseline_style.ZKVM_GPU_BAR_STYLE)
+ax.bar(x + 3 * bar_width, zkvm_g16_times, width=bar_width, **baseline_style.ZKVM_G16_BAR_STYLE)
+ax.bar(x + 4 * bar_width, baseline_times, width=bar_width, **baseline_style.BAR_STYLE)
+ax.bar(x + 5 * bar_width, exec_times, width=bar_width, **baseline_style.EXEC_BAR_STYLE)
 
 # Red cross on the baseline where Poneglyph has no bar.
 unsupported_x = [x[i] + bar_width for i, q in enumerate(QUERY_IDS) if q not in PGN_QUERY_IDS]
@@ -159,15 +178,17 @@ cross = ax.scatter(
     clip_on=False,
 )
 
-ax.set_xticks(x + 1.5 * bar_width)
+ax.set_xticks(x + 2.5 * bar_width)
 ax.set_xticklabels(query_labels)
 ax.set_xlabel("TPC-H Query")
 ax.set_ylabel("Prover Time (s)")
 ax.tick_params(axis="x", pad=8)
 ax.tick_params(axis="y", pad=8)
 ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
-ax.set_xlim(x[0] - bar_width, x[-1] + 4 * bar_width)
-all_times = np.asarray(tt_times + pgn_times + baseline_times + exec_times, dtype=float)
+ax.set_xlim(x[0] - bar_width, x[-1] + 6 * bar_width)
+all_times = np.asarray(
+    tt_times + pgn_times + zkvm_times + zkvm_g16_times + baseline_times + exec_times, dtype=float
+)
 ax.set_yscale("log")
 ax.set_ylim(np.nanmin(all_times) / 2, np.nanmax(all_times) * 3)
 ax.yaxis.set_major_locator(LogLocator(base=10))
@@ -177,12 +198,14 @@ ax.legend(
     [
         Patch(facecolor=light[tt_idx], edgecolor=colors[tt_idx], hatch="/"),
         Patch(facecolor=light[pgn_idx], edgecolor=colors[pgn_idx], hatch="x"),
+        Patch(**baseline_style.ZKVM_GPU_BAR_STYLE),
+        Patch(**baseline_style.ZKVM_G16_BAR_STYLE),
         Patch(**baseline_style.BAR_STYLE),
         Patch(**baseline_style.EXEC_BAR_STYLE),
         cross,
     ],
-    ["TruthTable", "Poneglyph", baseline_style.LABEL, baseline_style.EXEC_LABEL,
-     "Not supported by Poneglyph"],
+    ["TruthTable", "Poneglyph", baseline_style.ZKVM_GPU_LABEL, baseline_style.ZKVM_G16_LABEL,
+     baseline_style.LABEL, baseline_style.EXEC_LABEL, "Not supported by Poneglyph"],
     ncol=3,
     loc="lower center",
     bbox_to_anchor=(0.5, 1.04),

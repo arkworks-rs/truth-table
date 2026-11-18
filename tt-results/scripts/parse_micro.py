@@ -7,6 +7,10 @@ Reads (any subset that exists):
   raw/third_party_qedb.json              → System=QEDB
   raw/third_party_truth_table.json       → System=TT
   raw/third_party_baseline_<threads>.json → System=Baseline (curve "none")
+  raw/third_party_zkvm_cpu<threads>.json → System=zkVM (SP1, curve "none")
+  raw/third_party_zkvm_cuda.json         → System=zkVM (GPU), threads "gpu"
+  A zkVM run proved with a Groth16 wrap gets ", Groth16" in its System:
+  "zkVM (Groth16)", "zkVM (GPU, Groth16)".
 
 Writes:
   tidy/micro.csv
@@ -26,10 +30,11 @@ Units:
   prover time (s)     = prove_ms / 1000
   verifier time (ms)  = verify_ms
   proof size (KB)     = proof_bytes / 1024
-  commit time (s)       = commit_ms / 1000       (Baseline only)
-  commitment size (KB)  = commitment_bytes / 1024 (Baseline only)
+  commit time (s)       = commit_ms / 1000       (Baseline and zkVM)
+  commitment size (KB)  = commitment_bytes / 1024 (Baseline and zkVM)
   execution time (s)    = execute_ms / 1000      (Baseline only: the query
                           on the full tables, unverified)
+  zkvm cycles           = instructions the zkVM guest ran (zkVM only)
 
 Usage:
   python3 tt-results/scripts/parse_micro.py
@@ -56,6 +61,7 @@ DEFAULT_HEADER = [
     "commit time (s)",
     "commitment size (KB)",
     "execution time (s)",
+    "zkvm cycles",
 ]
 
 # (bench_name, System label, default_curve, JSON filename)
@@ -70,6 +76,9 @@ BENCH_SOURCES = [
     ("truth_table", "TT", "bls12_381", "third_party_truth_table_bls12_381.json"),
     ("baseline", "Baseline", "none", "third_party_baseline_1.json"),
     ("baseline", "Baseline", "none", "third_party_baseline_4.json"),
+    ("zkvm", "zkVM", "none", "third_party_zkvm_cpu1.json"),
+    ("zkvm", "zkVM", "none", "third_party_zkvm_cpu4.json"),
+    ("zkvm", "zkVM (GPU)", "none", "third_party_zkvm_cuda.json"),
 ]
 
 QUERY_NAME_MAP = {
@@ -86,7 +95,22 @@ QUERY_NAME_MAP = {
 }
 
 Q_ORDER = ["Filter", "Aggregate", "Join", "Join PK/FK", "Limit"]
-SYSTEM_ORDER = {"TT": 0, "QEDB": 1, "PoSQL": 2, "Baseline": 3}
+SYSTEM_ORDER = {
+    "TT": 0,
+    "QEDB": 1,
+    "PoSQL": 2,
+    "zkVM": 3,
+    "zkVM (Groth16)": 4,
+    "zkVM (GPU)": 5,
+    "zkVM (GPU, Groth16)": 6,
+    "Baseline": 7,
+}
+
+
+def zkvm_system(label, mode):
+    if mode != "groth16":
+        return label
+    return label[:-1] + ", Groth16)" if label.endswith(")") else label + " (Groth16)"
 
 
 def fmt(value, decimals=3):
@@ -101,6 +125,8 @@ def fmt(value, decimals=3):
 def rows_from_json(json_path, system_label, default_curve):
     data = json.loads(json_path.read_text())
     threads = str(data.get("config", {}).get("num_threads", ""))
+    if data.get("config", {}).get("prover") == "cuda":
+        threads = "gpu"
     # Prefer config.curve when present (TT writes one), otherwise fall back to
     # the hard-coded default (PoSQL=BN254, QEDB=BLS12-381).
     curve = data.get("config", {}).get("curve", default_curve)
@@ -115,7 +141,8 @@ def rows_from_json(json_path, system_label, default_curve):
         prove_ms = entry.get("prove_ms")
         verify_ms = entry.get("verify_ms")
         proof_bytes = entry.get("proof_bytes")
-        commit_ms = entry.get("commit_ms") if system_label == "Baseline" else None
+        # TT's commit_ms is an oracle-cache lookup, not a commit.
+        commit_ms = entry.get("commit_ms") if system_label != "TT" else None
         commitment_bytes = entry.get("commitment_bytes")
         execute_ms = entry.get("execute_ms")
         # Per-row curve takes precedence (TT emits it on each result line).
@@ -123,7 +150,7 @@ def rows_from_json(json_path, system_label, default_curve):
         rows.append([
             q,
             threads,
-            system_label,
+            zkvm_system(system_label, entry.get("mode")),
             row_curve,
             str(pow_val) if pow_val is not None else "",
             # Baseline times are fractional milliseconds; trailing zeros are
@@ -134,6 +161,7 @@ def rows_from_json(json_path, system_label, default_curve):
             fmt(commit_ms / 1000, decimals=7) if commit_ms is not None else "",
             fmt(commitment_bytes / 1024) if commitment_bytes is not None else "",
             fmt(execute_ms / 1000, decimals=7) if execute_ms is not None else "",
+            str(entry["cycles"]) if "cycles" in entry else "",
         ])
     return rows
 
