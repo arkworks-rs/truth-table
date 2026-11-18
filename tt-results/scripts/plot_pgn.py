@@ -135,8 +135,10 @@ def build_series(value_key):
     ]
 
 
-colors = plt.get_cmap("tab10").colors
-light_colors = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
+# TruthTable and Poneglyph in their shared colours; the other bars carry their
+# own styles (bar_style).
+colors = [baseline_style.TT_COLOR, baseline_style.PONEGLYPH_COLOR]
+light_colors = [baseline_style.light(c) for c in colors]
 hatches = ["/", "x", "\\"]
 
 

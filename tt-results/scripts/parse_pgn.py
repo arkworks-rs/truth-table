@@ -3,11 +3,14 @@
 Rebuild tidy/tpch_pgn.csv — the Poneglyph-comparison CSV containing BOTH:
   - TruthTable on `_pgn` query variants  (System=tt)
   - PoneglyphDB on its KZG queries       (System=poneglyph)
+  - PoneglyphDB's data-independent circuits, bound to the committed tables
+    (System="poneglyph (data-independent)")
 
 Reads:
   raw/benches_pgn_{SF}_1.json       — divan timing (TT on _pgn variants)
   raw/bench_stats_pgn_{SF}_1.jsonl  — proof sizes (TT on _pgn variants)
   raw/poneglyph_q{N}_k{K}.log       — PoneglyphDB sweep output
+  raw/third_party_poneglyph_tpch.json — run_pgn_fixed_tpch.sh
 
 Writes:
   tidy/tpch_pgn.csv
@@ -207,6 +210,27 @@ def collect_poneglyph_rows():
     return rows
 
 
+def collect_poneglyph_fixed_rows():
+    path = RAW_DIR / "third_party_poneglyph_tpch.json"
+    if not path.exists():
+        return []
+    rows = []
+    for rec in json.loads(path.read_text()).get("results", []):
+        prove_ms = rec.get("prove_ms")
+        proof_b = rec.get("proof_bytes")
+        rows.append([
+            f"q{rec['query']}",
+            "poneglyph (data-independent)",
+            f"{rec['sf']:g}",
+            "",
+            fmt(prove_ms / 1000 if prove_ms is not None else None),
+            fmt(rec.get("verify_ms")),
+            "", "", "", "",
+            fmt(proof_b / 1024 if proof_b is not None else None),
+        ])
+    return rows
+
+
 # ── main ────────────────────────────────────────────────────────────
 def sort_key(row):
     q = row[0] if row else ""
@@ -214,7 +238,7 @@ def sort_key(row):
     sf = row[2] if len(row) > 2 else "0"
     m = re.match(r"q(\d+)$", q)
     n = int(m.group(1)) if m else 999
-    sys_order = {"tt": 0, "poneglyph": 1}.get(system, 2)
+    sys_order = {"tt": 0, "poneglyph": 1, "poneglyph (data-independent)": 2}.get(system, 3)
     try:
         sf_val = float(sf)
     except ValueError:
@@ -227,7 +251,8 @@ def main():
 
     tt_rows = collect_tt_rows()
     pgn_rows = collect_poneglyph_rows()
-    all_rows = tt_rows + pgn_rows
+    fixed_rows = collect_poneglyph_fixed_rows()
+    all_rows = tt_rows + pgn_rows + fixed_rows
     all_rows.sort(key=sort_key)
 
     with open(CSV_PATH, "w", newline="") as f:
@@ -236,7 +261,8 @@ def main():
         w.writerows(all_rows)
 
     pgn_log_count = len(list(RAW_DIR.glob("poneglyph_q*_k*.log")))
-    print(f"Wrote {CSV_PATH}: {len(tt_rows)} tt rows, {len(pgn_rows)} poneglyph rows")
+    print(f"Wrote {CSV_PATH}: {len(tt_rows)} tt rows, {len(pgn_rows)} poneglyph rows, "
+          f"{len(fixed_rows)} data-independent poneglyph rows")
     print(f"Data sources: TT _pgn at SF={','.join(TT_SFS)}; {pgn_log_count} poneglyph logs")
 
 

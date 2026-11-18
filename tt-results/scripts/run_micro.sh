@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
-# Run the micro-benchmark suites (PoSQL, QEDB, TruthTable, Baseline) on the
-# shared Filter / Aggregate / Limit / Join / Join_PK_FK queries, and emit
-# both raw stdout logs and structured per-bench JSON files.
+# Run the micro benchmark (third-party-bench/src/micro.rs) on every system, all
+# over the same rows: TruthTable, PoSQL, QEDB and Poneglyph on one CPU thread,
+# the no-proof baseline on 1 and 4 threads, and the SP1 zkVM on the GPU. All
+# proof systems use BN254 (QEDB through its fork's `bn254` feature).
+#
+# Provers run once; verifiers repeat for up to a second and report the median.
+# Each system also reports what it has of: setup time, proving and verifying
+# key sizes, KZG parameter size and key generation (Poneglyph), table
+# commitment time and size, proof size and result rows.
+#
+# MICRO_SYSTEMS picks systems (default "tt posql qedb poneglyph baseline zkvm");
+# MICRO_POWS (comma-separated powers of two, default 15..20) and MICRO_QUERIES
+# narrow the sweep. PoSQL uses its arkworks MSMs (third-party-bench's
+# posql-blitzar feature is off). CPU systems are pinned to CPUs 0..t-1, distinct physical
+# cores on the bench machine (check `lscpu -e` elsewhere), and see no GPU:
+# only the zkVM proves on the GPU.
 #
 # Outputs to tt-results/raw/:
-#   third_party_{bench}.log   — full cargo bench stdout (one per system)
-#   third_party_{bench}.json  — parsed/structured results (one per system)
-#   third_party_baseline_{1,4}.{log,json} — Baseline, one per thread count
-#
-# The per-bench JSONs are what parse_micro.py consumes; the logs are kept for
-# debugging.
-#
-# Thread pinning: NUM_THREADS (default 1) is propagated as RAYON_NUM_THREADS
-# (consumed by Rayon) AND TT_BENCH_NUM_THREADS (stamped into the JSON output
-# by parse_bench_output.py). The two MUST match — otherwise micro.csv lies
-# about what was measured.
-#
-# Failures in one bench don't abort the others.
-#
-# MICRO_ONLY_TT=1 runs only the TruthTable passes, MICRO_ONLY_BASELINE=1 only
-# the Baseline passes; the other systems keep their existing JSONs.
+#   third_party_{truth_table,sxt_proof_of_sql,qedb,poneglyph}.{log,json}
+#   third_party_baseline_{1,4}.{log,json}
+#   zkvm_micro_cuda.{log,json}
+# then, from the repo root:
+#   python3 tt-results/scripts/parse_micro.py   # → tidy/micro.csv
+#   python3 tt-results/scripts/plot_micro.py    # → figures/micro*.pdf
 #
 # Usage:
 #   ./tt-results/scripts/run_micro.sh
@@ -31,176 +34,53 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RESULTS_DIR="$REPO_ROOT/tt-results/raw"
 TPB_DIR="$REPO_ROOT/third-party-bench"
 PARSER="$TPB_DIR/parse_bench_output.py"
-
+SYSTEMS=(${MICRO_SYSTEMS:-tt posql qedb poneglyph baseline zkvm})
 mkdir -p "$RESULTS_DIR"
 
-# Note: truth_table is now run TWICE, once per SNARK backend, via
-# run_bench_variant below. Keep this list for the "single-shot" benches only.
-BENCHES=(sxt_proof_of_sql qedb)
-NUM_THREADS=1       # threads for the measured pass
-WARMUP_THREADS=16   # threads for the unmeasured QEDB warmup (see below)
-
-# QEDB regenerates its setup keys / cache on first contact with a fresh
-# artifact/size_N directory. That work parallelizes well but is single-
-# threaded slow, so we run QEDB ONCE at WARMUP_THREADS just to populate
-# `artifact/size_N/qedb_cache/` and discard the timing log. The measured
-# pass then runs everything (incl. QEDB again) at NUM_THREADS=1 with the
-# cache already warm, so only the prover work is measured single-threaded.
-#
-# This is idempotent: if qedb_cache/ already exists from a previous invocation
-# the warmup is mostly a no-op (QEDB skips work it already has).
-
-# Join + Join_PK_FK parquets share a deterministic PK/FK row layout written
-# by sxt's bench and read by the other two. Wipe stale ones so downstream
-# benches don't read mismatched data. Filter / Aggregate / Limit parquets
-# are independent and reused.
-#
-# Under MICRO_ONLY_TT=1 the sxt bench that regenerates the Join layout is
-# skipped, so keep the existing (deterministic) parquets instead of wiping —
-# wiping would strand the TT Join cases with no data source.
-ARTIFACT_ROOT="$TPB_DIR/artifact"
-# MICRO_ONLY_BASELINE=1 keeps them for the same reason.
-if [[ "${MICRO_ONLY_TT:-0}" != "1" ]] && [[ "${MICRO_ONLY_BASELINE:-0}" != "1" ]] \
-    && [[ -d "$ARTIFACT_ROOT" ]]; then
-    find "$ARTIFACT_ROOT" -type d \( -name Join -o -name Join_PK_FK \) -prune -print0 \
-        | xargs -0 -I {} rm -rf {}
-fi
-
-warmup_qedb() {
-    local log="$RESULTS_DIR/third_party_qedb_warmup.log"
-
-    echo ""
-    echo "=============================================="
-    echo "  WARMUP: cargo bench --bench qedb  (threads=$WARMUP_THREADS, discarded)"
-    echo "=============================================="
-
-    (
-        cd "$TPB_DIR"
-        RAYON_NUM_THREADS="$WARMUP_THREADS" \
-            cargo bench --bench qedb 2>&1
-    ) | tee "$log"
-
-    echo ""
-    echo "  → warmup log (not parsed): $log"
+has() {
+    [[ " ${SYSTEMS[*]} " == *" $1 "* ]]
 }
 
-run_bench() {
-    local bench="$1"
-    local log="$RESULTS_DIR/third_party_${bench}.log"
+# Build before any timed run, and write every table's parquet file so the
+# zkVM reads the rows the other systems generate.
+(
+    cd "$TPB_DIR"
+    cargo bench --no-run --bench truth_table --bench sxt_proof_of_sql --bench qedb \
+        --bench poneglyph --bench baseline 2>&1 | tail -2
+    cargo run --release --bin micro_data >/dev/null
+) || exit 1
 
+# run_bench <bench> <threads> <output stem> [cargo args...]
+run_bench() {
+    local bench="$1" threads="$2" stem="$3"
+    shift 3
+    local log="$RESULTS_DIR/${stem}.log"
     echo ""
     echo "=============================================="
-    echo "  cargo bench --bench $bench  (threads=$NUM_THREADS)"
+    echo "  $bench (threads=$threads, CPUs 0-$((threads - 1)))"
     echo "=============================================="
-
     (
         cd "$TPB_DIR"
-        RAYON_NUM_THREADS="$NUM_THREADS" \
-            cargo bench --bench "$bench" 2>&1
+        CUDA_VISIBLE_DEVICES="" RAYON_NUM_THREADS="$threads" taskset -c "0-$((threads - 1))" \
+            cargo bench "$@" --bench "$bench" 2>&1
     ) | tee "$log"
-
-    echo ""
-    echo "  → log: $log"
-
-    TT_BENCH_NUM_THREADS="$NUM_THREADS" \
-        python3 "$PARSER" "$bench" "$log" "$RESULTS_DIR/third_party_${bench}.json" \
+    TT_BENCH_NUM_THREADS="$threads" \
+        python3 "$PARSER" "$bench" "$log" "$RESULTS_DIR/${stem}.json" \
         || echo "  !! parser failed for $bench"
 }
 
-# Variant of run_bench that activates a cargo feature and tags the output
-# files with a suffix, so the same bench can be run with different SNARK
-# backends (BN254 vs BLS12-381) without overwriting each other. Empty
-# `feature` means "default features" (BN254 for truth_table).
-run_bench_variant() {
-    local bench="$1"
-    local suffix="$2"   # "" for default, e.g. "_bls12_381" for BLS variant
-    local feature="$3"  # "" for default, e.g. "bls12-381" for BLS variant
-
-    local log="$RESULTS_DIR/third_party_${bench}${suffix}.log"
-    local feature_args=()
-    if [[ -n "$feature" ]]; then
-        feature_args=(--features "$feature")
-    fi
-
-    echo ""
-    echo "=============================================="
-    echo "  cargo bench --bench $bench ${feature_args[*]:-(default features)}  (threads=$NUM_THREADS)"
-    echo "=============================================="
-
-    (
-        cd "$TPB_DIR"
-        RAYON_NUM_THREADS="$NUM_THREADS" \
-            cargo bench --bench "$bench" "${feature_args[@]}" 2>&1
-    ) | tee "$log"
-
-    echo ""
-    echo "  → log: $log"
-
-    TT_BENCH_NUM_THREADS="$NUM_THREADS" \
-        python3 "$PARSER" "$bench" "$log" "$RESULTS_DIR/third_party_${bench}${suffix}.json" \
-        || echo "  !! parser failed for $bench${suffix}"
-}
-
-# Baseline (third-party-bench/benches/baseline.rs) at each of
-# BASELINE_THREADS, pinned to CPUs 0..t-1. On the bench machine those are
-# distinct physical cores; check `lscpu -e` before running elsewhere. It reads
-# the raw Join_PK_FK parquets the truth_table bench writes, so it runs last.
-BASELINE_THREADS=(1 4)
-
-run_baseline() {
-    local threads="$1"
-    local log="$RESULTS_DIR/third_party_baseline_${threads}.log"
-
-    echo ""
-    echo "=============================================="
-    echo "  cargo bench --bench baseline  (threads=$threads, CPUs 0-$((threads - 1)))"
-    echo "=============================================="
-
-    # Build unpinned; only the measured run is pinned.
-    (cd "$TPB_DIR" && cargo bench --bench baseline --no-run 2>&1)
-    (
-        cd "$TPB_DIR"
-        RAYON_NUM_THREADS="$threads" \
-            taskset -c "0-$((threads - 1))" cargo bench --bench baseline 2>&1
-    ) | tee "$log"
-
-    echo ""
-    echo "  → log: $log"
-
-    TT_BENCH_NUM_THREADS="$threads" \
-        python3 "$PARSER" baseline "$log" "$RESULTS_DIR/third_party_baseline_${threads}.json" \
-        || echo "  !! parser failed for baseline ($threads threads)"
-}
-
-echo "=== micro comparison sweep ==="
-echo "Benches: ${BENCHES[*]}"
-echo "Warmup threads: $WARMUP_THREADS (QEDB only, output discarded)"
-echo "Measured threads: $NUM_THREADS"
-echo "Results dir: $RESULTS_DIR"
-
-if [[ "${MICRO_ONLY_TT:-0}" != "1" ]] && [[ "${MICRO_ONLY_BASELINE:-0}" != "1" ]]; then
-    warmup_qedb
-
-    for b in "${BENCHES[@]}"; do
-        run_bench "$b"
-    done
+has tt && run_bench truth_table 1 third_party_truth_table
+has posql && run_bench sxt_proof_of_sql 1 third_party_sxt_proof_of_sql
+has qedb && run_bench qedb 1 third_party_qedb
+has poneglyph && run_bench poneglyph 1 third_party_poneglyph
+if has baseline; then
+    run_bench baseline 1 third_party_baseline_1
+    run_bench baseline 4 third_party_baseline_4
 fi
-
-# TruthTable: one pass per SNARK backend. BN254 is the default; the
-# `bls12-381` feature swaps the type alias in tt-exec. Each pass writes to a
-# distinct JSON so parse_micro.py can carry both into the same micro.csv.
-if [[ "${MICRO_ONLY_BASELINE:-0}" != "1" ]]; then
-    run_bench_variant truth_table ""             ""
-    run_bench_variant truth_table "_bls12_381"   "bls12-381"
-fi
-
-if [[ "${MICRO_ONLY_TT:-0}" != "1" ]]; then
-    for t in "${BASELINE_THREADS[@]}"; do
-        run_baseline "$t"
-    done
+if has zkvm; then
+    rm -f "$RESULTS_DIR/zkvm_micro_cuda.log"
+    ZKVM_SUITES=micro "$SCRIPT_DIR/run_zkvm.sh"
 fi
 
 echo ""
 echo "=== micro sweep complete ==="
-echo "Logs:  $RESULTS_DIR/third_party_*.log"
-echo "JSONs: $RESULTS_DIR/third_party_*.json"

@@ -42,9 +42,9 @@ echo "########################################"
 
 echo ""
 echo "########################################"
-echo "# 6/6  run_zkvm.sh (GPU only; CPU passes take days)"
+echo "# 6/6  run_zkvm.sh"
 echo "########################################"
-ZKVM_PASSES=cuda "$SCRIPT_DIR/run_zkvm.sh" || echo "  !! run_zkvm.sh failed (continuing)"
+"$SCRIPT_DIR/run_zkvm.sh" || echo "  !! run_zkvm.sh failed (continuing)"
 
 echo ""
 echo "=== run_all.sh complete ==="

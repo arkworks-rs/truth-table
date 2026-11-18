@@ -21,7 +21,9 @@ serde_json = { workspace = true }
 
 # Aliased to `poneglyph` on the consumer side — the upstream crate name is still
 # `halo2-experiments` in PoneglyphDB's own Cargo.toml.
-poneglyph = { package = "halo2-experiments", git = "https://github.com/alireza-shirzad/PoneglyphDB", branch = "main" }
+# Pinned to the fork's original circuits: later commits need a patched halo2
+# (third-party-bench patches it; this workspace does not).
+poneglyph = { package = "halo2-experiments", git = "https://github.com/alireza-shirzad/PoneglyphDB", rev = "df35409f16a0053d6fac69350053198e6ecc715d" }
 
 [[bin]]
 name = "tt-poneglyph-bench"

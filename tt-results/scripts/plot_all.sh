@@ -23,9 +23,12 @@ python3 "$SCRIPT_DIR/plot_pgn.py" || echo "  !! plot_pgn.py failed (continuing)"
 
 echo ""
 echo "########################################"
-echo "# 3/6  plot_micro.py             → micro_*.pdf"
+echo "# 3/6  plot_micro.py             → micro.pdf"  
 echo "########################################"
 python3 "$SCRIPT_DIR/plot_micro.py" || echo "  !! plot_micro.py failed (continuing)"
+python3 "$SCRIPT_DIR/plot_micro_commit.py" || echo "  !! plot_micro_commit.py failed (continuing)"
+python3 "$SCRIPT_DIR/plot_micro_scaling.py" || echo "  !! plot_micro_scaling.py failed (continuing)"
+python3 "$SCRIPT_DIR/plot_micro_prover_paper.py" || echo "  !! plot_micro_prover_paper.py failed (continuing)"
 
 echo ""
 echo "########################################"

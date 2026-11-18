@@ -15,6 +15,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod micro;
 pub mod tpch;
 
 pub type Hash = [u8; 32];
@@ -198,23 +199,13 @@ pub fn result_hash(result: &[Column]) -> Hash {
     hasher.finalize().into()
 }
 
-/// The micro queries of `third-party-bench/benches/truth_table.rs`, and the
-/// TPC-H queries of [`tpch`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Query {
-    /// `SELECT a, b, c, d FROM t WHERE a = 1 AND b = 2`
-    Filter,
-    /// `SELECT count(b) FROM t`
-    AggregateCount,
-    /// `SELECT t1.a, t2.a FROM t1, t2 WHERE t1.a = t2.a`
-    Join,
-    /// `SELECT t1.a, t2.a_fk FROM t1, t2 WHERE t1.a = t2.a_fk`
-    JoinPkFk,
-    /// `SELECT "column" FROM t LIMIT 10`
-    Limit,
-    /// TPC-H query `q`: its `_tt` variant, or its `_pgn` one over the
-    /// `_poneglyph` tables.
+    /// TPC-H query `q`: its `_tt` variant, or with `pgn` its `_pgn` one over
+    /// the `_poneglyph` tables.
     Tpch { q: u8, pgn: bool },
+    /// A micro query.
+    Micro(micro::Micro),
 }
 
 impl Query {
@@ -222,12 +213,8 @@ impl Query {
     /// guest reads them.
     pub fn inputs(self) -> &'static [(usize, &'static str)] {
         match self {
-            Query::Filter => &[(0, "a"), (0, "b"), (0, "c"), (0, "d")],
-            Query::AggregateCount => &[(0, "b")],
-            Query::Join => &[(0, "a"), (1, "a")],
-            Query::JoinPkFk => &[(0, "a"), (1, "a_fk")],
-            Query::Limit => &[(0, "column")],
             Query::Tpch { q, pgn } => tpch::inputs(q, pgn),
+            Query::Micro(m) => m.inputs(),
         }
     }
 
@@ -235,44 +222,8 @@ impl Query {
     /// the host and the guest produce the same result and hash.
     pub fn run(self, inputs: &[Column]) -> Vec<Column> {
         match self {
-            Query::Filter => {
-                let (a, b, c, d) = (
-                    inputs[0].i64s(),
-                    inputs[1].i64s(),
-                    inputs[2].i64s(),
-                    inputs[3].i64s(),
-                );
-                let mut out = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-                for i in 0..a.len() {
-                    if a[i] == 1 && b[i] == 2 {
-                        out[0].push(a[i]);
-                        out[1].push(b[i]);
-                        out[2].push(c[i]);
-                        out[3].push(d[i]);
-                    }
-                }
-                out.into_iter().map(Column::I64).collect()
-            }
-            // The column is non-nullable, so every row counts.
-            Query::AggregateCount => vec![Column::I64(vec![inputs[0].len() as i64])],
-            Query::Join | Query::JoinPkFk => {
-                let (left, right) = (inputs[0].i64s(), inputs[1].i64s());
-                let index = MultiIndex::new(left);
-                let (mut a1, mut a2) = (Vec::new(), Vec::new());
-                for &key in right {
-                    for row in index.rows(key) {
-                        a1.push(left[row]);
-                        a2.push(key);
-                    }
-                }
-                vec![Column::I64(a1), Column::I64(a2)]
-            }
-            Query::Limit => match &inputs[0] {
-                Column::U8(v) => vec![Column::U8(v[..v.len().min(10)].to_vec())],
-                Column::I64(v) => vec![Column::I64(v[..v.len().min(10)].to_vec())],
-                _ => panic!("unsupported LIMIT column"),
-            },
             Query::Tpch { q, pgn } => tpch::run(q, pgn, inputs),
+            Query::Micro(m) => m.run(inputs),
         }
     }
 }
@@ -312,38 +263,6 @@ impl Hasher for Fx {
 
 pub type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<Fx>>;
 
-/// A hash index from a key column to the rows holding each key: `head` maps
-/// a key to its last row and `next` links each row to the previous one with
-/// the same key, so building allocates nothing per row.
-pub struct MultiIndex {
-    head: FxMap<i64, u32>,
-    next: Vec<u32>,
-}
-
-impl MultiIndex {
-    pub fn new(keys: &[i64]) -> Self {
-        let mut head = FxMap::with_capacity_and_hasher(keys.len(), Default::default());
-        let mut next = vec![u32::MAX; keys.len()];
-        for (i, &key) in keys.iter().enumerate() {
-            if let Some(prev) = head.insert(key, i as u32) {
-                next[i] = prev;
-            }
-        }
-        MultiIndex { head, next }
-    }
-
-    pub fn rows(&self, key: i64) -> impl Iterator<Item = usize> + '_ {
-        let mut row = self.head.get(&key).copied().unwrap_or(u32::MAX);
-        std::iter::from_fn(move || {
-            (row != u32::MAX).then(|| {
-                let current = row as usize;
-                row = self.next[current];
-                current
-            })
-        })
-    }
-}
-
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct PublicValues {
     pub query: Query,
@@ -370,35 +289,5 @@ mod tests {
         ] {
             assert_eq!(Column::decode(&c.encode()), c);
         }
-    }
-
-    #[test]
-    fn micro_queries_match_their_sql() {
-        let t = [
-            Column::I64(vec![1, 1, 2]),
-            Column::I64(vec![2, 3, 2]),
-            Column::I64(vec![5, 6, 7]),
-            Column::I64(vec![8, 9, 10]),
-        ];
-        assert_eq!(
-            Query::Filter.run(&t),
-            vec![
-                Column::I64(vec![1]),
-                Column::I64(vec![2]),
-                Column::I64(vec![5]),
-                Column::I64(vec![8])
-            ]
-        );
-        assert_eq!(
-            Query::AggregateCount.run(&t[1..2]),
-            vec![Column::I64(vec![3])]
-        );
-        let joined = Query::Join.run(&[Column::I64(vec![1, 2, 2]), Column::I64(vec![2, 3, 1])]);
-        assert_eq!(
-            joined,
-            vec![Column::I64(vec![2, 2, 1]), Column::I64(vec![2, 2, 1])]
-        );
-        let limited = Query::Limit.run(&[Column::U8((0..20).collect())]);
-        assert_eq!(limited, vec![Column::U8((0..10).collect())]);
     }
 }
