@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run TruthTable on the regular TPC-H queries (the `_tt` bench variants),
-# across the full (scale-factor, threads) matrix.
+# Run TruthTable on the regular TPC-H queries (the `_tt` bench variants) and
+# its table commitment bench, across the full (scale-factor, threads) matrix.
 #
 # Execution order (data-gen runs once per SF, before the first bench at that SF):
 #
@@ -14,7 +14,9 @@
 # After each (SF, threads) sweep the shared divan / stats files are renamed:
 #   benches.json      → benches_tt_{SF}_{threads}.json
 #   bench_stats.jsonl → bench_stats_tt_{SF}_{threads}.jsonl
-# Per-query stdout is saved to tpch_tt_{SF}_{threads}_{query}.txt.
+# Per-query stdout is saved to tpch_tt_{SF}_{threads}_{query}.txt. The commit
+# bench writes benches_commit_{SF}_{threads}.json and commit_{SF}_{threads}.txt
+# (parse_tt_commit.py → tidy/commit.csv).
 #
 # The Poneglyph-style `_pgn` variants are NOT run here — see run_pgn.sh.
 #
@@ -82,7 +84,7 @@ run_one_sweep() {
         local logfile="$RESULTS_DIR/tpch_tt_${sf}_${nthreads}_${q}.txt"
         echo ">>> [SF=$sf, ${nthreads}t] $q"
         RAYON_NUM_THREADS="$nthreads" \
-            cargo bench -p tt-exec --bench benches -- "tpch::${q}" \
+            cargo bench -p tt-exec --bench benches -- "tpch::${q}::" \
             2>&1 | tee "$logfile" \
             || echo "  !! $q failed (continuing)"
         echo ""
@@ -94,17 +96,33 @@ run_one_sweep() {
     echo "  → saved benches_tt_${tag}.json, bench_stats_tt_${tag}.jsonl"
 }
 
+run_commit() {
+    local sf="$1"
+    local nthreads="$2"
+    local tag="${sf}_${nthreads}"
+
+    echo ""
+    echo ">>> [SF=$sf, ${nthreads}t] commit"
+    rm -f "$BENCHES_JSON" "$BENCH_STATS_JSONL"
+    RAYON_NUM_THREADS="$nthreads" \
+        cargo bench -p tt-exec --bench benches -- "commit::" \
+        2>&1 | tee "$RESULTS_DIR/commit_${tag}.txt" \
+        || echo "  !! commit failed (continuing)"
+    [[ -f "$BENCHES_JSON" ]]      && mv "$BENCHES_JSON"      "$RESULTS_DIR/benches_commit_${tag}.json"
+    [[ -f "$BENCH_STATS_JSONL" ]] && mv "$BENCH_STATS_JSONL" "$RESULTS_DIR/bench_stats_commit_${tag}.jsonl"
+}
+
 echo "=== TT TPC-H full benchmark sweep ==="
 echo "Queries: ${#QUERIES[@]}"
 echo "Results dir: $RESULTS_DIR"
 
-data_gen 0.05
-run_one_sweep 0.05 4
-run_one_sweep 0.05 1
-
-data_gen 0.1
-run_one_sweep 0.1 4
-run_one_sweep 0.1 1
+for sf in 0.05 0.1; do
+    data_gen "$sf"
+    run_one_sweep "$sf" 4
+    run_one_sweep "$sf" 1
+    run_commit "$sf" 4
+    run_commit "$sf" 1
+done
 
 echo ""
 echo "=== TT TPC-H sweep complete ==="
