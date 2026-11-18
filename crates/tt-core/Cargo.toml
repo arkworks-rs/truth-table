@@ -24,7 +24,6 @@ ark-poly = { workspace = true }
 ark-piop = { workspace = true, features = ["test-utils"] }
 ark-serialize = { workspace = true }
 blake3 = { workspace = true }
-ark-test-curves = { workspace = true }
 
 # datafusion dependencies
 datafusion = { workspace = true }
