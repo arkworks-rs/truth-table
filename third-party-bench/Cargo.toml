@@ -12,6 +12,13 @@ BLITZAR_BACKEND = "cpu"
 arrow-arith = { path = "patches/arrow-arith-51.0.0" }
 ark-piop = { path = "../../ark-piop" }
 
+# Poneglyph's halo2, with unblinded advice columns
+# (privacy-scaling-explorations/halo2#220) for binding its circuits to the
+# data owner's table commitments.
+[patch."https://github.com/tuzijun111/halo2_PSE"]
+halo2_proofs = { git = "https://github.com/alireza-shirzad/halo2_PSE", rev = "e3642ecfa86f8a979a348ed57b122778450365b6" }
+halo2_gadgets = { git = "https://github.com/alireza-shirzad/halo2_PSE", rev = "e3642ecfa86f8a979a348ed57b122778450365b6" }
+
 [package]
 name = "tt-third-party-bench"
 version = "0.1.0"
@@ -20,9 +27,16 @@ publish = false
 autobenches = false
 
 [dependencies]
-proof-of-sql-benchlib = { git = "https://github.com/Pratyush/sxt-proof-of-sql", branch = "main" }
-proof-of-sql = { git = "https://github.com/Pratyush/sxt-proof-of-sql", branch = "main" }
-qedb = { git = "https://github.com/alireza-shirzad/qedb", branch = "main" }
+proof-of-sql-benchlib = { git = "https://github.com/alireza-shirzad/sxt-proof-of-sql", rev = "54204d78aafe8bb8fddd546cff37b9f5ac0444fb", default-features = false }
+proof-of-sql = { git = "https://github.com/alireza-shirzad/sxt-proof-of-sql", rev = "54204d78aafe8bb8fddd546cff37b9f5ac0444fb", default-features = false, features = ["arrow", "cpu-perf"] }
+# PoSQL's commitments run in blitzar, whose default backend is the GPU; its
+# `cpu` feature takes precedence, keeping PoSQL on the CPU like every other
+# system.
+blitzar = { version = "4.6.1", default-features = false, features = ["cpu"], optional = true }
+qedb-primitives = { git = "https://github.com/alireza-shirzad/qedb-primitives", rev = "d538f80fad38810a5d21e6148c7a341e0e628a41", features = ["bn254"] }
+ark-serialize-06 = { package = "ark-serialize", version = "0.6", features = ["derive"] }
+ark-std-06 = { package = "ark-std", version = "0.6" }
+poneglyph = { package = "halo2-experiments", git = "https://github.com/alireza-shirzad/PoneglyphDB", rev = "6ce1e1c5827350e170829c1dd5f449b225fba932" }
 tpch-data = { package = "tt-tpch-data", path = "../crates/tt-tpch-data" }
 exec = { package = "tt-exec", path = "../crates/tt-exec" }
 front-end = { package = "tt-front-end", path = "../crates/tt-front-end" }
@@ -58,6 +72,14 @@ name = "qedb"
 harness = false
 
 [[bench]]
+name = "poneglyph"
+harness = false
+
+[[bench]]
+name = "poneglyph_tpch"
+harness = false
+
+[[bench]]
 name = "baseline"
 harness = false
 
@@ -67,6 +89,10 @@ harness = false
 
 [features]
 default = []
+# PoSQL's MSMs through blitzar's CPU backend instead of arkworks/halo2curves.
+# Blitzar's CPU backend is slower than arkworks' MSMs and segfaults on 2^20-row
+# tables, so the benchmarks leave it off.
+posql-blitzar = ["proof-of-sql/blitzar", "proof-of-sql-benchlib/blitzar", "dep:blitzar"]
 # Swap the TruthTable benches' SNARK backend from BN254 to BLS12-381 by
 # forwarding to tt-exec's bls12-381 feature.
 bls12-381 = ["exec/bls12-381"]

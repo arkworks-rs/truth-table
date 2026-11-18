@@ -38,73 +38,79 @@ def _thread_config() -> dict:
 #
 # Header: BLITZAR_BACKEND=<backend>, iterations: <N>, table_sizes: [..]
 
+# Per-query fields any bench may print as `<name>: <number>`.
+METRIC_FIELDS = (
+    "setup_ms",
+    "params_bytes",
+    "pk_bytes",
+    "vk_bytes",
+    "keygen_ms",
+    "preprocess_ms",
+    "commit_ms",
+    "commitment_bytes",
+    "prove_ms",
+    "proof_bytes",
+    "verify_ms",
+    "execute_ms",
+    "result_rows",
+    "public_inputs",
+    "cycles",
+)
+
+
+def _numeric_fields(chunk: str, fields=METRIC_FIELDS) -> dict:
+    rec = {}
+    for field in fields:
+        m = re.search(rf"^{field}:\s*([\d.]+)\s*$", chunk, re.M)
+        if m:
+            rec[field] = float(m.group(1)) if "." in m.group(1) else int(m.group(1))
+    return rec
+
+
 def parse_sxt_proof_of_sql(text: str) -> dict:
-    config = _thread_config()
-    m = re.search(r"^BLITZAR_BACKEND=(\S+)", text, re.M)
-    if m:
-        config["blitzar_backend"] = m.group(1)
-    m = re.search(r"^iterations:\s*(\d+)", text, re.M)
-    if m:
-        config["iterations"] = int(m.group(1))
-    m = re.search(r"^table_sizes:\s*\[([^\]]*)\]", text, re.M)
-    if m:
-        config["table_pows"] = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
+    parsed = parse_qedb(text)
+    parsed["bench"] = "sxt_proof_of_sql"
+    return parsed
 
-    # CSV summary line: scheme,query,table_size,prove_ms,verify_ms,proof_bytes,iter
-    csv_re = re.compile(
-        r"^([A-Za-z][A-Za-z0-9_]*),"
-        r"([^,\n]+?),"          # query name (may contain spaces)
-        r"(\d+),(\d+),(\d+),(\d+),(\d+)\s*$",
-        re.M,
-    )
-    nqr_re = re.compile(r"^Number of query results:\s*(\d+)\s*$", re.M)
 
-    # Split the text into chunks per query using the separator line.
-    chunks = re.split(r"^-{5,}\s*$", text, flags=re.M)
+# qedb emits, per (pow, query), `pow: <pow> query: <name>` and then
+# METRIC_FIELDS lines, ending with a dashed separator.
 
-    # Each `table_size:` or `parquet_dir:` line sets the pow context of the
-    # chunks from there on.
+def parse_poneglyph(text: str) -> dict:
+    """Poneglyph's micro bench prints QEDB's lines, plus the circuit variant
+    (`faithful` or `fixed`, whose rows get System "Poneglyph (data-independent)")."""
+    parsed = parse_qedb(text)
+    chunks = [c for c in re.split(r"^-{5,}\s*$", text, flags=re.M) if re.search(r"^pow:", c, re.M)]
+    for rec, chunk in zip(parsed["results"], chunks):
+        m = re.search(r"variant:\s*(\S+)", chunk)
+        if m:
+            rec["variant"] = m.group(1)
+            if m.group(1) == "fixed":
+                rec["system"] = "Poneglyph (data-independent)"
+    parsed["bench"] = "poneglyph"
+    return parsed
+
+
+def parse_poneglyph_tpch(text: str) -> dict:
+    """Poneglyph's data-independent TPC-H circuits: one chunk per
+    `sf: <sf> query: q<n> variant: fixed` with the micro bench's metric lines
+    and the circuit degree `k`."""
+    head_re = re.compile(r"^sf:\s*(\S+)\s+query:\s*q(\d+)\s+variant:\s*(\S+)", re.M)
     results = []
-    current_pow = None
-    current_size = None
-    for chunk in chunks:
-        for line in chunk.splitlines():
-            m = re.match(r"\s*parquet_dir:\s*artifact/size_(\d+)", line)
-            if m:
-                current_pow = int(m.group(1))
-            m = re.match(r"\s*table_size:\s*(\d+)", line)
-            if m:
-                current_size = int(m.group(1))
-
-        csv = csv_re.search(chunk)
-        if not csv:
+    for chunk in re.split(r"^-{5,}\s*$", text, flags=re.M):
+        head = head_re.search(chunk)
+        if not head:
             continue
-        nqr = nqr_re.search(chunk)
-        parquet_paths = re.findall(r"^parquet:\s*(\S.*?)\s*$", chunk, re.M)
-        parquet_paths = [p for p in parquet_paths if p != "none"]
+        rec = {
+            "sf": float(head.group(1)),
+            "query": int(head.group(2)),
+            "variant": head.group(3),
+            "system": "Poneglyph (data-independent)",
+        }
+        rec.update(_numeric_fields(chunk, METRIC_FIELDS + ("k",)))
+        results.append(rec)
+    return {"bench": "poneglyph_tpch", "config": _thread_config(), "results": results}
 
-        results.append({
-            "pow": current_pow,
-            "table_size": int(csv.group(3)),
-            "scheme": csv.group(1),
-            "query": csv.group(2).strip(),
-            "prove_ms": int(csv.group(4)),
-            "verify_ms": int(csv.group(5)),
-            "proof_bytes": int(csv.group(6)),
-            "iteration": int(csv.group(7)),
-            "num_query_results": int(nqr.group(1)) if nqr else None,
-            "parquet_paths": parquet_paths,
-        })
-
-    return {"bench": "sxt_proof_of_sql", "config": config, "results": results}
-
-
-# qedb emits, per (pow, query):
-#   pow: <pow> query: <name>
-#   prove_ms: <..>
-#   verify_ms: <..>
-#   proof_bytes: <..>
-#   ----------------------------------------
 
 def parse_qedb(text: str) -> dict:
     config = _thread_config()
@@ -122,10 +128,7 @@ def parse_qedb(text: str) -> dict:
         pow_val = int(head.group(1))
         query = head.group(2)
         rec = {"pow": pow_val, "table_size": 1 << pow_val, "query": query}
-        for field in ("prove_ms", "verify_ms", "proof_bytes"):
-            m = re.search(rf"^{field}:\s*(\d+)\s*$", chunk, re.M)
-            if m:
-                rec[field] = int(m.group(1))
+        rec.update(_numeric_fields(chunk))
         results.append(rec)
 
     return {"bench": "qedb", "config": config, "results": results}
@@ -171,19 +174,7 @@ def parse_truth_table(text: str) -> dict:
             "curve": curve,
         }
 
-        for field in ("setup_ms", "prove_ms", "verify_ms", "proof_bytes"):
-            m = re.search(rf"^{field}:\s*(\d+)\s*$", chunk, re.M)
-            if m:
-                rec[field] = int(m.group(1))
-
-        # Multi-value fields: preprocess (0–2) and commit (1–2 for joins).
-        preprocess = [int(x) for x in re.findall(r"^preprocess_ms:\s*(\d+)\s*$", chunk, re.M)]
-        commit = [int(x) for x in re.findall(r"^commit_ms:\s*(\d+)\s*$", chunk, re.M)]
-        if preprocess:
-            rec["preprocess_ms"] = preprocess
-        if commit:
-            rec["commit_ms"] = commit
-
+        rec.update(_numeric_fields(chunk))
         results.append(rec)
 
     return {"bench": "truth_table", "config": config, "results": results}
@@ -293,16 +284,26 @@ def parse_zkvm(text: str) -> dict:
         return rec
 
     results = [fields(line) for line in re.findall(r"^query (.*)$", text, re.M)]
-    for rec in results:
-        if "pow" in rec:
-            rec["table_size"] = 1 << rec["pow"]
-    tables = [fields(line) for line in re.findall(r"^table (.*)$", text, re.M)]
-    return {"bench": "zkvm", "config": config, "tables": tables, "results": results}
+    # A resumed suite commits its tables again; keep each table's first line.
+    tables = {}
+    for line in re.findall(r"^table (.*)$", text, re.M):
+        rec = fields(line)
+        tables.setdefault((rec["sf"], rec["name"]), rec)
+    failures = [fields(line) for line in re.findall(r"^failed (.*)$", text, re.M)]
+    return {
+        "bench": "zkvm",
+        "config": config,
+        "tables": list(tables.values()),
+        "results": results,
+        "failures": failures,
+    }
 
 
 PARSERS = {
     "sxt_proof_of_sql": parse_sxt_proof_of_sql,
     "qedb": parse_qedb,
+    "poneglyph": parse_poneglyph,
+    "poneglyph_tpch": parse_poneglyph_tpch,
     "truth_table": parse_truth_table,
     "baseline": parse_baseline,
     "baseline_tpch": parse_baseline_tpch,

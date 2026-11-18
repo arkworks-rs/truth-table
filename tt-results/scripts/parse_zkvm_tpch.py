@@ -3,14 +3,14 @@
 Rebuild the zkVM (SP1) TPC-H CSVs from the outputs of run_zkvm.sh.
 
 Reads:
-  raw/zkvm_tpch_<pass>.json, <pass> = cuda, cpu1, cpu4 (any that exist)
+  raw/zkvm_tpch_cuda.json
 
 Writes:
   tidy/tpch_zkvm.csv   — one row per (Q, variant, SF, prover, mode); variant
-                         `tt` or `pgn`, prover `gpu` or `cpu<threads>`, mode
+                         `tt` or `pgn`, prover `gpu`, mode
                          `compressed` or `groth16`
   tidy/commit_zkvm.csv — one row per (table, SF): the data owner's SHA-256
-                         column hashes, timed in the GPU pass when there is one
+                         column hashes
 
 proof size (KB) is the saved proof the verifier loads; raw proof (B) is the
 Groth16 proof alone.
@@ -26,7 +26,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 RAW_DIR = SCRIPT_DIR.parent / "raw"
 TIDY_DIR = SCRIPT_DIR.parent / "tidy"
-PASSES = [("cuda", "gpu"), ("cpu1", "cpu1"), ("cpu4", "cpu4")]
+PASSES = [("cuda", "gpu")]
 
 TPCH_HEADER = [
     "Q", "variant", "scale-factor", "prover", "mode",

@@ -1,20 +1,16 @@
-"""Plot the micro-benchmark comparison on the shared
-Filter / Aggregate / Join / Join PK/FK / Limit operators.
+"""Plot the micro benchmark (third-party-bench/src/micro.rs) from tidy/micro.csv.
 
-Reads tidy/micro.csv.
+Every proof system runs on BN254 over the same rows; CPU provers on one thread,
+the zkVM on the GPU.
 
-Outputs (one per curve, since each Truth Table competitor only runs on one
-of the two curves we support):
-  figures/micro_bn254.pdf      — TT (BN254)      vs PoSQL vs Baseline
-  figures/micro_bls12_381.pdf  — TT (BLS12-381)  vs QEDB  vs Baseline
-
-The baseline (no proof system, curve "none") is the same bar in both, and so
-is the SP1 zkVM: its CPU prover at the smallest thread count it was run with,
-and its GPU prover with and without the Groth16 wrap. The prover-time panel also has plain execution: the query
-on the full tables, unverified.
-
-Each PDF has prover time, verifier time, and proof size side-by-side, sharing
-one legend.
+Outputs:
+  figures/micro.pdf          prover time, verifier time and proof size per
+                             query at the largest table size; a query a system
+                             cannot express gets a red cross
+  figures/micro_setup.pdf    setup time, proving and verifying key sizes, and
+                             the data owner's commitment time and size against
+                             table size (the commitment for the 1% filter's
+                             four-column table)
 
 Usage:
   python3 tt-results/scripts/plot_micro.py
@@ -25,20 +21,17 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.ticker import FuncFormatter, LogLocator
-
-import baseline_style
+from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter, LogFormatterSciNotation, LogLocator, MaxNLocator
 
 plt.style.use("seaborn-v0_8-whitegrid")
-# Match the font sizes used in plot_tt_tpch_combined.py so all plots share
-# a consistent visual scale.
 plt.rcParams.update(
     {
-        "font.size": 38,
-        "axes.labelsize": 38,
-        "xtick.labelsize": 38,
-        "ytick.labelsize": 38,
-        "legend.fontsize": 38,
+        "font.size": 26,
+        "axes.labelsize": 26,
+        "xtick.labelsize": 24,
+        "ytick.labelsize": 24,
+        "legend.fontsize": 24,
         "hatch.linewidth": 0.6,
     }
 )
@@ -48,385 +41,174 @@ data_path = base_dir / "tidy" / "micro.csv"
 figures_dir = base_dir / "figures"
 figures_dir.mkdir(parents=True, exist_ok=True)
 
+ALL = {"PoSQL", "QEDB", "Poneglyph", "Poneglyph (data-independent)", "zkVM (GPU)", "zkVM (GPU, Groth16)"}
+NO_QEDB = ALL - {"QEDB"}
+# The queries in plot order, and the competitors that can express each one.
+QUERIES = [
+    ("Filter 0.1%", ALL),
+    ("Filter 1%", ALL),
+    ("Filter 10%", ALL),
+    ("Aggregate", ALL),
+    ("Range", ALL),
+    ("IN list", ALL),
+    ("Arithmetic", NO_QEDB),
+    ("Group by", NO_QEDB),
+    ("Join PK/FK", NO_QEDB),
+    # The data-independent Poneglyph circuits prove only PK/FK joins.
+    ("Join M:N", NO_QEDB - {"Poneglyph (data-independent)"}),
+    ("Order by", NO_QEDB - {"PoSQL"}),
+]
 
-def normalize_q(name):
-    q = str(name).strip().lower()
-    if q == "limit offset":
-        return "limit"
-    if q in {"join pk/fk", "join pk fk"}:
-        return "join_pk_fk"
-    return q
+# (System in micro.csv, legend label, bar style, line colour)
+SYSTEMS = [
+    ("TT", "TruthTable", {"edgecolor": "#1f77b4", "facecolor": "#d7e6f5", "hatch": "/"}),
+    ("PoSQL", "PoSQL", {"edgecolor": "#e31a1c", "facecolor": "#f9d6d6", "hatch": "x"}),
+    ("QEDB", "QEDB", {"edgecolor": "#33a02c", "facecolor": "#d9efd6", "hatch": "\\"}),
+    ("Poneglyph", "Poneglyph", {"edgecolor": "#ff7f0e", "facecolor": "#ffe8d4", "hatch": "o"}),
+    (
+        "Poneglyph (data-independent)",
+        "Poneglyph, data-independent keys",
+        {"edgecolor": "#b35806", "facecolor": "#fdb863", "hatch": "."},
+    ),
+    ("zkVM (GPU)", "zkVM (SP1, GPU)", {"edgecolor": "#6a3d9a", "facecolor": "#e2d6ef", "hatch": "-"}),
+    (
+        "zkVM (GPU, Groth16)",
+        "zkVM (SP1, GPU, Groth16)",
+        {"edgecolor": "#3f2366", "facecolor": "#a58cc9", "hatch": "+"},
+    ),
+]
+
+BAR_PANELS = [
+    ("prover time (s)", "Prover (s)"),
+    ("verifier time (ms)", "Verifier (ms)"),
+    ("proof size (KB)", "Proof (KB)"),
+]
+SETUP_PANELS = [
+    ("setup time (s)", "Setup (s)"),
+    ("pk size (KB)", "Proving key (KB)"),
+    ("vk size (KB)", "Verifying key (KB)"),
+    ("commit time (s)", "Commitment time (s)"),
+    ("commitment size (KB)", "Commitment (KB)"),
+]
+
+
+class PlainMinorFormatter(LogFormatterSciNotation):
+    """Matplotlib labels minor ticks only on an axis spanning under a decade;
+    this keeps its choice of ticks but prints them like the major ones."""
+
+    def __call__(self, y, pos=None):
+        return f"{y:g}" if super().__call__(y, pos) else ""
+
+
+def log_axis(ax):
+    ax.set_yscale("log")
+    ax.yaxis.set_major_locator(LogLocator(base=10))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
+    ax.yaxis.set_minor_formatter(PlainMinorFormatter(labelOnlyBase=False))
+    ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
 
 
 df = pd.read_csv(data_path)
 df.columns = [c.strip().lstrip("﻿") for c in df.columns]
-df = df[(df["Q"] != "Q") & (df["System"] != "System")].copy()
-df["table log size"] = pd.to_numeric(df["table log size"], errors="coerce")
-df["on_gpu"] = df["threads"].astype(str).str.strip() == "gpu"
-df["threads"] = pd.to_numeric(df["threads"], errors="coerce")
-df["prover time (s)"] = pd.to_numeric(df["prover time (s)"], errors="coerce")
-df["verifier time (ms)"] = pd.to_numeric(df["verifier time (ms)"], errors="coerce")
-df["proof size (KB)"] = pd.to_numeric(df["proof size (KB)"], errors="coerce")
-if "execution time (s)" in df.columns:
-    df["execution time (s)"] = pd.to_numeric(df["execution time (s)"], errors="coerce")
-else:
-    df["execution time (s)"] = np.nan
-df["q_norm"] = df["Q"].apply(normalize_q)
-df["system_norm"] = df["System"].str.strip().str.lower()
-# Curve column was added when we started running TT under both BN254 and
-# BLS12-381. Older CSVs predate it — default to "bn254" so legacy rows still
-# plot.
-if "curve" in df.columns:
-    df["curve_norm"] = df["curve"].astype(str).str.strip().str.lower()
-else:
-    df["curve_norm"] = "bn254"
-
-# Fix to table log size 19. Pick the thread count present in the CSV (all rows
-# share the same NUM_THREADS from run_micro.sh).
-available_threads = sorted(df["threads"].dropna().unique())
-if not available_threads:
-    raise RuntimeError(f"no rows with a threads value in {data_path}")
-threads_value = 1 if 1 in available_threads else int(available_threads[0])
-largest = df[df["table log size"] == 19]
-zkvm_cpu = largest[largest["system_norm"] == "zkvm"]
-zkvm_threads = int(zkvm_cpu["threads"].min()) if not zkvm_cpu.empty else None
-df = pd.concat([
-    largest[(largest["threads"] == threads_value) & (largest["system_norm"] != "zkvm")],
-    zkvm_cpu[zkvm_cpu["threads"] == zkvm_threads],
-    largest[largest["on_gpu"]],
-]).copy()
-print(f"plot_micro: filtering to threads={threads_value} (zkVM CPU: {zkvm_threads})")
+numeric = ["table log size"] + [c for c in df.columns if "(" in c]
+for col in numeric:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+# One thread on the CPU, the GPU for the zkVM; the baseline is not plotted.
+df = df[(df["threads"].astype(str).isin(["1", "1.0", "gpu"])) & (df["System"] != "Baseline")]
+systems = [s for s in SYSTEMS if s[0] in set(df["System"])]
 
 
-# Per-variant style. Each variant is one PDF and pairs TT @ that curve
-# against the single competitor that natively runs on it.
-#
-# `operators` controls which operator groups appear in this variant's PDF.
-VARIANTS = [
-    {
-        "curve": "bn254",
-        "outfile": "micro_bn254.pdf",
-        "tt_bar": "tt_bn254",
-        "tt_label": "TT (BN254)",
-        "competitor_bar": "posql",
-        "competitor_label": "PoSQL",
-        "operators": ("Filter", "Aggregate", "Join", "Limit"),
-    },
-    {
-        "curve": "bls12_381",
-        "outfile": "micro_bls12_381.pdf",
-        "tt_bar": "tt_bls12_381",
-        "tt_label": "TT (BLS12-381)",
-        "competitor_bar": "qedb",
-        "competitor_label": "QEDB",
-        "operators": ("Filter", "Aggregate"),
-        # Slightly wider gap between operator groups so the "Filter" /
-        # "Aggregate" x-axis labels don't touch in the narrower 2-operator
-        # layout.
-        "group_gap": 0.35,
-    },
-]
-
-# Shared color/hatch table. The same TT blue is reused across variants; only
-# the hatch differs (single vs double slash) to mark the curve.
-palette = {
-    "tt_bn254": {"edge": "#1f77b4", "face": "#d7e6f5"},
-    "tt_bls12_381": {"edge": "#1f77b4", "face": "#aacde9"},
-    "tt_join_pk_fk_bn254": {"edge": "#1f77b4", "face": "#d7e6f5"},
-    "tt_join_pk_fk_bls12_381": {"edge": "#1f77b4", "face": "#aacde9"},
-    "posql": {"edge": "#e31a1c", "face": "#f9d6d6"},
-    "qedb": {"edge": "#33a02c", "face": "#d9efd6"},
-    "baseline": {"edge": baseline_style.EDGE, "face": baseline_style.FACE},
-    "execution": {
-        "edge": baseline_style.EXEC_BAR_STYLE["edgecolor"],
-        "face": baseline_style.EXEC_BAR_STYLE["facecolor"],
-    },
-    "zkvm": {
-        "edge": baseline_style.ZKVM_BAR_STYLE["edgecolor"],
-        "face": baseline_style.ZKVM_BAR_STYLE["facecolor"],
-    },
-    "zkvm_gpu": {
-        "edge": baseline_style.ZKVM_GPU_BAR_STYLE["edgecolor"],
-        "face": baseline_style.ZKVM_GPU_BAR_STYLE["facecolor"],
-    },
-    "zkvm_gpu_g16": {
-        "edge": baseline_style.ZKVM_G16_BAR_STYLE["edgecolor"],
-        "face": baseline_style.ZKVM_G16_BAR_STYLE["facecolor"],
-    },
-}
-hatches = {
-    "tt_bn254": "/",
-    "tt_bls12_381": "//",
-    "tt_join_pk_fk_bn254": "/",
-    "tt_join_pk_fk_bls12_381": "//",
-    "posql": "x",
-    "qedb": "\\",
-    "baseline": baseline_style.HATCH,
-    "execution": baseline_style.EXEC_BAR_STYLE["hatch"],
-    "zkvm": baseline_style.ZKVM_BAR_STYLE["hatch"],
-    "zkvm_gpu": baseline_style.ZKVM_GPU_BAR_STYLE["hatch"],
-    "zkvm_gpu_g16": baseline_style.ZKVM_G16_BAR_STYLE["hatch"],
-}
+def value(rows, system, query, col):
+    sub = rows[(rows["System"] == system) & (rows["Q"] == query)][col].dropna()
+    return float(sub.iloc[0]) if len(sub) else np.nan
 
 
-def pick_value(q_name, bar_key, value_col):
-    """Resolve one (q, bar_key) cell into a value from the CSV."""
-    if bar_key == "tt_bn254":
-        row = df[
-            (df["q_norm"] == q_name)
-            & (df["system_norm"] == "tt")
-            & (df["curve_norm"] == "bn254")
-        ]
-    elif bar_key == "tt_bls12_381":
-        row = df[
-            (df["q_norm"] == q_name)
-            & (df["system_norm"] == "tt")
-            & (df["curve_norm"] == "bls12_381")
-        ]
-    elif bar_key == "tt_join_pk_fk_bn254":
-        row = df[
-            (df["q_norm"] == q_name)
-            & (df["system_norm"] == "tt")
-            & (df["curve_norm"] == "bn254")
-        ]
-    elif bar_key == "tt_join_pk_fk_bls12_381":
-        row = df[
-            (df["q_norm"] == q_name)
-            & (df["system_norm"] == "tt")
-            & (df["curve_norm"] == "bls12_381")
-        ]
-    elif bar_key == "zkvm_gpu":
-        row = df[(df["q_norm"] == q_name) & (df["system_norm"] == "zkvm (gpu)")]
-    elif bar_key == "zkvm_gpu_g16":
-        row = df[(df["q_norm"] == q_name) & (df["system_norm"] == "zkvm (gpu, groth16)")]
-    elif bar_key == "execution":
-        if value_col != "prover time (s)":
-            return np.nan
-        row = df[(df["q_norm"] == q_name) & (df["system_norm"] == "baseline")]
-        value_col = "execution time (s)"
-    else:
-        row = df[(df["q_norm"] == q_name) & (df["system_norm"] == bar_key)]
-    if row.empty:
-        return np.nan
-    return float(row[value_col].iloc[0])
+def legend(fig, extra=()):
+    handles = [plt.Rectangle((0, 0), 1, 1, linewidth=0.8, **style) for _, _, style in systems]
+    labels = [label for _, label, _ in systems]
+    for handle, label in extra:
+        handles.append(handle)
+        labels.append(label)
+    fig.legend(handles, labels, ncol=4, loc="upper center", bbox_to_anchor=(0.5, 1.0))
 
 
-def build_groups(variant):
-    """Operator groups for one variant, filtered to variant["operators"]."""
-    tt_bar = variant["tt_bar"]
-    pkfk_bar = f"tt_join_pk_fk_{variant['curve']}"
-    competitor = variant["competitor_bar"]
-    all_groups = {
-        "Filter": {
-            "label": "Filter",
-            "bars": [
-                (tt_bar, "filter"),
-                (competitor, "filter"),
-                ("zkvm", "filter"),
-                ("zkvm_gpu", "filter"),
-                ("zkvm_gpu_g16", "filter"),
-                ("baseline", "filter"),
-                ("execution", "filter"),
-            ],
-        },
-        "Aggregate": {
-            "label": "Aggregate",
-            "bars": [
-                (tt_bar, "aggregate"),
-                (competitor, "aggregate"),
-                ("zkvm", "aggregate"),
-                ("zkvm_gpu", "aggregate"),
-                ("zkvm_gpu_g16", "aggregate"),
-                ("baseline", "aggregate"),
-                ("execution", "aggregate"),
-            ],
-        },
-        "Join": {
-            "label": "Join",
-            "bars": [
-                (tt_bar, "join"),
-                (pkfk_bar, "join_pk_fk"),
-                (competitor, "join"),
-                ("zkvm", "join"),
-                ("zkvm_gpu", "join"),
-                ("zkvm_gpu_g16", "join"),
-                ("baseline", "join"),
-                ("execution", "join"),
-            ],
-        },
-        "Limit": {
-            "label": "Limit",
-            "bars": [
-                (tt_bar, "limit"),
-                (competitor, "limit"),
-                ("zkvm", "limit"),
-                ("zkvm_gpu", "limit"),
-                ("zkvm_gpu_g16", "limit"),
-                ("baseline", "limit"),
-                ("execution", "limit"),
-            ],
-        },
-    }
-    groups = [all_groups[name] for name in variant["operators"]]
-    if zkvm_threads is None:
-        groups = [
-            {**spec, "bars": [b for b in spec["bars"] if b[0] != "zkvm"]} for spec in groups
-        ]
-    return groups
-
-
-BAR_WIDTH = 0.16
-GROUP_GAP = 0.22
-
-# Reference layout: the 4-operator BN254 prover panel (Filter+Aggregate+Join+
-# Limit = 29 bars across 4 groups) at figsize_width=46 inches. Every variant's panel
-# spans this x-extent so the bars keep their physical width on the page
-# regardless of operator count.
-REFERENCE_FIGSIZE_WIDTH = 46.0
-REFERENCE_PANEL_X_EXTENT = 29 * BAR_WIDTH + 3 * GROUP_GAP
-
-
-def panel_x_extent(groups, group_gap=GROUP_GAP):
-    bars = sum(len(spec["bars"]) for spec in groups)
-    gaps = max(0, len(groups) - 1)
-    return bars * BAR_WIDTH + gaps * group_gap
-
-
-def draw_panel(ax, groups, value_col, ylabel, group_gap=GROUP_GAP):
-    # Plain execution has only a time, shown next to the provers.
-    groups = [
-        {**spec, "bars": [b for b in spec["bars"]
-                          if b[0] != "execution" or value_col == "prover time (s)"]}
-        for spec in groups
-    ]
-    bar_width = BAR_WIDTH
-    group_centers = []
-    # Center the bars inside a fixed reference x-extent so panels with fewer
-    # operator groups (e.g. BLS12-381) keep the same per-bar display width and
-    # the same panel/font scale as the wider variants instead of being
-    # stretched up by figsize scaling.
-    bars_x_extent = panel_x_extent(groups, group_gap)
-    leading_pad = (REFERENCE_PANEL_X_EXTENT - bars_x_extent) / 2.0
-    group_start = max(0.0, leading_pad)
-
-    for spec in groups:
-        bars = spec["bars"]
-        offsets = np.arange(len(bars)) * bar_width
-        for offset, (bar_key, q_name) in zip(offsets, bars):
-            height = pick_value(q_name, bar_key, value_col)
-            x_pos = group_start + offset
-            ax.bar(
-                x_pos,
-                height,
-                width=bar_width,
-                alpha=1.0,
-                facecolor=palette[bar_key]["face"],
-                edgecolor=palette[bar_key]["edge"],
-                hatch=hatches[bar_key],
-                linewidth=0.8,
-            )
-            if bar_key.startswith("tt_join_pk_fk") and not np.isnan(height):
-                ax.text(
-                    x_pos,
-                    height * 1.18,
-                    "* PK/FK",
-                    ha="center",
-                    va="bottom",
-                    fontsize=38,
-                    rotation=90,
-                )
-
-        group_width = len(bars) * bar_width
-        group_centers.append(group_start + (group_width - bar_width) / 2)
-        group_start += group_width + group_gap
-
-    ax.set_xticks(group_centers, [spec["label"] for spec in groups])
-    ax.set_ylabel(ylabel)
-    ax.set_yscale("log")
-    ax.yaxis.set_major_locator(LogLocator(base=10))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:g}"))
-    ax.tick_params(axis="x", pad=10)
-    ax.tick_params(axis="y", pad=10)
-    ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
-    # Pin the x-extent so every variant's panel has the same data range and
-    # therefore the same display-pixels-per-bar at fixed figsize.
-    ax.set_xlim(-bar_width, REFERENCE_PANEL_X_EXTENT)
-
-
-def render_variant(variant):
-    groups = build_groups(variant)
-    # Skip operator groups for which neither bar has any data — keeps the
-    # plot from showing an empty Filter pair if a competitor lacks that row.
-    groups = [
-        spec
-        for spec in groups
-        if any(
-            not np.isnan(pick_value(q_name, bar_key, "prover time (s)"))
-            for bar_key, q_name in spec["bars"]
-        )
-    ]
-    if not groups:
-        print(f"plot_micro: no data for variant={variant['curve']}; skipping")
+def bars():
+    sizes = df[df["System"] == "TT"]["table log size"].dropna()
+    if sizes.empty:
+        print("plot_micro: no TruthTable rows; skipping micro.pdf")
         return
+    log_size = int(sizes.max())
+    rows = df[df["table log size"] == log_size]
+    x = np.arange(len(QUERIES))
+    width = 0.8 / len(systems)
+    offsets = (np.arange(len(systems)) - (len(systems) - 1) / 2) * width
+    fig, axes = plt.subplots(len(BAR_PANELS), 1, figsize=(26, 18), sharex=True)
+    for ax, (col, ylabel) in zip(axes, BAR_PANELS):
+        for offset, (system, _, style) in zip(offsets, systems):
+            heights = [value(rows, system, q, col) for q, _ in QUERIES]
+            ax.bar(x + offset, heights, width, linewidth=0.8, **style)
+            if system == "TT":
+                continue
+            unsupported = [i for i, (_, s) in enumerate(QUERIES) if system not in s]
+            ax.plot(
+                x[unsupported] + offset,
+                [0.08] * len(unsupported),
+                "x",
+                color="red",
+                markersize=12,
+                markeredgewidth=3,
+                transform=ax.get_xaxis_transform(),
+                clip_on=False,
+            )
+        ax.set_ylabel(ylabel)
+        log_axis(ax)
+        ax.set_xlim(-0.6, len(QUERIES) - 0.4)
+    axes[-1].set_xticks(x, [q for q, _ in QUERIES], rotation=30, ha="right")
+    cross = Line2D([], [], color="red", marker="x", linestyle="", markersize=14, markeredgewidth=3)
+    legend(fig, [(cross, "Not supported")])
+    fig.tight_layout(rect=[0, 0, 1, 0.9])
+    out = figures_dir / "micro.pdf"
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"plot_micro: wrote {out.relative_to(base_dir.parent)} (2^{log_size} rows)")
 
-    group_gap = variant.get("group_gap", GROUP_GAP)
-    # Fixed figure width across variants so PDFs scale identically when viewed
-    # at equal screen width; narrower variants just leave whitespace on the
-    # sides (handled in draw_panel via set_xlim).
-    fig, axes = plt.subplots(1, 3, figsize=(REFERENCE_FIGSIZE_WIDTH, 8))
-    panels = [
-        ("prover time (s)", "Prover Time (s)"),
-        ("verifier time (ms)", "Verifier Time (ms)"),
-        ("proof size (KB)", "Proof Size (KB)"),
-    ]
-    for ax, (col, ylabel) in zip(axes, panels):
-        draw_panel(ax, groups, col, ylabel, group_gap=group_gap)
 
-    legend_specs = [
-        (variant["tt_bar"], variant["tt_label"]),
-        (variant["competitor_bar"], variant["competitor_label"]),
-        ("zkvm", f"{baseline_style.ZKVM_LABEL}, CPU, "
-                 f"{zkvm_threads} thread{'s' if zkvm_threads != 1 else ''}"),
-        ("zkvm_gpu", baseline_style.ZKVM_GPU_LABEL),
-        ("zkvm_gpu_g16", baseline_style.ZKVM_G16_LABEL),
-        ("baseline", baseline_style.LABEL),
-        ("execution", baseline_style.EXEC_LABEL),
-    ]
-    if zkvm_threads is None:
-        legend_specs = [spec for spec in legend_specs if spec[0] != "zkvm"]
-    legend_handles = [
-        plt.Rectangle(
-            (0, 0),
-            1,
-            1,
-            facecolor=palette[bar_key]["face"],
-            edgecolor=palette[bar_key]["edge"],
-            hatch=hatches[bar_key],
-            linewidth=0.8,
-        )
-        for bar_key, _ in legend_specs
-    ]
-    legend_labels = [label for _, label in legend_specs]
+def lines(ax, rows, col):
+    for system, _, style in systems:
+        sub = rows[rows["System"] == system].dropna(subset=[col]).sort_values("table log size")
+        if not sub.empty:
+            ax.plot(
+                sub["table log size"],
+                sub[col],
+                marker="o",
+                color=style["edgecolor"],
+                linewidth=2,
+            )
+    log_axis(ax)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_xlabel("Table size (log2 rows)")
 
-    fig.legend(
-        handles=legend_handles,
-        labels=legend_labels,
-        ncol=3,
-        loc="lower center",
-        bbox_to_anchor=(0.5, -0.02),
-        handlelength=2.2,
-        handleheight=1.4,
-        borderpad=0.6,
-        columnspacing=1.6,
-    )
 
-    # Room below the panels for the two-row legend.
-    fig.tight_layout(rect=[0, 0.20, 1, 1])
-    out = figures_dir / variant["outfile"]
+def line_legend(fig):
+    handles = [Line2D([], [], color=style["edgecolor"], marker="o", linewidth=2) for _, _, style in systems]
+    fig.legend(handles, [label for _, label, _ in systems], ncol=4, loc="upper center", bbox_to_anchor=(0.5, 1.0))
+
+
+def setup():
+    # Setup and keys do not depend on the query; the commitment does, so it is
+    # the 1% filter's table.
+    rows = df[df["Q"] == "Filter 1%"]
+    fig, axes = plt.subplots(1, len(SETUP_PANELS), figsize=(36, 8))
+    for ax, (col, ylabel) in zip(axes, SETUP_PANELS):
+        lines(ax, rows, col)
+        ax.set_ylabel(ylabel)
+    line_legend(fig)
+    fig.tight_layout(rect=[0, 0, 1, 0.82])
+    out = figures_dir / "micro_setup.pdf"
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
     print(f"plot_micro: wrote {out.relative_to(base_dir.parent)}")
 
 
-for variant in VARIANTS:
-    render_variant(variant)
+bars()
+setup()

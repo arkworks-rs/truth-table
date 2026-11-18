@@ -1,27 +1,80 @@
 # Third-party benchmark harness
 
 This directory compares TruthTable against two other verifiable-SQL systems and
-a no-proof baseline on the same set of microbenchmark queries and the same
-table shapes:
+a no-proof baseline on the same micro-benchmark queries over the same tables:
 
-| System | Crate path used | What we measure |
+| System | Source | What we measure |
 |---|---|---|
 | **TruthTable** (this repo) | `crates/tt-exec` | prover time, verifier time, proof size |
-| **sxt-proof-of-sql** | `../../sxt-proof-of-sql` | same |
-| **qedb** | `../../qedb` | same |
+| **Proof of SQL** | `alireza-shirzad/sxt-proof-of-sql`, branch `tt-bench`: upstream plus the benchmark crate | same |
+| **QEDB** | `alireza-shirzad/qedb-primitives`, branch `bn254`: upstream `ProvablyAI/qedb-primitives` plus a `bn254` feature | same, plus commit time |
+| **Poneglyph** | `alireza-shirzad/PoneglyphDB`, branch `micro`: the micro queries as circuits (`sql::micro_kzg`) | prover time, verifier time, proof size, key generation |
 | **Baseline** | `benches/baseline.rs` | commit time, commitment size, prover time, verifier time, proof size |
+
+## Micro queries
+
+[src/micro.rs](src/micro.rs) holds the queries and their tables. A table is a
+pure function of its name and size, so every bench builds the same rows:
+TruthTable and the baseline read the parquet files it writes under
+`artifact/micro/size_<pow>/<query>/`, PoSQL builds its tables through its
+column override, and QEDB builds them in memory.
+
+| Query | SQL | PoSQL | QEDB | Poneglyph |
+|---|---|---|---|---|
+| `filter_0p1`, `filter_1`, `filter_10` | `SELECT a, b, c, d … WHERE a = 1 AND b = 2`, selecting 0.1%, 1% and 10% of the rows | ✓ | ✓ | ✓ |
+| `aggregate` | `SELECT SUM(a), COUNT(*) … WHERE b = 1` (10% of the rows) | ✓ | ✓ | ✓ |
+| `range` | `SELECT a, b … WHERE a >= 100 AND a <= 199` (about 10%) | ✓ | ✓ | ✓ |
+| `in_list` | `SELECT a, b, c, d … WHERE a IN (16 values)` (about 1%) | ✓ | ✓ | ✓ |
+| `arithmetic` | `SELECT SUM(a * b) … WHERE c = 1` | ✓ | ✗ | ✓ |
+| `group_by` | `SELECT b, SUM(a), COUNT(*) … GROUP BY b` (100 groups) | ✓ | ✗ | ✓ |
+| `join_pk_fk` | `… WHERE l.a = r.a`, `l.a` a primary key and `r.a` a foreign key into it | ✓ | ✗ | ✓ |
+| `join_m2m` | the same join with keys repeated on both sides (about as many output rows as input) | ✓ | ✗ | ✓ |
+| `order_by` | `SELECT a, b … ORDER BY a LIMIT 10` | ✗ | ✗ | ✓ |
+
+Each table has 2^16 to 2^19 rows; a join's two tables have that many each.
+PoSQL cannot express ORDER BY; QEDB has no arithmetic, grouping or join test.
+Poneglyph has no SQL front end either: each micro query is a circuit in the
+fork's `sql::micro_kzg`, built from Poneglyph's gadgets (`IsZeroChip`,
+`LtEqGenericChip`, `PermAnyChip`) and the gate patterns of its TPC-H circuits
+(Q1's grouping, Q3's join). Every query runs in two variants:
+
+- *faithful*: as in those circuits, the witness enables the selectors of kept,
+  output and group-end rows, so the verifying key depends on the data, and
+  nothing ties those selectors to the predicate: whoever generates the keys
+  can leave a passing row out of the result. All six benchmarked TPC-H
+  circuits (Q1, Q3, Q5, Q8, Q9, Q18) work this way.
+- *fixed* ("Poneglyph (data-independent)" in `micro.csv`): every selector
+  covers a range fixed by the table size; which rows pass, where groups end
+  and which rows join are witness flags, and the flagged shuffles force the
+  output to hold exactly the passing rows. The tables are the circuit's
+  first advice columns, committed without blinding, so the proof is bound
+  to the data owner's commitments to them (`commit_ms`). The PK/FK join is
+  the paper's §4.4 protocol; a many-to-many join has no sound fixed-size
+  circuit, so `join_m2m` has no fixed variant.
+
+The six TPC-H circuits are rebuilt the same way in the fork's
+`sql::fixed_tpch` and `sql::q1_fixed_kzg`. [benches/poneglyph_tpch.rs](benches/poneglyph_tpch.rs)
+runs them on the `_pgn` queries over the `_poneglyph` tables, after checking
+each circuit's result against DataFusion's (`tpch_reference`), and
+`tt-results/scripts/run_pgn_fixed_tpch.sh` runs the sweep on one thread.
+
+QEDB's library has no SQL front end: [benches/qedb.rs](benches/qedb.rs) builds
+each query from its tests the way its own benchmark does.
+
+Every system runs on BN254: TruthTable by default, PoSQL with HyperKZG,
+Poneglyph with halo2's KZG, and QEDB through the fork's `bn254` feature. Upstream QEDB is BLS12-381 only, but
+its tests use the curve only through arkworks' generic traits, so the fork
+re-exports the curve from one module; its test suite passes on both curves.
 
 The baseline has no proof system. The commitment is a BLAKE3 hash of every
 column (Arrow IPC encoding) plus the schema and row count, in a `.colhash`
 file. The prover plans the query and sends every column its table scans read;
 the verifier hashes them against the commitment and runs the query itself with
-DataFusion. It queries the raw parquets (`bench_table_<pow>.parquet`, not the
-`_preprocessed` ones TruthTable commits to), so there is no padding or
-activator column. Each phase is the median of five runs, in fractional
+DataFusion. It queries the raw parquets (not the `_preprocessed` ones
+TruthTable commits to), so there is no padding or activator column. Each phase is the median of five runs, in fractional
 milliseconds. The bench also times plain execution, the query on the full
 tables with no verification at all (`execute_ms`), and checks the verifier's
-result against it. It reads the Join_PK_FK parquets the truth_table bench
-writes, so run that bench first.
+result against it.
 
 The protocol lives in [src/baseline.rs](src/baseline.rs). `benches/baseline.rs`
 runs it on the micro queries above; `benches/baseline_tpch.rs` runs it on the
@@ -30,8 +83,7 @@ TPC-H `_tt` and `_pgn` queries at SF 0.01–0.1, generating its own tables under
 
 ### zkVM (SP1)
 
-[zkvm/](zkvm/) proves the micro queries and the TPC-H `_tt` and `_pgn`
-queries in the SP1 zkVM. It is a Cargo
+[zkvm/](zkvm/) proves the TPC-H `_tt` and `_pgn` queries in the SP1 zkVM. It is a Cargo
 workspace of its own: the guest (`zkvm/program`) is built for SP1's RISC-V
 target with SP1's toolchain, and `sp1-sdk` pins its own dependency versions.
 
@@ -55,35 +107,21 @@ The Groth16 wrap downloads SP1's circuit files (about 8 GB) into
 The TPC-H binary checks every query's result against DataFusion's before
 proving it; write those results first with
 `cargo run --release --bin tpch_reference -- <sf>...` (from this directory).
-`tt-results/scripts/run_zkvm.sh` runs the passes (`ZKVM_PASSES`, e.g.
-`"cpu:1 cpu:4 cuda"`) and writes `tt-results/raw/third_party_zkvm_<pass>.*`
-(micro) and `zkvm_tpch_<pass>.*` (TPC-H). The CPU prover takes about 44x the
-GPU's time and, with SP1's default worker counts, over 100 GB of memory.
-
-The benches use the same auto-generated Parquet tables under
-`artifact/size_<pow>/`, so "same inputs, different provers" is a real apples-to-apples
-comparison rather than three systems reading unrelated data. The Join / Join_PK_FK
-parquets in particular share a deterministic PK/FK row layout written by the
-sxt bench and read by the other two.
+`tt-results/scripts/run_zkvm.sh` runs it on the GPU and writes
+`tt-results/raw/zkvm_tpch_cuda.*`; it resumes from its log after an
+interruption. The CPU prover is not benchmarked: on 4 threads it takes about
+100x the GPU's time and 37–58 GB of memory.
 
 ## Prerequisites
 
-The three comparison systems are pulled as **git dependencies** pinned by
-commit SHA in `Cargo.toml`:
-
-```toml
-[patch.crates-io]
-ark-piop              = { git = "https://github.com/alireza-shirzad/ark-piop", rev = "…" }
-
-[dependencies]
-proof-of-sql-benchlib = { git = "https://github.com/Pratyush/sxt-proof-of-sql", rev = "…" }
-proof-of-sql          = { git = "https://github.com/Pratyush/sxt-proof-of-sql", rev = "…" }
-qedb                  = { git = "https://github.com/alireza-shirzad/qedb", rev = "…" }
-```
-
-No sibling checkouts are needed — cargo fetches and caches the three repos
-under `~/.cargo/git/`. To bump any of them, update the `rev = …` in
-[Cargo.toml](Cargo.toml) and run `cargo update -p <crate>`.
+PoSQL and QEDB are **git dependencies** pinned by commit in `Cargo.toml`:
+PoSQL from `alireza-shirzad/sxt-proof-of-sql` (branch `tt-bench`: upstream
+`spaceandtimefdn/sxt-proof-of-sql` plus the `proof-of-sql-benchlib` crate) and
+QEDB from `alireza-shirzad/qedb-primitives` (branch `bn254`). Cargo fetches them under
+`~/.cargo/git/`. To bump one, update its `rev` in [Cargo.toml](Cargo.toml) and
+run `cargo update -p <crate>`. PoSQL's runner links `libblitzar`, which
+`cargo bench` puts on the library path; a bench binary run directly needs
+`LD_LIBRARY_PATH` set to the `blitzar-sys` build output.
 
 The harness also applies a local `arrow-arith` patch (`patches/arrow-arith-51.0.0`)
 via `[patch.crates-io]`; this is for an sxt-proof-of-sql compatibility fix, not
@@ -97,70 +135,56 @@ pip install -r ../tt-results/requirements.txt
 
 ## Running the full sweep
 
-The micro-benchmark suite is wired into the unified pipeline under
-[tt-results/scripts/](../tt-results/scripts/). From the repo root:
+From the repo root:
 
 ```bash
-./tt-results/scripts/run_micro.sh        # cargo bench + parse to per-bench JSON
-python3 tt-results/scripts/parse_micro.py  # JSONs → tt-results/tidy/micro.csv
-python3 tt-results/scripts/plot_micro.py   # micro.csv → figures/micro_*.pdf
+./tt-results/scripts/run_micro.sh          # every system → raw/*.{log,json}
+python3 tt-results/scripts/parse_micro.py  # → tt-results/tidy/micro.csv
+python3 tt-results/scripts/plot_micro.py   # → figures/micro{,_scaling,_setup}.pdf
 ```
 
-Or run everything (micro + TT TPC-H + Poneglyph comparison) end-to-end with
-`./bench_all.sh`.
+`run_micro.sh` builds every bench, writes every table's parquet file
+(`cargo run --bin micro_data`), then runs TruthTable, PoSQL, QEDB and Poneglyph
+on one thread pinned to CPU 0, the baseline on 1 and 4 threads (CPUs 0..t-1),
+and the SP1 zkVM on the GPU (`run_zkvm.sh`, suite `micro`). `MICRO_SYSTEMS`
+(`tt posql qedb poneglyph baseline zkvm`) picks systems, `MICRO_POWS` (default
+15 to 20) and `MICRO_QUERIES` narrow the sweep. Each system's log and JSON go
+to `tt-results/raw/`; a failure in one system does not stop the others.
 
-What `run_micro.sh` does:
+Every prover runs once; every verifier repeats for up to a second and reports
+the median. What each system measures:
 
-1. Wipes `artifact/Join/` and `artifact/Join_PK_FK/` so stale join parquets
-   don't leak across runs (other sizes are reused — they're independent of the
-   PK/FK shape).
-2. For each bench (`sxt_proof_of_sql`, `qedb`, `truth_table`, `baseline`), runs
-   `cargo bench --bench <name>` with `RAYON_NUM_THREADS` pinned (see below)
-   and tees the log to `tt-results/raw/third_party_<bench>.log`.
-3. Parses each log into `tt-results/raw/third_party_<bench>.json` via
-   [`parse_bench_output.py`](parse_bench_output.py).
+| Metric | TruthTable | PoSQL | QEDB | Poneglyph | zkVM |
+|---|---|---|---|---|---|
+| setup | its keys, per key size | HyperKZG setup | the reference string | KZG parameters per degree | the program keys |
+| proving key | `.pk` file | the prover setup | the reference string | halo2 proving key (and the parameters, separately) | not exposed on the GPU |
+| verifying key | `.vk` file | the verifier setup | `VerifierKey` | halo2 verifying key | `SP1VerifyingKey` |
+| key generation | — | — | — | per circuit, after setup | — |
+| table commitment | padding the table, then committing it | column commitments | column and index handles | none: the tables are witnesses | SHA-256 of each column |
+| proof | proof file | `QueryProof` | the tests' proofs | halo2 proof | compressed, and Groth16 |
 
-The baseline runs once per thread count in `BASELINE_THREADS` (1 and 4),
-pinned to CPUs `0..t-1`, and writes `third_party_baseline_<t>.{log,json}`.
-`MICRO_ONLY_BASELINE=1` runs only the baseline passes. Its `micro.csv` rows
-have curve `none` and also fill `commit time (s)` and `commitment size (KB)`;
-the micro figures do not plot them.
-
-Failures in one bench don't abort the others.
-
-## Thread pinning
-
-`NUM_THREADS` at the top of `tt-results/scripts/run_micro.sh` (default `1`) is
-propagated as both `RAYON_NUM_THREADS` (consumed by Rayon) and
-`TT_BENCH_NUM_THREADS` (stamped into the JSON output by the parser). The two
-must match — otherwise the `num_threads` column in `micro.csv` lies about
-what was actually measured.
-
-The paper numbers were taken with `NUM_THREADS=1`. To re-measure at a
-different thread count, edit the variable and rerun.
+TruthTable's keys are never smaller than 2^16: a query can open a 16-variable
+polynomial whatever the table size.
 
 ## Configuring what runs
 
-- **Table sizes**: `TABLE_POWS = &[16, 17, 18, 19]` near the top of each of
-  `benches/sxt_proof_of_sql.rs`, `benches/qedb.rs`, `benches/truth_table.rs`
-  and `benches/baseline.rs`. Keep them in sync.
-- **Iterations**: `BENCH_ITERS` in `benches/sxt_proof_of_sql.rs` (the other two
-  benches report a single wall-clock sample per `(query, size)` pair).
-- **Queries**: the `QUERIES` slice in each bench. Filter, Aggregate, Limit,
-  Join, and Join_PK_FK are intentionally the same SQL across all three systems.
+- **Table sizes**: `MICRO_POWS` (comma-separated powers of two, default
+  15 to 20), read by every bench and the zkVM.
+- **Queries**: `MICRO_QUERIES` (comma-separated names, default all); the list
+  is `QUERIES` in [src/micro.rs](src/micro.rs).
 
 ## Output layout
 
 After a full run:
 
 ```
-third-party-bench/artifact/             # cached Parquet + intermediate artifacts
+third-party-bench/artifact/micro/       # tables, TruthTable's keys and proofs
 tt-results/raw/third_party_<bench>.log  # raw stdout per bench
 tt-results/raw/third_party_<bench>.json # parsed, structured results
 tt-results/tidy/micro.csv               # unified long-form table
-tt-results/figures/micro_prover_time.pdf
-tt-results/figures/micro_verifier_time.pdf
-tt-results/figures/micro_proof_size.pdf
+tt-results/figures/micro.pdf            # every system at the largest size
+tt-results/figures/micro_scaling.pdf    # prover time against size, per query
+tt-results/figures/micro_setup.pdf      # setup, key sizes, commitments
 ```
 
 `artifact/` can be deleted to force a full regeneration (and will add ~minutes

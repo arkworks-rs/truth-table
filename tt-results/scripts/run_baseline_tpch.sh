@@ -34,7 +34,7 @@ for t in "${THREADS[@]}"; do
     echo "=============================================="
     (
         cd "$TPB_DIR"
-        RAYON_NUM_THREADS="$t" taskset -c "0-$((t - 1))" \
+        CUDA_VISIBLE_DEVICES="" RAYON_NUM_THREADS="$t" taskset -c "0-$((t - 1))" \
             cargo bench --bench baseline_tpch 2>&1
     ) | tee "$log"
     TT_BENCH_NUM_THREADS="$t" \

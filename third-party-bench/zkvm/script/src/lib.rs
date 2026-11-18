@@ -4,7 +4,10 @@
 //! `SP1_PROVER` picks the prover (`cpu`, or `cuda` with `--features cuda`).
 //! `ZKVM_MODES` (comma-separated, default `compressed,groth16`) picks the
 //! proof modes; `ZKVM_EXECUTE_ONLY=1` only counts the guest's instructions.
-//! Every run prints one line:
+//! `ZKVM_RESUME_LOG` names an earlier output of the same sweep: every run
+//! it has a `query` or `failed` line for is skipped.
+//! Each proof prints `start <label> mode=<m>` before it begins, so a driver
+//! can tell which run a killed process was on. Every finished run prints:
 //!   query <label> mode=<m> commit_ms=<ms> commitment_bytes=<b> cycles=<n>
 //!     prove_ms=<ms> proof_bytes=<b> raw_proof_bytes=<b> verify_ms=<ms>
 //!     result_rows=<n>
@@ -12,6 +15,7 @@
 //! the Groth16 proof alone (0 for a compressed proof).
 
 use std::{
+    collections::HashSet,
     fs::File,
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
@@ -304,6 +308,10 @@ pub struct Bench {
     pk: Option<EnvProvingKey>,
     modes: Vec<(&'static str, SP1ProofMode)>,
     execute_only: bool,
+    // (label, mode) pairs `ZKVM_RESUME_LOG` already has.
+    done: HashSet<(String, String)>,
+    setup_ms: f64,
+    vk_bytes: u64,
 }
 
 impl Bench {
@@ -326,14 +334,35 @@ impl Bench {
             "threads: {}",
             std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "all".into())
         );
+        let done = std::env::var("ZKVM_RESUME_LOG")
+            .ok()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .map(|log| {
+                log.lines()
+                    .filter_map(|line| {
+                        let rest = line
+                            .strip_prefix("query ")
+                            .or_else(|| line.strip_prefix("failed "))?;
+                        let (label, tail) = rest.split_once(" mode=")?;
+                        let mode = tail.split_whitespace().next()?;
+                        Some((label.to_string(), mode.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let start = Instant::now();
         let pk = client.setup(ELF).expect("setup");
-        println!("setup_ms: {:.1}", start.elapsed().as_secs_f64() * 1e3);
+        let setup_ms = start.elapsed().as_secs_f64() * 1e3;
+        println!("setup_ms: {setup_ms:.1}");
+        let vk_bytes = bincode::serialized_size(pk.verifying_key()).unwrap_or(0);
         Bench {
             client: Some(client),
             pk: Some(pk),
             modes,
             execute_only: std::env::var("ZKVM_EXECUTE_ONLY").is_ok_and(|v| v == "1"),
+            done,
+            setup_ms,
+            vk_bytes,
         }
     }
 
@@ -379,6 +408,14 @@ impl Bench {
         commit: (f64, u64),
         dir: &Path,
     ) {
+        let modes: Vec<_> = self
+            .modes
+            .iter()
+            .filter(|(m, _)| !self.done.contains(&(label.to_string(), m.to_string())))
+            .collect();
+        if modes.is_empty() && !self.execute_only {
+            return;
+        }
         let (client, pk) = (self.client.as_ref().unwrap(), self.pk.as_ref().unwrap());
         let inputs: Vec<&Column> = query
             .inputs()
@@ -403,7 +440,8 @@ impl Bench {
             return;
         }
 
-        for &(mode_name, mode) in &self.modes {
+        for &&(mode_name, mode) in &modes {
+            println!("start {label} mode={mode_name}");
             let proof_path = dir.join(format!("sp1_{mode_name}.proof"));
             let start = Instant::now();
             let proof = client.prove(pk, stdin()).mode(mode).run().expect("prove");
@@ -415,42 +453,54 @@ impl Bench {
                 0
             };
 
-            let start = Instant::now();
-            let proof = SP1ProofWithPublicValues::load(&proof_path).expect("load proof");
-            client
-                .verify(&proof, pk.verifying_key(), None)
-                .expect("verify proof");
-            let public: PublicValues = proof.public_values.clone().read();
-            assert_eq!(public.query, query, "proof is for another query");
-            let commitments: Vec<TableCommitment> = commitment_paths
-                .iter()
-                .map(|p| {
-                    bincode::deserialize_from(BufReader::new(
-                        File::open(p).expect("open commitment"),
-                    ))
-                    .expect("read commitment")
-                })
-                .collect();
-            for (&(t, col), proven) in query.inputs().iter().zip(&public.input_hashes) {
-                let published = commitments[t]
-                    .columns
+            // Verification, loading the proof included, repeats for up to a
+            // second; the median is reported.
+            let verify = || {
+                let proof = SP1ProofWithPublicValues::load(&proof_path).expect("load proof");
+                client
+                    .verify(&proof, pk.verifying_key(), None)
+                    .expect("verify proof");
+                let public: PublicValues = proof.public_values.clone().read();
+                assert_eq!(public.query, query, "proof is for another query");
+                let commitments: Vec<TableCommitment> = commitment_paths
                     .iter()
-                    .find(|(name, _)| name == col)
-                    .expect("committed column");
+                    .map(|p| {
+                        bincode::deserialize_from(BufReader::new(
+                            File::open(p).expect("open commitment"),
+                        ))
+                        .expect("read commitment")
+                    })
+                    .collect();
+                for (&(t, col), proven) in query.inputs().iter().zip(&public.input_hashes) {
+                    let published = commitments[t]
+                        .columns
+                        .iter()
+                        .find(|(name, _)| name == col)
+                        .expect("committed column");
+                    assert_eq!(
+                        &published.1, proven,
+                        "input {col} is not the committed column"
+                    );
+                }
                 assert_eq!(
-                    &published.1, proven,
-                    "input {col} is not the committed column"
+                    public.result_hash,
+                    result_hash(&claimed),
+                    "result does not match the proof"
                 );
+            };
+            let mut times = Vec::new();
+            while times.is_empty() || times.iter().sum::<f64>() < 1e3 {
+                let start = Instant::now();
+                verify();
+                times.push(start.elapsed().as_secs_f64() * 1e3);
             }
-            assert_eq!(
-                public.result_hash,
-                result_hash(&claimed),
-                "result does not match the proof"
-            );
-            let verify_ms = start.elapsed().as_secs_f64() * 1e3;
+            times.sort_by(f64::total_cmp);
+            let verify_ms = times[times.len() / 2];
 
             println!(
-                "query {label} mode={mode_name} commit_ms={:.4} commitment_bytes={} cycles={cycles} prove_ms={prove_ms:.1} proof_bytes={} raw_proof_bytes={raw_proof_bytes} verify_ms={verify_ms:.4} result_rows={}",
+                "query {label} mode={mode_name} setup_ms={:.1} vk_bytes={} commit_ms={:.4} commitment_bytes={} cycles={cycles} prove_ms={prove_ms:.1} proof_bytes={} raw_proof_bytes={raw_proof_bytes} verify_ms={verify_ms:.4} result_rows={}",
+                self.setup_ms,
+                self.vk_bytes,
                 commit.0,
                 commit.1,
                 file_len(&proof_path),

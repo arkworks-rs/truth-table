@@ -19,28 +19,35 @@ Per-suite outputs:
 | Suite       | Raw files (`tt-results/raw/`)                | CSV (`tt-results/tidy/`) | Figures (`tt-results/figures/`) |
 |-------------|----------------------------------------------|--------------------------|---------------------------------|
 | TT TPC-H    | `benches_tt_*.json`, `bench_stats_tt_*.jsonl`| `tpch.csv`               | `tpch_tt_*.pdf`                 |
-| PGN compare | `benches_pgn_*.json`, `bench_stats_pgn_*.jsonl`, `poneglyph_q*_k*.log` | `tpch_pgn.csv` | `tpch_pgn_*.pdf` |
-| micro       | `third_party_*.log`, `third_party_*.json`    | `micro.csv`              | `micro_*.pdf`                   |
+| PGN compare | `benches_pgn_*.json`, `bench_stats_pgn_*.jsonl`, `poneglyph_q*_k*.log`, `third_party_poneglyph_tpch.{log,json}` | `tpch_pgn.csv` | `tpch_pgn_*.pdf` |
+| micro       | `third_party_*.log`, `third_party_*.json`    | `micro.csv`              | `micro.pdf`                     |
 | baseline    | `baseline_tpch_{1,4}.{log,json}`             | `tpch_baseline.csv`, `commit_baseline.csv` | all TPC-H and commit figures |
-| zkVM (SP1)  | `third_party_zkvm_<pass>.*`, `zkvm_tpch_<pass>.*` | `micro.csv`, `tpch_zkvm.csv`, `commit_zkvm.csv` | every figure |
+| zkVM (SP1)  | `zkvm_tpch_<pass>.*` | `tpch_zkvm.csv`, `commit_zkvm.csv` | all TPC-H and commit figures |
 
 The Poneglyph comparison plots three systems side-by-side per query:
 TruthTable on the `_pgn` query variants, PoneglyphDB on its KZG queries, and
-the baseline.
+the baseline. `run_pgn_fixed_tpch.sh` adds PoneglyphDB's data-independent
+circuits, bound to the committed tables, as System "poneglyph
+(data-independent)" in `tpch_pgn.csv`.
 
 The baseline is a verifiable database with no proof system
 (`third-party-bench/src/baseline.rs`): the commitment is a hash of every
 column, the proof is the columns the query reads, and the verifier runs the
-query itself. Every figure shows it next to TruthTable, on the same queries
-over the tables without padding or system columns: the micro baseline comes
-from `run_micro.sh` (`third_party_baseline_{1,4}.*`), the TPC-H one from
-`run_baseline_tpch.sh`.
+query itself. Every TPC-H and commit figure shows it next to TruthTable, on
+the same queries over the tables without padding or system columns; it comes
+from `run_baseline_tpch.sh`. `run_micro.sh` also runs it on the micro queries
+(`third_party_baseline_{1,4}.*`), but those rows stay in `micro.csv`: the
+micro figures compare TruthTable with PoSQL and QEDB only.
 
-The SP1 zkVM (`third-party-bench/zkvm`) proves the same queries with
+The SP1 zkVM (`third-party-bench/zkvm`) proves the TPC-H queries with
 hand-written Rust in the zkVM, bound to SHA-256 column hashes, in two proof
-modes: SP1's compressed proof and its Groth16 wrap. The figures show its GPU
-prover (`run_zkvm.sh` with `ZKVM_PASSES=cuda`); its CPU prover is about 44x
-slower.
+modes: SP1's compressed proof and its Groth16 wrap. The TPC-H and commit
+figures show its GPU prover (`run_zkvm.sh`); its CPU prover is not
+benchmarked.
+
+The micro figure (`micro.pdf`) compares TruthTable with PoSQL, QEDB and
+Poneglyph (its micro circuits in the fork's `sql::micro_kzg`), all on BN254, on the queries of `third-party-bench/src/micro.rs`; a query a system
+cannot express gets a red cross.
 
 Panels with prover time or proof size use a log axis,
 because the baseline's are milliseconds and megabytes. Prover-time panels also
@@ -71,6 +78,7 @@ python3 tt-results/scripts/plot_tt_tpch.py
 
 # Poneglyph comparison (TT-on-pgn + PoneglyphDB at matching dataset sizes)
 ./tt-results/scripts/run_pgn.sh
+./tt-results/scripts/run_pgn_fixed_tpch.sh   # data-independent circuits
 python3 tt-results/scripts/parse_pgn.py
 python3 tt-results/scripts/plot_pgn.py
 
