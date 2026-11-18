@@ -1,7 +1,10 @@
 # Third-party benchmark harness
 
-This directory compares TruthTable against two other verifiable-SQL systems and
-a no-proof baseline on the same micro-benchmark queries over the same tables:
+This directory compares TruthTable against three other verifiable-SQL
+systems, the SP1 zkVM and a no-proof baseline on the same micro-benchmark
+queries over the same tables. The commands that run each system, on the
+micro queries and on TPC-H, are listed in
+[tt-results/readme.md](../tt-results/readme.md#benchmarking-one-system).
 
 | System | Source | What we measure |
 |---|---|---|
@@ -9,6 +12,7 @@ a no-proof baseline on the same micro-benchmark queries over the same tables:
 | **Proof of SQL** | `alireza-shirzad/sxt-proof-of-sql`: upstream plus the benchmark crate | same |
 | **QEDB** | `alireza-shirzad/qedb-primitives`: upstream `ProvablyAI/qedb-primitives` plus a `bn254` feature | same, plus commit time |
 | **Poneglyph** | `alireza-shirzad/PoneglyphDB`: the micro queries as circuits (`sql::micro_kzg`) | prover time, verifier time, proof size, key generation |
+| **SP1 zkVM** | [zkvm/](zkvm/): the queries as Rust programs proved by SP1 on the GPU | same, compressed and Groth16-wrapped |
 | **Baseline** | `benches/baseline.rs` | commit time, commitment size, prover time, verifier time, proof size |
 
 ## Micro queries
@@ -31,12 +35,14 @@ column override, and QEDB builds them in memory.
 | `join_m2m` | the same join with keys repeated on both sides (about as many output rows as input) | ✓ | ✗ | ✓ |
 | `order_by` | `SELECT a, b … ORDER BY a LIMIT 10` | ✗ | ✗ | ✓ |
 
-Each table has 2^16 to 2^19 rows; a join's two tables have that many each.
+Each table has 2^15 to 2^20 rows (`MICRO_POWS`); a join's two tables have
+that many each.
 PoSQL cannot express ORDER BY; QEDB has no arithmetic, grouping or join test.
 Poneglyph has no SQL front end either: each micro query is a circuit in the
 fork's `sql::micro_kzg`, built from Poneglyph's gadgets (`IsZeroChip`,
 `LtEqGenericChip`, `PermAnyChip`) and the gate patterns of its TPC-H circuits
-(Q1's grouping, Q3's join). Every query runs in two variants:
+(Q1's grouping, Q3's join). Every query has two variants; the bench runs
+the fixed one, and both with `PONEGLYPH_FAITHFUL=1`:
 
 - *faithful*: as in those circuits, the witness enables the selectors of kept,
   output and group-end rows, so the verifying key depends on the data, and
@@ -83,7 +89,9 @@ TPC-H `_tt` and `_pgn` queries at SF 0.01–0.1, generating its own tables under
 
 ### zkVM (SP1)
 
-[zkvm/](zkvm/) proves the TPC-H `_tt` and `_pgn` queries in the SP1 zkVM. It is a Cargo
+[zkvm/](zkvm/) proves the micro queries (`zkvm/lib/src/micro.rs`, reading
+the parquet files `micro_data` writes) and the TPC-H `_tt` and `_pgn`
+queries in the SP1 zkVM. It is a Cargo
 workspace of its own: the guest (`zkvm/program`) is built for SP1's RISC-V
 target with SP1's toolchain, and `sp1-sdk` pins its own dependency versions.
 
@@ -143,7 +151,7 @@ From the repo root:
 ```bash
 ./tt-results/scripts/run_micro.sh          # every system → raw/*.{log,json}
 python3 tt-results/scripts/parse_micro.py  # → tt-results/tidy/micro.csv
-python3 tt-results/scripts/plot_micro.py   # → figures/micro{,_scaling,_setup}.pdf
+./tt-results/scripts/plot_all.sh           # → figures/micro*.pdf among the rest
 ```
 
 `run_micro.sh` builds every bench, writes every table's parquet file
@@ -185,9 +193,11 @@ third-party-bench/artifact/micro/       # tables, TruthTable's keys and proofs
 tt-results/raw/third_party_<bench>.log  # raw stdout per bench
 tt-results/raw/third_party_<bench>.json # parsed, structured results
 tt-results/tidy/micro.csv               # unified long-form table
-tt-results/figures/micro.pdf            # every system at the largest size
-tt-results/figures/micro_scaling.pdf    # prover time against size, per query
-tt-results/figures/micro_setup.pdf      # setup, key sizes, commitments
+tt-results/figures/micro.pdf                    # every system at the largest size
+tt-results/figures/micro_setup.pdf              # setup, key sizes, commitments
+tt-results/figures/micro_{prover,verifier,proof_size}_scaling.pdf  # against size, per query
+tt-results/figures/micro_commit_{time,size}.pdf # the data owner's commitment
+tt-results/figures/micro_prover_paper.pdf       # the paper's prover figure
 ```
 
 `artifact/` can be deleted to force a full regeneration (and will add ~minutes

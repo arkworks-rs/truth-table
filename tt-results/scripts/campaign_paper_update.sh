@@ -4,7 +4,7 @@
 #      (PoneglyphDB itself is NOT rerun: PGN_SKIP_PONEGLYPH=1)
 #      — runs FIRST: small SFs finish fast and give early feedback.
 #   2. TT TPC-H (_tt, all 17 queries)  at SF {0.05, 0.1} x threads {4, 1}
-#   3. Micro suite, TruthTable only (BN254 + BLS12-381): MICRO_ONLY_TT=1
+#   3. Micro suite, TruthTable only: MICRO_SYSTEMS=tt
 # then rebuilds the three tidy CSVs and re-renders every figure.
 #
 # Designed to run detached (setsid) so it survives terminal/laptop closes.
@@ -33,8 +33,8 @@ PGN_SKIP_PONEGLYPH=1 "$SCRIPT_DIR/run_pgn.sh" || echo "  !! run_pgn.sh failed (c
 stage "2/3 run_tt_tpch.sh — 17 _tt queries, SF {0.05,0.1} x {4,1} threads"
 "$SCRIPT_DIR/run_tt_tpch.sh" || echo "  !! run_tt_tpch.sh failed (continuing)"
 
-stage "3/3 run_micro.sh (TT only, both backends)"
-MICRO_ONLY_TT=1 "$SCRIPT_DIR/run_micro.sh" || echo "  !! run_micro.sh failed (continuing)"
+stage "3/3 run_micro.sh (TT only)"
+MICRO_SYSTEMS=tt "$SCRIPT_DIR/run_micro.sh" || echo "  !! run_micro.sh failed (continuing)"
 
 stage "parse — rebuild tidy CSVs"
 "$VENV_PY" "$SCRIPT_DIR/parse_tt_tpch.py" || echo "  !! parse_tt_tpch failed"

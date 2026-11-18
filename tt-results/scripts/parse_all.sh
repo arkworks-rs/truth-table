@@ -12,9 +12,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "########################################"
-echo "# 1/6  parse_tt_tpch.py            → tidy/tpch.csv"
+echo "# 1/6  parse_tt_tpch.py, parse_tt_commit.py → tidy/tpch.csv, tidy/commit.csv"
 echo "########################################"
 python3 "$SCRIPT_DIR/parse_tt_tpch.py" || echo "  !! parse_tt_tpch.py failed (continuing)"
+
+python3 "$SCRIPT_DIR/parse_tt_commit.py" || echo "  !! parse_tt_commit.py failed (continuing)"
 
 echo ""
 echo "########################################"
