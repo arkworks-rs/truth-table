@@ -17,7 +17,7 @@ TIDY_DIR = Path(__file__).resolve().parent.parent / "tidy"
 
 LABEL = "Baseline (no proof)"
 EDGE = "#7f7f7f"
-FACE = "#e5e5e5"
+FACE = "#f2f2f2"
 HATCH = ".."
 BAR_STYLE = dict(facecolor=FACE, edgecolor=EDGE, hatch=HATCH, linewidth=0.8)
 
@@ -67,15 +67,27 @@ EXEC_LABEL = "Plain execution (no verification)"
 EXEC_BAR_STYLE = dict(facecolor="#f5e6c4", edgecolor="#b8860b", hatch="--", linewidth=0.8)
 
 
+# The systems' colours, shared with the micro figures (micro_common.py).
+TT_COLOR = "#0072B2"
+PONEGLYPH_COLOR = "#CC79A7"
+ZKVM_COLOR = "#000000"
+
+
+def light(color, keep=0.2):
+    """`color` blended into white, for bar faces under a full-colour edge."""
+    rgb = [int(color[i : i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(255 - (255 - c) * keep):02x}" for c in rgb)
+
+
 # The SP1 zkVM (third-party-bench/zkvm): its CPU prover, its GPU prover, and
 # its GPU prover with the Groth16 wrap. Its rows come from
 # tidy/tpch_zkvm.csv and tidy/commit_zkvm.csv.
-ZKVM_LABEL = "zkVM (SP1)"
-ZKVM_GPU_LABEL = "zkVM (SP1, GPU)"
-ZKVM_G16_LABEL = "zkVM (SP1, GPU, Groth16)"
-ZKVM_BAR_STYLE = dict(facecolor="#e8dcf2", edgecolor="#6a3d9a", hatch="oo", linewidth=0.8)
-ZKVM_GPU_BAR_STYLE = dict(facecolor="#b49ac9", edgecolor="#6a3d9a", hatch="oo", linewidth=0.8)
-ZKVM_G16_BAR_STYLE = dict(facecolor="#6a3d9a", edgecolor="#3f2161", hatch="xx", linewidth=0.8)
+ZKVM_LABEL = "zkVM (SP1, CPU)"
+ZKVM_GPU_LABEL = "zkVM (SP1)"
+ZKVM_G16_LABEL = "zkVM (SP1, Groth16)"
+ZKVM_BAR_STYLE = dict(facecolor=light(ZKVM_COLOR, 0.1), edgecolor=ZKVM_COLOR, hatch="oo", linewidth=0.8)
+ZKVM_GPU_BAR_STYLE = dict(facecolor=light(ZKVM_COLOR, 0.55), edgecolor=ZKVM_COLOR, hatch="oo", linewidth=0.8)
+ZKVM_G16_BAR_STYLE = dict(facecolor=ZKVM_COLOR, edgecolor=ZKVM_COLOR, linewidth=0.8)
 
 
 def zkvm_tpch(variant, scale_factor, mode, prover="gpu"):

@@ -21,6 +21,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+import micro_common as mc
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, LogFormatterSciNotation, LogLocator, MaxNLocator
 
@@ -59,23 +61,20 @@ QUERIES = [
     ("Order by", NO_QEDB - {"PoSQL"}),
 ]
 
-# (System in micro.csv, legend label, bar style, line colour)
+# (System in micro.csv, legend label, bar style): the shared colours, and a
+# hatch per system so bars stay apart in grayscale.
+HATCHES = {
+    "TT": "/",
+    "PoSQL": "x",
+    "QEDB": "\\",
+    "Poneglyph (data-independent)": ".",
+    "Poneglyph": "o",
+    "zkVM (GPU)": "-",
+    "zkVM (GPU, Groth16)": "+",
+}
 SYSTEMS = [
-    ("TT", "TruthTable", {"edgecolor": "#1f77b4", "facecolor": "#d7e6f5", "hatch": "/"}),
-    ("PoSQL", "PoSQL", {"edgecolor": "#e31a1c", "facecolor": "#f9d6d6", "hatch": "x"}),
-    ("QEDB", "QEDB", {"edgecolor": "#33a02c", "facecolor": "#d9efd6", "hatch": "\\"}),
-    ("Poneglyph", "Poneglyph", {"edgecolor": "#ff7f0e", "facecolor": "#ffe8d4", "hatch": "o"}),
-    (
-        "Poneglyph (data-independent)",
-        "Poneglyph, data-independent keys",
-        {"edgecolor": "#b35806", "facecolor": "#fdb863", "hatch": "."},
-    ),
-    ("zkVM (GPU)", "zkVM (SP1, GPU)", {"edgecolor": "#6a3d9a", "facecolor": "#e2d6ef", "hatch": "-"}),
-    (
-        "zkVM (GPU, Groth16)",
-        "zkVM (SP1, GPU, Groth16)",
-        {"edgecolor": "#3f2366", "facecolor": "#a58cc9", "hatch": "+"},
-    ),
+    (s.key, s.label, {"edgecolor": s.color, "facecolor": s.color + "33", "hatch": HATCHES[s.key]})
+    for s in mc.SYSTEMS
 ]
 
 BAR_PANELS = [

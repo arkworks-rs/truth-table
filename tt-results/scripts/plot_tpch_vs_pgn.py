@@ -130,8 +130,8 @@ zkvm_g16_times = [zkvm_value(q, "groth16") for q in QUERY_IDS]
 exec_times = [baseline_value(q, "execution time 1thread (s)") for q in QUERY_IDS]
 query_labels = [f"Q{q}*" if q in PGN_QUERY_IDS else f"Q{q}" for q in QUERY_IDS]
 
-colors = plt.get_cmap("tab10").colors
-light = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
+colors = [baseline_style.TT_COLOR, baseline_style.PONEGLYPH_COLOR]
+light = [baseline_style.light(c) for c in colors]
 tt_idx, pgn_idx = 0, 1
 
 bar_width = 0.15

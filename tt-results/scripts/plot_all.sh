@@ -28,6 +28,7 @@ echo "########################################"
 python3 "$SCRIPT_DIR/plot_micro.py" || echo "  !! plot_micro.py failed (continuing)"
 python3 "$SCRIPT_DIR/plot_micro_commit.py" || echo "  !! plot_micro_commit.py failed (continuing)"
 python3 "$SCRIPT_DIR/plot_micro_scaling.py" || echo "  !! plot_micro_scaling.py failed (continuing)"
+python3 "$SCRIPT_DIR/plot_micro_prover_paper.py" || echo "  !! plot_micro_prover_paper.py failed (continuing)"
 
 echo ""
 echo "########################################"
