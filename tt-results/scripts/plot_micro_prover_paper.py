@@ -1,6 +1,6 @@
 """Prover time against table size for the paper: eight micro queries (no 0.1%
-or 1% filter, no aggregate) in rows of 3, 3 and 2 panels, with the legend in
-the ninth cell.
+or 1% filter, no aggregate) in a 2 x 4 grid, with the legend in one row below
+the panels.
 
 Drawn at the paper's full text width with print-size type (paper_style.py).
 
@@ -18,7 +18,10 @@ from matplotlib.ticker import FuncFormatter, LogLocator
 import micro_common as mc
 import paper_style
 
-HEIGHT_IN = 4.6
+# The IEEE two-column text width (7.02 in), so the figure is included at
+# width=\linewidth without scaling; the full version scales it down slightly.
+WIDTH_IN = 7.02
+HEIGHT_IN = 3.4
 # (query in micro.csv, panel title)
 QUERIES = [
     ("Filter 10%", "Filter"),
@@ -54,7 +57,7 @@ def marker_size(marker):
 pows = sorted(int(p) for p in df["table log size"].dropna().unique())
 supported = dict(mc.QUERIES)
 
-fig, axes = plt.subplots(3, 3, figsize=(paper_style.WIDTH_IN, HEIGHT_IN), sharex=True, sharey=True)
+fig, axes = plt.subplots(2, 4, figsize=(WIDTH_IN, HEIGHT_IN), sharex=True, sharey=True)
 for i, (ax, (query, title)) in enumerate(zip(axes.flat, QUERIES)):
     rows = df[df["Q"] == query]
     # TruthTable on top; the zkVM, whose lines cross the others, at the bottom.
@@ -79,13 +82,14 @@ for i, (ax, (query, title)) in enumerate(zip(axes.flat, QUERIES)):
     ax.grid(True, which="major", axis="y", color=mc.GRID, linewidth=0.5)
     ax.set_axisbelow(True)
     # Row counts as 32K..1M: a superscript exponent would fall under 8 pt.
-    ax.set_xticks(pows, [f"{2**p // 2**20}M" if p >= 20 else f"{2**p // 2**10}K" for p in pows])
+    ax.set_xticks(pows, [f"$2^{{{p}}}$" for p in pows])
     ax.set_xlim(pows[0] - 0.3, pows[-1] + 0.3)
-    ax.set_title(title, pad=2)
-    if i % 3 == 0:
+    # The query name inside the panel, top left, where no curve passes.
+    ax.text(0.03, 0.96, title, transform=ax.transAxes, ha="left", va="top", fontsize=paper_style.SIZE)
+    if i % 4 == 0:
         ax.set_ylabel("Prover time (s)")
     # The bottom panel of each column labels the table size.
-    if i + 3 >= len(QUERIES):
+    if i + 4 >= len(QUERIES):
         ax.xaxis.set_tick_params(labelbottom=True)
         ax.set_xlabel("Table rows")
     missing = [s.label for s in systems if s.key != "TT" and s.key not in supported[query]]
@@ -102,22 +106,24 @@ for i, (ax, (query, title)) in enumerate(zip(axes.flat, QUERIES)):
             linespacing=1.1,
         )
 
-legend_ax = axes.flat[-1]
-legend_ax.axis("off")
-legend_ax.legend(
-    [
-        Line2D([], [], color=s.color, linestyle=s.linestyle, linewidth=1.1, marker=s.marker,
-               markersize=marker_size(s.marker), markeredgecolor="white",
-               markeredgewidth=0 if s.marker == "*" else 0.6)
-        for s in systems
-    ],
+handles = [
+    Line2D([], [], color=s.color, linestyle=s.linestyle, linewidth=1.1, marker=s.marker,
+           markersize=marker_size(s.marker), markeredgecolor="white",
+           markeredgewidth=0 if s.marker == "*" else 0.6)
+    for s in systems
+]
+fig.legend(
+    handles,
     [s.label for s in systems],
-    loc="center",
+    loc="lower center",
+    ncol=len(systems),
     frameon=False,
-    handlelength=2.4,
+    handlelength=2.0,
+    columnspacing=1.2,
+    bbox_to_anchor=(0.5, 0.0),
 )
-fig.tight_layout(pad=0.1, h_pad=0.5, w_pad=0.6)
+fig.tight_layout(pad=0.1, h_pad=0.5, w_pad=0.6, rect=(0, 0.09, 1, 1))
 out = mc.FIGURES_DIR / "micro_prover_paper.pdf"
 fig.savefig(out)
 plt.close(fig)
-print(f"wrote {out.relative_to(mc.BASE_DIR.parent)} ({paper_style.WIDTH_IN:.2f} x {HEIGHT_IN:.2f} in)")
+print(f"wrote {out.relative_to(mc.BASE_DIR.parent)} ({WIDTH_IN:.2f} x {HEIGHT_IN:.2f} in)")
