@@ -6,9 +6,9 @@ a no-proof baseline on the same micro-benchmark queries over the same tables:
 | System | Source | What we measure |
 |---|---|---|
 | **TruthTable** (this repo) | `crates/tt-exec` | prover time, verifier time, proof size |
-| **Proof of SQL** | `alireza-shirzad/sxt-proof-of-sql`, branch `tt-bench`: upstream plus the benchmark crate | same |
-| **QEDB** | `alireza-shirzad/qedb-primitives`, branch `bn254`: upstream `ProvablyAI/qedb-primitives` plus a `bn254` feature | same, plus commit time |
-| **Poneglyph** | `alireza-shirzad/PoneglyphDB`, branch `micro`: the micro queries as circuits (`sql::micro_kzg`) | prover time, verifier time, proof size, key generation |
+| **Proof of SQL** | `alireza-shirzad/sxt-proof-of-sql`: upstream plus the benchmark crate | same |
+| **QEDB** | `alireza-shirzad/qedb-primitives`: upstream `ProvablyAI/qedb-primitives` plus a `bn254` feature | same, plus commit time |
+| **Poneglyph** | `alireza-shirzad/PoneglyphDB`: the micro queries as circuits (`sql::micro_kzg`) | prover time, verifier time, proof size, key generation |
 | **Baseline** | `benches/baseline.rs` | commit time, commitment size, prover time, verifier time, proof size |
 
 ## Micro queries
@@ -114,13 +114,16 @@ interruption. The CPU prover is not benchmarked: on 4 threads it takes about
 
 ## Prerequisites
 
-PoSQL and QEDB are **git dependencies** pinned by commit in `Cargo.toml`:
-PoSQL from `alireza-shirzad/sxt-proof-of-sql` (branch `tt-bench`: upstream
-`spaceandtimefdn/sxt-proof-of-sql` plus the `proof-of-sql-benchlib` crate) and
-QEDB from `alireza-shirzad/qedb-primitives` (branch `bn254`). Cargo fetches them under
-`~/.cargo/git/`. To bump one, update its `rev` in [Cargo.toml](Cargo.toml) and
-run `cargo update -p <crate>`. PoSQL's runner links `libblitzar`, which
-`cargo bench` puts on the library path; a bench binary run directly needs
+PoSQL, QEDB and Poneglyph are **git dependencies** pinned by commit in
+`Cargo.toml`, each from the `main` branch of a fork: PoSQL from
+`alireza-shirzad/sxt-proof-of-sql` (upstream `spaceandtimefdn/sxt-proof-of-sql`
+plus the `proof-of-sql-benchlib` crate), QEDB from
+`alireza-shirzad/qedb-primitives`, Poneglyph from `alireza-shirzad/PoneglyphDB`,
+whose halo2 is patched to `alireza-shirzad/halo2_PSE` (unblinded advice
+columns). Cargo fetches them under `~/.cargo/git/`. To bump one, update its
+`rev` in [Cargo.toml](Cargo.toml) and run `cargo update -p <crate>`. With the
+`posql-blitzar` feature PoSQL's runner links `libblitzar`, which `cargo bench`
+puts on the library path; a bench binary run directly then needs
 `LD_LIBRARY_PATH` set to the `blitzar-sys` build output.
 
 The harness also applies a local `arrow-arith` patch (`patches/arrow-arith-51.0.0`)

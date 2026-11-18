@@ -3,9 +3,9 @@
 Every system keeps one colour and one marker in every figure. The hues are the
 categorical palette in fixed order (blue, orange, aqua, yellow, magenta),
 checked for colour-blind separation; a variant of a system (Poneglyph's
-data-independent circuits, the zkVM's Groth16 wrap) keeps its system's hue
-and is dashed. Yellow, aqua and magenta are under 3:1 against white, so every
-line also carries a marker and a direct label.
+faithful circuits, the zkVM's Groth16 wrap) keeps its system's hue and is
+dashed. Yellow, aqua and magenta are under 3:1 against white, so every line
+also carries a marker and a direct label.
 """
 
 from pathlib import Path
@@ -50,8 +50,8 @@ SYSTEMS = [
     System("TT", "TruthTable", "#2a78d6", "o"),
     System("PoSQL", "PoSQL", "#eb6834", "s"),
     System("QEDB", "QEDB", "#1baf7a", "^"),
-    System("Poneglyph", "Poneglyph", "#eda100", "D"),
-    System("Poneglyph (data-independent)", "Poneglyph, data-independent", "#eda100", "D", dashed=True),
+    System("Poneglyph (data-independent)", "Poneglyph, data-independent", "#eda100", "D"),
+    System("Poneglyph", "Poneglyph, faithful", "#eda100", "D", dashed=True),
     System("zkVM (GPU)", "zkVM (SP1, GPU)", "#e87ba4", "v"),
     System("zkVM (GPU, Groth16)", "zkVM (SP1, GPU, Groth16)", "#e87ba4", "v", dashed=True),
 ]

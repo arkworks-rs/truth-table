@@ -41,6 +41,6 @@ for col, ylabel, name in FIGURES:
     ax.set_xlim(pows[0] - 0.25, pows[-1] + 0.25)
     ax.set_ylabel(ylabel)
     drawn = mc.lines(ax, rows, col, systems=[s for s in SYSTEMS if s.key in set(rows["System"])])
-    mc.legend(fig, drawn)
+    mc.legend(fig, drawn, ncol=3)
     fig.tight_layout(rect=[0, 0, 1, 0.92])
     mc.save(fig, name)
